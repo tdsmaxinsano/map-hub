@@ -5,7 +5,7 @@ const map = new mapboxgl.Map({
   style: "mapbox://styles/mapbox/dark-v11",
   center: [-87.6, 41.8],
   zoom: 10
-});
+}); 
 
 // TEMP SAMPLE DATA (so it works immediately)
 const clinicians = [
