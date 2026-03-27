@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Clinician Map (Editable)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet" />
+
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+
+<style>
+body { margin: 0; padding: 0; }
+#map { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style>
+</head>
+
+<body>
+<div id="map"></div>
+
+<script>
+
+// 🔑 MAPBOX TOKEN
+mapboxgl.accessToken = 'pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A';
+
+// 🔗 SUPABASE
+const supabaseUrl = 'https://jpemlcuxjvynlbeygukb.supabase.co';
+const supabaseKey = 'sb_publishable_C7GdOG7L64y92IDDreglcQ_C0jNcbhl';
+const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+
+// 🗺️ MAP
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/mapbox/streets-v10',
+  center: [-87.6298, 41.8781],
+  zoom: 13
+});
+
+// ✏️ EDIT FUNCTION
+function editClinician(id, address, radius, zips) {
+
+  const newAddress = prompt("Edit address:", address);
+  const newRadius = prompt("Edit radius:", radius);
+  const newZips = prompt("Edit preferred zips:", zips);
+
+  if (newAddress === null) return;
+
+  updateClinician(id, newAddress, newRadius, newZips);
+}
+
+// 💾 UPDATE FUNCTION
+async function updateClinician(id, address, radius, preferred_zips) {
+
+  console.log("Updating ID:", id);
+
+  const { data, error } = await supabaseClient
+    .from('clinician_v2') // 👈 your table name
+    .update({
+      address: address,
+      radius: radius,
+      preferred_zips: preferred_zips
+    })
+    .eq('id', id)
+    .select();
+
+  console.log("RESULT:", data);
+  console.log("ERROR:", error);
+
+  if (error) {
+    alert("❌ Update failed");
+    return;
+  }
+
+  alert("✅ Updated!");
+  location.reload();
+}
+
+// 📥 LOAD DATA
+async function loadClinicians() {
+
+  const { data, error } = await supabaseClient
+    .from('clinician_v2') // 👈 your table name
+    .select('*');
+
+  console.log("DATA:", data);
+
+  if (!data) return;
+
+  data.forEach(c => {
+
+    const popup = new mapboxgl.Popup().setHTML(`
+      <strong>${c.name}</strong><br/>
+      ${c.address}<br/>
+      📏 ${c.radius || ''}<br/><br/>
+
+      <button onclick="editClinician('${c.id}', \`${c.address || ''}\`, \`${c.radius || ''}\`, \`${c.preferred_zips || ''}\`)">
+        ✏️ Edit
+      </button>
+    `);
+
+    new mapboxgl.Marker()
+      .setLngLat([c.lng, c.lat])
+      .setPopup(popup)
+      .addTo(map);
+  });
+}
+
+// ▶️ RUN
+loadClinicians();
+
+</script>
+
+</body>
+</html>
