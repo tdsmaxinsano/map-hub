@@ -54,6 +54,30 @@
       z-index: 2;
     }
 
+    .sidebar-scroll {
+      flex: 1;
+      min-height: 0;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scrollbar-width: auto;
+      scrollbar-color: rgba(24, 51, 42, 0.55) rgba(214, 229, 224, 0.7);
+    }
+
+    .sidebar-scroll::-webkit-scrollbar {
+      width: 14px;
+    }
+
+    .sidebar-scroll::-webkit-scrollbar-track {
+      background: rgba(214, 229, 224, 0.7);
+      border-left: 1px solid rgba(213, 224, 220, 0.9);
+    }
+
+    .sidebar-scroll::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, rgba(24, 51, 42, 0.78) 0%, rgba(15, 109, 89, 0.78) 100%);
+      border-radius: 999px;
+      border: 3px solid rgba(214, 229, 224, 0.75);
+    }
+
     .sidebar-header {
       padding: 24px 20px 16px;
       border-bottom: 1px solid var(--panel-border);
@@ -79,10 +103,44 @@
     }
 
     .controls {
-      padding: 18px 20px;
+      padding: 12px 14px 14px;
       border-bottom: 1px solid var(--panel-border);
       display: grid;
-      gap: 14px;
+      gap: 10px;
+    }
+
+    .control-section {
+      border: 1px solid #dbe5e0;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.84);
+      overflow: hidden;
+    }
+
+    .control-section summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 14px;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text);
+      background: linear-gradient(180deg, #fbfcfc 0%, #f1f6f4 100%);
+      border-bottom: 1px solid transparent;
+    }
+
+    .control-section summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .control-section[open] summary {
+      border-bottom-color: #dbe5e0;
+    }
+
+    .section-body {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
     }
 
     .field { display: grid; gap: 6px; }
@@ -106,7 +164,7 @@
       color: var(--text);
     }
 
-    .button-row, .radius-row, .bulk-row {
+    .button-row, .radius-row, .bulk-row, .search-row {
       display: grid;
       gap: 10px;
     }
@@ -114,6 +172,7 @@
     .button-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .radius-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .bulk-row { grid-template-columns: minmax(0, 1fr); }
+    .search-row { grid-template-columns: minmax(0, 1fr) auto; }
 
     button {
       border: 0;
@@ -130,7 +189,7 @@
     .btn-danger { background: var(--danger); color: #fff; }
 
     .status-card {
-      padding: 14px 16px;
+      padding: 12px 14px;
       border-radius: 16px;
       background: linear-gradient(180deg, #f5faf8 0%, #edf5f2 100%);
       border: 1px solid #d6e5e0;
@@ -184,14 +243,11 @@
     }
 
     .list-panel {
-      flex: 1;
-      min-height: 0;
-      display: flex;
-      flex-direction: column;
+      display: block;
     }
 
     .list-header {
-      padding: 16px 20px 12px;
+      padding: 12px 16px 10px;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -202,9 +258,6 @@
       list-style: none;
       margin: 0;
       padding: 10px 12px 18px;
-      overflow: auto;
-      flex: 1;
-      min-height: 0;
       display: grid;
       gap: 10px;
     }
@@ -259,6 +312,93 @@
 
     .map-panel { position: relative; min-width: 0; min-height: 100vh; }
 
+    .top-toolbar {
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      display: grid;
+      grid-template-columns: minmax(180px, 1fr) minmax(0, 1fr);
+      gap: 12px;
+      padding: 14px 18px;
+      background: rgba(248, 250, 249, 0.92);
+      border-bottom: 1px solid rgba(207, 221, 215, 0.95);
+      backdrop-filter: blur(10px);
+      z-index: 2;
+    }
+
+    .toolbar-title {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .toolbar-heading {
+      font-size: 14px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text);
+      white-space: nowrap;
+    }
+
+    .toolbar-subtext {
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      justify-content: flex-end;
+    }
+
+    .toolbar-menu {
+      position: relative;
+      flex: 0 0 auto;
+    }
+
+    .menu-button {
+      min-width: 140px;
+      white-space: nowrap;
+    }
+
+    .menu-panel {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      width: 220px;
+      padding: 8px;
+      display: none;
+      background: rgba(255, 255, 255, 0.98);
+      border: 1px solid #dbe5e0;
+      border-radius: 16px;
+      box-shadow: 0 18px 40px rgba(19, 25, 22, 0.14);
+      z-index: 20;
+    }
+
+    .toolbar-menu.open .menu-panel {
+      display: grid;
+      gap: 6px;
+    }
+
+    .menu-item {
+      width: 100%;
+      text-align: left;
+      background: #f2f7f5;
+      color: var(--text);
+    }
+
+    .menu-item:hover {
+      background: #e5f1ec;
+    }
+
     #map {
       position: absolute;
       inset: 0;
@@ -269,7 +409,7 @@
 
     .map-overlay {
       position: absolute;
-      top: 16px;
+      top: 74px;
       right: 16px;
       width: min(320px, calc(100% - 32px));
       padding: 14px 16px;
@@ -281,7 +421,7 @@
 
     .version-indicator {
       position: absolute;
-      top: 16px;
+      top: 84px;
       right: 352px;
       padding: 6px 10px;
       background: rgba(255, 255, 255, 0.9);
@@ -305,23 +445,29 @@
     .popup-line { font-size: 13px; color: var(--muted); line-height: 1.45; }
     .popup-actions { display: flex; gap: 8px; margin-top: 6px; }
 
-    .marker-node {
-      display: block;
-      width: 20px;
-      height: 20px;
-      padding: 0;
-      margin: 0;
-      border-radius: 50%;
-      border: 3px solid #fff;
-      appearance: none;
-      -webkit-appearance: none;
-      box-shadow: 0 8px 18px rgba(19, 25, 22, 0.2);
-      transition: transform 140ms ease, opacity 140ms ease;
+    .mapboxgl-marker.marker-selected,
+    .mapboxgl-marker.marker-focused {
+      z-index: 3;
     }
 
-    .marker-node.selected { transform: scale(1.25); }
-    .marker-node.focused { transform: scale(1.2); }
-    .marker-node.hidden { opacity: 0.3; }
+    .mapboxgl-marker.marker-selected svg,
+    .mapboxgl-marker.marker-focused svg {
+      filter: drop-shadow(0 10px 18px rgba(19, 25, 22, 0.28));
+    }
+
+    .mapboxgl-marker.marker-selected svg {
+      transform: scale(1.08);
+      transform-origin: 50% 100%;
+    }
+
+    .mapboxgl-marker.marker-focused svg {
+      transform: scale(1.05);
+      transform-origin: 50% 100%;
+    }
+
+    .mapboxgl-marker.marker-hidden {
+      display: none;
+    }
 
     .radius-center {
       width: 14px;
@@ -330,6 +476,24 @@
       border: 2px solid #fff;
       background: var(--accent-strong);
       box-shadow: 0 0 0 6px rgba(15, 109, 89, 0.2);
+    }
+
+    .search-pin {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border: 3px solid #fff;
+      background: #111;
+      box-shadow: 0 10px 24px rgba(17, 17, 17, 0.28);
+    }
+
+    .ruler-point {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      border: 2px solid #fff;
+      background: #111;
+      box-shadow: 0 8px 18px rgba(17, 17, 17, 0.2);
     }
 
     .selection-label {
@@ -351,14 +515,37 @@
       }
 
       .sidebar {
-        max-height: 52vh;
+        max-height: 56vh;
         border-right: 0;
         border-bottom: 1px solid var(--panel-border);
       }
 
       .map-panel { min-height: 48vh; }
+      .top-toolbar {
+        position: relative;
+        padding: 12px 14px;
+        grid-template-columns: 1fr;
+      }
+      .toolbar-title {
+        display: grid;
+        gap: 4px;
+      }
+      .toolbar-subtext {
+        white-space: normal;
+      }
+      .toolbar-actions {
+        justify-content: flex-start;
+      }
+      .menu-button {
+        width: auto;
+      }
+      .menu-panel {
+        left: 0;
+        right: 0;
+        width: auto;
+      }
       .version-indicator {
-        top: 16px;
+        top: 98px;
         right: 16px;
       }
       .map-overlay { top: auto; bottom: 16px; }
@@ -369,89 +556,139 @@
   <div class="app-shell">
     <aside class="sidebar">
       <div class="sidebar-header">
-        <p class="eyebrow">Operations Dashboard</p>
-        <h1>Clinician Territory Map</h1>
-        <p class="subhead">Manage field clinicians, review geographic coverage, and perform quick territory cleanup from one internal dashboard.</p>
+        <p class="eyebrow">DependableCare Staffing</p>
+        <h1>Clinician Coverage Dashboard</h1>
+        <p class="subhead">Review clinician coverage, staffing geography, and territory activity for DependableCare Staffing from one internal tool.</p>
       </div>
-
-      <section class="controls">
-        <div class="field">
-          <label for="discipline-filter">Discipline</label>
-          <select id="discipline-filter">
-            <option value="">All disciplines</option>
-            <option value="PT">PT</option>
-            <option value="PTA">PTA</option>
-            <option value="OT">OT</option>
-            <option value="OTA">OTA</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label for="zip-filter">ZIP code</label>
-          <input id="zip-filter" type="text" placeholder="Filter by ZIP">
-        </div>
-
-        <div class="button-row">
-          <button id="apply-filters" class="btn-primary" type="button">Apply Filters</button>
-          <button id="clear-filters" class="btn-secondary" type="button">Clear Filters</button>
-        </div>
-
-        <div class="status-card">
-          <div class="status-grid">
-            <div class="stat">
-              <div class="stat-label">Visible</div>
-              <div class="stat-value" id="visible-count">0</div>
+      <div class="sidebar-scroll">
+        <section class="controls">
+          <details class="control-section" open>
+            <summary>Search</summary>
+            <div class="section-body">
+              <div class="field">
+                <label for="point-search">Point Search</label>
+                <div class="search-row">
+                  <input id="point-search" type="text" placeholder="Search address or ZIP">
+                  <button id="run-point-search" class="btn-primary" type="button">Find</button>
+                </div>
+              </div>
             </div>
-            <div class="stat">
-              <div class="stat-label">Selected</div>
-              <div class="stat-value" id="selected-count">0</div>
+          </details>
+
+          <details class="control-section">
+            <summary>Filters</summary>
+            <div class="section-body">
+              <div class="field">
+                <label for="discipline-filter">Discipline</label>
+                <select id="discipline-filter">
+                  <option value="">All disciplines</option>
+                  <option value="PT">PT</option>
+                  <option value="PTA">PTA</option>
+                  <option value="OT">OT</option>
+                  <option value="OTA">OTA</option>
+                </select>
+              </div>
+
+              <div class="field">
+                <label for="zip-filter">ZIP code</label>
+                <input id="zip-filter" type="text" placeholder="Filter by ZIP">
+              </div>
+
+              <div class="button-row">
+                <button id="apply-filters" class="btn-primary" type="button">Apply Filters</button>
+                <button id="clear-filters" class="btn-secondary" type="button">Clear Filters</button>
+              </div>
             </div>
+          </details>
+
+          <details class="control-section">
+            <summary>Actions</summary>
+            <div class="section-body">
+              <div class="bulk-row">
+                <button id="add-clinician-mode" class="btn-secondary" type="button">Add Clinician</button>
+              </div>
+
+              <div class="field">
+                <label>Radius Selection</label>
+                <div class="button-row">
+                  <button id="radius-mode-toggle" class="btn-secondary" type="button">Radius Mode</button>
+                  <button id="clear-selection" class="btn-secondary" type="button">Clear Selection</button>
+                </div>
+              </div>
+
+              <div class="radius-row">
+                <button type="button" class="btn-secondary radius-btn active" data-radius="5">5 miles</button>
+                <button type="button" class="btn-secondary radius-btn" data-radius="8">8 miles</button>
+                <button type="button" class="btn-secondary radius-btn" data-radius="10">10 miles</button>
+              </div>
+
+              <div class="bulk-row">
+                <button id="delete-selected" class="btn-danger" type="button" disabled>Delete Selected</button>
+              </div>
+            </div>
+          </details>
+
+          <details class="control-section" open>
+            <summary>Status</summary>
+            <div class="section-body">
+              <div class="status-card">
+                <div class="status-grid">
+                  <div class="stat">
+                    <div class="stat-label">Visible</div>
+                    <div class="stat-value" id="visible-count">0</div>
+                  </div>
+                  <div class="stat">
+                    <div class="stat-label">Selected</div>
+                    <div class="stat-value" id="selected-count">0</div>
+                  </div>
+                </div>
+
+                <div class="legend">
+                  <span class="legend-item"><span class="legend-swatch" style="background: var(--pt);"></span>PT</span>
+                  <span class="legend-item"><span class="legend-swatch" style="background: var(--pta);"></span>PTA</span>
+                  <span class="legend-item"><span class="legend-swatch" style="background: var(--ot);"></span>OT</span>
+                  <span class="legend-item"><span class="legend-swatch" style="background: var(--ota);"></span>OTA</span>
+                </div>
+
+                <div class="helper-text" id="selection-message">Load clinicians to begin.</div>
+              </div>
+            </div>
+          </details>
+        </section>
+
+        <section class="list-panel">
+          <div class="list-header">
+            <h2 class="list-title">Clinician List</h2>
+            <span id="list-summary" class="helper-text">0 shown</span>
           </div>
-
-          <div class="legend">
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--pt);"></span>PT</span>
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--pta);"></span>PTA</span>
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--ot);"></span>OT</span>
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--ota);"></span>OTA</span>
-          </div>
-
-          <div class="helper-text" id="selection-message">Load clinicians to begin.</div>
-        </div>
-
-        <div class="field">
-          <label>Radius Selection</label>
-          <div class="button-row">
-            <button id="radius-mode-toggle" class="btn-secondary" type="button">Radius Mode</button>
-            <button id="clear-selection" class="btn-secondary" type="button">Clear Selection</button>
-          </div>
-        </div>
-
-        <div class="radius-row">
-          <button type="button" class="btn-secondary radius-btn active" data-radius="5">5 miles</button>
-          <button type="button" class="btn-secondary radius-btn" data-radius="8">8 miles</button>
-          <button type="button" class="btn-secondary radius-btn" data-radius="10">10 miles</button>
-        </div>
-
-        <div class="bulk-row">
-          <button id="delete-selected" class="btn-danger" type="button" disabled>Delete Selected</button>
-        </div>
-      </section>
-
-      <section class="list-panel">
-        <div class="list-header">
-          <h2 class="list-title">Clinician List</h2>
-          <span id="list-summary" class="helper-text">0 shown</span>
-        </div>
-        <ul id="clinician-list"></ul>
-      </section>
+          <ul id="clinician-list"></ul>
+        </section>
+      </div>
     </aside>
 
     <main class="map-panel">
+      <div class="top-toolbar">
+        <div class="toolbar-title">
+            <div class="toolbar-heading">DependableCare Tools</div>
+            <div class="toolbar-subtext">Map actions, staffing utilities, and admin shortcuts live here.</div>
+        </div>
+        <div class="toolbar-actions">
+          <div class="toolbar-menu" id="toolbar-menu">
+            <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
+            <div class="menu-panel">
+              <button id="toolbar-add-clinician" class="menu-item" type="button">Add Clinician</button>
+              <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
+              <button id="toolbar-bulk-import" class="menu-item" type="button">Bulk Import</button>
+              <button id="toolbar-clear-map-search" class="menu-item" type="button">Clear Search Pin</button>
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="map"></div>
-      <div class="version-indicator">Prototype Rev 1</div>
+      <div class="version-indicator">Prototype Rev 9</div>
       <div class="map-overlay">
         <h2>Map Interaction</h2>
-        <p id="map-instructions">Use filters to narrow the list, click markers for details, or enable Radius Mode and click the map to select clinicians within the chosen distance.</p>
+        <p id="map-instructions">Search any address or ZIP to place a location pin, click clinician markers for details, or enable Radius Mode and click the map to select clinicians within the chosen distance.</p>
       </div>
     </main>
   </div>
@@ -465,10 +702,19 @@
     const disciplineColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
 
     const elements = {
+      pointSearch: document.getElementById("point-search"),
+      runPointSearch: document.getElementById("run-point-search"),
       disciplineFilter: document.getElementById("discipline-filter"),
       zipFilter: document.getElementById("zip-filter"),
       applyFilters: document.getElementById("apply-filters"),
       clearFilters: document.getElementById("clear-filters"),
+      addClinicianMode: document.getElementById("add-clinician-mode"),
+      toolbarMenu: document.getElementById("toolbar-menu"),
+      toolsMenuButton: document.getElementById("tools-menu-button"),
+      toolbarAddClinician: document.getElementById("toolbar-add-clinician"),
+      toolbarRulerTool: document.getElementById("toolbar-ruler-tool"),
+      toolbarBulkImport: document.getElementById("toolbar-bulk-import"),
+      toolbarClearMapSearch: document.getElementById("toolbar-clear-map-search"),
       radiusModeToggle: document.getElementById("radius-mode-toggle"),
       clearSelection: document.getElementById("clear-selection"),
       deleteSelected: document.getElementById("delete-selected"),
@@ -490,11 +736,19 @@
       focusedId: null,
       disciplineFilter: "",
       zipFilter: "",
+      pointSearch: "",
       radiusMode: false,
+      addClinicianMode: false,
+      rulerMode: false,
+      rulerPoints: [],
+      rulerPointMarkers: [],
+      rulerLabelMarker: null,
       selectedRadiusMiles: 5,
       selectionCenter: null,
       selectionCenterMarker: null,
+      searchMarker: null,
       selectionCircleId: "selection-circle-source",
+      rulerSourceId: "ruler-line-source",
       didBindEvents: false
     };
 
@@ -551,15 +805,6 @@
       return value ? String(value) : "None";
     }
 
-    function createMarkerNode(clinician) {
-      const node = document.createElement("button");
-      node.type = "button";
-      node.className = "marker-node";
-      node.style.backgroundColor = getDisciplineColor(clinician.discipline);
-      node.setAttribute("aria-label", clinician.name || "Clinician");
-      return node;
-    }
-
     function getPopupHtml(clinician) {
       return [
         "<div class='popup-card'>",
@@ -584,9 +829,9 @@
       const isFocused = appState.focusedId === clinicianId;
       const isVisible = appState.filteredClinicians.some(function(item) { return item.id === clinicianId; });
 
-      markerEntry.element.classList.toggle("selected", isSelected);
-      markerEntry.element.classList.toggle("focused", isFocused);
-      markerEntry.element.classList.toggle("hidden", !isVisible);
+      markerEntry.marker.getElement().classList.toggle("marker-selected", isSelected);
+      markerEntry.marker.getElement().classList.toggle("marker-focused", isFocused);
+      markerEntry.marker.getElement().classList.toggle("marker-hidden", !isVisible);
     }
 
     function syncAllMarkerVisuals() {
@@ -611,14 +856,17 @@
     }
 
     function buildMarker(clinician) {
-      const element = createMarkerNode(clinician);
       const popup = new mapboxgl.Popup({ offset: 16 }).setHTML(getPopupHtml(clinician));
-      const marker = new mapboxgl.Marker({ element: element, anchor: "center" })
+      const marker = new mapboxgl.Marker({
+        color: getDisciplineColor(clinician.discipline),
+        scale: 1
+      })
         .setLngLat([clinician.lng, clinician.lat])
         .setPopup(popup)
         .addTo(map);
 
-      element.addEventListener("click", function() {
+      marker.getElement().setAttribute("aria-label", clinician.name || "Clinician");
+      marker.getElement().addEventListener("click", function() {
         focusClinician(clinician.id, false);
       });
 
@@ -640,7 +888,7 @@
         }
       });
 
-      appState.markersById.set(clinician.id, { marker: marker, popup: popup, element: element });
+      appState.markersById.set(clinician.id, { marker: marker, popup: popup });
       updateMarkerVisual(clinician.id);
     }
 
@@ -719,6 +967,18 @@
         return;
       }
 
+      if (appState.rulerMode) {
+        elements.selectionMessage.textContent = appState.rulerPoints.length === 1
+          ? "Ruler mode active. Click a second point to finish measuring."
+          : "Ruler mode active. Click two points to measure distance.";
+        return;
+      }
+
+      if (appState.addClinicianMode) {
+        elements.selectionMessage.textContent = "Add clinician mode active. Click the map to place the new clinician.";
+        return;
+      }
+
       elements.selectionMessage.textContent = "Use filters, select radius mode, or choose a clinician from the list.";
     }
 
@@ -776,11 +1036,42 @@
     }
 
     function setRadiusMode(enabled) {
+      if (enabled) {
+        appState.addClinicianMode = false;
+        appState.rulerMode = false;
+        elements.addClinicianMode.classList.remove("active");
+        clearRulerVisuals();
+        appState.rulerPoints = [];
+      }
       appState.radiusMode = enabled;
       elements.radiusModeToggle.classList.toggle("active", enabled);
       elements.mapInstructions.textContent = enabled
         ? "Radius Mode is active. Click the map to select clinicians within " + appState.selectedRadiusMiles + " miles of that point."
-        : "Use filters to narrow the list, click markers for details, or enable Radius Mode and click the map to select clinicians within the chosen distance.";
+        : appState.addClinicianMode
+          ? "Add clinician mode is active. Click the map to place the new clinician."
+          : appState.rulerMode
+            ? "Ruler mode is active. Click two points on the map to measure the distance."
+            : "Use filters to narrow the list, click markers for details, or enable Radius Mode and click the map to select clinicians within the chosen distance.";
+      updateSummary();
+    }
+
+    function setAddClinicianMode(enabled) {
+      if (enabled) {
+        appState.radiusMode = false;
+        appState.rulerMode = false;
+        elements.radiusModeToggle.classList.remove("active");
+        clearRulerVisuals();
+        appState.rulerPoints = [];
+      }
+      appState.addClinicianMode = enabled;
+      elements.addClinicianMode.classList.toggle("active", enabled);
+      elements.mapInstructions.textContent = enabled
+        ? "Add clinician mode is active. Click the map to place the new clinician."
+        : appState.radiusMode
+          ? "Radius Mode is active. Click the map to select clinicians within " + appState.selectedRadiusMiles + " miles of that point."
+          : appState.rulerMode
+            ? "Ruler mode is active. Click two points on the map to measure the distance."
+          : "Use filters to narrow the list, click markers for details, or enable Radius Mode and click the map to select clinicians within the chosen distance.";
       updateSummary();
     }
 
@@ -901,6 +1192,167 @@
       appState.selectionCenterMarker = null;
     }
 
+    function setSearchMarker(lng, lat, label) {
+      if (!appState.searchMarker) {
+        const node = document.createElement("div");
+        node.className = "search-pin";
+        appState.searchMarker = new mapboxgl.Marker({ element: node, anchor: "center" })
+          .setLngLat([lng, lat])
+          .addTo(map);
+      } else {
+        appState.searchMarker.setLngLat([lng, lat]);
+      }
+
+      appState.searchMarker.setPopup(
+        new mapboxgl.Popup({ offset: 16 }).setHTML(
+          "<div class='popup-card'><h3 class='popup-name'>Search Result</h3><div class='popup-line'>" + escapeHtml(label) + "</div></div>"
+        )
+      );
+      appState.searchMarker.togglePopup();
+      if (!appState.searchMarker.getPopup().isOpen()) {
+        appState.searchMarker.togglePopup();
+      }
+    }
+
+    function clearSearchMarker() {
+      if (!appState.searchMarker) return;
+      appState.searchMarker.remove();
+      appState.searchMarker = null;
+    }
+
+    function setToolsMenuOpen(isOpen) {
+      elements.toolbarMenu.classList.toggle("open", isOpen);
+    }
+
+    function addRulerPointMarker(point) {
+      const node = document.createElement("div");
+      node.className = "ruler-point";
+      const marker = new mapboxgl.Marker({ element: node, anchor: "center" })
+        .setLngLat([point.lng, point.lat])
+        .addTo(map);
+      appState.rulerPointMarkers.push(marker);
+    }
+
+    function updateRulerLine() {
+      ensureRulerLayer();
+      const source = map.getSource(appState.rulerSourceId);
+      if (!source) return;
+
+      if (appState.rulerPoints.length < 2) {
+        source.setData({ type: "FeatureCollection", features: [] });
+        return;
+      }
+
+      source.setData({
+        type: "FeatureCollection",
+        features: [{
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: appState.rulerPoints.map(function(point) {
+              return [point.lng, point.lat];
+            })
+          },
+          properties: {}
+        }]
+      });
+    }
+
+    function updateRulerLabel(distanceMiles) {
+      const start = appState.rulerPoints[0];
+      const end = appState.rulerPoints[1];
+      if (!start || !end) return;
+
+      const midLng = (start.lng + end.lng) / 2;
+      const midLat = (start.lat + end.lat) / 2;
+      const label = document.createElement("div");
+      label.className = "selection-label";
+      label.textContent = distanceMiles.toFixed(2) + " mi";
+
+      if (appState.rulerLabelMarker) {
+        appState.rulerLabelMarker.remove();
+      }
+
+      appState.rulerLabelMarker = new mapboxgl.Marker({
+        element: label,
+        anchor: "bottom"
+      })
+        .setLngLat([midLng, midLat])
+        .addTo(map);
+    }
+
+    function completeRulerMeasurement() {
+      if (appState.rulerPoints.length < 2) return;
+      updateRulerLine();
+      const start = appState.rulerPoints[0];
+      const end = appState.rulerPoints[1];
+      const miles = haversineMiles(start.lat, start.lng, end.lat, end.lng);
+      updateRulerLabel(miles);
+      elements.selectionMessage.textContent = "Measured distance: " + miles.toFixed(2) + " miles.";
+    }
+
+    function ensureRulerLayer() {
+      if (!map.getSource(appState.rulerSourceId)) {
+        map.addSource(appState.rulerSourceId, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] }
+        });
+      }
+
+      if (!map.getLayer("ruler-line")) {
+        map.addLayer({
+          id: "ruler-line",
+          type: "line",
+          source: appState.rulerSourceId,
+          paint: {
+            "line-color": "#111111",
+            "line-width": 3,
+            "line-dasharray": [2, 1]
+          }
+        });
+      }
+    }
+
+    function clearRulerVisuals() {
+      appState.rulerPointMarkers.forEach(function(marker) {
+        marker.remove();
+      });
+      appState.rulerPointMarkers = [];
+
+      if (appState.rulerLabelMarker) {
+        appState.rulerLabelMarker.remove();
+        appState.rulerLabelMarker = null;
+      }
+
+      const source = map.getSource(appState.rulerSourceId);
+      if (source) {
+        source.setData({ type: "FeatureCollection", features: [] });
+      }
+    }
+
+    function setRulerMode(enabled) {
+      if (enabled) {
+        setAddClinicianMode(false);
+        setRadiusMode(false);
+      }
+
+      appState.rulerMode = enabled;
+      if (!enabled) {
+        appState.rulerPoints = [];
+        clearRulerVisuals();
+      }
+
+      elements.mapInstructions.textContent = enabled
+        ? "Ruler mode is active. Click two points on the map to measure the distance."
+        : appState.addClinicianMode
+          ? "Add clinician mode is active. Click the map to place the new clinician."
+          : appState.radiusMode
+            ? "Radius Mode is active. Click the map to select clinicians within " + appState.selectedRadiusMiles + " miles of that point."
+            : "Search any address or ZIP to place a location pin, click clinician markers for details, or enable Radius Mode and click the map to select clinicians within the chosen distance.";
+
+      updateSummary();
+    }
+
     function selectCliniciansByRadius(center, radiusMiles) {
       appState.selectionCenter = center;
       setSelectionCenterMarker(center);
@@ -970,6 +1422,34 @@
       updateSummary();
     }
 
+    function clearRuler(keepMode) {
+      appState.rulerPoints = [];
+      clearRulerVisuals();
+      if (!keepMode) {
+        appState.rulerMode = false;
+      }
+      updateSummary();
+    }
+
+    function resetAllMapTools() {
+      elements.pointSearch.value = "";
+      elements.disciplineFilter.value = "";
+      elements.zipFilter.value = "";
+
+      appState.pointSearch = "";
+      appState.disciplineFilter = "";
+      appState.zipFilter = "";
+
+      clearSearchMarker();
+      clearSelection(false);
+      clearRuler(false);
+      setAddClinicianMode(false);
+
+      applyFilters();
+      fitMapToVisibleClinicians();
+      updateSummary();
+    }
+
     async function editClinician(clinicianId) {
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       if (!clinician) return;
@@ -984,6 +1464,92 @@
       if (newPreferredZips === null) return;
 
       await updateClinician(clinicianId, newAddress, newRadius, newPreferredZips);
+    }
+
+    async function runPointSearch() {
+      const query = String(elements.pointSearch.value || "").trim();
+      appState.pointSearch = query;
+
+      if (!query) {
+        window.alert("Enter an address or ZIP to search.");
+        return;
+      }
+
+      const endpoint = "https://api.mapbox.com/geocoding/v5/mapbox.places/"
+        + encodeURIComponent(query)
+        + ".json?access_token="
+        + encodeURIComponent(mapboxgl.accessToken)
+        + "&limit=1&country=US";
+
+      let payload;
+      try {
+        const response = await fetch(endpoint);
+        payload = await response.json();
+      } catch (error) {
+        console.error("Search failed:", error);
+        window.alert("Address search failed. Check the console for details.");
+        return;
+      }
+
+      const feature = payload && payload.features && payload.features[0];
+      if (!feature || !feature.center || feature.center.length < 2) {
+        window.alert("No map location matched that address or ZIP.");
+        return;
+      }
+
+      const lng = Number(feature.center[0]);
+      const lat = Number(feature.center[1]);
+      setSearchMarker(lng, lat, feature.place_name || query);
+      map.flyTo({
+        center: [lng, lat],
+        zoom: Math.max(map.getZoom(), 13),
+        speed: 0.9,
+        curve: 1.2,
+        essential: true
+      });
+    }
+
+    async function createClinicianAtPoint(point) {
+      const name = window.prompt("Clinician name:");
+      if (name === null || String(name).trim() === "") return;
+
+      const discipline = getNormalizedDiscipline(window.prompt("Discipline (PT, PTA, OT, OTA):", "PT"));
+      if (!discipline) return;
+
+      const address = window.prompt("Address:", "");
+      if (address === null) return;
+
+      const zip = window.prompt("ZIP code:", "");
+      if (zip === null) return;
+
+      const radius = window.prompt("Radius:", "");
+      if (radius === null) return;
+
+      const preferredZips = window.prompt("Preferred ZIPs:", "");
+      if (preferredZips === null) return;
+
+      const response = await supabaseClient
+        .from("clinician_v2")
+        .insert({
+          name: String(name).trim(),
+          discipline: discipline,
+          address: String(address).trim(),
+          zip: String(zip).trim(),
+          lat: point.lat,
+          lng: point.lng,
+          radius: String(radius).trim() === "" ? null : radius,
+          preferred_zips: String(preferredZips).trim() === "" ? null : preferredZips
+        });
+
+      if (response.error) {
+        console.error("Create failed:", response.error);
+        window.alert("Create failed. Check the console for details.");
+        return;
+      }
+
+      setAddClinicianMode(false);
+      window.alert("Clinician created.");
+      await loadClinicians();
     }
 
     async function updateClinician(clinicianId, address, radius, preferredZips) {
@@ -1069,6 +1635,49 @@
       if (appState.didBindEvents) return;
       appState.didBindEvents = true;
 
+      elements.runPointSearch.addEventListener("click", function() {
+        runPointSearch();
+      });
+
+      elements.toolsMenuButton.addEventListener("click", function(event) {
+        event.stopPropagation();
+        const isOpen = elements.toolbarMenu.classList.contains("open");
+        setToolsMenuOpen(!isOpen);
+      });
+
+      elements.toolbarAddClinician.addEventListener("click", function() {
+        setAddClinicianMode(true);
+        setToolsMenuOpen(false);
+      });
+
+      elements.toolbarRulerTool.addEventListener("click", function() {
+        if (appState.rulerMode) {
+          clearRuler(false);
+          elements.mapInstructions.textContent = "Search any address or ZIP to place a location pin, click clinician markers for details, or enable Radius Mode and click the map to select clinicians within the chosen distance.";
+        } else {
+          clearRuler(true);
+          setRulerMode(true);
+        }
+        setToolsMenuOpen(false);
+      });
+
+      elements.toolbarBulkImport.addEventListener("click", function() {
+        setToolsMenuOpen(false);
+        window.alert("Bulk Import will live here in a future revision.");
+      });
+
+      elements.toolbarClearMapSearch.addEventListener("click", function() {
+        clearSearchMarker();
+        setToolsMenuOpen(false);
+      });
+
+      elements.pointSearch.addEventListener("keydown", function(event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          runPointSearch();
+        }
+      });
+
       elements.applyFilters.addEventListener("click", function() {
         appState.disciplineFilter = elements.disciplineFilter.value;
         appState.zipFilter = elements.zipFilter.value;
@@ -1077,12 +1686,7 @@
       });
 
       elements.clearFilters.addEventListener("click", function() {
-        elements.disciplineFilter.value = "";
-        elements.zipFilter.value = "";
-        appState.disciplineFilter = "";
-        appState.zipFilter = "";
-        applyFilters();
-        fitMapToVisibleClinicians();
+        resetAllMapTools();
       });
 
       elements.disciplineFilter.addEventListener("change", function() {
@@ -1099,8 +1703,13 @@
         setRadiusMode(!appState.radiusMode);
       });
 
+      elements.addClinicianMode.addEventListener("click", function() {
+        setAddClinicianMode(!appState.addClinicianMode);
+      });
+
       elements.clearSelection.addEventListener("click", function() {
         clearSelection(false);
+        clearRuler(false);
       });
 
       elements.deleteSelected.addEventListener("click", function() {
@@ -1114,8 +1723,38 @@
       });
 
       map.on("click", function(event) {
+        if (appState.addClinicianMode) {
+          createClinicianAtPoint({ lat: event.lngLat.lat, lng: event.lngLat.lng });
+          return;
+        }
+
+        if (appState.rulerMode) {
+          if (appState.rulerPoints.length >= 2) {
+            clearRuler(true);
+          }
+          const point = { lat: event.lngLat.lat, lng: event.lngLat.lng };
+          appState.rulerPoints.push(point);
+          addRulerPointMarker(point);
+          if (appState.rulerPoints.length === 2) {
+            completeRulerMeasurement();
+          } else {
+            updateSummary();
+          }
+          return;
+        }
+
         if (!appState.radiusMode) return;
         selectCliniciansByRadius({ lat: event.lngLat.lat, lng: event.lngLat.lng }, appState.selectedRadiusMiles);
+      });
+
+      map.on("contextmenu", function() {
+        resetAllMapTools();
+      });
+
+      document.addEventListener("click", function(event) {
+        if (!elements.toolbarMenu.contains(event.target)) {
+          setToolsMenuOpen(false);
+        }
       });
     }
 
@@ -1128,11 +1767,3 @@
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
