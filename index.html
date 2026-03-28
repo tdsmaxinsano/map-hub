@@ -1,111 +1,289 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
-    <title>Clinician Map (Custom Style)</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta charset="utf-8">
+<title>Clinician Map Hub PRO</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
-    <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet" />
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet" />
 
-    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
-    <style>
-        body { margin: 0; padding: 0; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; }
-    </style>
+<style>
+body { margin: 0; font-family: Arial; }
+
+#app {
+  display: flex;
+  height: 100vh;
+}
+
+#map {
+  flex: 3;
+}
+
+#sidebar {
+  flex: 1;
+  background: #111;
+  color: white;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.card {
+  background: #222;
+  padding: 10px;
+  margin-bottom: 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.selected {
+  border: 2px solid red;
+}
+
+button, select, input {
+  width: 100%;
+  margin: 5px 0;
+  padding: 6px;
+}
+</style>
 </head>
 
 <body>
-<div id="map"></div>
+
+<div id="app">
+  <div id="map"></div>
+
+  <div id="sidebar">
+    <h2>Clinicians</h2>
+
+    <select id="disciplineFilter">
+      <option value="">All</option>
+      <option value="PT">PT</option>
+      <option value="PTA">PTA</option>
+      <option value="OT">OT</option>
+      <option value="OTA">OTA</option>
+    </select>
+
+    <input id="zipSearch" placeholder="Search ZIP" />
+
+    <button onclick="applyFilters()">Apply Filters</button>
+
+    <hr>
+
+    <button onclick="enableRadiusMode()">📍 Radius Mode</button>
+
+    <select id="radiusSelect">
+      <option value="5">5 miles</option>
+      <option value="8">8 miles</option>
+      <option value="10">10 miles</option>
+    </select>
+
+    <button onclick="deleteSelected()">🧹 Delete Selected</button>
+
+    <hr>
+
+    <div id="list"></div>
+  </div>
+</div>
 
 <script>
-    // � MAPBOX TOKEN
-    mapboxgl.accessToken = 'pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A';
 
-    // � SUPABASE
-    const supabaseUrl = 'https://jpemlcuxjvynlbeygukb.supabase.co';
-    const supabaseKey = 'sb_publishable_C7GdOG7L64y92IDDreglcQ_C0jNcbhl';
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+// MAPBOX
+mapboxgl.accessToken = 'pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A';
 
-    // �️ INITIALIZE MAP WITH YOUR CUSTOM STYLE
-    const map = new mapboxgl.Map({
-        container: 'map',
-        style: 'mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce', // Your Custom Style
-        center: [-87.6298, 41.8781],
-        zoom: 13
-    });
+// SUPABASE
+const supabase = supabase.createClient(
+  'https://jpemlcuxjvynlbeygukb.supabase.co',
+  'sb_publishable_C7GdOG7L64y92IDDreglcQ_C0jNcbhl'
+);
 
-    // ✏️ EDIT FUNCTION
-    function editClinician(id, address, radius, zips) {
-        const newAddress = prompt("Edit address:", address);
-        const newRadius = prompt("Edit radius:", radius);
-        const newZips = prompt("Edit preferred zips:", zips);
+let clinicians = [];
+let markers = [];
+let selectedIds = new Set();
+let radiusCenter = null;
 
-        if (newAddress === null) return;
-        updateClinician(id, newAddress, newRadius, newZips);
+// MAP (same working setup)
+const map = new mapboxgl.Map({
+  container: 'map',
+  style: 'mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce',
+  center: [-87.6298, 41.8781],
+  zoom: 13
+});
+
+// COLOR
+function getColor(role) {
+  if (role === "PT") return "blue";
+  if (role === "PTA") return "green";
+  if (role === "OT") return "purple";
+  if (role === "OTA") return "orange";
+  return "gray";
+}
+
+// LOAD
+async function loadClinicians() {
+  const { data, error } = await supabase
+    .from('clinician_v2')
+    .select('*');
+
+  if (error) {
+    console.error(error);
+    return;
+  }
+
+  clinicians = data || [];
+  render(clinicians);
+}
+
+// RENDER
+function render(data) {
+
+  document.getElementById("list").innerHTML = "";
+
+  markers.forEach(m => m.remove());
+  markers = [];
+
+  data.forEach(c => {
+
+    if (!c.lat || !c.lng) return;
+
+    // marker
+    const el = document.createElement('div');
+    el.style.background = getColor(c.role);
+    el.style.width = '14px';
+    el.style.height = '14px';
+    el.style.borderRadius = '50%';
+
+    const marker = new mapboxgl.Marker(el)
+      .setLngLat([c.lng, c.lat])
+      .addTo(map);
+
+    markers.push(marker);
+
+    // sidebar
+    const div = document.createElement("div");
+    div.className = "card";
+
+    div.innerHTML = `
+      <strong>${c.name}</strong><br>
+      ${c.role || ''}<br>
+      ${c.zip || ''}
+    `;
+
+    div.onclick = () => {
+      map.flyTo({
+        center: [c.lng, c.lat],
+        zoom: 14
+      });
+    };
+
+    document.getElementById("list").appendChild(div);
+  });
+}
+
+// FILTER
+function applyFilters() {
+  const role = document.getElementById("disciplineFilter").value;
+  const zip = document.getElementById("zipSearch").value;
+
+  const filtered = clinicians.filter(c =>
+    (!role || c.role === role) &&
+    (!zip || c.zip == zip)
+  );
+
+  render(filtered);
+}
+
+// RADIUS
+function enableRadiusMode() {
+  alert("Click map to set center");
+
+  map.once('click', (e) => {
+    radiusCenter = e.lngLat;
+    applyRadius();
+  });
+}
+
+function getDistance(lat1, lon1, lat2, lon2) {
+  const R = 3958.8;
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLon = (lon2-lon1) * Math.PI/180;
+
+  const a =
+    Math.sin(dLat/2)**2 +
+    Math.cos(lat1*Math.PI/180) *
+    Math.cos(lat2*Math.PI/180) *
+    Math.sin(dLon/2)**2;
+
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function applyRadius() {
+  const miles = document.getElementById("radiusSelect").value;
+
+  selectedIds.clear();
+
+  clinicians.forEach(c => {
+    if (!c.lat || !c.lng) return;
+
+    const d = getDistance(
+      radiusCenter.lat,
+      radiusCenter.lng,
+      c.lat,
+      c.lng
+    );
+
+    if (d <= miles) {
+      selectedIds.add(c.id);
     }
+  });
 
-    // ⬆️ UPDATE FUNCTION
-    async function updateClinician(id, address, radius, preferred_zips) {
-        const { data, error } = await supabaseClient
-            .from('clinician_v2')
-            .update({
-                address: address,
-                radius: radius,
-                preferred_zips: preferred_zips
-            })
-            .eq('id', id);
+  highlightSelected();
+}
 
-        if (error) {
-            alert("❌ Update failed");
-            console.error(error);
-            return;
-        }
+function highlightSelected() {
+  const cards = document.querySelectorAll(".card");
 
-        alert("✅ Updated!");
-        location.reload();
+  cards.forEach((card, i) => {
+    const c = clinicians[i];
+    if (c && selectedIds.has(c.id)) {
+      card.classList.add("selected");
+    } else {
+      card.classList.remove("selected");
     }
+  });
+}
 
-    // � LOAD DATA
-    async function loadClinicians() {
-        const { data, error } = await supabaseClient
-            .from('clinician_v2')
-            .select('*');
+// DELETE
+async function deleteSelected() {
 
-        if (error || !data) {
-            console.error("Error loading data:", error);
-            return;
-        }
+  if (selectedIds.size === 0) {
+    alert("No clinicians selected");
+    return;
+  }
 
-        data.forEach(c => {
-            const popup = new mapboxgl.Popup().setHTML(`
-                <strong>${c.name}</strong><br/>
-                ${c.address}<br/>
-                � ${c.radius || ''}<br/><br/>
-                <button onclick="editClinician('${c.id}', \`${c.address || ''}\`, \`${c.radius || ''}\`, \`${c.preferred_zips || ''}\`)">
-                    ✏️ Edit
-                </button>
-            `);
+  if (!confirm("Delete selected clinicians?")) return;
 
-            new mapboxgl.Marker()
-                .setLngLat([c.lng, c.lat])
-                .setPopup(popup)
-                .addTo(map);
-        });
-    }
+  await supabase
+    .from('clinician_v2')
+    .delete()
+    .in('id', [...selectedIds]);
 
-    // ▶️ RUN AFTER STYLE LOADS
-    // Using 'style.load' ensures the map is ready for markers even if it's a heavy custom style
-    map.on('style.load', () => {
-        console.log("Style loaded successfully!");
-        loadClinicians();
-    });
+  alert("Deleted");
+
+  loadClinicians();
+}
+
+// SAFE LOAD (important)
+map.on('style.load', () => {
+  loadClinicians();
+});
 
 </script>
+
 </body>
 </html>
-
 
 
 
