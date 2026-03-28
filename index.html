@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Clinician Map Hub PRO</title>
+<title>Clinician Map Hub</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
@@ -11,10 +11,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 
 <style>
-body {
-  margin: 0;
-  font-family: Arial;
-}
+body { margin: 0; font-family: Arial; }
 
 #app {
   display: flex;
@@ -94,9 +91,10 @@ button, select, input {
 
 <script>
 
-// 🔑 CONFIG
+// MAPBOX
 mapboxgl.accessToken = 'pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A';
 
+// SUPABASE
 const supabase = window.supabase.createClient(
   'https://jpemlcuxjvynlbeygukb.supabase.co',
   'sb_publishable_C7GdOG7L64y92IDDreglcQ_C0jNcbhl'
@@ -107,7 +105,7 @@ let markers = [];
 let selectedIds = new Set();
 let radiusCenter = null;
 
-// 🗺️ MAP
+// MAP
 const map = new mapboxgl.Map({
   container: 'map',
   style: 'mapbox://styles/mapbox/dark-v11',
@@ -115,7 +113,7 @@ const map = new mapboxgl.Map({
   zoom: 10
 });
 
-// 🎨 COLOR BY DISCIPLINE
+// COLOR
 function getColor(role) {
   if (role === "PT") return "blue";
   if (role === "PTA") return "green";
@@ -124,7 +122,7 @@ function getColor(role) {
   return "gray";
 }
 
-// 📥 LOAD DATA
+// LOAD DATA
 async function loadClinicians() {
   const { data } = await supabase
     .from('clinician_v2')
@@ -134,13 +132,11 @@ async function loadClinicians() {
   render(clinicians);
 }
 
-// 🧠 RENDER
+// RENDER
 function render(data) {
 
-  // Clear UI
   document.getElementById("list").innerHTML = "";
 
-  // Clear markers
   markers.forEach(m => m.remove());
   markers = [];
 
@@ -148,7 +144,6 @@ function render(data) {
 
     if (!c.lat || !c.lng) return;
 
-    // Marker
     const el = document.createElement('div');
     el.style.background = getColor(c.role);
     el.style.width = '14px';
@@ -161,7 +156,6 @@ function render(data) {
 
     markers.push(marker);
 
-    // Sidebar card
     const div = document.createElement("div");
     div.className = "card";
 
@@ -182,7 +176,7 @@ function render(data) {
   });
 }
 
-// 🔍 FILTER
+// FILTER
 function applyFilters() {
   const role = document.getElementById("disciplineFilter").value;
   const zip = document.getElementById("zipSearch").value;
@@ -195,7 +189,7 @@ function applyFilters() {
   render(filtered);
 }
 
-// 📍 RADIUS MODE
+// RADIUS
 function enableRadiusMode() {
   alert("Click map to set center");
 
@@ -205,7 +199,6 @@ function enableRadiusMode() {
   });
 }
 
-// 📏 DISTANCE
 function getDistance(lat1, lon1, lat2, lon2) {
   const R = 3958.8;
   const dLat = (lat2-lat1) * Math.PI/180;
@@ -220,7 +213,6 @@ function getDistance(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// 🎯 APPLY RADIUS
 function applyRadius() {
   const miles = document.getElementById("radiusSelect").value;
 
@@ -244,7 +236,6 @@ function applyRadius() {
   highlightSelected();
 }
 
-// 🎨 HIGHLIGHT
 function highlightSelected() {
   const cards = document.querySelectorAll(".card");
 
@@ -258,7 +249,7 @@ function highlightSelected() {
   });
 }
 
-// 🧹 DELETE
+// DELETE
 async function deleteSelected() {
 
   if (selectedIds.size === 0) {
@@ -278,28 +269,13 @@ async function deleteSelected() {
   loadClinicians();
 }
 
-// ▶️ INIT
+// INIT
 loadClinicians();
 
 </script>
 
 </body>
 </html>
-  
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
