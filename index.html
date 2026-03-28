@@ -369,6 +369,22 @@
       white-space: nowrap;
     }
 
+    .toolbar-select {
+      min-width: 210px;
+      max-width: 260px;
+      white-space: nowrap;
+    }
+
+    .profile-link {
+      display: inline-block;
+      margin-top: 2px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+      text-decoration: none;
+      cursor: pointer;
+    }
+
     .menu-panel {
       position: absolute;
       top: calc(100% + 8px);
@@ -673,6 +689,16 @@
             <div class="toolbar-subtext">Map actions, staffing utilities, and admin shortcuts live here.</div>
         </div>
         <div class="toolbar-actions">
+          <select id="clinician-selector" class="toolbar-select">
+            <option value="">Find Clinician</option>
+          </select>
+          <select id="style-selector" class="toolbar-select">
+            <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
+            <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
+            <option value="mapbox://styles/mapbox/streets-v12">Mapbox Streets</option>
+            <option value="mapbox://styles/mapbox/light-v11">Mapbox Light</option>
+            <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+          </select>
           <div class="toolbar-menu" id="toolbar-menu">
             <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
             <div class="menu-panel">
@@ -710,6 +736,7 @@
       clearFilters: document.getElementById("clear-filters"),
       addClinicianMode: document.getElementById("add-clinician-mode"),
       toolbarMenu: document.getElementById("toolbar-menu"),
+      styleSelector: document.getElementById("style-selector"),
       toolsMenuButton: document.getElementById("tools-menu-button"),
       toolbarAddClinician: document.getElementById("toolbar-add-clinician"),
       toolbarRulerTool: document.getElementById("toolbar-ruler-tool"),
@@ -719,6 +746,7 @@
       clearSelection: document.getElementById("clear-selection"),
       deleteSelected: document.getElementById("delete-selected"),
       clinicianList: document.getElementById("clinician-list"),
+      clinicianSelector: document.getElementById("clinician-selector"),
       listSummary: document.getElementById("list-summary"),
       visibleCount: document.getElementById("visible-count"),
       selectedCount: document.getElementById("selected-count"),
@@ -817,6 +845,7 @@
         "<button type='button' class='btn-primary' data-action='edit'>Edit</button>",
         "<button type='button' class='btn-secondary' data-action='focus'>Focus</button>",
         "</div>",
+        "<a href='#' class='profile-link' data-action='profile'>See Profile</a>",
         "</div>"
       ].join("");
     }
@@ -874,6 +903,7 @@
         const popupElement = popup.getElement();
         const editButton = popupElement.querySelector("[data-action='edit']");
         const focusButton = popupElement.querySelector("[data-action='focus']");
+        const profileLink = popupElement.querySelector("[data-action='profile']");
 
         if (editButton) {
           editButton.addEventListener("click", function() {
@@ -884,6 +914,13 @@
         if (focusButton) {
           focusButton.addEventListener("click", function() {
             focusClinician(clinician.id, false);
+          }, { once: true });
+        }
+
+        if (profileLink) {
+          profileLink.addEventListener("click", function(event) {
+            event.preventDefault();
+            openClinicianProfile(clinician.id);
           }, { once: true });
         }
       });
@@ -1033,6 +1070,30 @@
       if (openPopup && !markerEntry.popup.isOpen()) {
         markerEntry.marker.togglePopup();
       }
+    }
+
+    function populateClinicianSelector() {
+      const options = [
+        "<option value=''>Find Clinician</option>"
+      ].concat(appState.clinicians.map(function(clinician) {
+        const label = (clinician.name || "Unnamed clinician")
+          + (clinician.discipline ? " (" + clinician.discipline + ")" : "")
+          + (clinician.zip ? " - " + clinician.zip : "");
+        return "<option value='" + escapeHtml(String(clinician.id)) + "'>" + escapeHtml(label) + "</option>";
+      }));
+
+      elements.clinicianSelector.innerHTML = options.join("");
+    }
+
+    function openClinicianProfile(clinicianId) {
+      const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
+      if (!clinician) return;
+
+      window.alert(
+        "Profile view coming soon for "
+        + (clinician.name || "this clinician")
+        + ". This is where historical referral patterns and clinician details will live."
+      );
     }
 
     function setRadiusMode(enabled) {
@@ -1222,6 +1283,11 @@
 
     function setToolsMenuOpen(isOpen) {
       elements.toolbarMenu.classList.toggle("open", isOpen);
+    }
+
+    function changeMapStyle(styleUrl) {
+      if (!styleUrl) return;
+      map.setStyle(styleUrl);
     }
 
     function addRulerPointMarker(point) {
@@ -1607,6 +1673,7 @@
       }
 
       appState.clinicians = (response.data || []).map(normalizeClinician);
+      populateClinicianSelector();
       applyFilters();
       renderMarkers();
       updateSelectionLabels();
@@ -1637,6 +1704,16 @@
 
       elements.runPointSearch.addEventListener("click", function() {
         runPointSearch();
+      });
+
+      elements.clinicianSelector.addEventListener("change", function() {
+        const clinicianId = elements.clinicianSelector.value;
+        if (!clinicianId) return;
+        focusClinician(clinicianId, true);
+      });
+
+      elements.styleSelector.addEventListener("change", function() {
+        changeMapStyle(elements.styleSelector.value);
       });
 
       elements.toolsMenuButton.addEventListener("click", function(event) {
@@ -1767,3 +1844,4 @@
   </script>
 </body>
 </html>
+
