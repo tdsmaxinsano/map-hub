@@ -120,6 +120,10 @@
       list-style: none;
       cursor: pointer;
       padding: 12px 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
       font-size: 12px;
       font-weight: 800;
       letter-spacing: 0.08em;
@@ -288,6 +292,16 @@
       display: block;
     }
 
+    .summary-label {
+      min-width: 0;
+    }
+
+    .control-section summary .helper-text {
+      text-transform: none;
+      letter-spacing: normal;
+      font-weight: 700;
+    }
+
     .list-header {
       padding: 12px 16px 10px;
       display: flex;
@@ -307,11 +321,13 @@
     }
 
     .clinician-item {
-      padding: 14px 14px 13px;
+      padding: 13px 14px 12px;
       border: 1px solid #dce6e1;
       border-radius: 16px;
       background: #fff;
       cursor: pointer;
+      display: grid;
+      gap: 8px;
     }
 
     .clinician-item.selected { background: var(--selected); border-color: #f0cb6a; }
@@ -321,8 +337,7 @@
       display: flex;
       justify-content: space-between;
       gap: 10px;
-      align-items: flex-start;
-      margin-bottom: 10px;
+      align-items: center;
     }
 
     .clinician-name-row {
@@ -333,7 +348,12 @@
       min-width: 0;
     }
 
-    .clinician-name { font-size: 16px; font-weight: 700; }
+    .clinician-name {
+      font-size: 15px;
+      font-weight: 700;
+      line-height: 1.35;
+      overflow-wrap: anywhere;
+    }
 
     .clinician-new-badge {
       display: inline-flex;
@@ -360,12 +380,53 @@
       white-space: nowrap;
     }
 
-    .clinician-meta {
+    .clinician-status-line {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+      align-items: center;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .clinician-status-pill {
+      display: inline-flex;
+      align-items: center;
+      padding: 4px 8px;
+      border-radius: 999px;
+      border: 1px solid #d7e2dd;
+      background: #f7fbf9;
+      color: #1f3f33;
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    .clinician-status-pill.active {
+      background: linear-gradient(180deg, #eef9f4 0%, #daf1e5 100%);
+      border-color: #8fcbb0;
+      color: #16613b;
+    }
+
+    .clinician-status-pill.inactive {
+      background: linear-gradient(180deg, #f5f6f7 0%, #e5e9ec 100%);
+      border-color: #cad4da;
+      color: #48545b;
+    }
+
+    .clinician-status-pill.paused {
+      background: linear-gradient(180deg, #fff7e7 0%, #ffe8bf 100%);
+      border-color: #e7b24d;
+      color: #8a5200;
+    }
+
+    .clinician-status-detail {
+      font-size: 12px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
     }
 
     .empty-state {
@@ -386,6 +447,10 @@
 
     .agency-directory-panel .section-body {
       gap: 12px;
+    }
+
+    .clinician-directory-panel .section-body {
+      padding: 0;
     }
 
     .agency-directory-meta {
@@ -2207,6 +2272,28 @@
       transform-origin: 50% 100%;
     }
 
+    .mapboxgl-marker.marker-paused svg {
+      filter: saturate(1.08) drop-shadow(0 0 0 rgba(0, 0, 0, 0));
+    }
+
+    .mapboxgl-marker.marker-paused::after {
+      content: "";
+      position: absolute;
+      inset: 3px;
+      border-radius: 999px;
+      border: 2px solid rgba(231, 178, 77, 0.9);
+      box-shadow: 0 0 0 3px rgba(255, 232, 191, 0.52);
+      pointer-events: none;
+    }
+
+    .mapboxgl-marker.marker-inactive {
+      opacity: 0.74;
+    }
+
+    .mapboxgl-marker.marker-inactive svg {
+      filter: grayscale(0.42) saturate(0.6);
+    }
+
     .mapboxgl-marker.marker-focused svg {
       transform: scale(1.05);
       transform-origin: 50% 100%;
@@ -2499,12 +2586,16 @@
           </details>
         </section>
 
-        <section class="list-panel">
-          <div class="list-header">
-            <h2 class="list-title">Clinician List</h2>
-            <span id="list-summary" class="helper-text">0 shown</span>
-          </div>
-          <ul id="clinician-list"></ul>
+        <section class="controls">
+          <details class="control-section clinician-directory-panel" open>
+            <summary>
+              <span class="summary-label">Clinician List</span>
+              <span id="list-summary" class="helper-text">0 shown</span>
+            </summary>
+            <div class="section-body">
+              <ul id="clinician-list"></ul>
+            </div>
+          </details>
         </section>
 
         <section class="controls">
@@ -2596,7 +2687,7 @@
         </div>
       </div>
       <div id="map"></div>
-      <div class="version-indicator">Prototype Rev 53</div>
+      <div class="version-indicator">Prototype Rev 60</div>
       <div class="map-overlay">
         <h2>Map Interaction</h2>
         <p id="map-instructions">Search any address or ZIP to place a location pin, click clinician markers for details, toggle home health or completed-service locations on only when needed, or enable Radius Mode and click the map to select clinicians within the chosen distance.</p>
@@ -2793,7 +2884,18 @@
               </div>
               <div class="profile-field full">
                 <label>EMR Capability</label>
+                <div class="toggle-row compact">
+                  <div class="toggle-copy">
+                    <div class="toggle-title">Therapy Boss unavailable</div>
+                    <div class="toggle-caption">Leave this off for the normal case. Turn it on only when this clinician cannot work in Therapy Boss.</div>
+                  </div>
+                  <label class="switch">
+                    <input id="profile-therapyboss-unavailable" type="checkbox">
+                    <span class="switch-slider"></span>
+                  </label>
+                </div>
                 <div id="profile-emr-list" class="profile-emr-list" aria-live="polite"></div>
+                <div class="helper-text">Therapy Boss is assumed by default. Add only the extra EMR systems this clinician can also work in.</div>
                 <div class="profile-emr-add-row">
                   <select id="profile-emr-select" aria-label="Add EMR capability">
                     <option value="">Add EMR capability</option>
@@ -3052,6 +3154,9 @@
       { key: "axxess", label: "Axxess" },
       { key: "kinnser", label: "Kinnser" }
     ];
+    const profileExtraEmrOptions = profileEmrOptions.filter(function(option) {
+      return option.key !== "therapyBoss";
+    });
     const profileEmrKeys = profileEmrOptions.map(function(option) { return option.key; });
     const profileEmrFieldAliases = {
       strata: ["strata", "emr_strata", "uses_strata", "can_use_strata"],
@@ -3226,6 +3331,7 @@
       profilePauseIndicator: document.getElementById("profile-pause-indicator"),
       profilePhoneInput: document.getElementById("profile-phone-input"),
       profileEmailInput: document.getElementById("profile-email-input"),
+      profileTherapyBossUnavailableToggle: document.getElementById("profile-therapyboss-unavailable"),
       profileEmrList: document.getElementById("profile-emr-list"),
       profileEmrSelect: document.getElementById("profile-emr-select"),
       profileEmrAdd: document.getElementById("profile-emr-add"),
@@ -4040,6 +4146,27 @@
       return groups;
     }
 
+    function mergeCompletedServiceAssignments(existingAssignments, fallbackAssignments) {
+      const merged = [];
+      const seen = new Set();
+
+      function pushAssignment(assignment) {
+        if (!assignment) return;
+        const nameKey = String(
+          assignment.matched_clinician_name || assignment.parsed_clinician_name || assignment.clinician_name_raw || ""
+        ).trim().toLowerCase();
+        const disciplineKey = String(assignment.parsed_discipline || "").trim().toUpperCase();
+        const dedupeKey = nameKey + "|" + disciplineKey;
+        if (!nameKey || seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+        merged.push(assignment);
+      }
+
+      (existingAssignments || []).forEach(pushAssignment);
+      (fallbackAssignments || []).forEach(pushAssignment);
+      return merged;
+    }
+
     function buildCompletedServiceDisciplineGroupsHtml(groups, options) {
       const safeOptions = options || {};
       if (!groups || !groups.length) return safeOptions.emptyHtml || "";
@@ -4082,9 +4209,11 @@
 
     function buildCompletedServicePopupHtml(site) {
       const patientList = site.uniquePatients.slice(0, 5).join("; ");
+      const clinicianList = (site.uniqueClinicians || []).slice(0, 6).join("; ");
       const latestDate = site.latestServiceDate ? formatAcceptedDate(site.latestServiceDate) : "Not available";
       const servicesLabel = site.uniqueServices.join(", ") || "Unknown";
       const extraPatients = site.uniquePatients.length > 5 ? " +" + (site.uniquePatients.length - 5) + " more" : "";
+      const extraClinicians = (site.uniqueClinicians || []).length > 6 ? " +" + (site.uniqueClinicians.length - 6) + " more" : "";
       const importedLabel = site.batchImportedAt ? formatAcceptedDate(site.batchImportedAt) : "Unknown";
       const disciplineGroupsHtml = buildCompletedServiceDisciplineGroupsHtml(
         site.disciplineGroups || getCompletedServiceDisciplineGroups(site.assignments, site.rows),
@@ -4104,6 +4233,7 @@
         "<div class='popup-line'><strong>Services:</strong> " + escapeHtml(servicesLabel) + "</div>",
         "<div class='popup-line'><strong>Latest Visit:</strong> " + escapeHtml(latestDate) + "</div>",
         disciplineGroupsHtml ? "<div class='popup-section'><div class='popup-label'>Clinicians By Discipline</div>" + disciplineGroupsHtml + "</div>" : "",
+        !disciplineGroupsHtml && clinicianList ? "<div class='popup-line'><strong>Clinicians:</strong> " + escapeHtml(clinicianList + extraClinicians) + "</div>" : "",
         patientList ? "<div class='popup-line'><strong>Patients:</strong> " + escapeHtml(patientList + extraPatients) + "</div>" : "",
         "<div class='helper-text'>Latest import batch: " + escapeHtml(importedLabel) + "</div>",
         "</div>"
@@ -4308,12 +4438,21 @@
           bucket.push(entry);
           assignmentsByServiceRowId.set(entry.service_row_id, bucket);
         });
+        const clinicianLookups = buildClinicianImportLookups();
 
         const sitesByKey = new Map();
 
         (rowsResponse.data || []).forEach(function(row) {
           const siteKey = getCompletedServiceSiteKey(row);
-          const rowAssignments = assignmentsByServiceRowId.get(row.id) || [];
+          const storedAssignments = assignmentsByServiceRowId.get(row.id) || [];
+          const fallbackAssignments = splitCompletedServiceClinicians(row.clinician_names_raw || "", clinicianLookups).map(function(assignment) {
+            return Object.assign({}, assignment, {
+              batch_id: latestBatch.id,
+              service_row_id: row.id,
+              row_number: row.row_number
+            });
+          });
+          const rowAssignments = mergeCompletedServiceAssignments(storedAssignments, fallbackAssignments);
           const site = sitesByKey.get(siteKey) || {
             key: siteKey,
             fullAddress: getCompletedServiceSiteAddress(row),
@@ -5030,6 +5169,7 @@
         pauseEnd: "",
         phone: "",
         email: "",
+        therapyBossUnavailable: false,
         emrCapabilities: getDefaultProfileEmrCapabilities(),
         languages: [],
         restrictedClinicians: [],
@@ -5337,7 +5477,7 @@
     function getDefaultProfileEmrCapabilities() {
       return {
         strata: false,
-        therapyBoss: false,
+        therapyBoss: true,
         axxess: false,
         kinnser: false
       };
@@ -5405,6 +5545,41 @@
       return normalized;
     }
 
+    function isTherapyBossUnavailableValue(value) {
+      if (typeof value === "boolean") return value;
+      const normalized = String(value ?? "").trim().toLowerCase();
+      if (!normalized) return false;
+      return ["true", "1", "yes", "y", "unavailable"].includes(normalized);
+    }
+
+    function getProfileTherapyBossUnavailableFromClinician(clinician) {
+      if (!clinician) return false;
+
+      const explicitUnavailable = getFirstAvailableFieldValue(clinician, [
+        "therapy_boss_unavailable",
+        "therapyBossUnavailable",
+        "emr_therapy_boss_unavailable"
+      ]);
+      if (explicitUnavailable !== "") {
+        return isTherapyBossUnavailableValue(explicitUnavailable);
+      }
+
+      const explicitAvailability = getFirstAvailableFieldValue(clinician, [
+        "therapyBoss",
+        "therapy_boss",
+        "therapyboss",
+        "emr_therapy_boss",
+        "uses_therapy_boss"
+      ]);
+      if (explicitAvailability !== "") {
+        if (typeof explicitAvailability === "boolean") return !explicitAvailability;
+        const normalized = String(explicitAvailability).trim().toLowerCase();
+        if (["false", "0", "no", "n", "inactive", "unavailable"].includes(normalized)) return true;
+      }
+
+      return false;
+    }
+
     function getProfileEmrLabel(key) {
       const option = profileEmrOptions.find(function(item) {
         return item.key === key;
@@ -5414,6 +5589,7 @@
 
     function getProfileEmrCapabilitiesFromUi() {
       const capabilities = getDefaultProfileEmrCapabilities();
+      capabilities.therapyBoss = !Boolean(elements.profileTherapyBossUnavailableToggle.checked);
 
       Array.from(elements.profileEmrList.querySelectorAll("[data-profile-emr-chip]")).forEach(function(chip) {
         const key = chip.dataset.profileEmrChip;
@@ -5426,10 +5602,12 @@
 
     function syncProfileEmrButtons(capabilities) {
       const safeCapabilities = normalizeProfileEmrCapabilities(capabilities);
-      const activeOptions = profileEmrOptions.filter(function(option) {
+      elements.profileTherapyBossUnavailableToggle.checked = !safeCapabilities.therapyBoss;
+
+      const activeOptions = profileExtraEmrOptions.filter(function(option) {
         return safeCapabilities[option.key];
       });
-      const availableOptions = profileEmrOptions.filter(function(option) {
+      const availableOptions = profileExtraEmrOptions.filter(function(option) {
         return !safeCapabilities[option.key];
       });
 
@@ -5438,7 +5616,7 @@
       if (!activeOptions.length) {
         const empty = document.createElement("div");
         empty.className = "profile-emr-empty";
-        empty.textContent = "No EMR systems added yet. Add only the systems this clinician can actually work in.";
+        empty.textContent = "No extra EMR systems added. Therapy Boss is assumed by default.";
         elements.profileEmrList.replaceChildren(empty);
       } else {
         const chips = activeOptions.map(function(option) {
@@ -5723,6 +5901,7 @@
         pauseEnd: elements.profilePauseEnd.value || "",
         phone: elements.profilePhoneInput.value || "",
         email: elements.profileEmailInput.value || "",
+        therapyBossUnavailable: Boolean(elements.profileTherapyBossUnavailableToggle.checked),
         emrCapabilities: getProfileEmrCapabilitiesFromUi(),
         languages: normalizeProfileLanguageList(getProfileLanguagesFromUi()),
         restrictedClinicians: restrictions.clinicians,
@@ -5758,6 +5937,7 @@
       elements.profilePauseEnd.value = safeDraft.pauseEnd;
       elements.profilePhoneInput.value = safeDraft.phone;
       elements.profileEmailInput.value = safeDraft.email;
+      elements.profileTherapyBossUnavailableToggle.checked = Boolean(safeDraft.therapyBossUnavailable);
       syncProfileEmrButtons(safeDraft.emrCapabilities);
       syncProfileLanguages(safeDraft.languages);
       syncProfileRestrictions({
@@ -5821,6 +6001,49 @@
       });
     }
 
+    function getClinicianSidebarStatusInfo(profileDraft, clinician) {
+      const status = normalizeProfileStatusValue(
+        (profileDraft && profileDraft.status) || getFirstAvailableFieldValue(clinician || {}, ["status", "profile_status"]),
+        clinician
+      );
+
+      if (status === "Paused") {
+        const startValue = profileDraft && profileDraft.pauseStart;
+        const endValue = profileDraft && profileDraft.pauseEnd;
+
+        if (startValue && endValue) {
+          return {
+            status: "Paused",
+            detail: formatAcceptedDate(startValue) + " through " + formatAcceptedDate(endValue)
+          };
+        }
+
+        if (startValue) {
+          return {
+            status: "Paused",
+            detail: "Starts " + formatAcceptedDate(startValue)
+          };
+        }
+
+        if (endValue) {
+          return {
+            status: "Paused",
+            detail: "Until " + formatAcceptedDate(endValue)
+          };
+        }
+
+        return {
+          status: "Paused",
+          detail: "Dates not set"
+        };
+      }
+
+      return {
+        status: status,
+        detail: ""
+      };
+    }
+
     function getClinicianStartDateValue(clinician) {
       return getFirstAvailableFieldValue(clinician, [
         "start_date",
@@ -5835,6 +6058,8 @@
     function getProfileDraftForClinician(clinician) {
       const savedDraft = clinician ? (appState.profileDraftByClinicianId.get(clinician.id) || {}) : {};
       const draft = Object.assign(getDefaultProfileDraft(), savedDraft);
+      const hasSavedEmrDraft = Boolean(savedDraft && savedDraft.emrCapabilities && typeof savedDraft.emrCapabilities === "object");
+      const hasSavedTherapyBossUnavailableDraft = Boolean(savedDraft && Object.prototype.hasOwnProperty.call(savedDraft, "therapyBossUnavailable"));
       if (!draft.name && clinician) {
         draft.name = clinician.name || "";
       }
@@ -5865,8 +6090,16 @@
       if (!draft.startDate && clinician) {
         draft.startDate = getClinicianStartDateValue(clinician);
       }
-      if ((!draft.emrCapabilities || !profileEmrKeys.some(function(key) { return draft.emrCapabilities[key]; })) && clinician) {
+      if (!hasSavedEmrDraft && clinician) {
         draft.emrCapabilities = getProfileEmrCapabilitiesFromClinician(clinician);
+      }
+      if (!hasSavedTherapyBossUnavailableDraft && clinician) {
+        draft.therapyBossUnavailable = getProfileTherapyBossUnavailableFromClinician(clinician);
+      }
+      if (draft.therapyBossUnavailable) {
+        draft.emrCapabilities = Object.assign(getDefaultProfileEmrCapabilities(), draft.emrCapabilities || {}, {
+          therapyBoss: false
+        });
       }
       if ((!draft.languages || !draft.languages.length) && clinician) {
         draft.languages = normalizeProfileLanguageList(getFirstAvailableFieldValue(clinician, [
@@ -5936,6 +6169,10 @@
       return fallbackParts.length ? fallbackParts.join(", ") : "Not available";
     }
 
+    function getClinicianPopupStatusInfo(clinician) {
+      return getClinicianSidebarStatusInfo(getProfileDraftForClinician(clinician), clinician);
+    }
+
     function getPopupDetailItemHtml(label, value) {
       return [
         "<div class='popup-kv'>",
@@ -5978,13 +6215,29 @@
 
     function getPopupHtml(clinician) {
       const hasBoundary = appState.territoryByClinicianId.has(clinician.id);
-      const patientInfoDetails = [
-        getPopupDetailItemHtml("Patient Name", getPopupPatientName(clinician)),
-        getPopupDetailItemHtml("Gender", getPopupGender(clinician)),
-        getPopupDetailItemHtml("Primary Payer", getPopupPrimaryPayer(clinician)),
-        getPopupDetailItemHtml("Full Address", getPopupFullAddress(clinician))
-      ].join("");
-      const acceptedDate = formatAcceptedDate(getFirstAvailableFieldValue(clinician, ["accepted_date", "acceptedDate", "referral_accepted_date"]));
+      const statusInfo = getClinicianPopupStatusInfo(clinician);
+      const statusClassName = String(statusInfo.status || "Active").toLowerCase();
+      const profileDraft = getProfileDraftForClinician(clinician);
+      const extraEmrs = profileExtraEmrOptions.filter(function(option) {
+        return Boolean(profileDraft.emrCapabilities && profileDraft.emrCapabilities[option.key]);
+      }).map(function(option) {
+        return option.label;
+      });
+      const languages = normalizeProfileLanguageList(profileDraft.languages);
+      const helperChips = [];
+
+      if (getNewClinicianInfo(profileDraft.startDate).isNew) {
+        helperChips.push("<span class='meta-chip'>New</span>");
+      }
+      if (profileDraft.therapyBossUnavailable) {
+        helperChips.push("<span class='meta-chip'>Therapy Boss unavailable</span>");
+      }
+      if (extraEmrs.length) {
+        helperChips.push("<span class='meta-chip'>" + escapeHtml(extraEmrs.join(", ")) + "</span>");
+      }
+      if (languages.length) {
+        helperChips.push("<span class='meta-chip'>" + escapeHtml(languages.join(", ")) + "</span>");
+      }
 
       return [
         "<div class='popup-card'>",
@@ -5992,18 +6245,12 @@
         "<h3 class='popup-name'>" + escapeHtml(clinician.name || "Unnamed clinician") + " &bull; " + escapeHtml(clinician.discipline || "Unknown") + "</h3>",
         "</div>",
         "<div class='popup-meta'>",
-        "<div class='popup-date-line'>Accepted Date: " + escapeHtml(acceptedDate) + "</div>",
         "<div class='popup-pairing'>",
-        "<div class='popup-label'>Original Pairing</div>",
-        "<div class='popup-value'>" + escapeHtml(getPopupOriginalPairing(clinician)) + "</div>",
+        "<div class='popup-label'>Status</div>",
+        "<div class='popup-value'><span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(statusInfo.status) + "</span>" + (statusInfo.detail ? "<span class='clinician-status-detail'>" + escapeHtml(statusInfo.detail) + "</span>" : "") + "</div>",
         "</div>",
+        helperChips.length ? "<div class='popup-section'><div class='popup-meta'>" + helperChips.join("") + "</div></div>" : "",
         "</div>",
-        "<details class='popup-accordion'>",
-        "<summary>Patient Info</summary>",
-        "<div class='popup-accordion-body'>",
-        patientInfoDetails,
-        "</div>",
-        "</details>",
         "<div class='popup-tools'>",
         "<div class='popup-label'>Quick Tools</div>",
         "<div class='popup-tool-row'>",
@@ -6031,6 +6278,7 @@
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       const profileDraft = clinician ? getProfileDraftForClinician(clinician) : getDefaultProfileDraft();
       const newClinicianInfo = getNewClinicianInfo(profileDraft.startDate);
+      const statusInfo = clinician ? getClinicianPopupStatusInfo(clinician) : { status: "Active" };
       const markerElement = markerEntry.marker.getElement();
       let badge = markerElement.querySelector(".marker-new-star");
 
@@ -6050,8 +6298,14 @@
       const isFocused = appState.focusedId === clinicianId;
       const isVisible = appState.filteredClinicians.some(function(item) { return item.id === clinicianId; });
 
+      if (clinician) {
+        markerEntry.popup.setHTML(getPopupHtml(clinician));
+      }
+
       markerElement.classList.toggle("marker-selected", isSelected);
       markerElement.classList.toggle("marker-focused", isFocused);
+      markerElement.classList.toggle("marker-paused", statusInfo.status === "Paused");
+      markerElement.classList.toggle("marker-inactive", statusInfo.status === "Inactive");
       markerElement.classList.toggle("marker-hidden", !isVisible);
     }
 
@@ -6157,7 +6411,8 @@
         item.className = "clinician-item";
         item.dataset.id = clinician.id;
         const profileDraft = getProfileDraftForClinician(clinician);
-        const newClinicianInfo = getNewClinicianInfo(profileDraft.startDate);
+        const statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
+        const statusClassName = String(statusInfo.status || "Active").toLowerCase();
 
         if (appState.selectedIds.has(clinician.id)) item.classList.add("selected");
         if (appState.focusedId === clinician.id) item.classList.add("focused");
@@ -6166,13 +6421,12 @@
           "<div class='clinician-topline'>",
           "<div class='clinician-name-row'>",
           "<div class='clinician-name'>" + escapeHtml(clinician.name || "Unnamed clinician") + "</div>",
-          newClinicianInfo.isNew ? "<span class='clinician-new-badge'>New</span>" : "",
           "</div>",
           "<span class='discipline-pill' style='background:" + getDisciplineColor(clinician.discipline) + ";'>" + escapeHtml(clinician.discipline || "UNK") + "</span>",
           "</div>",
-          "<div class='clinician-meta'>",
-          "<span class='meta-chip'>ZIP " + escapeHtml(clinician.zip || "N/A") + "</span>",
-          "<span class='meta-chip'>Radius " + escapeHtml(formatRadius(clinician.radius)) + "</span>",
+          "<div class='clinician-status-line'>",
+          "<span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(statusInfo.status) + "</span>",
+          statusInfo.detail ? "<span class='clinician-status-detail'>" + escapeHtml(statusInfo.detail) + "</span>" : "",
           "</div>"
         ].join("");
 
@@ -9030,6 +9284,7 @@
       elements.profilePauseEnd.addEventListener("change", handleProfileDraftChange);
       elements.profilePhoneInput.addEventListener("input", handleProfileDraftChange);
       elements.profileEmailInput.addEventListener("input", handleProfileDraftChange);
+      elements.profileTherapyBossUnavailableToggle.addEventListener("change", handleProfileDraftChange);
       elements.profileEmrSelect.addEventListener("change", function() {
         syncProfileEmrAddButtonState();
       });
