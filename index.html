@@ -45,6 +45,7 @@
     }
 
     .sidebar {
+      position: relative;
       display: flex;
       flex-direction: column;
       min-height: 0;
@@ -52,6 +53,41 @@
       border-right: 1px solid var(--panel-border);
       box-shadow: var(--panel-shadow);
       z-index: 2;
+    }
+
+    .sidebar.resizing {
+      box-shadow: 0 28px 60px rgba(19, 25, 22, 0.24);
+    }
+
+    .sidebar-resize-handle {
+      position: absolute;
+      top: 0;
+      right: -7px;
+      bottom: 0;
+      width: 14px;
+      cursor: ew-resize;
+      touch-action: none;
+      z-index: 4;
+    }
+
+    .sidebar-resize-handle::after {
+      content: "";
+      position: absolute;
+      top: 50%;
+      right: 4px;
+      width: 4px;
+      height: 58px;
+      transform: translateY(-50%);
+      border-radius: 999px;
+      background: linear-gradient(180deg, rgba(168, 184, 176, 0.15) 0%, rgba(135, 152, 144, 0.7) 50%, rgba(168, 184, 176, 0.15) 100%);
+      transition: background 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .sidebar-resize-handle:hover::after,
+    .sidebar-resize-handle:focus-visible::after,
+    .sidebar.resizing .sidebar-resize-handle::after {
+      background: linear-gradient(180deg, rgba(92, 125, 110, 0.25) 0%, rgba(39, 84, 64, 0.82) 50%, rgba(92, 125, 110, 0.25) 100%);
+      box-shadow: 0 0 0 2px rgba(23, 73, 53, 0.12);
     }
 
     .sidebar-scroll {
@@ -220,7 +256,7 @@
 
     .import-kind-row {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 8px;
     }
 
@@ -464,6 +500,64 @@
     .radius-coverage-note {
       font-size: 12px;
       color: var(--muted);
+    }
+
+    .zip-coverage-shell {
+      display: grid;
+      gap: 10px;
+      padding-top: 6px;
+    }
+
+    .zip-coverage-results {
+      display: grid;
+      gap: 8px;
+    }
+
+    .zip-coverage-result {
+      width: 100%;
+      border: 1px solid #d8e3de;
+      border-radius: 14px;
+      background: #fff;
+      padding: 10px 12px;
+      display: grid;
+      gap: 8px;
+      text-align: left;
+      transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .zip-coverage-result:hover,
+    .zip-coverage-result:focus-visible {
+      border-color: #7aa492;
+      transform: translateY(-1px);
+      box-shadow: 0 10px 18px rgba(24, 51, 42, 0.08);
+      outline: none;
+    }
+
+    .zip-coverage-topline {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .zip-coverage-name {
+      min-width: 0;
+      font-size: 13px;
+      font-weight: 800;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    .zip-coverage-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .zip-coverage-detail {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
     }
 
     .list-panel {
@@ -777,6 +871,7 @@
       border-radius: 12px;
       background: #f5faf8;
       border: 1px solid #e0ebe6;
+      box-shadow: inset 3px 0 0 var(--completed-service-discipline-color, #d4e2dc);
     }
 
     .completed-service-groups.compact .completed-service-group {
@@ -788,7 +883,7 @@
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--muted);
+      color: var(--completed-service-discipline-color, var(--muted));
     }
 
     .completed-service-group-names {
@@ -876,16 +971,17 @@
       text-transform: uppercase;
     }
 
-    .map-panel { position: relative; min-width: 0; min-height: 100vh; }
+    .map-panel {
+      position: relative;
+      min-width: 0;
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+    }
 
     .top-toolbar {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      display: grid;
-      grid-template-columns: minmax(180px, 1fr) minmax(0, 1fr);
-      gap: 12px;
+      position: relative;
+      display: block;
       padding: 14px 18px;
       background: rgba(248, 250, 249, 0.92);
       border-bottom: 1px solid rgba(207, 221, 215, 0.95);
@@ -893,10 +989,15 @@
       z-index: 2;
     }
 
+    .map-stage {
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+
     .toolbar-title {
-      display: flex;
-      align-items: center;
-      gap: 12px;
+      display: grid;
+      gap: 4px;
       min-width: 0;
     }
 
@@ -912,17 +1013,151 @@
     .toolbar-subtext {
       font-size: 12px;
       color: var(--muted);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
+      white-space: normal;
     }
 
     .toolbar-actions {
-      display: flex;
-      align-items: center;
+      display: grid;
+      grid-template-columns: 1fr;
+      grid-template-areas:
+        "tools"
+        "utility";
       gap: 10px;
       min-width: 0;
-      justify-content: flex-end;
+      align-items: start;
+    }
+
+    .toolbar-tool-grid {
+      grid-area: tools;
+      display: grid;
+      grid-template-columns: minmax(230px, 1.05fr) minmax(220px, 0.9fr) minmax(220px, 0.9fr) minmax(340px, 1.25fr);
+      gap: 10px;
+      align-items: start;
+      min-width: 0;
+    }
+
+    .toolbar-utility-row {
+      grid-area: utility;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    .floating-status-panel {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      height: 340px;
+      max-height: calc(100% - 32px);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      gap: 8px;
+      width: min(100%, 392px);
+      z-index: 2;
+    }
+
+    .floating-status-panel.resizing {
+      box-shadow: 0 24px 56px rgba(19, 25, 22, 0.2);
+    }
+
+    .floating-status-resize-handle {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: -7px;
+      height: 14px;
+      cursor: ns-resize;
+      touch-action: none;
+      z-index: 4;
+    }
+
+    .floating-status-resize-handle::after {
+      content: "";
+      position: absolute;
+      left: 50%;
+      bottom: 4px;
+      width: 58px;
+      height: 4px;
+      transform: translateX(-50%);
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(168, 184, 176, 0.15) 0%, rgba(135, 152, 144, 0.7) 50%, rgba(168, 184, 176, 0.15) 100%);
+      transition: background 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .floating-status-resize-handle:hover::after,
+    .floating-status-resize-handle:focus-visible::after,
+    .floating-status-panel.resizing .floating-status-resize-handle::after {
+      background: linear-gradient(90deg, rgba(92, 125, 110, 0.25) 0%, rgba(39, 84, 64, 0.82) 50%, rgba(92, 125, 110, 0.25) 100%);
+      box-shadow: 0 0 0 2px rgba(23, 73, 53, 0.12);
+    }
+
+    .toolbar-tool {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+      padding: 10px 12px;
+      border: 1px solid rgba(207, 221, 215, 0.95);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.88);
+      box-shadow: 0 12px 30px rgba(19, 25, 22, 0.08);
+    }
+
+    .toolbar-tool-label {
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .toolbar-inline-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .toolbar-input {
+      min-width: 0;
+      width: 100%;
+    }
+
+    .toolbar-radius-tool {
+      display: grid;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .toolbar-radius-topline {
+      display: grid;
+      grid-template-columns: auto auto minmax(150px, 1fr);
+      gap: 8px;
+      align-items: center;
+    }
+
+    .toolbar-radius-presets {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .toolbar-radius-tool .radius-step-button {
+      min-width: 40px;
+      padding: 9px 0;
+      font-size: 20px;
+    }
+
+    .toolbar-radius-tool .radius-readout {
+      min-height: 42px;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+    }
+
+    .toolbar-radius-tool .btn-secondary {
+      white-space: nowrap;
     }
 
     .toolbar-menu {
@@ -943,14 +1178,14 @@
 
     .toolbar-search {
       position: relative;
-      min-width: 220px;
-      max-width: 320px;
-      flex: 0 1 320px;
+      min-width: 0;
+      max-width: none;
     }
 
     .toolbar-search-input {
       min-width: 0;
       width: 100%;
+      max-width: none;
     }
 
     .toolbar-search-results {
@@ -966,6 +1201,74 @@
       border-radius: 16px;
       box-shadow: 0 18px 40px rgba(19, 25, 22, 0.14);
       z-index: 21;
+    }
+
+    .floating-status-panel .status-card {
+      padding: 10px 12px;
+      gap: 8px;
+      height: 100%;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .floating-status-panel .stat {
+      padding: 10px;
+    }
+
+    .floating-status-panel .stat-value {
+      font-size: 20px;
+    }
+
+    .floating-status-panel .legend-item,
+    .floating-status-panel .meta-chip {
+      padding: 5px 9px;
+      font-size: 11px;
+    }
+
+    .floating-status-panel .zip-coverage-shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 0 0 auto;
+      overflow: hidden;
+    }
+
+    .floating-status-panel .radius-coverage-shell {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      flex: 1 1 auto;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: 2px;
+    }
+
+    .floating-status-panel .zip-coverage-results {
+      max-height: 136px;
+      min-height: 0;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+      padding-right: 2px;
+    }
+
+    .floating-status-panel .radius-coverage-list {
+      max-height: none;
+      min-height: 0;
+      flex: 0 0 auto;
+      display: grid;
+      gap: 8px;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    .floating-status-panel .helper-text,
+    .floating-status-panel .radius-coverage-note,
+    .floating-status-panel .radius-coverage-name {
+      overflow-wrap: anywhere;
+      word-break: normal;
+      line-height: 1.4;
     }
 
     .toolbar-search-results.open {
@@ -1064,7 +1367,7 @@
 
     .map-overlay {
       position: absolute;
-      top: 74px;
+      top: 16px;
       right: 16px;
       width: min(320px, calc(100% - 32px));
       padding: 14px 16px;
@@ -1076,7 +1379,7 @@
 
     .profile-panel {
       position: absolute;
-      top: 74px;
+      top: 16px;
       right: 16px;
       bottom: 16px;
       width: min(400px, calc(100% - 32px));
@@ -1097,7 +1400,7 @@
 
     .therapyboss-dock {
       position: absolute;
-      top: 74px;
+      top: 16px;
       left: 16px;
       bottom: 16px;
       width: min(460px, calc(100% - 32px));
@@ -1669,6 +1972,22 @@
       background: rgba(255, 255, 255, 0.96);
       color: var(--text);
       font: inherit;
+    }
+
+    .profile-header-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 2px;
+      max-width: 100%;
+    }
+
+    .profile-header-action-btn {
+      min-width: 0;
+      padding: 9px 12px;
+      line-height: 1.2;
+      white-space: normal;
+      text-align: center;
     }
 
     .profile-close {
@@ -2345,8 +2664,8 @@
 
     .version-indicator {
       position: absolute;
-      top: 84px;
-      right: 352px;
+      right: 18px;
+      bottom: 18px;
       padding: 6px 10px;
       background: rgba(255, 255, 255, 0.9);
       border-radius: 999px;
@@ -2355,7 +2674,8 @@
       font-weight: 700;
       letter-spacing: 0.04em;
       text-transform: uppercase;
-      z-index: 2;
+      z-index: 1;
+      pointer-events: none;
     }
 
     .mapboxgl-popup-content {
@@ -2660,6 +2980,12 @@
       box-shadow: 0 10px 24px rgba(19, 25, 22, 0.18);
     }
 
+    .clinician-selection-label {
+      max-width: 180px;
+      text-align: center;
+      pointer-events: none;
+    }
+
     .completed-service-radius-label {
       max-width: 220px;
       border-radius: 12px;
@@ -2682,11 +3008,13 @@
         border-bottom: 1px solid var(--panel-border);
       }
 
+      .sidebar-resize-handle {
+        display: none;
+      }
+
       .map-panel { min-height: 48vh; }
       .top-toolbar {
-        position: relative;
         padding: 12px 14px;
-        grid-template-columns: 1fr;
       }
       .toolbar-title {
         display: grid;
@@ -2696,7 +3024,33 @@
         white-space: normal;
       }
       .toolbar-actions {
+        gap: 10px;
+      }
+      .toolbar-tool-grid {
+        grid-template-columns: 1fr;
+      }
+      .toolbar-utility-row {
         justify-content: flex-start;
+      }
+      .floating-status-panel {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        height: min(44vh, 360px);
+        width: min(100%, 360px);
+        max-width: calc(100% - 32px);
+      }
+      .floating-status-resize-handle {
+        display: none;
+      }
+      .toolbar-radius-tool {
+        min-width: 100%;
+      }
+      .toolbar-radius-topline {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .toolbar-radius-topline .radius-control-shell {
+        grid-column: 1 / -1;
       }
       .menu-button {
         width: auto;
@@ -2707,15 +3061,15 @@
         width: auto;
       }
       .version-indicator {
-        top: 98px;
-        right: 16px;
+        right: 12px;
+        bottom: 12px;
       }
       .profile-panel {
-        top: 138px;
+        top: 16px;
         width: calc(100% - 32px);
       }
       .therapyboss-dock {
-        top: 138px;
+        top: 16px;
         width: calc(100% - 32px);
       }
       .therapyboss-actions {
@@ -2745,8 +3099,8 @@
   </style>
 </head>
 <body>
-  <div class="app-shell">
-    <aside class="sidebar">
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <p class="eyebrow">DependableCare Staffing</p>
         <h1>Clinician Coverage Dashboard</h1>
@@ -2754,19 +3108,6 @@
       </div>
       <div class="sidebar-scroll">
         <section class="controls">
-          <details class="control-section" open>
-            <summary>Search</summary>
-            <div class="section-body">
-              <div class="field">
-                <label for="point-search">Point Search</label>
-                <div class="search-row">
-                  <input id="point-search" type="text" placeholder="Search address or ZIP">
-                  <button id="run-point-search" class="btn-primary" type="button">Find</button>
-                </div>
-              </div>
-            </div>
-          </details>
-
           <details class="control-section">
             <summary>Filters</summary>
             <div class="section-body">
@@ -2790,7 +3131,7 @@
                 <div class="filter-chip-grid" role="group" aria-label="Clinician status filter toggles">
                   <button type="button" class="filter-chip-toggle" data-status-filter-toggle="Active" aria-pressed="true">Active</button>
                   <button type="button" class="filter-chip-toggle" data-status-filter-toggle="Paused" aria-pressed="true">Paused</button>
-                  <button type="button" class="filter-chip-toggle" data-status-filter-toggle="Inactive" aria-pressed="true">Inactive</button>
+                  <button type="button" class="filter-chip-toggle" data-status-filter-toggle="Inactive" aria-pressed="false">Inactive</button>
                 </div>
               </div>
 
@@ -2798,7 +3139,6 @@
                 <label>EMR Capabilities</label>
                 <div class="filter-chip-grid" role="group" aria-label="EMR capability filter toggles">
                   <button type="button" class="filter-chip-toggle" data-emr-filter-toggle="strata">Strata</button>
-                  <button type="button" class="filter-chip-toggle" data-emr-filter-toggle="therapyBoss">Therapy Boss</button>
                   <button type="button" class="filter-chip-toggle" data-emr-filter-toggle="axxess">Axxess</button>
                   <button type="button" class="filter-chip-toggle" data-emr-filter-toggle="kinnser">Kinnser</button>
                 </div>
@@ -2816,64 +3156,6 @@
             </div>
           </details>
 
-          <details class="control-section">
-            <summary>Actions</summary>
-            <div class="section-body">
-              <div class="bulk-row">
-                <button id="add-clinician-mode" class="btn-secondary" type="button">Add Clinician</button>
-              </div>
-
-              <div class="field">
-                <label>Radius Selection</label>
-                <div class="button-row">
-                  <button id="radius-mode-toggle" class="btn-secondary" type="button">Radius Mode</button>
-                  <button id="clear-selection" class="btn-secondary" type="button">Clear Selection</button>
-                </div>
-              </div>
-
-              <div class="radius-control-shell">
-                <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">-</button>
-                <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
-                <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
-              </div>
-
-              <div class="radius-row">
-                <button type="button" class="btn-secondary radius-btn active" data-radius="1">1 mile</button>
-                <button type="button" class="btn-secondary radius-btn" data-radius="2">2 miles</button>
-                <button type="button" class="btn-secondary radius-btn" data-radius="5">5 miles</button>
-                <button type="button" class="btn-secondary radius-btn" data-radius="10">10 miles</button>
-              </div>
-
-            </div>
-          </details>
-
-          <details class="control-section" open>
-            <summary>Status</summary>
-            <div class="section-body">
-              <div class="status-card">
-                <div class="status-grid">
-                  <div class="stat">
-                    <div class="stat-label">Visible</div>
-                    <div class="stat-value" id="visible-count">0</div>
-                  </div>
-                  <div class="stat">
-                    <div class="stat-label">Selected</div>
-                    <div class="stat-value" id="selected-count">0</div>
-                  </div>
-                </div>
-
-                <div class="legend">
-                  <span class="legend-item"><span class="legend-swatch" style="background: var(--pt);"></span>PT</span>
-                  <span class="legend-item"><span class="legend-swatch" style="background: var(--pta);"></span>PTA</span>
-                  <span class="legend-item"><span class="legend-swatch" style="background: var(--ot);"></span>OT</span>
-                  <span class="legend-item"><span class="legend-swatch" style="background: var(--ota);"></span>OTA</span>
-                </div>
-
-                <div class="helper-text" id="selection-message">Load clinicians to begin.</div>
-                <div id="radius-coverage-shell" class="radius-coverage-shell" hidden></div>
-              </div>
-            </div>
-          </details>
         </section>
 
         <section class="controls">
@@ -2963,40 +3245,107 @@
           </details>
         </section>
       </div>
+      <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-label="Resize dashboard sidebar" aria-orientation="vertical" tabindex="0"></div>
     </aside>
 
     <main class="map-panel">
       <div class="top-toolbar">
-        <div class="toolbar-title">
-            <div class="toolbar-heading">DependableCare Tools</div>
-            <div class="toolbar-subtext">Map actions, staffing utilities, and admin shortcuts live here.</div>
-        </div>
         <div class="toolbar-actions">
-          <div id="clinician-search-shell" class="toolbar-search">
-            <input id="clinician-search" class="toolbar-select toolbar-search-input" type="text" placeholder="Find clinician by name" autocomplete="off">
-            <div id="clinician-search-results" class="toolbar-search-results" role="listbox" aria-label="Clinician name search results"></div>
+          <div class="toolbar-tool-grid">
+            <div id="clinician-search-shell" class="toolbar-search toolbar-tool">
+              <div class="toolbar-tool-label">Find Clinician</div>
+              <input id="clinician-search" class="toolbar-select toolbar-search-input" type="text" placeholder="Find clinician by name" autocomplete="off">
+              <div id="clinician-search-results" class="toolbar-search-results" role="listbox" aria-label="Clinician name search results"></div>
+            </div>
+            <div class="toolbar-tool toolbar-inline-tool">
+              <div class="toolbar-tool-label">Point Search</div>
+              <div class="toolbar-inline-row">
+                <input id="point-search" class="toolbar-input" type="text" placeholder="Search address or ZIP">
+                <button id="run-point-search" class="btn-primary" type="button">Find</button>
+              </div>
+            </div>
+            <div class="toolbar-tool toolbar-inline-tool">
+              <div class="toolbar-tool-label">ZIP Coverage Check</div>
+              <div class="toolbar-inline-row">
+                <input id="zip-coverage-search" class="toolbar-input" type="text" placeholder="Enter patient ZIP">
+                <button id="run-zip-coverage-check" class="btn-secondary" type="button">Check</button>
+              </div>
+            </div>
+            <div class="toolbar-radius-tool toolbar-tool" aria-label="Radius selection tools">
+              <div class="toolbar-tool-label">Radius Selection</div>
+              <div class="toolbar-radius-topline">
+                <button id="radius-mode-toggle" class="btn-secondary" type="button">Radius Mode</button>
+                <button id="clear-selection" class="btn-secondary" type="button">Clear Selection</button>
+                <div class="radius-control-shell">
+                  <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">-</button>
+                  <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
+                  <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
+                </div>
+              </div>
+              <div class="toolbar-radius-presets radius-row">
+                <button type="button" class="btn-secondary radius-btn active" data-radius="1">1 mile</button>
+                <button type="button" class="btn-secondary radius-btn" data-radius="2">2 miles</button>
+                <button type="button" class="btn-secondary radius-btn" data-radius="5">5 miles</button>
+                <button type="button" class="btn-secondary radius-btn" data-radius="10">10 miles</button>
+              </div>
+            </div>
           </div>
-          <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button">TherapyBoss</button>
-          <select id="style-selector" class="toolbar-select">
-            <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
-            <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
-            <option value="mapbox://styles/mapbox/streets-v12">Mapbox Streets</option>
-            <option value="mapbox://styles/mapbox/light-v11">Mapbox Light</option>
-            <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
-          </select>
-          <div class="toolbar-menu" id="toolbar-menu">
-            <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
-            <div class="menu-panel">
-              <button id="toolbar-add-clinician" class="menu-item" type="button">Add Clinician</button>
-              <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
-              <button id="toolbar-bulk-import" class="menu-item" type="button">Bulk Import</button>
-              <button id="toolbar-clear-map-search" class="menu-item" type="button">Clear Search Pin</button>
+          <div class="toolbar-utility-row">
+            <button id="zoom-extents" class="btn-secondary" type="button">Zoom Extents</button>
+            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button">TherapyBoss</button>
+            <select id="style-selector" class="toolbar-select">
+              <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
+              <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
+              <option value="mapbox://styles/mapbox/streets-v12">Mapbox Streets</option>
+              <option value="mapbox://styles/mapbox/light-v11">Mapbox Light</option>
+              <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
+            </select>
+            <div class="toolbar-menu" id="toolbar-menu">
+              <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
+              <div class="menu-panel">
+                <button id="toolbar-add-clinician" class="menu-item" type="button">Add Clinician</button>
+                <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
+                <button id="toolbar-bulk-import" class="menu-item" type="button">Bulk Import</button>
+                <button id="toolbar-clear-map-search" class="menu-item" type="button">Clear Search Pin</button>
+              </div>
             </div>
           </div>
         </div>
       </div>
+      <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 83</div>
+        <div class="version-indicator">Prototype Rev 104</div>
+      <div class="floating-status-panel">
+        <div class="toolbar-tool-label">Status</div>
+        <div class="status-card">
+          <div class="status-grid">
+            <div class="stat">
+              <div class="stat-label">Visible</div>
+              <div class="stat-value" id="visible-count">0</div>
+            </div>
+            <div class="stat">
+              <div class="stat-label">Selected</div>
+              <div class="stat-value" id="selected-count">0</div>
+            </div>
+          </div>
+
+          <div class="legend">
+            <span class="legend-item"><span class="legend-swatch" style="background: var(--pt);"></span>PT</span>
+            <span class="legend-item"><span class="legend-swatch" style="background: var(--pta);"></span>PTA</span>
+            <span class="legend-item"><span class="legend-swatch" style="background: var(--ot);"></span>OT</span>
+            <span class="legend-item"><span class="legend-swatch" style="background: var(--ota);"></span>OTA</span>
+          </div>
+
+          <div class="helper-text" id="selection-message">Load clinicians to begin.</div>
+          <div class="zip-coverage-shell">
+            <div class="radius-coverage-title">ZIP Coverage Results</div>
+            <div id="zip-coverage-note" class="radius-coverage-note">Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage against the current clinician filters and loaded completed-service history.</div>
+            <div id="zip-coverage-results" class="zip-coverage-results"></div>
+          </div>
+          <div id="radius-coverage-shell" class="radius-coverage-shell" hidden></div>
+        </div>
+        <div id="floating-status-resize-handle" class="floating-status-resize-handle" role="separator" aria-label="Resize status panel" aria-orientation="horizontal" tabindex="0"></div>
+      </div>
       <div class="map-overlay">
         <h2>Map Interaction</h2>
         <p id="map-instructions">Search any address or ZIP to place a location pin, click clinician markers for details, toggle home health or completed-service locations on only when needed, or enable Radius Mode and click the map to select clinicians within the chosen distance.</p>
@@ -3056,6 +3405,7 @@
                   <label>Import Type</label>
                   <div class="import-kind-row" role="group" aria-label="Import type">
                     <button type="button" class="import-kind-button active" data-import-kind-button="clinician_master">Clinicians</button>
+                    <button type="button" class="import-kind-button" data-import-kind-button="zip_coverage">ZIP Coverage</button>
                     <button type="button" class="import-kind-button" data-import-kind-button="home_health_agencies">HH Agencies</button>
                     <button type="button" class="import-kind-button" data-import-kind-button="completed_services">Completed Services</button>
                   </div>
@@ -3127,6 +3477,9 @@
                 <label for="profile-start-date">Start Date</label>
                 <input id="profile-start-date" type="date">
               </div>
+              <div class="profile-header-actions">
+                <button id="profile-isolate-visits" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Visits</button>
+              </div>
             </div>
           </div>
           <div class="profile-panel-side">
@@ -3176,6 +3529,7 @@
                   <div class="profile-field full">
                     <label for="profile-core-preferred-zips-input">Preferred ZIPs</label>
                     <input id="profile-core-preferred-zips-input" type="text" placeholder="Optional preferred ZIP list">
+                    <div class="helper-text">Maintain ZIP coverage in TherapyBoss first, then use the ZIP Coverage import here to sync this list.</div>
                   </div>
                 </div>
                 <div class="helper-text">Address and ZIP will be geocoded when you create the clinician so the new marker lands on the map.</div>
@@ -3303,6 +3657,7 @@
                 <div id="profile-preferred-zips" class="profile-kv-value">None</div>
               </div>
             </div>
+            <div class="helper-text">ZIP coverage is synced from TherapyBoss. Enter or update clinician ZIPs there first, then run the ZIP Coverage import here.</div>
           </section>
 
           <section class="profile-card">
@@ -3467,6 +3822,7 @@
           </section>
         </div>
       </aside>
+      </div>
     </main>
   </div>
 
@@ -3484,6 +3840,10 @@
     const profilePanelDefaultWidth = 400;
     const profilePanelMinWidth = 360;
     const profilePanelWidthStep = 24;
+    const floatingStatusPanelHeightStorageKey = "dependablecareFloatingStatusPanelHeight";
+    const floatingStatusPanelDefaultHeight = 340;
+    const floatingStatusPanelMinHeight = 230;
+    const floatingStatusPanelHeightStep = 28;
     const clinicianNewMonths = 4;
     const therapyBossDefaultUrl = "https://therapyboss.com/goSpring/provider/pendingReferral/list";
     const agencyDraftStorageKey = "dependablecareAgencyDrafts";
@@ -3491,6 +3851,10 @@
     const agencyShowAllStorageKey = "dependablecareShowAllAgencies";
     const agencyMarkerColor = "#42535c";
     const homeHealthAgencySeed = Array.isArray(window.homeHealthAgencySeed) ? window.homeHealthAgencySeed : [];
+    const sidebarPanelWidthStorageKey = "dependablecareSidebarPanelWidth";
+    const sidebarPanelDefaultWidth = 360;
+    const sidebarPanelMinWidth = 340;
+    const sidebarPanelWidthStep = 24;
     const profileEmrOptions = [
       { key: "strata", label: "Strata" },
       { key: "therapyBoss", label: "Therapy Boss" },
@@ -3546,6 +3910,12 @@
       { key: "employee_number", label: "Employee #", aliases: ["employee #", "employee number", "employee no", "employee id"] },
       { key: "taxonomy", label: "Taxonomy", aliases: ["taxonomy"] },
       { key: "active", label: "Active", aliases: ["active", "status", "is active"] }
+    ];
+    const clinicianZipCoverageImportFields = [
+      { key: "zip_code", label: "Zip Code", aliases: ["zip code", "zip", "zipcode"] },
+      { key: "name", label: "Name", aliases: ["name", "clinician", "clinician name", "therapist"] },
+      { key: "discipline", label: "Discipline", aliases: ["discipline", "service"] },
+      { key: "memo", label: "Memo", aliases: ["memo", "notes", "comment", "comments"] }
     ];
     const homeHealthAgencyImportFields = [
       { key: "name", label: "Agency Name", aliases: ["agency", "agency name", "referral source", "name", "provider"] },
@@ -3611,6 +3981,9 @@
     ];
 
     const elements = {
+      appShell: document.getElementById("app-shell"),
+      sidebar: document.getElementById("sidebar"),
+      sidebarResizeHandle: document.getElementById("sidebar-resize-handle"),
       pointSearch: document.getElementById("point-search"),
       runPointSearch: document.getElementById("run-point-search"),
       disciplineToggleButtons: Array.from(document.querySelectorAll("[data-discipline-toggle]")),
@@ -3618,6 +3991,10 @@
       emrFilterButtons: Array.from(document.querySelectorAll("[data-emr-filter-toggle]")),
       languageFilterGrid: document.getElementById("language-filter-grid"),
       zipFilter: document.getElementById("zip-filter"),
+      zipCoverageSearch: document.getElementById("zip-coverage-search"),
+      runZipCoverageCheck: document.getElementById("run-zip-coverage-check"),
+      zipCoverageNote: document.getElementById("zip-coverage-note"),
+      zipCoverageResults: document.getElementById("zip-coverage-results"),
       applyFilters: document.getElementById("apply-filters"),
       clearFilters: document.getElementById("clear-filters"),
       addClinicianMode: document.getElementById("add-clinician-mode"),
@@ -3655,6 +4032,7 @@
       clinicianSearchShell: document.getElementById("clinician-search-shell"),
       clinicianSearchInput: document.getElementById("clinician-search"),
       clinicianSearchResults: document.getElementById("clinician-search-results"),
+      mapStage: document.querySelector(".map-stage"),
       therapyBossToggle: document.getElementById("therapyboss-toggle"),
       therapyBossDock: document.getElementById("therapyboss-dock"),
       therapyBossPin: document.getElementById("therapyboss-pin"),
@@ -3676,11 +4054,14 @@
       importFooterCopy: document.getElementById("import-footer-copy"),
       importReset: document.getElementById("import-reset"),
       importUpload: document.getElementById("import-upload"),
+      zoomExtentsButton: document.getElementById("zoom-extents"),
       listSummary: document.getElementById("list-summary"),
       showCliniciansToggle: document.getElementById("show-clinicians-toggle"),
       visibleCount: document.getElementById("visible-count"),
       selectedCount: document.getElementById("selected-count"),
       selectionMessage: document.getElementById("selection-message"),
+      floatingStatusPanel: document.querySelector(".floating-status-panel"),
+      floatingStatusResizeHandle: document.getElementById("floating-status-resize-handle"),
       radiusCoverageShell: document.getElementById("radius-coverage-shell"),
       mapInstructions: document.getElementById("map-instructions"),
       radiusButtons: Array.from(document.querySelectorAll(".radius-btn")),
@@ -3738,6 +4119,7 @@
       profileCompletedHistory: document.getElementById("profile-completed-history"),
       profileSaveShell: document.getElementById("profile-save-shell"),
       profileOpenHistory: document.getElementById("profile-open-history"),
+      profileIsolateVisits: document.getElementById("profile-isolate-visits"),
       profileVersionHistoryCard: document.getElementById("profile-version-history-card"),
       profileVersionHistoryShell: document.getElementById("profile-version-history-shell"),
       territoryVisibleToggle: document.getElementById("territory-visible-toggle"),
@@ -3790,6 +4172,7 @@
       currentProfileClinicianId: null,
       currentAgencyId: null,
       isolatedClinicianId: null,
+      isolatedCompletedServiceClinicianId: null,
       therapyBossDockOpen: false,
       therapyBossDockPinned: false,
       therapyBossUrl: therapyBossDefaultUrl,
@@ -3829,12 +4212,13 @@
       clinicianSearchActiveIndex: -1,
       agencySearch: "",
       disciplineFilters: new Set(),
-      statusFilters: new Set(["Active", "Paused", "Inactive"]),
+      statusFilters: new Set(["Active", "Paused"]),
       emrFilters: new Set(),
       languageFilters: new Set(),
       sharedLanguageOptions: defaultProfileLanguageOptions.slice(),
       sharedLanguageRecordsByNormalized: new Map(),
       zipFilter: "",
+      zipCoverageCheckQuery: "",
       pointSearch: "",
       radiusMode: false,
       addClinicianMode: false,
@@ -3859,6 +4243,14 @@
       profileResizeActive: false,
       profileResizeStartX: 0,
       profileResizeStartWidth: 0,
+      floatingStatusPanelHeight: null,
+      floatingStatusResizeActive: false,
+      floatingStatusResizeStartY: 0,
+      floatingStatusResizeStartHeight: 0,
+      sidebarPanelWidth: null,
+      sidebarResizeActive: false,
+      sidebarResizeStartX: 0,
+      sidebarResizeStartWidth: 0,
       selectedRadiusMiles: 1,
       selectionCenter: null,
       selectionCenterMarker: null,
@@ -3916,6 +4308,16 @@
         .join(" ");
     }
 
+    function formatClinicianCompactLabel(value) {
+      const formattedName = formatClinicianDisplayName(value);
+      const tokens = formattedName.split(/\s+/).filter(Boolean);
+      if (tokens.length <= 1) return formattedName;
+      const firstName = tokens[0] || "";
+      const remainder = tokens.slice(1).join(" ");
+      if (!firstName || !remainder) return formattedName;
+      return firstName.charAt(0).toUpperCase() + ". " + remainder;
+    }
+
     function getDisciplineColor(discipline) {
       return disciplineColors[discipline] || "#6b7280";
     }
@@ -3965,6 +4367,37 @@
         zip: getNormalizedZip(record.zip),
         active: toBoolean(record.active)
       };
+    }
+
+    function normalizeClinicianZipCoverageRows(rows) {
+      const seenKeys = new Set();
+      return (Array.isArray(rows) ? rows : []).map(function(row) {
+        return {
+          zip_code: getNormalizedZip(row && row.zip_code),
+          discipline: getNormalizedDiscipline(row && row.discipline),
+          memo: normalizeImportTextValue(row && row.memo),
+          clinician_name_raw: normalizeImportTextValue(row && row.clinician_name_raw),
+          updated_at: row && row.updated_at ? row.updated_at : null
+        };
+      }).filter(function(row) {
+        if (!row.zip_code) return false;
+        const rowKey = row.zip_code;
+        if (seenKeys.has(rowKey)) return false;
+        seenKeys.add(rowKey);
+        return true;
+      }).sort(function(left, right) {
+        if (left.zip_code === right.zip_code) {
+          return String(left.discipline || "").localeCompare(String(right.discipline || ""));
+        }
+        return String(left.zip_code || "").localeCompare(String(right.zip_code || ""));
+      });
+    }
+
+    function summarizeClinicianZipCoverage(rows) {
+      const uniqueZips = Array.from(new Set((Array.isArray(rows) ? rows : []).map(function(row) {
+        return getNormalizedZip(row && row.zip_code);
+      }).filter(Boolean)));
+      return uniqueZips.join(", ");
     }
 
     function mergeClinicianProfileRecord(record, profileRow) {
@@ -4658,6 +5091,7 @@
       syncCompletedServiceYearFilterState();
       renderCompletedServiceSidebar();
       renderCompletedServiceMarkers();
+      renderZipCoverageCheck();
       renderRadiusCoverage();
       renderClinicianCompletedServiceHistory();
     }
@@ -4851,6 +5285,50 @@
       return groups;
     }
 
+    function getCompletedServicePrimaryDiscipline(rows, assignments) {
+      const rowLookup = new Map();
+      const disciplineCounts = new Map();
+
+      completedServiceDisciplineOrder.forEach(function(discipline) {
+        disciplineCounts.set(discipline, 0);
+      });
+
+      (rows || []).forEach(function(row) {
+        rowLookup.set(row.id, row);
+        const discipline = getNormalizedDiscipline(row && row.service);
+        if (disciplineCounts.has(discipline)) {
+          disciplineCounts.set(discipline, disciplineCounts.get(discipline) + 1);
+        }
+      });
+
+      (assignments || []).forEach(function(assignment) {
+        const discipline = getCompletedServiceAssignmentDiscipline(assignment, rowLookup);
+        if (disciplineCounts.has(discipline)) {
+          disciplineCounts.set(discipline, disciplineCounts.get(discipline) + 1);
+        }
+      });
+
+      let primaryDiscipline = "";
+      let primaryCount = 0;
+      completedServiceDisciplineOrder.forEach(function(discipline) {
+        const count = disciplineCounts.get(discipline) || 0;
+        if (count > primaryCount) {
+          primaryDiscipline = discipline;
+          primaryCount = count;
+        }
+      });
+
+      if (primaryDiscipline) return primaryDiscipline;
+
+      const fallbackDiscipline = (rows || []).map(function(row) {
+        return getNormalizedDiscipline(row && row.service);
+      }).concat((assignments || []).map(function(assignment) {
+        return getCompletedServiceAssignmentDiscipline(assignment, rowLookup);
+      })).find(Boolean);
+
+      return fallbackDiscipline || "";
+    }
+
     function mergeCompletedServiceAssignments(existingAssignments, fallbackAssignments) {
       const merged = [];
       const seen = new Set();
@@ -4896,8 +5374,8 @@
             return (index > 0 ? "<span>; </span>" : "") + nameHtml;
           }).join("");
 
-          return [
-            "<div class='completed-service-group'>",
+        return [
+            "<div class='completed-service-group' style='--completed-service-discipline-color: " + escapeHtml(getDisciplineColor(group.discipline)) + ";'>",
             "<div class='completed-service-group-title'>" + escapeHtml(group.discipline) + "</div>",
             "<div class='completed-service-group-names'>",
             namesHtml,
@@ -4917,7 +5395,13 @@
           data: { type: "FeatureCollection", features: [] },
           cluster: true,
           clusterRadius: completedServiceClusterRadius,
-          clusterMaxZoom: completedServiceClusterMaxZoom
+          clusterMaxZoom: completedServiceClusterMaxZoom,
+          clusterProperties: {
+            ptSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "PT"], 1, 0]],
+            ptaSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "PTA"], 1, 0]],
+            otSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "OT"], 1, 0]],
+            otaSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "OTA"], 1, 0]]
+          }
         });
       }
 
@@ -4928,7 +5412,34 @@
           source: completedServiceSourceId,
           filter: ["has", "point_count"],
           paint: {
-            "circle-color": "#165e57",
+            "circle-color": [
+              "case",
+              [
+                "all",
+                [">=", ["coalesce", ["get", "ptSiteCount"], 0], ["coalesce", ["get", "ptaSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "ptSiteCount"], 0], ["coalesce", ["get", "otSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "ptSiteCount"], 0], ["coalesce", ["get", "otaSiteCount"], 0]]
+              ], disciplineColors.PT,
+              [
+                "all",
+                [">=", ["coalesce", ["get", "ptaSiteCount"], 0], ["coalesce", ["get", "ptSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "ptaSiteCount"], 0], ["coalesce", ["get", "otSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "ptaSiteCount"], 0], ["coalesce", ["get", "otaSiteCount"], 0]]
+              ], disciplineColors.PTA,
+              [
+                "all",
+                [">=", ["coalesce", ["get", "otSiteCount"], 0], ["coalesce", ["get", "ptSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "otSiteCount"], 0], ["coalesce", ["get", "ptaSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "otSiteCount"], 0], ["coalesce", ["get", "otaSiteCount"], 0]]
+              ], disciplineColors.OT,
+              [
+                "all",
+                [">=", ["coalesce", ["get", "otaSiteCount"], 0], ["coalesce", ["get", "ptSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "otaSiteCount"], 0], ["coalesce", ["get", "ptaSiteCount"], 0]],
+                [">=", ["coalesce", ["get", "otaSiteCount"], 0], ["coalesce", ["get", "otSiteCount"], 0]]
+              ], disciplineColors.OTA,
+              "#42535c"
+            ],
             "circle-opacity": 0.92,
             "circle-stroke-color": "#f7fbfa",
             "circle-stroke-width": 2,
@@ -4968,9 +5479,17 @@
           source: completedServiceSourceId,
           filter: ["!", ["has", "point_count"]],
           paint: {
-            "circle-color": "#f7fbfa",
+            "circle-color": [
+              "match",
+              ["get", "dominantDiscipline"],
+              "PT", disciplineColors.PT,
+              "PTA", disciplineColors.PTA,
+              "OT", disciplineColors.OT,
+              "OTA", disciplineColors.OTA,
+              "#42535c"
+            ],
             "circle-opacity": 0.97,
-            "circle-stroke-color": "#0f766e",
+            "circle-stroke-color": "#f7fbfa",
             "circle-stroke-width": [
               "interpolate",
               ["linear"],
@@ -5025,7 +5544,7 @@
             "text-size": 10
           },
           paint: {
-            "text-color": "#0f766e"
+            "text-color": "#f7fbfa"
           }
         });
       }
@@ -5044,6 +5563,7 @@
             properties: {
               siteKey: site.key,
               fullAddress: site.fullAddress || "",
+              dominantDiscipline: site.primaryDiscipline || "",
               serviceRowsCount: site.serviceRowsCount,
               serviceRowsLabel: site.serviceRowsCount > 9 ? "9+" : String(site.serviceRowsCount || ""),
               uniquePatientCount: site.uniquePatientCount || 0,
@@ -5090,7 +5610,26 @@
     }
 
     function getCompletedServiceRadiusLabelText(site) {
-      const names = (site && site.uniqueClinicians ? site.uniqueClinicians : []).filter(Boolean);
+      const names = [];
+      const seen = new Set();
+
+      (site && Array.isArray(site.disciplineGroups) ? site.disciplineGroups : []).forEach(function(group) {
+        const entries = Array.isArray(group && group.entries)
+          ? group.entries
+          : (group && Array.isArray(group.names) ? group.names.map(function(name) {
+              return { name: name };
+            }) : []);
+
+        entries.forEach(function(entry) {
+          const rawName = String(entry && entry.name ? entry.name : "").trim();
+          if (!rawName) return;
+          const dedupeKey = rawName.toLowerCase();
+          if (seen.has(dedupeKey)) return;
+          seen.add(dedupeKey);
+          names.push(formatClinicianCompactLabel(rawName));
+        });
+      });
+
       if (!names.length) return "";
       const visibleNames = names.slice(0, 3);
       const hiddenCount = Math.max(names.length - visibleNames.length, 0);
@@ -5115,7 +5654,9 @@
 
         visibleKeys.add(site.key);
         if (appState.completedServiceRadiusLabelsByKey.has(site.key)) {
-          appState.completedServiceRadiusLabelsByKey.get(site.key).setLngLat([site.lng, site.lat]);
+          const existingLabelMarker = appState.completedServiceRadiusLabelsByKey.get(site.key);
+          existingLabelMarker.setLngLat([site.lng, site.lat]);
+          existingLabelMarker.getElement().textContent = labelText;
           return;
         }
 
@@ -5675,6 +6216,7 @@
         syncCompletedServiceYearFilterState();
         renderCompletedServiceSidebar();
         renderCompletedServiceMarkers();
+        renderZipCoverageCheck();
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
       } catch (error) {
@@ -5697,6 +6239,7 @@
         syncCompletedServiceYearFilterState();
         renderCompletedServiceSidebar();
         renderCompletedServiceMarkers();
+        renderZipCoverageCheck();
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
       } finally {
@@ -5708,6 +6251,8 @@
     function getCompletedServiceSiteView(site) {
       const hasYearFilter = appState.completedServiceYearFilters.size > 0;
       const hasDisciplineFilter = appState.disciplineFilters.size > 0;
+      const isolatedCompletedServiceClinicianId = String(appState.isolatedCompletedServiceClinicianId || "").trim();
+      const hasCompletedServiceIsolation = Boolean(isolatedCompletedServiceClinicianId);
       const yearFilteredRows = !hasYearFilter
         ? (site.rows || [])
         : (site.rows || []).filter(function(row) {
@@ -5716,12 +6261,30 @@
       const siteRowLookup = new Map(yearFilteredRows.map(function(row) {
         return [row.id, row];
       }));
+      const isolatedAssignmentRowIds = !hasCompletedServiceIsolation
+        ? null
+        : new Set((site.assignments || []).filter(function(assignment) {
+          return String(assignment.matched_clinician_id || "").trim() === isolatedCompletedServiceClinicianId
+            && siteRowLookup.has(assignment.service_row_id);
+        }).map(function(assignment) {
+          return assignment.service_row_id;
+        }));
+
+      if (hasCompletedServiceIsolation && !isolatedAssignmentRowIds.size) {
+        return null;
+      }
+
       const matchingRowIds = !hasDisciplineFilter
-        ? new Set(yearFilteredRows.map(function(row) { return row.id; }))
+        ? new Set(
+          hasCompletedServiceIsolation
+            ? Array.from(isolatedAssignmentRowIds)
+            : yearFilteredRows.map(function(row) { return row.id; })
+        )
         : new Set();
 
       if (hasDisciplineFilter) {
         yearFilteredRows.forEach(function(row) {
+          if (hasCompletedServiceIsolation && !isolatedAssignmentRowIds.has(row.id)) return;
           if (appState.disciplineFilters.has(getNormalizedDiscipline(row.service))) {
             matchingRowIds.add(row.id);
           }
@@ -5729,6 +6292,10 @@
 
         (site.assignments || []).forEach(function(assignment) {
           if (!siteRowLookup.has(assignment.service_row_id)) return;
+          if (
+            hasCompletedServiceIsolation
+            && String(assignment.matched_clinician_id || "").trim() !== isolatedCompletedServiceClinicianId
+          ) return;
           const assignmentDiscipline = getCompletedServiceAssignmentDiscipline(assignment, siteRowLookup);
           if (appState.disciplineFilters.has(assignmentDiscipline)) {
             matchingRowIds.add(assignment.service_row_id);
@@ -5748,6 +6315,10 @@
       const visibleRowIds = new Set(matchingRows.map(function(row) { return row.id; }));
       const matchingAssignments = (site.assignments || []).filter(function(assignment) {
         if (!visibleRowIds.has(assignment.service_row_id)) return false;
+        if (
+          hasCompletedServiceIsolation
+          && String(assignment.matched_clinician_id || "").trim() !== isolatedCompletedServiceClinicianId
+        ) return false;
         if (!hasDisciplineFilter) return true;
         return appState.disciplineFilters.has(getCompletedServiceAssignmentDiscipline(assignment, rowLookup));
       });
@@ -5787,6 +6358,7 @@
         return total + (Number(row.service_visits || 0) || 0);
       }, 0);
       const disciplineGroups = getCompletedServiceDisciplineGroups(matchingAssignments, matchingRows);
+      const primaryDiscipline = getCompletedServicePrimaryDiscipline(matchingRows, matchingAssignments);
 
       return {
         key: site.key,
@@ -5801,6 +6373,7 @@
         uniqueClinicianCount: uniqueClinicians.length,
         uniqueClinicians: uniqueClinicians,
         uniqueServices: uniqueServices,
+        primaryDiscipline: primaryDiscipline,
         disciplineGroups: disciplineGroups,
         latestServiceDate: latestServiceDate,
         totalServiceVisits: totalServiceVisits,
@@ -5982,6 +6555,177 @@
           ? "<div class='radius-coverage-note'>Showing the nearest " + visibleSites.length + " sites out of " + radiusSites.length + " in this radius.</div>"
           : "<div class='radius-coverage-note'>Click a site to focus it on the map, or click a clinician name to open that profile.</div>"
       ].join("");
+    }
+
+    function getClinicianZipCoverageEntries(clinician) {
+      const importedRows = normalizeClinicianZipCoverageRows(clinician && clinician.zip_coverages || []);
+      if (importedRows.length) return importedRows;
+
+      return String((clinician && clinician.preferred_zips) || "")
+        .split(",")
+        .map(function(part) {
+          return getNormalizedZip(part);
+        })
+        .filter(Boolean)
+        .map(function(zipCode) {
+          return {
+            zip_code: zipCode,
+            discipline: getNormalizedDiscipline(clinician && clinician.discipline),
+            memo: null,
+            clinician_name_raw: clinician && clinician.name ? clinician.name : null,
+            updated_at: null
+          };
+        });
+    }
+
+    function getZipCoverageHistoryStatsByClinician(zipCode) {
+      const normalizedZip = getNormalizedZip(zipCode);
+      const statsByClinicianId = new Map();
+      if (!normalizedZip || !appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
+        return statsByClinicianId;
+      }
+
+      getVisibleCompletedServiceSites(false).forEach(function(site) {
+        const zipRows = (site.rows || []).filter(function(row) {
+          return getNormalizedZip(row.zip_code) === normalizedZip;
+        });
+        if (!zipRows.length) return;
+
+        const zipRowLookup = new Map(zipRows.map(function(row) {
+          return [row.id, row];
+        }));
+
+        (site.assignments || []).forEach(function(assignment) {
+          const clinicianId = String((assignment && assignment.matched_clinician_id) || "").trim();
+          if (!clinicianId || !zipRowLookup.has(assignment.service_row_id)) return;
+
+          const stats = statsByClinicianId.get(clinicianId) || {
+            siteKeys: new Set(),
+            rowIds: new Set(),
+            totalVisits: 0,
+            latestServiceDate: null
+          };
+          stats.siteKeys.add(site.key);
+
+          if (!stats.rowIds.has(assignment.service_row_id)) {
+            stats.rowIds.add(assignment.service_row_id);
+            const row = zipRowLookup.get(assignment.service_row_id);
+            stats.totalVisits += Number(row && row.service_visits || 0) || 0;
+            const candidateDate = row && (row.last_visit_date || row.ended_date || row.referral_date || row.start_of_episode || null);
+            if (candidateDate && (!stats.latestServiceDate || new Date(candidateDate) > new Date(stats.latestServiceDate))) {
+              stats.latestServiceDate = candidateDate;
+            }
+          }
+
+          statsByClinicianId.set(clinicianId, stats);
+        });
+      });
+
+      return statsByClinicianId;
+    }
+
+    function getZipCoverageCheckResults(zipCode) {
+      const normalizedZip = getNormalizedZip(zipCode);
+      if (!normalizedZip) return [];
+
+      const historyStatsByClinicianId = getZipCoverageHistoryStatsByClinician(normalizedZip);
+      return appState.filteredClinicians.map(function(clinician) {
+        const matchingZipEntries = getClinicianZipCoverageEntries(clinician).filter(function(entry) {
+          return getNormalizedZip(entry.zip_code) === normalizedZip;
+        });
+        if (!matchingZipEntries.length) return null;
+
+        const profileDraft = getProfileDraftForClinician(clinician);
+        const statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
+        const historyStats = historyStatsByClinicianId.get(clinician.id) || null;
+
+        return {
+          clinician: clinician,
+          statusInfo: statusInfo,
+          zipEntries: matchingZipEntries,
+          historySiteCount: historyStats ? historyStats.siteKeys.size : 0,
+          historyServiceCount: historyStats ? historyStats.rowIds.size : 0,
+          historyVisitCount: historyStats ? historyStats.totalVisits : 0,
+          latestServiceDate: historyStats ? historyStats.latestServiceDate : null
+        };
+      }).filter(Boolean).sort(function(left, right) {
+        if (right.historySiteCount !== left.historySiteCount) {
+          return right.historySiteCount - left.historySiteCount;
+        }
+        const leftDiscipline = String(left.clinician.discipline || "");
+        const rightDiscipline = String(right.clinician.discipline || "");
+        if (leftDiscipline !== rightDiscipline) {
+          return leftDiscipline.localeCompare(rightDiscipline);
+        }
+        return String(left.clinician.name || "").localeCompare(String(right.clinician.name || ""));
+      });
+    }
+
+    function renderZipCoverageCheck() {
+      if (!elements.zipCoverageResults || !elements.zipCoverageNote || !elements.zipCoverageSearch) return;
+
+      const normalizedZip = getNormalizedZip(appState.zipCoverageCheckQuery);
+      elements.zipCoverageSearch.value = appState.zipCoverageCheckQuery || "";
+
+      if (!normalizedZip) {
+        elements.zipCoverageResults.innerHTML = "";
+        elements.zipCoverageNote.textContent = "Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage against the current clinician filters and loaded completed-service history.";
+        return;
+      }
+
+      const results = getZipCoverageCheckResults(normalizedZip);
+      const visibleResults = results.slice(0, 20);
+      const historyLoaded = appState.hasLoadedCompletedServices && !appState.completedServiceLoadError;
+
+      if (!results.length) {
+        elements.zipCoverageResults.innerHTML = "";
+        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage for " + normalizedZip + ".";
+        return;
+      }
+
+      const resultsHtml = visibleResults.map(function(result) {
+        const clinician = result.clinician;
+        const statusClassName = String(result.statusInfo.status || "Active").toLowerCase();
+        const memoText = result.zipEntries.map(function(entry) {
+          return normalizeImportTextValue(entry.memo);
+        }).filter(Boolean)[0] || "";
+        const historyBits = historyLoaded
+          ? [
+              result.historySiteCount ? result.historySiteCount + " sites" : "No loaded site history",
+              result.historyServiceCount ? result.historyServiceCount + " services" : "",
+              result.historyVisitCount ? result.historyVisitCount + " visits" : "",
+              result.latestServiceDate ? "Latest " + formatAcceptedDate(result.latestServiceDate) : ""
+            ].filter(Boolean).join(" | ")
+          : "Completed-service history is not loaded yet for this session.";
+
+        return [
+          "<button type='button' class='zip-coverage-result' data-zip-coverage-clinician='" + escapeHtml(clinician.id) + "'>",
+          "<div class='zip-coverage-topline'>",
+          "<div class='zip-coverage-name'>" + escapeHtml(formatClinicianDisplayName(clinician.name || "Unnamed clinician")) + "</div>",
+          "<span class='discipline-pill' style='background:" + getDisciplineColor(clinician.discipline) + ";'>" + escapeHtml(clinician.discipline || "UNK") + "</span>",
+          "</div>",
+          "<div class='zip-coverage-meta'>",
+          "<span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(result.statusInfo.status) + "</span>",
+          "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>",
+          historyLoaded && result.historySiteCount ? "<span class='meta-chip'>" + result.historySiteCount + " service site" + (result.historySiteCount === 1 ? "" : "s") + "</span>" : "",
+          "</div>",
+          result.statusInfo.detail ? "<div class='zip-coverage-detail'>" + escapeHtml(result.statusInfo.detail) + "</div>" : "",
+          memoText ? "<div class='zip-coverage-detail'>Memo: " + escapeHtml(memoText) + "</div>" : "",
+          "<div class='zip-coverage-detail'>" + escapeHtml(historyBits) + "</div>",
+          "</button>"
+        ].join("");
+      }).join("");
+
+      elements.zipCoverageResults.innerHTML = resultsHtml;
+      elements.zipCoverageNote.textContent = results.length + " clinicians cover ZIP " + normalizedZip + ". Results respect the current clinician filters, and completed-service history reflects the loaded year and discipline view.";
+      if (results.length > visibleResults.length) {
+        elements.zipCoverageNote.textContent += " Showing the first " + visibleResults.length + ".";
+      }
+    }
+
+    function runZipCoverageCheck() {
+      appState.zipCoverageCheckQuery = getNormalizedZip(elements.zipCoverageSearch.value || "");
+      renderZipCoverageCheck();
     }
 
     function getClinicianCompletedServiceHistory(clinicianId) {
@@ -6311,6 +7055,60 @@
       renderCompletedServiceSidebar();
     }
 
+    function syncProfileVisitIsolationButton() {
+      if (!elements.profileIsolateVisits) return;
+
+      const clinicianId = String(appState.currentProfileClinicianId || "").trim();
+      const isCreateMode = appState.profileCreateMode;
+      const isActive = !isCreateMode && Boolean(clinicianId) && appState.isolatedCompletedServiceClinicianId === clinicianId;
+
+      elements.profileIsolateVisits.disabled = isCreateMode || !clinicianId;
+      elements.profileIsolateVisits.classList.toggle("active", isActive);
+      elements.profileIsolateVisits.textContent = isActive
+        ? "Clear Isolated Visits"
+        : "Isolate Visits";
+    }
+
+    function refreshCompletedServiceIsolationViews() {
+      rebuildCompletedServiceVisibleSiteCaches();
+      const visibleCompletedServiceKeys = new Set(getVisibleCompletedServiceSites(false).map(function(site) {
+        return site.key;
+      }));
+      if (appState.focusedCompletedServiceKey && !visibleCompletedServiceKeys.has(appState.focusedCompletedServiceKey)) {
+        appState.focusedCompletedServiceKey = null;
+      }
+      renderCompletedServiceSidebar();
+      renderCompletedServiceMarkers();
+      renderZipCoverageCheck();
+      renderRadiusCoverage();
+      renderClinicianCompletedServiceHistory();
+      updateSummary();
+      syncProfileVisitIsolationButton();
+    }
+
+    async function toggleCompletedServiceClinicianIsolation(clinicianId) {
+      const normalizedClinicianId = String(clinicianId || "").trim();
+      if (!normalizedClinicianId) return;
+
+      appState.isolatedCompletedServiceClinicianId =
+        appState.isolatedCompletedServiceClinicianId === normalizedClinicianId
+          ? null
+          : normalizedClinicianId;
+
+      if (appState.isolatedCompletedServiceClinicianId) {
+        appState.showCompletedServices = true;
+        syncCompletedServiceVisibilityToggle();
+      }
+
+      if (appState.showCompletedServices && !appState.hasLoadedCompletedServices) {
+        await loadCompletedServiceSites();
+        syncProfileVisitIsolationButton();
+        return;
+      }
+
+      refreshCompletedServiceIsolationViews();
+    }
+
     function syncProfileCoreSummary() {
       const name = String(elements.profileNameInput.value || "").trim();
       const discipline = getNormalizedDiscipline(elements.profileDisciplineSelect.value);
@@ -6341,6 +7139,7 @@
           : "Show History";
       elements.profileOpenHistory.disabled = isCreateMode || !appState.currentProfileClinicianId;
       elements.profileVersionHistoryCard.hidden = !appState.profileHistoryExpanded || isCreateMode;
+      syncProfileVisitIsolationButton();
       syncProfileCoreSummary();
     }
 
@@ -6363,6 +7162,7 @@
     }
 
     function syncEmrFilterToggleState() {
+      appState.emrFilters.delete("therapyBoss");
       elements.emrFilterButtons.forEach(function(button) {
         const emrKey = String(button.dataset.emrFilterToggle || "").trim();
         const isActive = appState.emrFilters.has(emrKey);
@@ -6411,7 +7211,7 @@
 
     function toggleEmrFilter(key) {
       const normalized = String(key || "").trim();
-      if (!normalized) return;
+      if (!normalized || normalized === "therapyBoss") return;
 
       if (appState.emrFilters.has(normalized)) {
         appState.emrFilters.delete(normalized);
@@ -6577,6 +7377,232 @@
 
     function isProfilePanelResizable() {
       return window.innerWidth > 980;
+    }
+
+    function isSidebarResizable() {
+      return window.innerWidth > 980;
+    }
+
+    function getSidebarPanelWidthBounds() {
+      return {
+        min: sidebarPanelMinWidth,
+        max: Math.max(sidebarPanelMinWidth, Math.min(680, window.innerWidth - 360))
+      };
+    }
+
+    function clampSidebarPanelWidth(width) {
+      const bounds = getSidebarPanelWidthBounds();
+      return Math.max(bounds.min, Math.min(bounds.max, Math.round(Number(width) || sidebarPanelDefaultWidth)));
+    }
+
+    function loadStoredSidebarPanelWidth() {
+      try {
+        const rawValue = window.localStorage.getItem(sidebarPanelWidthStorageKey);
+        if (!rawValue) return null;
+        const parsedWidth = Number(rawValue);
+        return Number.isFinite(parsedWidth) ? parsedWidth : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function persistSidebarPanelWidth(width) {
+      try {
+        window.localStorage.setItem(sidebarPanelWidthStorageKey, String(width));
+      } catch (error) {
+        // Ignore local storage write issues in prototype mode.
+      }
+    }
+
+    function syncMapSizeAfterLayout() {
+      if (typeof map === "undefined" || !map || typeof map.resize !== "function") return;
+      window.requestAnimationFrame(function() {
+        map.resize();
+      });
+    }
+
+    function isFloatingStatusPanelResizable() {
+      return window.innerWidth > 980;
+    }
+
+    function getFloatingStatusPanelHeightBounds() {
+      const stageHeight = elements.mapStage ? elements.mapStage.getBoundingClientRect().height : 0;
+      const fallbackHeight = Math.max(420, window.innerHeight - 260);
+      const maxHeightBase = stageHeight > 0 ? stageHeight - 32 : fallbackHeight;
+      return {
+        min: floatingStatusPanelMinHeight,
+        max: Math.max(floatingStatusPanelMinHeight, Math.round(maxHeightBase))
+      };
+    }
+
+    function clampFloatingStatusPanelHeight(height) {
+      const bounds = getFloatingStatusPanelHeightBounds();
+      return Math.max(bounds.min, Math.min(bounds.max, Math.round(Number(height) || floatingStatusPanelDefaultHeight)));
+    }
+
+    function loadStoredFloatingStatusPanelHeight() {
+      try {
+        const rawValue = window.localStorage.getItem(floatingStatusPanelHeightStorageKey);
+        if (!rawValue) return null;
+        const parsedHeight = Number(rawValue);
+        return Number.isFinite(parsedHeight) ? parsedHeight : null;
+      } catch (error) {
+        return null;
+      }
+    }
+
+    function persistFloatingStatusPanelHeight(height) {
+      try {
+        window.localStorage.setItem(floatingStatusPanelHeightStorageKey, String(height));
+      } catch (error) {
+        // Ignore local storage write issues in prototype mode.
+      }
+    }
+
+    function applyFloatingStatusPanelHeight(height, persistHeight) {
+      if (!elements.floatingStatusPanel || !elements.floatingStatusResizeHandle) return;
+
+      if (!isFloatingStatusPanelResizable()) {
+        appState.floatingStatusPanelHeight = null;
+        elements.floatingStatusPanel.style.height = "";
+        elements.floatingStatusResizeHandle.setAttribute("aria-hidden", "true");
+        elements.floatingStatusResizeHandle.tabIndex = -1;
+        return;
+      }
+
+      const bounds = getFloatingStatusPanelHeightBounds();
+      const nextHeight = clampFloatingStatusPanelHeight(height);
+      appState.floatingStatusPanelHeight = nextHeight;
+      elements.floatingStatusPanel.style.height = nextHeight + "px";
+      elements.floatingStatusResizeHandle.setAttribute("aria-hidden", "false");
+      elements.floatingStatusResizeHandle.tabIndex = 0;
+      elements.floatingStatusResizeHandle.setAttribute("aria-valuemin", String(bounds.min));
+      elements.floatingStatusResizeHandle.setAttribute("aria-valuemax", String(bounds.max));
+      elements.floatingStatusResizeHandle.setAttribute("aria-valuenow", String(nextHeight));
+
+      if (persistHeight) {
+        persistFloatingStatusPanelHeight(nextHeight);
+      }
+    }
+
+    function syncFloatingStatusPanelHeight() {
+      if (!elements.floatingStatusPanel || !elements.floatingStatusResizeHandle) return;
+
+      if (!isFloatingStatusPanelResizable()) {
+        appState.floatingStatusPanelHeight = null;
+        elements.floatingStatusPanel.style.height = "";
+        elements.floatingStatusResizeHandle.setAttribute("aria-hidden", "true");
+        elements.floatingStatusResizeHandle.tabIndex = -1;
+        return;
+      }
+
+      const heightToApply = appState.floatingStatusPanelHeight || loadStoredFloatingStatusPanelHeight() || floatingStatusPanelDefaultHeight;
+      applyFloatingStatusPanelHeight(heightToApply, false);
+    }
+
+    function resetFloatingStatusPanelHeight() {
+      applyFloatingStatusPanelHeight(floatingStatusPanelDefaultHeight, true);
+    }
+
+    function beginFloatingStatusPanelResize(clientY) {
+      if (!isFloatingStatusPanelResizable() || !elements.floatingStatusPanel) return;
+      appState.floatingStatusResizeActive = true;
+      appState.floatingStatusResizeStartY = clientY;
+      appState.floatingStatusResizeStartHeight = elements.floatingStatusPanel.getBoundingClientRect().height;
+      elements.floatingStatusPanel.classList.add("resizing");
+      document.body.style.cursor = "ns-resize";
+      document.body.style.userSelect = "none";
+    }
+
+    function resizeFloatingStatusPanelFromPointer(clientY) {
+      if (!appState.floatingStatusResizeActive) return;
+      const deltaY = clientY - appState.floatingStatusResizeStartY;
+      applyFloatingStatusPanelHeight(appState.floatingStatusResizeStartHeight + deltaY, false);
+    }
+
+    function endFloatingStatusPanelResize(persistHeight) {
+      if (!appState.floatingStatusResizeActive) return;
+      appState.floatingStatusResizeActive = false;
+      if (elements.floatingStatusPanel) {
+        elements.floatingStatusPanel.classList.remove("resizing");
+      }
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (persistHeight && appState.floatingStatusPanelHeight) {
+        persistFloatingStatusPanelHeight(appState.floatingStatusPanelHeight);
+      }
+    }
+
+    function applySidebarPanelWidth(width, persistWidth) {
+      if (!isSidebarResizable()) {
+        appState.sidebarPanelWidth = null;
+        elements.appShell.style.gridTemplateColumns = "";
+        elements.sidebarResizeHandle.setAttribute("aria-hidden", "true");
+        elements.sidebarResizeHandle.tabIndex = -1;
+        syncMapSizeAfterLayout();
+        return;
+      }
+
+      const bounds = getSidebarPanelWidthBounds();
+      const nextWidth = clampSidebarPanelWidth(width);
+      appState.sidebarPanelWidth = nextWidth;
+      elements.appShell.style.gridTemplateColumns = nextWidth + "px minmax(0, 1fr)";
+      elements.sidebarResizeHandle.setAttribute("aria-hidden", "false");
+      elements.sidebarResizeHandle.tabIndex = 0;
+      elements.sidebarResizeHandle.setAttribute("aria-valuemin", String(bounds.min));
+      elements.sidebarResizeHandle.setAttribute("aria-valuemax", String(bounds.max));
+      elements.sidebarResizeHandle.setAttribute("aria-valuenow", String(nextWidth));
+
+      if (persistWidth) {
+        persistSidebarPanelWidth(nextWidth);
+      }
+
+      syncMapSizeAfterLayout();
+    }
+
+    function syncSidebarPanelWidth() {
+      if (!isSidebarResizable()) {
+        appState.sidebarPanelWidth = null;
+        elements.appShell.style.gridTemplateColumns = "";
+        elements.sidebarResizeHandle.setAttribute("aria-hidden", "true");
+        elements.sidebarResizeHandle.tabIndex = -1;
+        syncMapSizeAfterLayout();
+        return;
+      }
+
+      const widthToApply = appState.sidebarPanelWidth || loadStoredSidebarPanelWidth() || sidebarPanelDefaultWidth;
+      applySidebarPanelWidth(widthToApply, false);
+    }
+
+    function resetSidebarPanelWidth() {
+      applySidebarPanelWidth(sidebarPanelDefaultWidth, true);
+    }
+
+    function beginSidebarPanelResize(clientX) {
+      if (!isSidebarResizable()) return;
+      appState.sidebarResizeActive = true;
+      appState.sidebarResizeStartX = clientX;
+      appState.sidebarResizeStartWidth = elements.sidebar.getBoundingClientRect().width;
+      elements.sidebar.classList.add("resizing");
+      document.body.style.cursor = "ew-resize";
+      document.body.style.userSelect = "none";
+    }
+
+    function resizeSidebarPanelFromPointer(clientX) {
+      if (!appState.sidebarResizeActive) return;
+      const deltaX = clientX - appState.sidebarResizeStartX;
+      applySidebarPanelWidth(appState.sidebarResizeStartWidth + deltaX, false);
+    }
+
+    function endSidebarPanelResize(persistWidth) {
+      if (!appState.sidebarResizeActive) return;
+      appState.sidebarResizeActive = false;
+      elements.sidebar.classList.remove("resizing");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      if (persistWidth && appState.sidebarPanelWidth) {
+        persistSidebarPanelWidth(appState.sidebarPanelWidth);
+      }
     }
 
     function getProfilePanelWidthBounds() {
@@ -7070,7 +8096,13 @@
         const matchingKey = aliases.find(function(alias) {
           return Object.prototype.hasOwnProperty.call(value, alias);
         });
-        normalized[option.key] = matchingKey ? Boolean(value[matchingKey]) : false;
+        if (!matchingKey) {
+          normalized[option.key] = option.key === "therapyBoss"
+            ? normalized[option.key]
+            : false;
+          return;
+        }
+        normalized[option.key] = Boolean(value[matchingKey]);
       });
 
       return normalized;
@@ -8437,7 +9469,6 @@
     function toggleClinicianIsolation(clinicianId) {
       appState.isolatedClinicianId = appState.isolatedClinicianId === clinicianId ? null : clinicianId;
       applyFilters();
-      fitMapToVisibleClinicians();
     }
 
     function getPopupHtml(clinician) {
@@ -8705,6 +9736,16 @@
         return;
       }
 
+      if (appState.isolatedCompletedServiceClinicianId) {
+        const isolatedVisitClinician = appState.clinicians.find(function(clinician) {
+          return clinician.id === appState.isolatedCompletedServiceClinicianId;
+        });
+        elements.selectionMessage.textContent = isolatedVisitClinician
+          ? "Visit isolation active for " + (isolatedVisitClinician.name || "this clinician") + "."
+          : "Visit isolation active.";
+        return;
+      }
+
       if (appState.selectedIds.size > 0) {
         elements.selectionMessage.textContent = appState.selectedIds.size + " clinicians selected.";
         return;
@@ -8750,7 +9791,10 @@
     function applyFilters() {
       const hasDisciplineFilter = appState.disciplineFilters.size > 0;
       const hasStatusFilter = appState.statusFilters.size > 0;
-      const hasEmrFilter = appState.emrFilters.size > 0;
+      const activeEmrFilters = new Set(Array.from(appState.emrFilters).filter(function(key) {
+        return key !== "therapyBoss";
+      }));
+      const hasEmrFilter = activeEmrFilters.size > 0;
       const hasLanguageFilter = appState.languageFilters.size > 0;
       const zipFilter = appState.zipFilter.trim().toLowerCase();
 
@@ -8764,7 +9808,7 @@
         const clinicianEmrCapabilities = normalizeProfileEmrCapabilities(profileDraft.emrCapabilities);
         const clinicianLanguages = new Set(normalizeProfileLanguageList(profileDraft.languages));
         const disciplineMatch = !hasDisciplineFilter || appState.disciplineFilters.has(clinicianDiscipline);
-        const emrMatch = !hasEmrFilter || Array.from(appState.emrFilters).some(function(key) {
+        const emrMatch = !hasEmrFilter || Array.from(activeEmrFilters).some(function(key) {
           return clinicianEmrCapabilities[key];
         });
         const languageMatch = !hasLanguageFilter || Array.from(appState.languageFilters).some(function(language) {
@@ -8789,6 +9833,7 @@
       renderCompletedServiceSidebar();
       syncAllMarkerVisuals();
       renderCompletedServiceMarkers();
+      renderZipCoverageCheck();
       renderRadiusCoverage();
       updateSelectionLabels();
       updateSummary();
@@ -8841,7 +9886,9 @@
       persistCurrentTerritoryDraft();
       appState.profileCreateMode = false;
       appState.addClinicianMode = false;
-      elements.addClinicianMode.classList.remove("active");
+      if (elements.addClinicianMode) {
+        elements.addClinicianMode.classList.remove("active");
+      }
       appState.currentProfileClinicianId = clinicianId;
       elements.profilePhotoShell.textContent = "Photo if available";
       resetProfileVersionHistoryUi();
@@ -8887,7 +9934,9 @@
       appState.currentProfileClinicianId = null;
       appState.profileCreateMode = false;
       appState.addClinicianMode = false;
-      elements.addClinicianMode.classList.remove("active");
+      if (elements.addClinicianMode) {
+        elements.addClinicianMode.classList.remove("active");
+      }
       appState.territoryDrawMode = false;
       elements.territoryDrawToggle.classList.remove("active");
       appState.territoryDraftPoints = [];
@@ -8956,7 +10005,9 @@
         appState.addClinicianMode = false;
         appState.rulerMode = false;
         appState.territoryDrawMode = false;
-        elements.addClinicianMode.classList.remove("active");
+        if (elements.addClinicianMode) {
+          elements.addClinicianMode.classList.remove("active");
+        }
         elements.territoryDrawToggle.classList.remove("active");
         clearRulerVisuals();
         appState.rulerPoints = [];
@@ -8979,7 +10030,9 @@
         appState.rulerPoints = [];
       }
       appState.addClinicianMode = enabled;
-      elements.addClinicianMode.classList.toggle("active", enabled);
+      if (elements.addClinicianMode) {
+        elements.addClinicianMode.classList.toggle("active", enabled);
+      }
       syncMapInstructions();
       updateSummary();
     }
@@ -9290,6 +10343,7 @@
 
     function getImportKindLabel(kind) {
       if (kind === "completed_services") return "Completed Services";
+      if (kind === "zip_coverage") return "ZIP Coverage";
       if (kind === "home_health_agencies") return "Home Health Agencies";
       if (kind === "clinician_master") return "Clinician Master";
       return "Referral Import";
@@ -9310,6 +10364,9 @@
       if (kind === "completed_services") {
         return "Stage TherapyBoss completed-service history, split multi-clinician names, and map service coverage for radius analysis.";
       }
+      if (kind === "zip_coverage") {
+        return "Sync clinician ZIP coverage from TherapyBoss. Maintain ZIPs there first, then import the export here so the profile coverage list stays aligned.";
+      }
       if (kind === "home_health_agencies") {
         return "Upsert the home health agency directory into its own source table so agency profiles and the HH rollout can stay current.";
       }
@@ -9323,6 +10380,9 @@
       if (kind === "completed_services") {
         return "Completed-services uploads now add only new rows to Supabase, skip rows that were already loaded before, and log the latest load date plus the referral-date range from that file.";
       }
+      if (kind === "zip_coverage") {
+        return "ZIP Coverage imports match clinician names from the current directory, replace the synced TherapyBoss ZIP list for matched clinicians in that file, and refresh the profile Preferred ZIPs summary.";
+      }
       if (kind === "home_health_agencies") {
         return "Home health agency imports upsert into a dedicated agency table and feed the HH directory, with local agency notes and map visibility still layered on top in the app.";
       }
@@ -9335,6 +10395,9 @@
     }
 
     function getActiveImportFields() {
+      if (appState.importKind === "zip_coverage") {
+        return clinicianZipCoverageImportFields;
+      }
       if (appState.importKind === "home_health_agencies") {
         return homeHealthAgencyImportFields;
       }
@@ -9348,6 +10411,9 @@
 
     function detectImportKind(headers) {
       const normalizedHeaders = headers.map(normalizeImportHeader);
+      const hasZipCoverageShape = normalizedHeaders.includes("zip code")
+        && normalizedHeaders.includes("name")
+        && normalizedHeaders.includes("discipline");
       const hasCompletedServicesShape = normalizedHeaders.some(function(header) {
         return header.indexOf("clinician names") !== -1;
       }) && normalizedHeaders.some(function(header) {
@@ -9384,6 +10450,7 @@
       const hasAgencyShape = hasAgencyNameLikeHeader && hasAgencyContactShape;
 
       if (hasCompletedServicesShape) return "completed_services";
+      if (hasZipCoverageShape) return "zip_coverage";
       if (hasClinicianMasterShape) return "clinician_master";
       if (hasAgencyShape) return "home_health_agencies";
       return "referral";
@@ -9398,7 +10465,7 @@
 
       elements.importKindCopy.textContent = getImportKindDescription(appState.importKind);
       elements.importFooterCopy.textContent = getImportFooterMessage(appState.importKind);
-      elements.importGeocodeToggle.disabled = appState.importKind === "home_health_agencies";
+      elements.importGeocodeToggle.disabled = appState.importKind === "home_health_agencies" || appState.importKind === "zip_coverage";
       const showClinicianMode = appState.importKind === "clinician_master";
       elements.clinicianImportModeShell.hidden = !showClinicianMode;
       elements.clinicianImportModeButtons.forEach(function(button) {
@@ -9667,9 +10734,11 @@
 
       const previewMatchLabel = appState.importKind === "completed_services"
         ? "Matched Clinicians"
-        : (appState.importKind === "clinician_master" || appState.importKind === "home_health_agencies")
-          ? "Import Plan"
-          : "Matched Clinician";
+        : appState.importKind === "zip_coverage"
+          ? "ZIP Sync"
+          : (appState.importKind === "clinician_master" || appState.importKind === "home_health_agencies")
+            ? "Import Plan"
+            : "Matched Clinician";
 
       const headerHtml = ["<th>#</th>"]
         .concat(mappedFields.map(function(field) {
@@ -10094,6 +11163,16 @@
       return normalizedName ? "name:" + normalizedName : "";
     }
 
+    function getClinicianZipCoverageImportRowKey(row) {
+      const clinicianId = String((row && row.matched_clinician_id) || "").trim();
+      const normalizedName = normalizeImportedClinicianName(row && row.name);
+      const zipCode = getNormalizedZip(row && row.zip_code);
+      return [
+        clinicianId || normalizedName,
+        zipCode || ""
+      ].join("|");
+    }
+
     function findImportedAgencyMatch(name, zip, city) {
       const targetId = buildHomeHealthAgencyId(name, zip, city);
       return appState.agencies.find(function(agency) {
@@ -10222,6 +11301,29 @@
               ? "Update existing " + matchedClinician.name
               : "Skip existing " + matchedClinician.name)
             : (employeeNumber ? "Create or match by employee # " + employeeNumber : "Create new clinician"),
+          raw_payload: rawRow
+        };
+      }
+
+      if (appState.importKind === "zip_coverage") {
+        const clinicianName = normalizeImportTextValue(getMappedImportValue(rawRow, "name"));
+        const zipCode = getNormalizedZip(getMappedImportValue(rawRow, "zip_code"));
+        const disciplineValue = normalizeImportTextValue(getMappedImportValue(rawRow, "discipline"));
+        const matchedClinician = clinicianLookups && clinicianLookups.byName
+          ? findImportedClinicianMatch(clinicianName, clinicianLookups.byName)
+          : null;
+
+        return {
+          row_number: rowNumber,
+          zip_code: zipCode,
+          name: clinicianName,
+          discipline: disciplineValue ? getNormalizedDiscipline(disciplineValue) : null,
+          memo: normalizeImportTextValue(getMappedImportValue(rawRow, "memo")),
+          matched_clinician_id: matchedClinician ? matchedClinician.id : null,
+          matched_clinician_name: matchedClinician ? matchedClinician.name : null,
+          matched_preview: matchedClinician
+            ? "Sync " + (zipCode || "ZIP") + " to " + matchedClinician.name
+            : "No exact clinician match",
           raw_payload: rawRow
         };
       }
@@ -10570,6 +11672,147 @@
         "success"
       );
       await loadAgencies();
+    }
+
+    async function uploadClinicianZipCoverageImportToSupabase() {
+      let batchId = null;
+      try {
+        const normalizedRows = normalizeImportRowsForUpload();
+        const uniqueRows = [];
+        const seenRowKeys = new Set();
+        let duplicateRowsInFileCount = 0;
+        let incompleteRowCount = 0;
+
+        normalizedRows.forEach(function(row) {
+          if (!row.name || !row.zip_code) {
+            incompleteRowCount += 1;
+            return;
+          }
+          const rowKey = getClinicianZipCoverageImportRowKey(row);
+          if (seenRowKeys.has(rowKey)) {
+            duplicateRowsInFileCount += 1;
+            return;
+          }
+          seenRowKeys.add(rowKey);
+          uniqueRows.push(row);
+        });
+
+        const matchedRows = uniqueRows.filter(function(row) {
+          return Boolean(row.matched_clinician_id);
+        });
+        const unmatchedCount = uniqueRows.length - matchedRows.length;
+        const clinicianIds = Array.from(new Set(matchedRows.map(function(row) {
+          return row.matched_clinician_id;
+        }).filter(Boolean)));
+        const matchedClinicianCount = clinicianIds.length;
+
+        if (!matchedRows.length) {
+          throw new Error("No ZIP coverage rows matched clinicians in the current directory. Add the clinicians first or check the name mapping.");
+        }
+
+        setImportStatus("Creating clinician ZIP coverage batch in Supabase...");
+        const batchResponse = await supabaseClient
+          .from("therapy_boss_zip_coverage_import_batches")
+          .insert([{
+            source_system: "Therapy Boss",
+            import_kind: "zip_coverage",
+            file_name: appState.importFileName || "therapyboss-zip-coverage.xlsx",
+            file_type: appState.importFileType || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            row_count: matchedRows.length,
+            metadata: {
+              delimiter: appState.importDelimiter,
+              headers: appState.importHeaders,
+              field_map: appState.importFieldMap,
+              source_row_count: normalizedRows.length,
+              unique_source_row_count: uniqueRows.length,
+              matched_row_count: matchedRows.length,
+              matched_clinician_count: matchedClinicianCount,
+              unmatched_row_count: unmatchedCount,
+              incomplete_row_count: incompleteRowCount,
+              skipped_duplicate_count: duplicateRowsInFileCount
+            }
+          }])
+          .select()
+          .single();
+
+        if (batchResponse.error) throw batchResponse.error;
+        batchId = batchResponse.data.id;
+
+        if (clinicianIds.length) {
+          setImportStatus("Refreshing clinician ZIP coverage sets for " + matchedClinicianCount + " clinicians...");
+          const deleteResponse = await supabaseClient
+            .from("clinician_zip_coverages")
+            .delete()
+            .in("clinician_id", clinicianIds);
+
+          if (deleteResponse.error) throw deleteResponse.error;
+        }
+
+        const coverageRows = matchedRows.map(function(row) {
+          return {
+            clinician_id: row.matched_clinician_id,
+            zip_code: row.zip_code,
+            discipline: row.discipline,
+            memo: row.memo,
+            clinician_name_raw: row.name,
+            source_system: "Therapy Boss",
+            import_batch_id: batchId,
+            updated_at: new Date().toISOString()
+          };
+        });
+
+        for (let index = 0; index < coverageRows.length; index += therapyBossImportChunkSize) {
+          const endIndex = Math.min(index + therapyBossImportChunkSize, coverageRows.length);
+          const chunk = coverageRows.slice(index, endIndex);
+          setImportStatus("Uploading clinician ZIP coverage rows " + (index + 1) + "-" + endIndex + " of " + coverageRows.length + "...");
+
+          const chunkResponse = await supabaseClient
+            .from("clinician_zip_coverages")
+            .insert(chunk);
+
+          if (chunkResponse.error) throw chunkResponse.error;
+        }
+
+        const preferredZipsByClinicianId = new Map();
+        coverageRows.forEach(function(row) {
+          const bucket = preferredZipsByClinicianId.get(row.clinician_id) || new Set();
+          bucket.add(row.zip_code);
+          preferredZipsByClinicianId.set(row.clinician_id, bucket);
+        });
+
+        for (const clinicianId of clinicianIds) {
+          const preferredZipSummary = Array.from(preferredZipsByClinicianId.get(clinicianId) || []).sort().join(", ");
+          const updateResponse = await supabaseClient
+            .from("clinician_v2")
+            .update({ preferred_zips: preferredZipSummary || null })
+            .eq("id", clinicianId);
+
+          if (updateResponse.error) throw updateResponse.error;
+        }
+
+        setImportStatus(
+          "ZIP coverage import complete. " + matchedRows.length + " rows synced for " + matchedClinicianCount + " clinicians, "
+            + unmatchedCount + " unmatched rows skipped, " + duplicateRowsInFileCount + " duplicate rows skipped, "
+            + incompleteRowCount + " incomplete rows ignored.",
+          "success"
+        );
+        await loadClinicians();
+      } catch (error) {
+        console.error("Clinician ZIP coverage import failed:", error);
+
+        if (batchId) {
+          try {
+            await supabaseClient
+              .from("therapy_boss_zip_coverage_import_batches")
+              .delete()
+              .eq("id", batchId);
+          } catch (cleanupError) {
+            console.error("Clinician ZIP coverage batch cleanup failed:", cleanupError);
+          }
+        }
+
+        throw error;
+      }
     }
 
     async function uploadClinicianMasterImportToSupabase() {
@@ -10957,6 +12200,8 @@
       try {
         if (appState.importKind === "completed_services") {
           await uploadCompletedServicesImportToSupabase();
+        } else if (appState.importKind === "zip_coverage") {
+          await uploadClinicianZipCoverageImportToSupabase();
         } else if (appState.importKind === "home_health_agencies") {
           await uploadHomeHealthAgencyImportToSupabase();
         } else if (appState.importKind === "clinician_master") {
@@ -11350,19 +12595,22 @@
       });
 
       selectedVisibleClinicians.forEach(function(clinician) {
+        const labelText = formatClinicianCompactLabel(clinician.name || "Unnamed clinician");
         if (appState.selectionLabelsById.has(clinician.id)) {
-          appState.selectionLabelsById.get(clinician.id).setLngLat([clinician.lng, clinician.lat]);
+          const existingLabelMarker = appState.selectionLabelsById.get(clinician.id);
+          existingLabelMarker.setLngLat([clinician.lng, clinician.lat]);
+          existingLabelMarker.getElement().textContent = labelText;
           return;
         }
 
         const label = document.createElement("div");
-        label.className = "selection-label";
-        label.textContent = clinician.name || "Unnamed clinician";
+        label.className = "selection-label clinician-selection-label";
+        label.textContent = labelText;
 
         const labelMarker = new mapboxgl.Marker({
           element: label,
-          anchor: "left",
-          offset: [16, 0]
+          anchor: "bottom",
+          offset: [0, -42]
         })
           .setLngLat([clinician.lng, clinician.lat])
           .addTo(map);
@@ -11406,7 +12654,7 @@
       appState.agencySearch = "";
       appState.completedServiceSearch = "";
       appState.disciplineFilters.clear();
-      appState.statusFilters = new Set(["Active", "Paused", "Inactive"]);
+      appState.statusFilters = new Set(["Active", "Paused"]);
       appState.emrFilters.clear();
       appState.languageFilters.clear();
       appState.completedServiceYearFilters = new Set((appState.completedServiceAvailableYears || []).slice(0, completedServiceDefaultVisibleYearCount));
@@ -11415,6 +12663,7 @@
       appState.focusedId = null;
       appState.focusedCompletedServiceKey = null;
       appState.isolatedClinicianId = null;
+      appState.isolatedCompletedServiceClinicianId = null;
       appState.territoriesVisible = false;
 
       syncDisciplineToggleState();
@@ -11437,7 +12686,6 @@
       renderCompletedServiceSidebar();
       updateCompletedServiceMarkerVisual();
       closeCompletedServicePopup();
-      fitMapToVisibleClinicians();
       renderTerritories();
       syncMapInstructions();
       updateSummary();
@@ -11705,7 +12953,7 @@
 
       let clinicianRecords = response.data || [];
       try {
-        const [profileResponse, languageResponse, statusLogResponse] = await Promise.all([
+        const [profileResponse, languageResponse, statusLogResponse, zipCoverageResponse] = await Promise.all([
           supabaseClient
             .from("clinician_profiles")
             .select("*"),
@@ -11715,7 +12963,11 @@
           supabaseClient
             .from("clinician_profile_status_log")
             .select("clinician_id, from_status, to_status, reason, changed_at")
-            .order("changed_at", { ascending: false })
+            .order("changed_at", { ascending: false }),
+          supabaseClient
+            .from("clinician_zip_coverages")
+            .select("clinician_id, zip_code, discipline, memo, clinician_name_raw, updated_at")
+            .order("zip_code", { ascending: true })
         ]);
 
         const profileById = new Map();
@@ -11760,11 +13012,37 @@
           console.error("Error loading clinician status history:", statusLogResponse.error);
         }
 
+        const zipCoveragesByClinicianId = new Map();
+        if (!zipCoverageResponse.error) {
+          (zipCoverageResponse.data || []).forEach(function(row) {
+            const clinicianId = String((row && row.clinician_id) || "").trim();
+            const zipCode = getNormalizedZip(row && row.zip_code);
+            if (!clinicianId || !zipCode) return;
+
+            const bucket = zipCoveragesByClinicianId.get(clinicianId) || [];
+            bucket.push({
+              zip_code: zipCode,
+              discipline: getNormalizedDiscipline(row && row.discipline),
+              memo: normalizeImportTextValue(row && row.memo),
+              clinician_name_raw: normalizeImportTextValue(row && row.clinician_name_raw),
+              updated_at: row && row.updated_at ? row.updated_at : null
+            });
+            zipCoveragesByClinicianId.set(clinicianId, bucket);
+          });
+        } else {
+          console.error("Error loading clinician ZIP coverages:", zipCoverageResponse.error);
+        }
+
         clinicianRecords = clinicianRecords.map(function(record) {
           const mergedRecord = mergeClinicianProfileRecord(record, profileById.get(record.id) || null);
           const sharedLanguages = normalizeProfileLanguageList(languagesByClinicianId.get(record.id) || []);
           if (sharedLanguages.length) {
             mergedRecord.languages = sharedLanguages;
+          }
+          const zipCoverageRows = normalizeClinicianZipCoverageRows(zipCoveragesByClinicianId.get(record.id) || []);
+          if (zipCoverageRows.length) {
+            mergedRecord.zip_coverages = zipCoverageRows;
+            mergedRecord.preferred_zips = summarizeClinicianZipCoverage(zipCoverageRows);
           }
           const statusHistory = normalizeStatusHistoryEntries(statusHistoryByClinicianId.get(record.id) || []);
           if (statusHistory.length) {
@@ -11792,6 +13070,12 @@
         appState.isolatedClinicianId = null;
       }
 
+      if (appState.isolatedCompletedServiceClinicianId && !appState.clinicians.some(function(clinician) {
+        return clinician.id === appState.isolatedCompletedServiceClinicianId;
+      })) {
+        appState.isolatedCompletedServiceClinicianId = null;
+      }
+
       const missingProfileClinicianId = appState.currentProfileClinicianId && !appState.clinicians.some(function(clinician) {
         return clinician.id === appState.currentProfileClinicianId;
       }) ? appState.currentProfileClinicianId : null;
@@ -11811,8 +13095,9 @@
       updateSummary();
     }
 
-    function fitMapToVisibleClinicians() {
-      if (!appState.showClinicians) return;
+    function fitMapToVisibleClinicians(includeHiddenClinicians) {
+      const allowHiddenClinicians = includeHiddenClinicians === true;
+      if (!appState.showClinicians && !allowHiddenClinicians) return;
 
       const visibleWithCoordinates = appState.filteredClinicians.filter(hasCoordinates);
       if (!visibleWithCoordinates.length) return;
@@ -11896,6 +13181,7 @@
       if (appState.didBindEvents) return;
       appState.didBindEvents = true;
       syncProfilePanelWidth();
+      syncFloatingStatusPanelHeight();
       appState.therapyBossDockPinned = loadStoredTherapyBossPinned();
       if (!appState.hasLoadedAgencies) {
         loadAgencies();
@@ -11908,6 +13194,7 @@
       syncTherapyBossPinUi();
       syncCompletedServiceVisibilityToggle();
       syncCompletedServiceYearFilterState();
+      syncSidebarPanelWidth();
       if (appState.therapyBossDockPinned) {
         setTherapyBossDockOpen(true);
         setTherapyBossStatus("TherapyBoss launcher pinned. It will reopen automatically in this workspace.");
@@ -11919,6 +13206,36 @@
 
       elements.runPointSearch.addEventListener("click", function() {
         runPointSearch();
+      });
+
+      elements.zoomExtentsButton.addEventListener("click", function() {
+        fitMapToVisibleClinicians(true);
+      });
+
+      elements.runZipCoverageCheck.addEventListener("click", function() {
+        runZipCoverageCheck();
+      });
+
+      elements.zipCoverageSearch.addEventListener("input", function() {
+        if (!String(elements.zipCoverageSearch.value || "").trim()) {
+          appState.zipCoverageCheckQuery = "";
+          renderZipCoverageCheck();
+        }
+      });
+
+      elements.zipCoverageSearch.addEventListener("keydown", function(event) {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          runZipCoverageCheck();
+        }
+      });
+
+      elements.zipCoverageResults.addEventListener("click", function(event) {
+        const resultButton = event.target.closest("[data-zip-coverage-clinician]");
+        if (!resultButton) return;
+        const clinicianId = String(resultButton.dataset.zipCoverageClinician || "").trim();
+        if (!clinicianId) return;
+        focusClinician(clinicianId, true);
       });
 
       elements.clinicianSearchInput.addEventListener("input", function() {
@@ -12130,6 +13447,8 @@
           setImportStatus(
             appState.importKind === "completed_services"
               ? "Geocode setting updated for completed-services upload."
+              : appState.importKind === "zip_coverage"
+                ? "ZIP Coverage imports do not geocode. Keep clinician ZIPs updated in TherapyBoss, then sync them here."
               : appState.importKind === "clinician_master"
                 ? "Geocode setting updated for clinician home-pin import."
                 : "Home health agency locations stay lazy-geocoded in this revision."
@@ -12143,6 +13462,56 @@
 
       elements.importUpload.addEventListener("click", function() {
         uploadImportToSupabase();
+      });
+
+      elements.sidebarResizeHandle.addEventListener("pointerdown", function(event) {
+        if (event.button !== 0 || !isSidebarResizable()) return;
+        event.preventDefault();
+        beginSidebarPanelResize(event.clientX);
+        elements.sidebarResizeHandle.setPointerCapture(event.pointerId);
+      });
+
+      elements.sidebarResizeHandle.addEventListener("pointermove", function(event) {
+        resizeSidebarPanelFromPointer(event.clientX);
+      });
+
+      elements.sidebarResizeHandle.addEventListener("pointerup", function() {
+        endSidebarPanelResize(true);
+      });
+
+      elements.sidebarResizeHandle.addEventListener("pointercancel", function() {
+        endSidebarPanelResize(true);
+      });
+
+      elements.sidebarResizeHandle.addEventListener("lostpointercapture", function() {
+        endSidebarPanelResize(true);
+      });
+
+      elements.sidebarResizeHandle.addEventListener("dblclick", function() {
+        resetSidebarPanelWidth();
+      });
+
+      elements.sidebarResizeHandle.addEventListener("keydown", function(event) {
+        if (!isSidebarResizable()) return;
+        if (event.key === "ArrowLeft") {
+          event.preventDefault();
+          applySidebarPanelWidth((appState.sidebarPanelWidth || sidebarPanelDefaultWidth) - sidebarPanelWidthStep, true);
+          return;
+        }
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          applySidebarPanelWidth((appState.sidebarPanelWidth || sidebarPanelDefaultWidth) + sidebarPanelWidthStep, true);
+          return;
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          applySidebarPanelWidth(getSidebarPanelWidthBounds().min, true);
+          return;
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          applySidebarPanelWidth(getSidebarPanelWidthBounds().max, true);
+        }
       });
 
       elements.profileResizeHandle.addEventListener("pointerdown", function(event) {
@@ -12195,8 +13564,63 @@
         }
       });
 
+      elements.floatingStatusResizeHandle.addEventListener("pointerdown", function(event) {
+        if (event.button !== 0 || !isFloatingStatusPanelResizable()) return;
+        event.preventDefault();
+        beginFloatingStatusPanelResize(event.clientY);
+        elements.floatingStatusResizeHandle.setPointerCapture(event.pointerId);
+      });
+
+      elements.floatingStatusResizeHandle.addEventListener("pointermove", function(event) {
+        resizeFloatingStatusPanelFromPointer(event.clientY);
+      });
+
+      elements.floatingStatusResizeHandle.addEventListener("pointerup", function() {
+        endFloatingStatusPanelResize(true);
+      });
+
+      elements.floatingStatusResizeHandle.addEventListener("pointercancel", function() {
+        endFloatingStatusPanelResize(true);
+      });
+
+      elements.floatingStatusResizeHandle.addEventListener("lostpointercapture", function() {
+        endFloatingStatusPanelResize(true);
+      });
+
+      elements.floatingStatusResizeHandle.addEventListener("dblclick", function() {
+        resetFloatingStatusPanelHeight();
+      });
+
+      elements.floatingStatusResizeHandle.addEventListener("keydown", function(event) {
+        if (!isFloatingStatusPanelResizable()) return;
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          applyFloatingStatusPanelHeight((appState.floatingStatusPanelHeight || floatingStatusPanelDefaultHeight) - floatingStatusPanelHeightStep, true);
+          return;
+        }
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          applyFloatingStatusPanelHeight((appState.floatingStatusPanelHeight || floatingStatusPanelDefaultHeight) + floatingStatusPanelHeightStep, true);
+          return;
+        }
+        if (event.key === "Home") {
+          event.preventDefault();
+          applyFloatingStatusPanelHeight(getFloatingStatusPanelHeightBounds().min, true);
+          return;
+        }
+        if (event.key === "End") {
+          event.preventDefault();
+          applyFloatingStatusPanelHeight(getFloatingStatusPanelHeightBounds().max, true);
+        }
+      });
+
       elements.profileSaveShell.addEventListener("click", function() {
         saveCurrentClinicianProfile();
+      });
+
+      elements.profileIsolateVisits.addEventListener("click", function() {
+        if (!appState.currentProfileClinicianId || appState.profileCreateMode) return;
+        toggleCompletedServiceClinicianIsolation(appState.currentProfileClinicianId);
       });
 
       elements.profileOpenHistory.addEventListener("click", function() {
@@ -12531,7 +13955,6 @@
       elements.applyFilters.addEventListener("click", function() {
         appState.zipFilter = elements.zipFilter.value;
         applyFilters();
-        fitMapToVisibleClinicians();
       });
 
       elements.clearFilters.addEventListener("click", function() {
@@ -12547,7 +13970,6 @@
       elements.statusFilterButtons.forEach(function(button) {
         button.addEventListener("click", function() {
           toggleStatusFilter(button.dataset.statusFilterToggle);
-          fitMapToVisibleClinicians();
         });
       });
 
@@ -12574,13 +13996,15 @@
         setRadiusMode(!appState.radiusMode);
       });
 
-      elements.addClinicianMode.addEventListener("click", function() {
-        if (appState.addClinicianMode && appState.profileCreateMode) {
-          closeClinicianProfile();
-          return;
-        }
-        startAddClinicianFlow();
-      });
+      if (elements.addClinicianMode) {
+        elements.addClinicianMode.addEventListener("click", function() {
+          if (appState.addClinicianMode && appState.profileCreateMode) {
+            closeClinicianProfile();
+            return;
+          }
+          startAddClinicianFlow();
+        });
+      }
 
       elements.clearSelection.addEventListener("click", function() {
         clearSelection(false);
@@ -12691,7 +14115,9 @@
       });
 
       window.addEventListener("resize", function() {
+        syncSidebarPanelWidth();
         syncProfilePanelWidth();
+        syncFloatingStatusPanelHeight();
       });
 
       window.addEventListener("keydown", function(event) {
