@@ -758,6 +758,60 @@
       scrollbar-color: rgba(24, 51, 42, 0.4) rgba(214, 229, 224, 0.5);
     }
 
+    .completed-service-load-progress {
+      display: grid;
+      gap: 7px;
+      padding: 10px 12px;
+      border: 1px solid rgba(119, 154, 137, 0.24);
+      border-radius: 14px;
+      background: rgba(247, 251, 250, 0.92);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+    }
+
+    .completed-service-load-progress[hidden] {
+      display: none;
+    }
+
+    .completed-service-load-progress-topline {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .completed-service-load-progress-phase {
+      font-weight: 800;
+      color: var(--ink);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 11px;
+    }
+
+    .completed-service-load-progress-track {
+      position: relative;
+      height: 8px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(159, 182, 169, 0.26);
+    }
+
+    .completed-service-load-progress-fill {
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, rgba(43, 127, 93, 0.72) 0%, rgba(27, 118, 108, 0.96) 100%);
+      transition: width 180ms ease;
+    }
+
+    .completed-service-load-progress-detail {
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
     .agency-item {
       padding: 14px 14px 13px;
       border: 1px solid #dce6e1;
@@ -3233,6 +3287,16 @@
                   <button id="completed-service-load-older" type="button" class="btn-secondary">Load Older Years</button>
                 </div>
               </div>
+              <div id="completed-service-load-progress" class="completed-service-load-progress" hidden>
+                <div class="completed-service-load-progress-topline">
+                  <span id="completed-service-load-phase" class="completed-service-load-progress-phase">Loading completed services</span>
+                  <span id="completed-service-load-elapsed" class="helper-text">0.0s</span>
+                </div>
+                <div class="completed-service-load-progress-track">
+                  <div id="completed-service-load-fill" class="completed-service-load-progress-fill"></div>
+                </div>
+                <div id="completed-service-load-detail" class="completed-service-load-progress-detail">Preparing completed-service history...</div>
+              </div>
               <div class="agency-directory-meta">
                 <span id="completed-service-list-summary" class="helper-text">0 loaded</span>
                 <span id="completed-service-meta-detail" class="helper-text">No completed-service load yet</span>
@@ -3314,7 +3378,7 @@
       </div>
       <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 104</div>
+        <div class="version-indicator">Prototype Rev 108</div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Status</div>
         <div class="status-card">
@@ -3559,6 +3623,11 @@
                 </div>
               </div>
               <div id="profile-pause-indicator" class="pause-indicator full"></div>
+              <div class="profile-field full">
+                <label for="profile-ignore-history-before">Ignore History Before</label>
+                <input id="profile-ignore-history-before" type="date">
+                <div class="helper-text">Use this only if the clinician moved. Coverage tools will ignore older visits before this date, but the full visit history stays available in the profile.</div>
+              </div>
               <div class="profile-field">
                 <label for="profile-phone-input">Phone</label>
                 <input id="profile-phone-input" type="text" placeholder="Phone number">
@@ -3833,6 +3902,7 @@
     const supabaseUrl = "https://jpemlcuxjvynlbeygukb.supabase.co";
     const supabaseKey = "sb_publishable_C7GdOG7L64y92IDDreglcQ_C0jNcbhl";
     const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+    let completedServiceLoadTimerHandle = null;
 
     const disciplineColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
     const profilePanelWidthStorageKey = "dependablecareProfilePanelWidth";
@@ -4028,6 +4098,11 @@
       completedServiceMetaDetail: document.getElementById("completed-service-meta-detail"),
       completedServiceRenderNote: document.getElementById("completed-service-render-note"),
       completedServiceLoadOlder: document.getElementById("completed-service-load-older"),
+      completedServiceLoadProgress: document.getElementById("completed-service-load-progress"),
+      completedServiceLoadPhase: document.getElementById("completed-service-load-phase"),
+      completedServiceLoadElapsed: document.getElementById("completed-service-load-elapsed"),
+      completedServiceLoadFill: document.getElementById("completed-service-load-fill"),
+      completedServiceLoadDetail: document.getElementById("completed-service-load-detail"),
       showCompletedServicesToggle: document.getElementById("show-completed-services-toggle"),
       clinicianSearchShell: document.getElementById("clinician-search-shell"),
       clinicianSearchInput: document.getElementById("clinician-search"),
@@ -4098,6 +4173,7 @@
       profilePauseStart: document.getElementById("profile-pause-start"),
       profilePauseEnd: document.getElementById("profile-pause-end"),
       profilePauseIndicator: document.getElementById("profile-pause-indicator"),
+      profileIgnoreHistoryBefore: document.getElementById("profile-ignore-history-before"),
       profilePhoneInput: document.getElementById("profile-phone-input"),
       profileEmailInput: document.getElementById("profile-email-input"),
       profileTherapyBossUnavailableToggle: document.getElementById("profile-therapyboss-unavailable"),
@@ -4207,6 +4283,10 @@
       completedServiceBatchMeta: null,
       completedServiceLoadError: "",
       completedServiceLoadInProgress: false,
+      completedServiceLoadPhase: "",
+      completedServiceLoadDetail: "",
+      completedServiceLoadPercent: 0,
+      completedServiceLoadStartedAt: 0,
       completedServiceSearchDebounceHandle: null,
       clinicianSearchResultIds: [],
       clinicianSearchActiveIndex: -1,
@@ -4261,6 +4341,9 @@
       hasLoadedClinicians: false,
       hasLoadedAgencies: false,
       hasLoadedCompletedServices: false,
+      clinicianCompletedServiceHistoryByClinicianId: new Map(),
+      clinicianCompletedServiceHistoryLoadingIds: new Set(),
+      clinicianCompletedServiceHistoryErrorByClinicianId: new Map(),
       didBindEvents: false
     };
 
@@ -5064,6 +5147,63 @@
       elements.completedServiceLoadOlder.textContent = appState.completedServiceLoadInProgress ? "Loading Older Years..." : "Load Older Years";
     }
 
+    function formatCompletedServiceLoadElapsed() {
+      if (!appState.completedServiceLoadStartedAt) return "0.0s";
+      const elapsedMs = Math.max(Date.now() - appState.completedServiceLoadStartedAt, 0);
+      return (elapsedMs / 1000).toFixed(1) + "s";
+    }
+
+    function ensureCompletedServiceLoadTimer() {
+      if (!appState.completedServiceLoadInProgress) {
+        if (completedServiceLoadTimerHandle) {
+          window.clearInterval(completedServiceLoadTimerHandle);
+          completedServiceLoadTimerHandle = null;
+        }
+        return;
+      }
+
+      if (completedServiceLoadTimerHandle) return;
+      completedServiceLoadTimerHandle = window.setInterval(function() {
+        renderCompletedServiceLoadProgress();
+      }, 200);
+    }
+
+    function renderCompletedServiceLoadProgress() {
+      if (!elements.completedServiceLoadProgress) return;
+
+      const isVisible = Boolean(appState.completedServiceLoadInProgress);
+      elements.completedServiceLoadProgress.hidden = !isVisible;
+      if (!isVisible) {
+        ensureCompletedServiceLoadTimer();
+        return;
+      }
+
+      elements.completedServiceLoadPhase.textContent = appState.completedServiceLoadPhase || "Loading completed services";
+      elements.completedServiceLoadElapsed.textContent = formatCompletedServiceLoadElapsed();
+      elements.completedServiceLoadDetail.textContent = appState.completedServiceLoadDetail || "Preparing completed-service history...";
+      elements.completedServiceLoadFill.style.width = Math.max(6, Math.min(100, Number(appState.completedServiceLoadPercent || 0))) + "%";
+      ensureCompletedServiceLoadTimer();
+    }
+
+    function setCompletedServiceLoadProgress(phase, detail, percent, options) {
+      const safeOptions = options || {};
+      if (safeOptions.resetStart || !appState.completedServiceLoadStartedAt) {
+        appState.completedServiceLoadStartedAt = Date.now();
+      }
+      appState.completedServiceLoadPhase = String(phase || "Loading completed services").trim();
+      appState.completedServiceLoadDetail = String(detail || "").trim();
+      appState.completedServiceLoadPercent = Number(percent || 0);
+      renderCompletedServiceLoadProgress();
+    }
+
+    function clearCompletedServiceLoadProgress() {
+      appState.completedServiceLoadPhase = "";
+      appState.completedServiceLoadDetail = "";
+      appState.completedServiceLoadPercent = 0;
+      appState.completedServiceLoadStartedAt = 0;
+      renderCompletedServiceLoadProgress();
+    }
+
     function getCompletedServiceRecentCutoffIsoDate() {
       const cutoff = new Date();
       cutoff.setMonth(0, 1);
@@ -5158,6 +5298,131 @@
         data: assignmentRows,
         error: null
       };
+    }
+
+    async function fetchCompletedServiceRowsForIds(serviceRowIds) {
+      const normalizedRowIds = Array.from(new Set((serviceRowIds || []).map(function(rowId) {
+        return String(rowId || "").trim();
+      }).filter(Boolean)));
+
+      if (!normalizedRowIds.length) {
+        return {
+          data: [],
+          error: null
+        };
+      }
+
+      const rowResults = [];
+      for (const rowIdChunk of chunkArray(normalizedRowIds, completedServiceAssignmentFetchChunkSize)) {
+        const response = await supabaseClient
+          .from("therapy_boss_completed_service_import_rows")
+          .select("id, batch_id, row_number, referral_external_id, patient_external_id, patient_name, full_address, street, city, state, zip_code, patient_lat, patient_lng, service, start_of_episode, referral_date, ended_date, last_visit_date, service_visits, clinician_names_raw")
+          .in("id", rowIdChunk);
+
+        if (response.error) {
+          return response;
+        }
+
+        rowResults.push.apply(rowResults, response.data || []);
+      }
+
+      return {
+        data: rowResults,
+        error: null
+      };
+    }
+
+    function getCompletedServiceClinicianSearchPatterns(clinicianName) {
+      return Array.from(new Set(Array.from(getImportedClinicianNameVariants(clinicianName)).map(function(variant) {
+        return String(variant || "")
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+          .join("*");
+      }).filter(function(variant) {
+        return variant && variant.length >= 4;
+      }).map(function(variant) {
+        return "*" + variant + "*";
+      }))).slice(0, 6);
+    }
+
+    async function fetchCompletedServiceFallbackHistoryForClinician(clinicianId, clinician) {
+      const normalizedClinicianId = String(clinicianId || "").trim();
+      const clinicianName = String(clinician && clinician.name || "").trim();
+      const searchPatterns = getCompletedServiceClinicianSearchPatterns(clinicianName);
+
+      if (!normalizedClinicianId || !clinicianName || !searchPatterns.length) {
+        return {
+          rows: [],
+          assignments: [],
+          error: null
+        };
+      }
+
+      const rowResponse = await fetchAllSupabaseRows(function(from, to) {
+        return supabaseClient
+          .from("therapy_boss_completed_service_import_rows")
+          .select("id, batch_id, row_number, referral_external_id, patient_external_id, patient_name, full_address, street, city, state, zip_code, patient_lat, patient_lng, service, start_of_episode, referral_date, ended_date, last_visit_date, service_visits, clinician_names_raw")
+          .or(searchPatterns.map(function(pattern) {
+            return "clinician_names_raw.ilike." + pattern;
+          }).join(","))
+          .order("created_at", { ascending: true })
+          .order("row_number", { ascending: true })
+          .range(from, to);
+      });
+
+      if (rowResponse.error) {
+        return {
+          rows: [],
+          assignments: [],
+          error: rowResponse.error
+        };
+      }
+
+      const clinicianLookups = buildClinicianImportLookups();
+      const matchingRows = [];
+      const matchingAssignments = [];
+
+      (rowResponse.data || []).forEach(function(row) {
+        const fallbackAssignments = splitCompletedServiceClinicians(row.clinician_names_raw || "", clinicianLookups)
+          .map(function(assignment) {
+            return Object.assign({}, assignment, {
+              batch_id: row.batch_id,
+              service_row_id: row.id,
+              row_number: row.row_number
+            });
+          })
+          .filter(function(assignment) {
+            return String(assignment.matched_clinician_id || "").trim() === normalizedClinicianId;
+          });
+
+        if (!fallbackAssignments.length) return;
+        matchingRows.push(row);
+        matchingAssignments.push.apply(matchingAssignments, fallbackAssignments);
+      });
+
+      return {
+        rows: matchingRows,
+        assignments: matchingAssignments,
+        error: null
+      };
+    }
+
+    function mergeCompletedServiceAssignmentsByRow(assignments) {
+      const assignmentsByRowId = new Map();
+      (assignments || []).forEach(function(assignment) {
+        const rowId = String(assignment && assignment.service_row_id || "").trim();
+        if (!rowId) return;
+        const bucket = assignmentsByRowId.get(rowId) || [];
+        bucket.push(assignment);
+        assignmentsByRowId.set(rowId, bucket);
+      });
+
+      const mergedAssignments = [];
+      assignmentsByRowId.forEach(function(bucket) {
+        mergedAssignments.push.apply(mergedAssignments, mergeCompletedServiceAssignments(bucket, []));
+      });
+      return mergedAssignments;
     }
 
     function buildCompletedServiceVisibleSiteIndexes() {
@@ -5329,9 +5594,18 @@
       return fallbackDiscipline || "";
     }
 
+    function getCompletedServiceAssignmentMergeScore(assignment) {
+      if (!assignment) return 0;
+      let score = 0;
+      if (String(assignment.matched_clinician_id || "").trim()) score += 10;
+      if (String(assignment.matched_clinician_name || "").trim()) score += 4;
+      if (String(assignment.parsed_clinician_name || "").trim()) score += 2;
+      if (String(assignment.parsed_discipline || "").trim()) score += 1;
+      return score;
+    }
+
     function mergeCompletedServiceAssignments(existingAssignments, fallbackAssignments) {
-      const merged = [];
-      const seen = new Set();
+      const mergedByKey = new Map();
 
       function pushAssignment(assignment) {
         if (!assignment) return;
@@ -5340,14 +5614,29 @@
         ).trim().toLowerCase();
         const disciplineKey = String(assignment.parsed_discipline || "").trim().toUpperCase();
         const dedupeKey = nameKey + "|" + disciplineKey;
-        if (!nameKey || seen.has(dedupeKey)) return;
-        seen.add(dedupeKey);
-        merged.push(assignment);
+        if (!nameKey) return;
+
+        const existing = mergedByKey.get(dedupeKey) || null;
+        if (!existing) {
+          mergedByKey.set(dedupeKey, assignment);
+          return;
+        }
+
+        const existingScore = getCompletedServiceAssignmentMergeScore(existing);
+        const nextScore = getCompletedServiceAssignmentMergeScore(assignment);
+        if (nextScore > existingScore) {
+          mergedByKey.set(dedupeKey, Object.assign({}, existing, assignment));
+          return;
+        }
+
+        if (nextScore === existingScore) {
+          mergedByKey.set(dedupeKey, Object.assign({}, assignment, existing));
+        }
       }
 
       (existingAssignments || []).forEach(pushAssignment);
       (fallbackAssignments || []).forEach(pushAssignment);
-      return merged;
+      return Array.from(mergedByKey.values());
     }
 
     function buildCompletedServiceDisciplineGroupsHtml(groups, options) {
@@ -5758,14 +6047,17 @@
 
       source.setData(getCompletedServiceGeoJson());
       syncCompletedServiceLayerFocus();
-      if (appState.focusedCompletedServiceKey && !appState.completedServiceSitesByKey.has(appState.focusedCompletedServiceKey)) {
+      const focusedVisibleSite = appState.focusedCompletedServiceKey
+        ? getVisibleCompletedServiceSiteByKey(appState.focusedCompletedServiceKey, false)
+        : null;
+      if (appState.focusedCompletedServiceKey && !focusedVisibleSite) {
         closeCompletedServicePopup();
       } else if (
         appState.completedServicePopup
         && appState.completedServicePopup.isOpen()
         && appState.focusedCompletedServiceKey
       ) {
-        const focusedSite = appState.completedServiceSitesByKey.get(appState.focusedCompletedServiceKey) || null;
+        const focusedSite = focusedVisibleSite || appState.completedServiceSitesByKey.get(appState.focusedCompletedServiceKey) || null;
         if (focusedSite) {
           openCompletedServicePopup(focusedSite, [focusedSite.lng, focusedSite.lat]);
         }
@@ -5916,7 +6208,9 @@
     }
 
     function focusCompletedServiceSite(siteKey, openPopup, popupLngLat) {
-      const site = appState.completedServiceSitesByKey.get(siteKey) || null;
+      const site = getVisibleCompletedServiceSiteByKey(siteKey, false)
+        || appState.completedServiceSitesByKey.get(siteKey)
+        || null;
       if (!site || !hasCompletedServiceCoordinates(site)) return;
 
       appState.focusedId = null;
@@ -5937,7 +6231,9 @@
       if (openPopup) {
         openCompletedServicePopup(site, popupLngLat || [site.lng, site.lat]);
       } else if (appState.completedServicePopup && appState.completedServicePopup.isOpen()) {
-        const popupSite = appState.completedServiceSitesByKey.get(appState.focusedCompletedServiceKey) || null;
+        const popupSite = getVisibleCompletedServiceSiteByKey(appState.focusedCompletedServiceKey, false)
+          || appState.completedServiceSitesByKey.get(appState.focusedCompletedServiceKey)
+          || null;
         if (popupSite) {
           openCompletedServicePopup(popupSite, popupLngLat || [popupSite.lng, popupSite.lat]);
         }
@@ -5951,9 +6247,22 @@
 
       appState.completedServiceLoadInProgress = true;
       syncCompletedServiceLoadOlderButtonState();
+      setCompletedServiceLoadProgress(
+        forceAllYears ? "Loading Older Years" : "Loading Completed Services",
+        forceAllYears
+          ? "Preparing legacy completed-service history..."
+          : "Preparing the recent completed-service window...",
+        8,
+        { resetStart: true }
+      );
       try {
         appState.completedServiceLoadError = "";
         syncCompletedServiceLoadOlderButtonState();
+        setCompletedServiceLoadProgress(
+          forceAllYears ? "Loading Completed Services" : "Loading Completed Services",
+          "Checking the latest completed-service batches in Supabase...",
+          14
+        );
 
         const batchResponse = await supabaseClient
           .from("therapy_boss_completed_service_import_batches")
@@ -6005,6 +6314,13 @@
         }
 
         const recentCutoffIsoDate = getCompletedServiceRecentCutoffIsoDate();
+        setCompletedServiceLoadProgress(
+          "Loading Service Rows",
+          forceAllYears
+            ? "Fetching completed-service rows across all available years..."
+            : "Fetching completed-service rows from the recent 2-year window...",
+          32
+        );
         const rowsResponse = await fetchAllSupabaseRows(function(from, to) {
           let query = supabaseClient
             .from("therapy_boss_completed_service_import_rows")
@@ -6029,6 +6345,11 @@
         }
 
         const loadedRows = rowsResponse.data || [];
+        setCompletedServiceLoadProgress(
+          "Loading Clinician Assignments",
+          loadedRows.length + " completed-service rows loaded. Fetching clinician assignments...",
+          58
+        );
         const assignmentResponse = await fetchCompletedServiceAssignmentsForRowIds(loadedRows.map(function(row) {
           return row.id;
         }));
@@ -6037,6 +6358,11 @@
           throw new Error("Completed-service clinicians query failed: " + (assignmentResponse.error.message || "Unknown Supabase error"));
         }
 
+        setCompletedServiceLoadProgress(
+          "Loading Service Years",
+          (assignmentResponse.data || []).length + " clinician assignments loaded. Reading available service years...",
+          76
+        );
         const yearAvailabilityResponse = await fetchAllSupabaseRows(function(from, to) {
           return supabaseClient
             .from("therapy_boss_completed_service_import_rows")
@@ -6049,6 +6375,11 @@
           throw new Error("Completed-service year query failed: " + (yearAvailabilityResponse.error.message || "Unknown Supabase error"));
         }
 
+        setCompletedServiceLoadProgress(
+          "Building Sites",
+          loadedRows.length + " rows loaded. Building service sites and clinician rollups...",
+          88
+        );
         const allYearRows = yearAvailabilityResponse.data || [];
         const availableYears = Array.from(new Set(allYearRows.map(function(row) {
           return getCompletedServiceRowYear(row);
@@ -6208,6 +6539,11 @@
         buildCompletedServiceVisibleSiteIndexes();
         rebuildCompletedServiceVisibleSiteCaches();
         appState.hasLoadedCompletedServices = true;
+        setCompletedServiceLoadProgress(
+          "Drawing Map",
+          appState.completedServiceSites.length + " service sites are ready to render.",
+          97
+        );
 
         if (appState.focusedCompletedServiceKey && !appState.completedServiceSitesByKey.has(appState.focusedCompletedServiceKey)) {
           appState.focusedCompletedServiceKey = null;
@@ -6245,6 +6581,7 @@
       } finally {
         appState.completedServiceLoadInProgress = false;
         syncCompletedServiceLoadOlderButtonState();
+        clearCompletedServiceLoadProgress();
       }
     }
 
@@ -6253,17 +6590,48 @@
       const hasDisciplineFilter = appState.disciplineFilters.size > 0;
       const isolatedCompletedServiceClinicianId = String(appState.isolatedCompletedServiceClinicianId || "").trim();
       const hasCompletedServiceIsolation = Boolean(isolatedCompletedServiceClinicianId);
-      const yearFilteredRows = !hasYearFilter
+      const sourceRows = !hasYearFilter
         ? (site.rows || [])
         : (site.rows || []).filter(function(row) {
           return appState.completedServiceYearFilters.has(getCompletedServiceRowYear(row));
         });
+      const sourceRowLookup = new Map(sourceRows.map(function(row) {
+        return [row.id, row];
+      }));
+      const filteredAssignments = (site.assignments || []).filter(function(assignment) {
+        if (!sourceRowLookup.has(assignment.service_row_id)) return false;
+        const matchingRow = sourceRowLookup.get(assignment.service_row_id);
+        return isCompletedServiceRowAllowedForClinicianCoverage(assignment.matched_clinician_id, matchingRow);
+      });
+      const assignmentCountsByRowId = new Map();
+      (site.assignments || []).forEach(function(assignment) {
+        if (!sourceRowLookup.has(assignment.service_row_id)) return;
+        assignmentCountsByRowId.set(
+          assignment.service_row_id,
+          (assignmentCountsByRowId.get(assignment.service_row_id) || 0) + 1
+        );
+      });
+      const filteredAssignmentCountsByRowId = new Map();
+      filteredAssignments.forEach(function(assignment) {
+        filteredAssignmentCountsByRowId.set(
+          assignment.service_row_id,
+          (filteredAssignmentCountsByRowId.get(assignment.service_row_id) || 0) + 1
+        );
+      });
+      const yearFilteredRows = sourceRows.filter(function(row) {
+        const assignmentCount = assignmentCountsByRowId.get(row.id) || 0;
+        if (!assignmentCount) return true;
+        return (filteredAssignmentCountsByRowId.get(row.id) || 0) > 0;
+      });
       const siteRowLookup = new Map(yearFilteredRows.map(function(row) {
         return [row.id, row];
       }));
+      const siteAssignments = filteredAssignments.filter(function(assignment) {
+        return siteRowLookup.has(assignment.service_row_id);
+      });
       const isolatedAssignmentRowIds = !hasCompletedServiceIsolation
         ? null
-        : new Set((site.assignments || []).filter(function(assignment) {
+        : new Set(siteAssignments.filter(function(assignment) {
           return String(assignment.matched_clinician_id || "").trim() === isolatedCompletedServiceClinicianId
             && siteRowLookup.has(assignment.service_row_id);
         }).map(function(assignment) {
@@ -6290,7 +6658,7 @@
           }
         });
 
-        (site.assignments || []).forEach(function(assignment) {
+        siteAssignments.forEach(function(assignment) {
           if (!siteRowLookup.has(assignment.service_row_id)) return;
           if (
             hasCompletedServiceIsolation
@@ -6313,7 +6681,7 @@
         return [row.id, row];
       }));
       const visibleRowIds = new Set(matchingRows.map(function(row) { return row.id; }));
-      const matchingAssignments = (site.assignments || []).filter(function(assignment) {
+      const matchingAssignments = siteAssignments.filter(function(assignment) {
         if (!visibleRowIds.has(assignment.service_row_id)) return false;
         if (
           hasCompletedServiceIsolation
@@ -6391,6 +6759,14 @@
       return includeSearch
         ? appState.completedServiceVisibleSitesWithSearch
         : appState.completedServiceVisibleSites;
+    }
+
+    function getVisibleCompletedServiceSiteByKey(siteKey, includeSearch) {
+      const normalizedSiteKey = String(siteKey || "").trim();
+      if (!normalizedSiteKey) return null;
+      return getVisibleCompletedServiceSites(Boolean(includeSearch)).find(function(site) {
+        return String(site && site.key || "").trim() === normalizedSiteKey;
+      }) || null;
     }
 
     function getCompletedServiceSitesInRadius() {
@@ -6808,6 +7184,340 @@
       };
     }
 
+    function buildClinicianCompletedServiceHistoryFromRows(clinicianId, rows, assignments) {
+      const normalizedClinicianId = String(clinicianId || "").trim();
+      if (!normalizedClinicianId) return null;
+
+      const assignmentsByServiceRowId = new Map();
+      (assignments || []).forEach(function(assignment) {
+        const rowId = String(assignment && assignment.service_row_id || "").trim();
+        if (!rowId) return;
+        const bucket = assignmentsByServiceRowId.get(rowId) || [];
+        bucket.push(assignment);
+        assignmentsByServiceRowId.set(rowId, bucket);
+      });
+
+      const siteBuckets = new Map();
+      (rows || []).forEach(function(row) {
+        const siteKey = getCompletedServiceSiteKey(row);
+        const site = siteBuckets.get(siteKey) || {
+          key: siteKey,
+          fullAddress: getCompletedServiceSiteAddress(row),
+          lat: toNumber(row.patient_lat),
+          lng: toNumber(row.patient_lng),
+          rows: [],
+          assignments: []
+        };
+
+        site.fullAddress = site.fullAddress || getCompletedServiceSiteAddress(row);
+        if (typeof site.lat !== "number") site.lat = toNumber(row.patient_lat);
+        if (typeof site.lng !== "number") site.lng = toNumber(row.patient_lng);
+        site.rows.push(row);
+        site.assignments = site.assignments.concat(assignmentsByServiceRowId.get(String(row.id || "").trim()) || []);
+        siteBuckets.set(siteKey, site);
+      });
+
+      const matchingSites = Array.from(siteBuckets.values()).map(function(site) {
+        const uniquePatients = Array.from(new Set((site.rows || []).map(function(row) {
+          return String(row.patient_name || row.patient_external_id || "").trim();
+        }).filter(Boolean)));
+        const uniqueServices = Array.from(new Set((site.rows || []).map(function(row) {
+          return getNormalizedDiscipline(row.service);
+        }).filter(Boolean))).sort();
+        const uniqueClinicians = Array.from(new Set((site.assignments || []).map(function(assignment) {
+          return getCompletedServiceAssignmentName(assignment);
+        }).filter(Boolean))).sort(function(left, right) {
+          return String(left || "").localeCompare(String(right || ""));
+        });
+        const latestServiceDate = (site.rows || []).reduce(function(latest, row) {
+          const candidate = row.last_visit_date || row.ended_date || row.referral_date || row.start_of_episode || null;
+          if (!candidate) return latest;
+          if (!latest) return candidate;
+          return new Date(candidate) > new Date(latest) ? candidate : latest;
+        }, null);
+        const earliestServiceDate = (site.rows || []).reduce(function(currentEarliest, row) {
+          const candidate = getCompletedServiceRowEarliestRelevantDate(row);
+          if (!candidate) return currentEarliest;
+          if (!currentEarliest) return candidate;
+          return new Date(candidate) < new Date(currentEarliest) ? candidate : currentEarliest;
+        }, null);
+        const totalServiceVisits = (site.rows || []).reduce(function(total, row) {
+          return total + (Number(row.service_visits || 0) || 0);
+        }, 0);
+
+        return {
+          key: site.key,
+          fullAddress: site.fullAddress,
+          lat: site.lat,
+          lng: site.lng,
+          rows: site.rows.slice(),
+          assignments: site.assignments.slice(),
+          serviceRowsCount: site.rows.length,
+          uniquePatientCount: uniquePatients.length,
+          uniquePatients: uniquePatients,
+          uniqueServices: uniqueServices,
+          uniqueClinicians: uniqueClinicians,
+          uniqueClinicianCount: uniqueClinicians.length,
+          latestServiceDate: latestServiceDate,
+          earliestServiceDate: earliestServiceDate,
+          totalServiceVisits: totalServiceVisits,
+          disciplineGroups: getCompletedServiceDisciplineGroups(site.assignments, site.rows)
+        };
+      }).sort(function(left, right) {
+        const leftTime = left.latestServiceDate ? new Date(left.latestServiceDate).getTime() : 0;
+        const rightTime = right.latestServiceDate ? new Date(right.latestServiceDate).getTime() : 0;
+        return rightTime - leftTime;
+      });
+
+      const allPatientKeys = new Set();
+      let latestServiceDate = null;
+      let earliestServiceDate = null;
+      let totalServiceVisits = 0;
+      let totalServiceRows = 0;
+
+      matchingSites.forEach(function(site) {
+        site.uniquePatients.forEach(function(patientKey) {
+          allPatientKeys.add(patientKey);
+        });
+        totalServiceVisits += site.totalServiceVisits;
+        totalServiceRows += site.serviceRowsCount;
+        if (site.latestServiceDate && (!latestServiceDate || new Date(site.latestServiceDate) > new Date(latestServiceDate))) {
+          latestServiceDate = site.latestServiceDate;
+        }
+        if (site.earliestServiceDate && (!earliestServiceDate || new Date(site.earliestServiceDate) < new Date(earliestServiceDate))) {
+          earliestServiceDate = site.earliestServiceDate;
+        }
+      });
+
+      return {
+        siteCount: matchingSites.length,
+        totalServiceRows: totalServiceRows,
+        totalServiceVisits: totalServiceVisits,
+        uniquePatientCount: allPatientKeys.size,
+        latestServiceDate: latestServiceDate,
+        earliestServiceDate: earliestServiceDate,
+        sites: matchingSites
+      };
+    }
+
+    function syncClinicianDerivedStartDateLocally(clinicianId, derivedStartDate) {
+      const normalizedClinicianId = String(clinicianId || "").trim();
+      const normalizedDerivedStartDate = String(derivedStartDate || "").trim();
+      if (!normalizedClinicianId || !normalizedDerivedStartDate) return;
+
+      const clinician = appState.clinicians.find(function(entry) {
+        return entry.id === normalizedClinicianId;
+      }) || null;
+      if (!clinician) return;
+
+      const nextTags = clinician.profile_tags && typeof clinician.profile_tags === "object" && !Array.isArray(clinician.profile_tags)
+        ? Object.assign({}, clinician.profile_tags)
+        : {};
+      nextTags.derivedStartDate = normalizedDerivedStartDate;
+      clinician.profile_tags = nextTags;
+      clinician.derivedStartDate = normalizedDerivedStartDate;
+
+      const savedDraft = appState.profileDraftByClinicianId.get(normalizedClinicianId);
+      if (savedDraft && !savedDraft.startDate) {
+        savedDraft.derivedStartDate = normalizedDerivedStartDate;
+        savedDraft.startDateSource = "derived";
+      }
+    }
+
+    function shouldReplaceDerivedStartDate(nextDateValue, existingDateValue) {
+      const nextDate = parseProfileDateValue(nextDateValue);
+      if (!nextDate) return false;
+      const existingDate = parseProfileDateValue(existingDateValue);
+      if (!existingDate) return true;
+      return nextDate.getTime() < existingDate.getTime();
+    }
+
+    async function persistClinicianDerivedStartDates(startDateByClinicianId) {
+      if (!startDateByClinicianId || !startDateByClinicianId.size) return;
+
+      const updates = [];
+      startDateByClinicianId.forEach(function(derivedStartDate, clinicianId) {
+        const normalizedClinicianId = String(clinicianId || "").trim();
+        const normalizedDerivedStartDate = String(derivedStartDate || "").trim();
+        if (!normalizedClinicianId || !normalizedDerivedStartDate) return;
+
+        const clinician = appState.clinicians.find(function(entry) {
+          return entry.id === normalizedClinicianId;
+        }) || null;
+        const existingDerivedStartDate = getClinicianDerivedStartDateValue(clinician);
+        if (!shouldReplaceDerivedStartDate(normalizedDerivedStartDate, existingDerivedStartDate)) {
+          return;
+        }
+
+        const nextTags = clinician && clinician.profile_tags && typeof clinician.profile_tags === "object" && !Array.isArray(clinician.profile_tags)
+          ? Object.assign({}, clinician.profile_tags)
+          : {};
+        nextTags.derivedStartDate = normalizedDerivedStartDate;
+        updates.push({
+          clinicianId: normalizedClinicianId,
+          derivedStartDate: normalizedDerivedStartDate,
+          payload: {
+            clinician_id: normalizedClinicianId,
+            tags: nextTags,
+            updated_at: new Date().toISOString()
+          }
+        });
+      });
+
+      if (!updates.length) return;
+
+      for (const chunk of chunkArray(updates, therapyBossImportChunkSize)) {
+        const response = await supabaseClient
+          .from("clinician_profiles")
+          .upsert(chunk.map(function(entry) {
+            return entry.payload;
+          }), { onConflict: "clinician_id" });
+
+        if (response.error) throw response.error;
+      }
+
+      updates.forEach(function(entry) {
+        syncClinicianDerivedStartDateLocally(entry.clinicianId, entry.derivedStartDate);
+      });
+
+      renderSidebar();
+      syncAllMarkerVisuals();
+
+      if (appState.currentProfileClinicianId) {
+        const matchingUpdate = updates.find(function(entry) {
+          return entry.clinicianId === appState.currentProfileClinicianId;
+        }) || null;
+        if (matchingUpdate) {
+          const activeClinician = appState.clinicians.find(function(entry) {
+            return entry.id === appState.currentProfileClinicianId;
+          }) || null;
+          const currentDraft = getProfileDraftForClinician(activeClinician || {});
+          if (!currentDraft.startDate) {
+            currentDraft.derivedStartDate = matchingUpdate.derivedStartDate;
+            currentDraft.startDateSource = "derived";
+            applyProfileDraft(currentDraft);
+          }
+        }
+      }
+    }
+
+    async function persistClinicianDerivedStartDate(clinicianId, derivedStartDate) {
+      const normalizedClinicianId = String(clinicianId || "").trim();
+      const normalizedDerivedStartDate = String(derivedStartDate || "").trim();
+      if (!normalizedClinicianId || !normalizedDerivedStartDate) return;
+
+      try {
+        const updates = new Map();
+        updates.set(normalizedClinicianId, normalizedDerivedStartDate);
+        await persistClinicianDerivedStartDates(updates);
+      } catch (error) {
+        console.error("Clinician derived start-date save failed:", error);
+      }
+    }
+
+    async function loadClinicianCompletedServiceFullHistory(clinicianId, forceRefresh) {
+      const normalizedClinicianId = String(clinicianId || "").trim();
+      if (!normalizedClinicianId) return null;
+
+      if (!forceRefresh && appState.clinicianCompletedServiceHistoryByClinicianId.has(normalizedClinicianId)) {
+        return appState.clinicianCompletedServiceHistoryByClinicianId.get(normalizedClinicianId) || null;
+      }
+
+      if (appState.clinicianCompletedServiceHistoryLoadingIds.has(normalizedClinicianId)) {
+        return null;
+      }
+
+      appState.clinicianCompletedServiceHistoryLoadingIds.add(normalizedClinicianId);
+      appState.clinicianCompletedServiceHistoryErrorByClinicianId.delete(normalizedClinicianId);
+      if (appState.currentProfileClinicianId === normalizedClinicianId) {
+        renderClinicianCompletedServiceHistory();
+      }
+
+      try {
+        const clinician = appState.clinicians.find(function(entry) {
+          return entry.id === normalizedClinicianId;
+        }) || null;
+        const assignmentResponse = await fetchAllSupabaseRows(function(from, to) {
+          return supabaseClient
+            .from("therapy_boss_completed_service_import_clinicians")
+            .select("service_row_id, row_number, clinician_sequence, clinician_name_raw, parsed_clinician_name, parsed_discipline, matched_clinician_id, matched_clinician_name")
+            .eq("matched_clinician_id", normalizedClinicianId)
+            .order("row_number", { ascending: true })
+            .order("clinician_sequence", { ascending: true })
+            .range(from, to);
+        });
+
+        if (assignmentResponse.error) {
+          throw assignmentResponse.error;
+        }
+
+        const assignments = assignmentResponse.data || [];
+
+        const rowResponse = await fetchCompletedServiceRowsForIds(assignments.map(function(assignment) {
+          return assignment.service_row_id;
+        }));
+        if (rowResponse.error) {
+          throw rowResponse.error;
+        }
+
+        const fallbackHistoryResponse = await fetchCompletedServiceFallbackHistoryForClinician(
+          normalizedClinicianId,
+          clinician
+        );
+        if (fallbackHistoryResponse.error) {
+          throw fallbackHistoryResponse.error;
+        }
+
+        const allRowsById = new Map();
+        (rowResponse.data || []).forEach(function(row) {
+          allRowsById.set(String(row.id || "").trim(), row);
+        });
+        (fallbackHistoryResponse.rows || []).forEach(function(row) {
+          const rowId = String(row.id || "").trim();
+          if (!rowId || allRowsById.has(rowId)) return;
+          allRowsById.set(rowId, row);
+        });
+
+        const mergedAssignments = mergeCompletedServiceAssignmentsByRow(
+          (assignmentResponse.data || []).concat(fallbackHistoryResponse.assignments || [])
+        );
+
+        const history = buildClinicianCompletedServiceHistoryFromRows(
+          normalizedClinicianId,
+          Array.from(allRowsById.values()),
+          mergedAssignments
+        ) || {
+          siteCount: 0,
+          totalServiceRows: 0,
+          totalServiceVisits: 0,
+          uniquePatientCount: 0,
+          latestServiceDate: null,
+          earliestServiceDate: null,
+          sites: []
+        };
+
+        appState.clinicianCompletedServiceHistoryByClinicianId.set(normalizedClinicianId, history);
+
+        if (history.earliestServiceDate) {
+          await persistClinicianDerivedStartDate(normalizedClinicianId, history.earliestServiceDate);
+        }
+
+        return history;
+      } catch (error) {
+        console.error("Clinician full completed-service history load failed:", error);
+        appState.clinicianCompletedServiceHistoryErrorByClinicianId.set(
+          normalizedClinicianId,
+          "Full completed-service history could not be loaded from Supabase yet."
+        );
+        return null;
+      } finally {
+        appState.clinicianCompletedServiceHistoryLoadingIds.delete(normalizedClinicianId);
+        if (appState.currentProfileClinicianId === normalizedClinicianId) {
+          renderClinicianCompletedServiceHistory();
+        }
+      }
+    }
+
     function renderClinicianCompletedServiceHistory() {
       if (!elements.profileCompletedHistory) return;
 
@@ -6821,29 +7531,37 @@
         return;
       }
 
-      if (appState.completedServiceLoadError) {
-        elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>" + escapeHtml(appState.completedServiceLoadError) + "</div>";
+      const clinicianId = appState.currentProfileClinicianId;
+      const clinician = appState.clinicians.find(function(entry) {
+        return entry.id === clinicianId;
+      }) || null;
+      const historyError = appState.clinicianCompletedServiceHistoryErrorByClinicianId.get(clinicianId) || "";
+      if (historyError) {
+        elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>" + escapeHtml(historyError) + "</div>";
         return;
       }
 
-      if (!appState.hasLoadedCompletedServices) {
-        elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>Loading the latest completed-service batch for this clinician...</div>";
+      if (appState.clinicianCompletedServiceHistoryLoadingIds.has(clinicianId)) {
+        elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>Loading full completed-service history from Supabase for this clinician...</div>";
         return;
       }
 
-      const history = getClinicianCompletedServiceHistory(appState.currentProfileClinicianId);
+      const history = appState.clinicianCompletedServiceHistoryByClinicianId.get(clinicianId) || null;
       if (!history || !history.sites.length) {
         elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>No matched completed-service history yet. Imported TherapyBoss rows will attach here when the clinician name match resolves to this profile.</div>";
         return;
       }
 
       const visibleSites = history.sites.slice(0, 8);
+      const historyNote = getClinicianHistoryCutoffNote(clinician);
       const summaryHtml = [
         "<div class='profile-history-summary'>",
+        "<span class='meta-chip'>Full history</span>",
         "<span class='meta-chip'>" + history.siteCount + " sites</span>",
         "<span class='meta-chip'>" + history.totalServiceRows + " services</span>",
         "<span class='meta-chip'>" + history.uniquePatientCount + " patients</span>",
         history.totalServiceVisits ? "<span class='meta-chip'>" + history.totalServiceVisits + " visits</span>" : "",
+        history.earliestServiceDate ? "<span class='meta-chip'>Earliest " + escapeHtml(formatAcceptedDate(history.earliestServiceDate)) + "</span>" : "",
         history.latestServiceDate ? "<span class='meta-chip'>Latest " + escapeHtml(formatAcceptedDate(history.latestServiceDate)) + "</span>" : "",
         "</div>"
       ].join("");
@@ -6855,7 +7573,7 @@
         });
 
         return [
-          "<button type='button' class='profile-history-site' data-profile-history-site='" + escapeHtml(site.key) + "'>",
+          "<button type='button' class='profile-history-site' data-profile-history-site='" + escapeHtml(site.key) + "' data-profile-history-lat='" + escapeHtml(String(site.lat ?? "")) + "' data-profile-history-lng='" + escapeHtml(String(site.lng ?? "")) + "'>",
           "<div class='profile-history-site-topline'>",
           "<div class='profile-history-site-name'>" + escapeHtml(site.fullAddress || "Completed service site") + "</div>",
           site.serviceRowsCount ? "<span class='meta-chip'>" + site.serviceRowsCount + " services</span>" : "",
@@ -6876,6 +7594,7 @@
 
       elements.profileCompletedHistory.innerHTML = [
         summaryHtml,
+        historyNote ? "<div class='profile-history-note'>" + escapeHtml(historyNote) + "</div>" : "",
         "<div class='profile-history-list'>",
         siteCardsHtml,
         "</div>",
@@ -6950,6 +7669,9 @@
         metaChips.push("<span class='meta-chip'>" + escapeHtml(snapshot.status) + "</span>");
         if (snapshot.startDate) {
           metaChips.push("<span class='meta-chip'>Start " + escapeHtml(formatAcceptedDate(snapshot.startDate)) + "</span>");
+        }
+        if (snapshot.ignoreHistoryBefore) {
+          metaChips.push("<span class='meta-chip'>Ignore before " + escapeHtml(formatAcceptedDate(snapshot.ignoreHistoryBefore)) + "</span>");
         }
         if (snapshot.pauseStart || snapshot.pauseEnd) {
           const pauseText = snapshot.pauseStart && snapshot.pauseEnd
@@ -7742,8 +8464,11 @@
         statusHistory: [],
         rating: "",
         startDate: "",
+        derivedStartDate: "",
+        startDateSource: "",
         pauseStart: "",
         pauseEnd: "",
+        ignoreHistoryBefore: "",
         phone: "",
         email: "",
         therapyBossUnavailable: false,
@@ -8014,6 +8739,11 @@
       };
     }
 
+    function getProfileDraftDisplayedStartDate(draft) {
+      if (!draft) return "";
+      return String(draft.startDate || draft.derivedStartDate || "").trim();
+    }
+
     function normalizeProfileStatusValue(status, clinician) {
       const normalized = String(status || "").trim().toLowerCase();
       if (normalized === "paused") return "Paused";
@@ -8027,14 +8757,26 @@
       const startValue = elements.profilePauseStart.value;
       const endValue = elements.profilePauseEnd.value;
       const newInfo = getNewClinicianInfo(elements.profileStartDate.value);
+      const startSource = appState.profileCreateMode
+        ? ""
+        : getProfileDraftForClinician(appState.clinicians.find(function(entry) {
+            return entry.id === appState.currentProfileClinicianId;
+          }) || null).startDateSource;
+      const noteParts = [];
+      if (newInfo.note) {
+        noteParts.push(newInfo.note);
+      }
+      if (startSource === "derived") {
+        noteParts.push("Start date auto from full visit history");
+      }
 
       elements.profileHeaderStatus.textContent = status;
       elements.profileHeaderStatus.classList.toggle("active", status === "Active");
       elements.profileHeaderStatus.classList.toggle("paused", status === "Paused");
       elements.profileHeaderStatus.classList.toggle("inactive", status === "Inactive");
       elements.profileHeaderNewBadge.classList.toggle("visible", newInfo.isNew);
-      elements.profileHeaderNote.textContent = newInfo.note;
-      elements.profileHeaderNote.classList.toggle("visible", Boolean(newInfo.note));
+      elements.profileHeaderNote.textContent = noteParts.join(" • ");
+      elements.profileHeaderNote.classList.toggle("visible", Boolean(noteParts.length));
 
       if (status !== "Paused") {
         elements.profileHeaderDate.textContent = "";
@@ -8553,6 +9295,19 @@
         delete nextTags.startDate;
       }
 
+      const existingDerivedStartDate = getClinicianDerivedStartDateValue(clinician);
+      if (existingDerivedStartDate) {
+        nextTags.derivedStartDate = existingDerivedStartDate;
+      } else {
+        delete nextTags.derivedStartDate;
+      }
+
+      if (draft.ignoreHistoryBefore) {
+        nextTags.ignoreHistoryBefore = draft.ignoreHistoryBefore;
+      } else {
+        delete nextTags.ignoreHistoryBefore;
+      }
+
       if (draft.pauseStart) {
         nextTags.pauseStart = draft.pauseStart;
       } else {
@@ -8605,8 +9360,10 @@
       return {
         status: normalizedStatus,
         startDate: draft.startDate || "",
+        derivedStartDate: getClinicianDerivedStartDateValue(clinician) || "",
         pauseStart: draft.pauseStart || "",
         pauseEnd: draft.pauseEnd || "",
+        ignoreHistoryBefore: draft.ignoreHistoryBefore || "",
         phone: String(draft.phone || "").trim(),
         email: String(draft.email || "").trim(),
         internalRating: normalizeProfileRatingValue(draft.rating),
@@ -8640,8 +9397,10 @@
       return {
         status: normalizeProfileStatusValue(snapshot.status || versionRow.status || ""),
         startDate: String(snapshot.startDate || snapshot.start_date || "").trim(),
+        derivedStartDate: String(snapshot.derivedStartDate || snapshot.derived_start_date || "").trim(),
         pauseStart: String(snapshot.pauseStart || snapshot.pause_start || snapshot.pause_start_date || "").trim(),
         pauseEnd: String(snapshot.pauseEnd || snapshot.pause_end || snapshot.pause_end_date || "").trim(),
+        ignoreHistoryBefore: String(snapshot.ignoreHistoryBefore || snapshot.ignore_history_before || "").trim(),
         phone: String(snapshot.phone || "").trim(),
         email: String(snapshot.email || "").trim(),
         internalRating: normalizeProfileRatingValue(
@@ -8672,8 +9431,10 @@
       return JSON.stringify({
         status: safeSnapshot.status || "",
         startDate: safeSnapshot.startDate || "",
+        derivedStartDate: safeSnapshot.derivedStartDate || "",
         pauseStart: safeSnapshot.pauseStart || "",
         pauseEnd: safeSnapshot.pauseEnd || "",
+        ignoreHistoryBefore: safeSnapshot.ignoreHistoryBefore || "",
         phone: safeSnapshot.phone || "",
         email: safeSnapshot.email || "",
         internalRating: safeSnapshot.internalRating || null,
@@ -8705,6 +9466,7 @@
 
       addFieldIfChanged("Status", previousSnapshot.status, nextSnapshot.status);
       addFieldIfChanged("Start Date", previousSnapshot.startDate, nextSnapshot.startDate);
+      addFieldIfChanged("Ignore History Before", previousSnapshot.ignoreHistoryBefore, nextSnapshot.ignoreHistoryBefore);
       addFieldIfChanged(
         "Pause Window",
         [previousSnapshot.pauseStart, previousSnapshot.pauseEnd],
@@ -9013,6 +9775,8 @@
 
     function buildProfileDraftFromInputs() {
       const restrictions = getProfileRestrictionsFromUi();
+      const displayedStartDate = String(elements.profileStartDate.value || "").trim();
+      const startDateSource = String(elements.profileStartDate.dataset.startDateSource || "").trim() || (displayedStartDate ? "manual" : "");
       return {
         name: String(elements.profileNameInput.value || "").trim(),
         discipline: getNormalizedDiscipline(elements.profileDisciplineSelect.value),
@@ -9023,9 +9787,12 @@
         status: elements.profileStatusInput.value || "Active",
         statusHistory: getCurrentProfileStatusHistory(),
         rating: elements.profileRatingInput.value || "",
-        startDate: elements.profileStartDate.value || "",
+        startDate: startDateSource === "derived" ? "" : displayedStartDate,
+        derivedStartDate: startDateSource === "derived" ? displayedStartDate : "",
+        startDateSource: startDateSource,
         pauseStart: elements.profilePauseStart.value || "",
         pauseEnd: elements.profilePauseEnd.value || "",
+        ignoreHistoryBefore: elements.profileIgnoreHistoryBefore.value || "",
         phone: elements.profilePhoneInput.value || "",
         email: elements.profileEmailInput.value || "",
         therapyBossUnavailable: Boolean(elements.profileTherapyBossUnavailableToggle.checked),
@@ -9085,9 +9852,11 @@
       setCurrentProfileStatusHistory(safeDraft.statusHistory);
       elements.profileRatingInput.value = safeDraft.rating;
       syncProfileRatingStars();
-      elements.profileStartDate.value = safeDraft.startDate;
+      elements.profileStartDate.value = safeDraft.startDate || safeDraft.derivedStartDate || "";
+      elements.profileStartDate.dataset.startDateSource = safeDraft.startDateSource || (safeDraft.startDate ? "manual" : (safeDraft.derivedStartDate ? "derived" : ""));
       elements.profilePauseStart.value = safeDraft.pauseStart;
       elements.profilePauseEnd.value = safeDraft.pauseEnd;
+      elements.profileIgnoreHistoryBefore.value = safeDraft.ignoreHistoryBefore || "";
       elements.profilePhoneInput.value = safeDraft.phone;
       elements.profileEmailInput.value = safeDraft.email;
       elements.profileTherapyBossUnavailableToggle.checked = Boolean(safeDraft.therapyBossUnavailable);
@@ -9224,7 +9993,7 @@
       };
     }
 
-    function getClinicianStartDateValue(clinician) {
+    function getClinicianManualStartDateValue(clinician) {
       return getFirstAvailableFieldValue(clinician, [
         "start_date",
         "startDate",
@@ -9235,39 +10004,75 @@
       ]) || "";
     }
 
-    function getClinicianAutoStartDateFromHistory(clinicianId) {
-      const history = getClinicianCompletedServiceHistory(clinicianId);
-      if (!history || !Array.isArray(history.sites) || !history.sites.length) return "";
+    function getClinicianDerivedStartDateValue(clinician) {
+      return getFirstAvailableFieldValue(clinician, [
+        "derived_start_date",
+        "derivedStartDate",
+        "auto_start_date",
+        "autoStartDate"
+      ]) || "";
+    }
 
-      const earliestDate = history.sites.reduce(function(currentEarliest, site) {
-        const siteEarliest = (site.rows || []).reduce(function(rowEarliest, row) {
-          const candidates = [
-            row.start_of_episode,
-            row.referral_date,
-            row.last_visit_date,
-            row.ended_date
-          ].filter(Boolean);
+    function getClinicianDisplayStartDateValue(clinician) {
+      return getClinicianManualStartDateValue(clinician) || getClinicianDerivedStartDateValue(clinician) || "";
+    }
 
-          const nextEarliest = candidates.reduce(function(candidateEarliest, candidate) {
-            if (!candidateEarliest) return candidate;
-            return new Date(candidate) < new Date(candidateEarliest) ? candidate : candidateEarliest;
-          }, null);
+    function getClinicianStartDateSource(clinician) {
+      return getClinicianManualStartDateValue(clinician) ? "manual" : (getClinicianDerivedStartDateValue(clinician) ? "derived" : "");
+    }
 
-          if (!nextEarliest) return rowEarliest;
-          if (!rowEarliest) return nextEarliest;
-          return new Date(nextEarliest) < new Date(rowEarliest) ? nextEarliest : rowEarliest;
-        }, null);
+    function getClinicianIgnoreHistoryBeforeValue(clinician) {
+      return getFirstAvailableFieldValue(clinician, [
+        "ignore_history_before",
+        "ignoreHistoryBefore",
+        "history_ignore_before",
+        "historyIgnoreBefore"
+      ]) || "";
+    }
 
-        if (!siteEarliest) return currentEarliest;
-        if (!currentEarliest) return siteEarliest;
-        return new Date(siteEarliest) < new Date(currentEarliest) ? siteEarliest : currentEarliest;
+    function getCompletedServiceRowEarliestRelevantDate(row) {
+      const candidates = [
+        row && row.start_of_episode,
+        row && row.referral_date,
+        row && row.last_visit_date,
+        row && row.ended_date
+      ].filter(Boolean);
+
+      return candidates.reduce(function(currentEarliest, candidate) {
+        if (!currentEarliest) return candidate;
+        return new Date(candidate) < new Date(currentEarliest) ? candidate : currentEarliest;
       }, null);
+    }
 
-      if (!earliestDate) return "";
+    function getCompletedServiceCoverageAnchorDate(row) {
+      return (
+        (row && row.start_of_episode)
+        || (row && row.referral_date)
+        || (row && row.last_visit_date)
+        || (row && row.ended_date)
+        || null
+      );
+    }
 
-      const parsed = parseProfileDateValue(earliestDate);
-      if (!parsed) return "";
-      return parsed.toISOString().slice(0, 10);
+    function isCompletedServiceRowAllowedForClinicianCoverage(clinicianId, row) {
+      const normalizedClinicianId = String(clinicianId || "").trim();
+      if (!normalizedClinicianId || !row) return true;
+
+      const clinician = appState.clinicians.find(function(entry) {
+        return entry.id === normalizedClinicianId;
+      }) || null;
+      const ignoreBefore = getClinicianIgnoreHistoryBeforeValue(clinician);
+      if (!ignoreBefore) return true;
+
+      const anchorDate = getCompletedServiceCoverageAnchorDate(row);
+      if (!anchorDate) return true;
+      return new Date(anchorDate) >= new Date(ignoreBefore);
+    }
+
+    function getClinicianHistoryCutoffNote(clinician) {
+      const ignoreBefore = getClinicianIgnoreHistoryBeforeValue(clinician);
+      if (!ignoreBefore) return "";
+      return "Coverage tools ignore visits before " + formatAcceptedDate(ignoreBefore) + ".";
     }
 
     function getProfileDraftForClinician(clinician) {
@@ -9304,7 +10109,13 @@
         draft.statusHistory = getClinicianStatusHistoryEntries(clinician);
       }
       if (!draft.startDate && clinician) {
-        draft.startDate = getClinicianStartDateValue(clinician) || getClinicianAutoStartDateFromHistory(clinician.id);
+        draft.startDate = getClinicianManualStartDateValue(clinician);
+      }
+      if (!draft.derivedStartDate && clinician) {
+        draft.derivedStartDate = getClinicianDerivedStartDateValue(clinician);
+      }
+      if (!draft.startDateSource && clinician) {
+        draft.startDateSource = getClinicianStartDateSource(clinician);
       }
       if (!draft.pauseStart && clinician) {
         draft.pauseStart = getFirstAvailableFieldValue(clinician, [
@@ -9321,6 +10132,9 @@
           "pause_end",
           "pauseEnd"
         ]) || "";
+      }
+      if (!draft.ignoreHistoryBefore && clinician) {
+        draft.ignoreHistoryBefore = getClinicianIgnoreHistoryBeforeValue(clinician);
       }
       if ((!draft.rating || draft.rating === "0") && clinician) {
         const ratingValue = getFirstAvailableFieldValue(clinician, [
@@ -9484,7 +10298,7 @@
       const languages = normalizeProfileLanguageList(profileDraft.languages);
       const helperChips = [];
 
-      if (getNewClinicianInfo(profileDraft.startDate).isNew) {
+      if (getNewClinicianInfo(getProfileDraftDisplayedStartDate(profileDraft)).isNew) {
         helperChips.push("<span class='meta-chip'>New</span>");
       }
       if (profileDraft.therapyBossUnavailable) {
@@ -9535,7 +10349,7 @@
       if (!markerEntry) return;
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       const profileDraft = clinician ? getProfileDraftForClinician(clinician) : getDefaultProfileDraft();
-      const newClinicianInfo = getNewClinicianInfo(profileDraft.startDate);
+      const newClinicianInfo = getNewClinicianInfo(getProfileDraftDisplayedStartDate(profileDraft));
       const statusInfo = clinician ? getClinicianPopupStatusInfo(clinician) : { status: "Active" };
       const markerElement = markerEntry.marker.getElement();
       let badge = markerElement.querySelector(".marker-new-star");
@@ -9899,6 +10713,7 @@
       syncMapInstructions();
       elements.profilePanel.classList.add("open");
       elements.profilePanel.setAttribute("aria-hidden", "false");
+      loadClinicianCompletedServiceFullHistory(clinicianId);
       if (!appState.hasLoadedCompletedServices) {
         loadCompletedServiceSites();
       }
@@ -12016,6 +12831,7 @@
         });
         const existingDuplicateCount = uniqueRows.length - rowsToInsert.length;
         const skippedDuplicateCount = duplicateRowsInFileCount + existingDuplicateCount;
+        const earliestDerivedStartDatesByClinicianId = new Map();
         const rangeDates = normalizedRows
           .map(function(row) { return row.referral_date; })
           .filter(Boolean)
@@ -12113,8 +12929,16 @@
         const clinicianChildRows = [];
         rowsToInsert.forEach(function(row) {
           const serviceRowId = insertedRowIdsByNumber.get(row.row_number);
+          const earliestRowDate = getCompletedServiceRowEarliestRelevantDate(row);
           if (!serviceRowId) return;
           (row.clinician_assignments || []).forEach(function(assignment) {
+            const matchedClinicianId = String(assignment.matched_clinician_id || "").trim();
+            if (matchedClinicianId && earliestRowDate) {
+              const existingEarliestDate = earliestDerivedStartDatesByClinicianId.get(matchedClinicianId) || "";
+              if (shouldReplaceDerivedStartDate(earliestRowDate, existingEarliestDate)) {
+                earliestDerivedStartDatesByClinicianId.set(matchedClinicianId, earliestRowDate);
+              }
+            }
             clinicianChildRows.push({
               batch_id: batchId,
               service_row_id: serviceRowId,
@@ -12123,7 +12947,7 @@
               clinician_name_raw: assignment.clinician_name_raw,
               parsed_clinician_name: assignment.parsed_clinician_name,
               parsed_discipline: assignment.parsed_discipline,
-              matched_clinician_id: assignment.matched_clinician_id,
+              matched_clinician_id: matchedClinicianId || null,
               matched_clinician_name: assignment.matched_clinician_name
             });
           });
@@ -12141,6 +12965,17 @@
           if (chunkResponse.error) throw chunkResponse.error;
         }
 
+        if (earliestDerivedStartDatesByClinicianId.size) {
+          setImportStatus("Refreshing clinician start dates from full completed-service history...");
+          await persistClinicianDerivedStartDates(earliestDerivedStartDatesByClinicianId);
+        }
+
+        earliestDerivedStartDatesByClinicianId.forEach(function(_value, clinicianId) {
+          appState.clinicianCompletedServiceHistoryByClinicianId.delete(clinicianId);
+          appState.clinicianCompletedServiceHistoryErrorByClinicianId.delete(clinicianId);
+          appState.clinicianCompletedServiceHistoryLoadingIds.delete(clinicianId);
+        });
+
         setImportStatus(
           "Completed-services import complete. " + rowPayloads.length + " new rows added, "
             + skippedDuplicateCount + " duplicates skipped. Referral range "
@@ -12150,6 +12985,12 @@
         );
         appState.hasLoadedCompletedServices = false;
         await loadCompletedServiceSites();
+        if (
+          appState.currentProfileClinicianId
+          && earliestDerivedStartDatesByClinicianId.has(appState.currentProfileClinicianId)
+        ) {
+          loadClinicianCompletedServiceFullHistory(appState.currentProfileClinicianId, true);
+        }
       } catch (error) {
         console.error("TherapyBoss completed-services upload failed:", error);
 
@@ -13637,12 +14478,26 @@
         loadClinicianProfileVersionHistory(appState.currentProfileClinicianId, true);
       });
 
-      function handleProfileDraftChange() {
+      function handleProfileDraftChange(options) {
+        const config = Object.assign({
+          syncStatusToState: true,
+          syncCoreSummary: true,
+          updatePauseUi: true,
+          refreshFilters: true
+        }, options || {});
         persistCurrentProfileDraft(true);
-        syncCurrentClinicianStatusToState();
-        syncProfileCoreSummary();
-        updatePauseUI();
-        applyFilters();
+        if (config.syncStatusToState) {
+          syncCurrentClinicianStatusToState();
+        }
+        if (config.syncCoreSummary) {
+          syncProfileCoreSummary();
+        }
+        if (config.updatePauseUi) {
+          updatePauseUI();
+        }
+        if (config.refreshFilters) {
+          applyFilters();
+        }
       }
 
       function handleAgencyDraftChange() {
@@ -13669,9 +14524,13 @@
       elements.profileCoreZipInput.addEventListener("input", handleProfileDraftChange);
       elements.profileCoreRadiusInput.addEventListener("input", handleProfileDraftChange);
       elements.profileCorePreferredZipsInput.addEventListener("input", handleProfileDraftChange);
-      elements.profileStartDate.addEventListener("change", handleProfileDraftChange);
+      elements.profileStartDate.addEventListener("change", function() {
+        elements.profileStartDate.dataset.startDateSource = elements.profileStartDate.value ? "manual" : "";
+        handleProfileDraftChange();
+      });
       elements.profilePauseStart.addEventListener("change", handleProfileDraftChange);
       elements.profilePauseEnd.addEventListener("change", handleProfileDraftChange);
+      elements.profileIgnoreHistoryBefore.addEventListener("change", handleProfileDraftChange);
       elements.profilePhoneInput.addEventListener("input", handleProfileDraftChange);
       elements.profileEmailInput.addEventListener("input", handleProfileDraftChange);
       elements.profileTherapyBossUnavailableToggle.addEventListener("change", handleProfileDraftChange);
@@ -13794,7 +14653,14 @@
         }
         handleProfileDraftChange();
       });
-      elements.profileNotesInput.addEventListener("input", handleProfileDraftChange);
+      elements.profileNotesInput.addEventListener("input", function() {
+        handleProfileDraftChange({
+          syncStatusToState: false,
+          syncCoreSummary: false,
+          updatePauseUi: false,
+          refreshFilters: false
+        });
+      });
 
       elements.showAllAgenciesToggle.addEventListener("change", function() {
         appState.showAllAgencies = elements.showAllAgenciesToggle.checked;
@@ -13835,7 +14701,7 @@
         centerAgencyOnMap(appState.currentAgencyId);
       });
 
-      elements.profileCompletedHistory.addEventListener("click", function(event) {
+      elements.profileCompletedHistory.addEventListener("click", async function(event) {
         const target = event.target;
         if (!(target instanceof HTMLElement)) return;
         const siteButton = target.closest("[data-profile-history-site]");
@@ -13846,6 +14712,23 @@
           appState.showCompletedServices = true;
           syncCompletedServiceVisibilityToggle();
           renderCompletedServiceMarkers();
+        }
+        if (!appState.completedServiceSitesByKey.has(siteKey)) {
+          await loadCompletedServiceSites({ forceAllYears: true, keepYearFilters: true });
+        }
+        if (!appState.completedServiceSitesByKey.has(siteKey)) {
+          const lat = toNumber(siteButton.dataset.profileHistoryLat);
+          const lng = toNumber(siteButton.dataset.profileHistoryLng);
+          if (typeof lat === "number" && typeof lng === "number") {
+            map.flyTo({
+              center: [lng, lat],
+              zoom: Math.max(map.getZoom(), 12.5),
+              speed: 0.85,
+              curve: 1.25,
+              essential: true
+            });
+          }
+          return;
         }
         focusCompletedServiceSite(siteKey, true);
       });
