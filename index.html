@@ -1100,6 +1100,36 @@
       flex-wrap: wrap;
     }
 
+    .toolbar-pin-mode-shell {
+      display: grid;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .toolbar-pin-mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px;
+      border: 1px solid #d8e4df;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.86);
+      box-shadow: 0 10px 24px rgba(23, 47, 38, 0.08);
+    }
+
+    .toolbar-pin-mode-button {
+      min-width: 110px;
+      padding: 10px 14px;
+      white-space: nowrap;
+    }
+
+    .toolbar-pin-mode-button.active {
+      background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+      color: #fff;
+      border-color: transparent;
+      box-shadow: 0 10px 18px rgba(15, 109, 89, 0.22);
+    }
+
     .floating-status-panel {
       position: absolute;
       top: 16px;
@@ -2498,6 +2528,27 @@
       resize: vertical;
     }
 
+    .work-center-shell {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid #d6e3de;
+      border-radius: 16px;
+      background: linear-gradient(180deg, #fbfdfc 0%, #f2f7f5 100%);
+    }
+
+    .work-center-summary {
+      font-weight: 700;
+      line-height: 1.45;
+      color: var(--text);
+    }
+
+    .work-center-meta {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--muted);
+    }
+
     .profile-emr-list {
       display: flex;
       flex-wrap: wrap;
@@ -2953,6 +3004,38 @@
       overflow: visible;
     }
 
+    .mapboxgl-marker.clinician-marker::after {
+      position: absolute;
+      top: -4px;
+      right: -5px;
+      width: 17px;
+      height: 17px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.97);
+      box-shadow:
+        0 0 0 1px rgba(30, 52, 44, 0.22),
+        0 8px 16px rgba(18, 32, 27, 0.18);
+      color: #17352c;
+      font-size: 10px;
+      font-weight: 900;
+      line-height: 1;
+      pointer-events: none;
+      z-index: 3;
+    }
+
+    .mapboxgl-marker.clinician-marker.marker-source-home::after {
+      content: "H";
+      display: inline-flex;
+    }
+
+    .mapboxgl-marker.clinician-marker.marker-source-work::after {
+      content: "W";
+      display: inline-flex;
+    }
+
     .marker-new-star {
       position: absolute;
       top: 3px;
@@ -3356,12 +3439,19 @@
           </div>
           <div class="toolbar-utility-row">
             <button id="zoom-extents" class="btn-secondary" type="button">Zoom Extents</button>
+            <div class="toolbar-pin-mode-shell">
+              <div class="toolbar-tool-label">Clinician Pins</div>
+              <div class="toolbar-pin-mode-toggle" role="group" aria-label="Clinician pin display mode">
+                <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true">Work Center</button>
+                <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false">Home Pin</button>
+              </div>
+            </div>
             <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button">TherapyBoss</button>
             <select id="style-selector" class="toolbar-select">
               <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
               <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
               <option value="mapbox://styles/mapbox/streets-v12">Mapbox Streets</option>
-              <option value="mapbox://styles/mapbox/light-v11">Mapbox Light</option>
+              <option value="mapbox://styles/mapbox/light-v11" selected>Mapbox Light</option>
               <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
             </select>
             <div class="toolbar-menu" id="toolbar-menu">
@@ -3378,7 +3468,7 @@
       </div>
       <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 108</div>
+        <div class="version-indicator">Prototype Rev 111</div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Status</div>
         <div class="status-card">
@@ -3542,6 +3632,7 @@
                 <input id="profile-start-date" type="date">
               </div>
               <div class="profile-header-actions">
+                <button id="profile-isolate-clinician" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Clinician</button>
                 <button id="profile-isolate-visits" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Visits</button>
               </div>
             </div>
@@ -3627,6 +3718,27 @@
                 <label for="profile-ignore-history-before">Ignore History Before</label>
                 <input id="profile-ignore-history-before" type="date">
                 <div class="helper-text">Use this only if the clinician moved. Coverage tools will ignore older visits before this date, but the full visit history stays available in the profile.</div>
+              </div>
+              <div class="profile-field full">
+                <label>Work Center</label>
+                <div class="work-center-shell">
+                  <div id="profile-work-center-summary" class="work-center-summary">No work center saved yet. The map pin will fall back to Home Pin.</div>
+                  <div id="profile-work-center-meta" class="work-center-meta">Use history, home, or the current point search result to set this clinician's operational center.</div>
+                  <input id="profile-work-center-source" type="hidden" value="">
+                  <input id="profile-work-center-lat" type="hidden" value="">
+                  <input id="profile-work-center-lng" type="hidden" value="">
+                  <input id="profile-work-center-label" type="hidden" value="">
+                  <input id="profile-work-center-updated-at" type="hidden" value="">
+                  <div class="button-row">
+                    <button id="profile-work-center-history" type="button" class="btn-secondary">Set From History</button>
+                    <button id="profile-work-center-home" type="button" class="btn-secondary">Use Home Pin</button>
+                  </div>
+                  <div class="button-row">
+                    <button id="profile-work-center-search" type="button" class="btn-secondary">Use Search Pin</button>
+                    <button id="profile-work-center-center-map" type="button" class="btn-secondary">Center Here</button>
+                  </div>
+                </div>
+                <div class="helper-text">The top toolbar can switch the live clinician pins between Work Center and Home Pin without creating two map pins.</div>
               </div>
               <div class="profile-field">
                 <label for="profile-phone-input">Phone</label>
@@ -3907,6 +4019,7 @@
     const disciplineColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
     const profilePanelWidthStorageKey = "dependablecareProfilePanelWidth";
     const therapyBossPinnedStorageKey = "dependablecareTherapyBossPinned";
+    const clinicianPinModeStorageKey = "dependablecareClinicianPinMode";
     const profilePanelDefaultWidth = 400;
     const profilePanelMinWidth = 360;
     const profilePanelWidthStep = 24;
@@ -4130,6 +4243,7 @@
       importReset: document.getElementById("import-reset"),
       importUpload: document.getElementById("import-upload"),
       zoomExtentsButton: document.getElementById("zoom-extents"),
+      clinicianPinModeButtons: Array.from(document.querySelectorAll("[data-pin-mode-toggle]")),
       listSummary: document.getElementById("list-summary"),
       showCliniciansToggle: document.getElementById("show-clinicians-toggle"),
       visibleCount: document.getElementById("visible-count"),
@@ -4174,6 +4288,17 @@
       profilePauseEnd: document.getElementById("profile-pause-end"),
       profilePauseIndicator: document.getElementById("profile-pause-indicator"),
       profileIgnoreHistoryBefore: document.getElementById("profile-ignore-history-before"),
+      profileWorkCenterSummary: document.getElementById("profile-work-center-summary"),
+      profileWorkCenterMeta: document.getElementById("profile-work-center-meta"),
+      profileWorkCenterSource: document.getElementById("profile-work-center-source"),
+      profileWorkCenterLat: document.getElementById("profile-work-center-lat"),
+      profileWorkCenterLng: document.getElementById("profile-work-center-lng"),
+      profileWorkCenterLabel: document.getElementById("profile-work-center-label"),
+      profileWorkCenterUpdatedAt: document.getElementById("profile-work-center-updated-at"),
+      profileWorkCenterHistory: document.getElementById("profile-work-center-history"),
+      profileWorkCenterHome: document.getElementById("profile-work-center-home"),
+      profileWorkCenterSearch: document.getElementById("profile-work-center-search"),
+      profileWorkCenterCenterMap: document.getElementById("profile-work-center-center-map"),
       profilePhoneInput: document.getElementById("profile-phone-input"),
       profileEmailInput: document.getElementById("profile-email-input"),
       profileTherapyBossUnavailableToggle: document.getElementById("profile-therapyboss-unavailable"),
@@ -4195,6 +4320,7 @@
       profileCompletedHistory: document.getElementById("profile-completed-history"),
       profileSaveShell: document.getElementById("profile-save-shell"),
       profileOpenHistory: document.getElementById("profile-open-history"),
+      profileIsolateClinician: document.getElementById("profile-isolate-clinician"),
       profileIsolateVisits: document.getElementById("profile-isolate-visits"),
       profileVersionHistoryCard: document.getElementById("profile-version-history-card"),
       profileVersionHistoryShell: document.getElementById("profile-version-history-shell"),
@@ -4300,6 +4426,7 @@
       zipFilter: "",
       zipCoverageCheckQuery: "",
       pointSearch: "",
+      clinicianPinMode: "work",
       radiusMode: false,
       addClinicianMode: false,
       rulerMode: false,
@@ -4335,6 +4462,7 @@
       selectionCenter: null,
       selectionCenterMarker: null,
       searchMarker: null,
+      lastPointSearchResult: null,
       selectionCircleId: "selection-circle-source",
       rulerSourceId: "ruler-line-source",
       territorySourceId: "territory-source",
@@ -4349,7 +4477,7 @@
 
     const map = new mapboxgl.Map({
       container: "map",
-      style: "mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce",
+      style: "mapbox://styles/mapbox/light-v11",
       center: [-87.6298, 41.8781],
       zoom: 10.5,
       pitchWithRotate: false,
@@ -4430,6 +4558,14 @@
       return Number.isFinite(parsed) ? parsed : null;
     }
 
+    function hasValidCoordinatePair(lat, lng) {
+      if (typeof lat !== "number" || typeof lng !== "number") return false;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return false;
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return false;
+      if (Math.abs(lat) < 0.000001 && Math.abs(lng) < 0.000001) return false;
+      return true;
+    }
+
     function toBoolean(value) {
       if (typeof value === "boolean") return value;
       if (typeof value === "number") return value !== 0;
@@ -4450,6 +4586,161 @@
         zip: getNormalizedZip(record.zip),
         active: toBoolean(record.active)
       };
+    }
+
+    function normalizeClinicianPinMode(value) {
+      return String(value || "").trim().toLowerCase() === "home" ? "home" : "work";
+    }
+
+    function normalizeClinicianWorkCenterSource(value) {
+      const normalized = String(value || "").trim().toLowerCase();
+      if (normalized === "home") return "home";
+      if (normalized === "history") return "history";
+      if (normalized === "manual" || normalized === "search") return "manual";
+      return "";
+    }
+
+    function getClinicianHomeCoordinates(clinician) {
+      if (!clinician) return null;
+      const lat = toNumber(clinician.lat);
+      const lng = toNumber(clinician.lng);
+      if (!hasValidCoordinatePair(lat, lng)) return null;
+      return {
+        lat: lat,
+        lng: lng,
+        source: "home",
+        label: String(clinician.address || "").trim() || "Home Pin"
+      };
+    }
+
+    function getClinicianStoredWorkCenterState(clinician) {
+      if (!clinician) {
+        return {
+          source: "",
+          lat: null,
+          lng: null,
+          label: "",
+          updatedAt: ""
+        };
+      }
+
+      const lat = toNumber(getFirstAvailableFieldValue(clinician, [
+        "workCenterLat",
+        "work_center_lat",
+        "work_center_lng_lat"
+      ]));
+      const lng = toNumber(getFirstAvailableFieldValue(clinician, [
+        "workCenterLng",
+        "work_center_lng",
+        "work_center_longitude"
+      ]));
+      const normalizedSource = normalizeClinicianWorkCenterSource(getFirstAvailableFieldValue(clinician, [
+        "workCenterSource",
+        "work_center_source"
+      ]));
+      const hasValidCoordinates = hasValidCoordinatePair(lat, lng);
+
+      return {
+        source: normalizedSource || (hasValidCoordinates ? "manual" : ""),
+        lat: hasValidCoordinates ? lat : null,
+        lng: hasValidCoordinates ? lng : null,
+        label: String(getFirstAvailableFieldValue(clinician, [
+          "workCenterLabel",
+          "work_center_label"
+        ]) || "").trim(),
+        updatedAt: String(getFirstAvailableFieldValue(clinician, [
+          "workCenterUpdatedAt",
+          "work_center_updated_at"
+        ]) || "").trim()
+      };
+    }
+
+    function getProfileDraftWorkCenterState(draft, clinician) {
+      const storedState = getClinicianStoredWorkCenterState(clinician);
+      const hasDraft = Boolean(draft && typeof draft === "object");
+      const draftSource = hasDraft ? normalizeClinicianWorkCenterSource(draft.workCenterSource) : "";
+      const draftLat = hasDraft ? toNumber(draft.workCenterLat) : null;
+      const draftLng = hasDraft ? toNumber(draft.workCenterLng) : null;
+      const draftLabel = hasDraft ? String(draft.workCenterLabel || "").trim() : "";
+      const draftUpdatedAt = hasDraft ? String(draft.workCenterUpdatedAt || "").trim() : "";
+
+      return {
+        source: draftSource || storedState.source,
+        lat: typeof draftLat === "number" ? draftLat : storedState.lat,
+        lng: typeof draftLng === "number" ? draftLng : storedState.lng,
+        label: draftLabel || storedState.label,
+        updatedAt: draftUpdatedAt || storedState.updatedAt
+      };
+    }
+
+    function getClinicianEffectiveIgnoreHistoryBeforeValue(draft, clinician) {
+      const draftValue = draft && typeof draft === "object"
+        ? String(draft.ignoreHistoryBefore || "").trim()
+        : "";
+      return draftValue || getClinicianIgnoreHistoryBeforeValue(clinician);
+    }
+
+    function getClinicianAutomaticWorkCenterState(clinician, draft) {
+      if (!clinician) return null;
+
+      const clinicianId = String(clinician.id || "").trim();
+      const ignoreHistoryBefore = getClinicianEffectiveIgnoreHistoryBeforeValue(draft, clinician);
+      const cachedHistory = appState.clinicianCompletedServiceHistoryByClinicianId.get(clinicianId) || null;
+      const loadedHistory = getClinicianCompletedServiceHistory(clinicianId);
+      const historyCenter = computeClinicianHistoryWorkCenter(cachedHistory || loadedHistory, ignoreHistoryBefore);
+      if (historyCenter) {
+        return Object.assign({ autoDerived: true }, historyCenter);
+      }
+
+      const homeCoordinates = getClinicianHomeCoordinates(clinician);
+      return homeCoordinates
+        ? Object.assign({ autoDerived: true }, homeCoordinates)
+        : null;
+    }
+
+    function getEffectiveClinicianWorkCenterState(clinician, draft) {
+      const storedState = getProfileDraftWorkCenterState(draft, clinician);
+      const homeCoordinates = getClinicianHomeCoordinates(clinician);
+
+      if (storedState.source === "home") {
+        return homeCoordinates
+          ? Object.assign({}, homeCoordinates, {
+              source: "home",
+              label: storedState.label || homeCoordinates.label,
+              updatedAt: storedState.updatedAt || "",
+              autoDerived: false
+            })
+          : null;
+      }
+
+      if (
+        (storedState.source === "manual" || storedState.source === "history")
+        && hasValidCoordinatePair(storedState.lat, storedState.lng)
+      ) {
+        return Object.assign({}, storedState, { autoDerived: false });
+      }
+
+      return getClinicianAutomaticWorkCenterState(clinician, draft);
+    }
+
+    function getClinicianMapCoordinatesForMode(clinician, pinMode) {
+      const normalizedMode = normalizeClinicianPinMode(pinMode);
+      const homeCoordinates = getClinicianHomeCoordinates(clinician);
+      if (normalizedMode === "home") {
+        return homeCoordinates;
+      }
+
+      const draft = getProfileDraftForClinician(clinician);
+      const workCenter = getEffectiveClinicianWorkCenterState(clinician, draft);
+      if (workCenter && hasValidCoordinatePair(workCenter.lat, workCenter.lng)) {
+        return workCenter;
+      }
+
+      return homeCoordinates;
+    }
+
+    function getClinicianMapCoordinates(clinician) {
+      return getClinicianMapCoordinatesForMode(clinician, appState.clinicianPinMode);
     }
 
     function normalizeClinicianZipCoverageRows(rows) {
@@ -4515,7 +4806,7 @@
     }
 
     function hasCoordinates(clinician) {
-      return typeof clinician.lat === "number" && typeof clinician.lng === "number";
+      return Boolean(getClinicianMapCoordinates(clinician));
     }
 
     function formatRadius(radius) {
@@ -4600,6 +4891,24 @@
         return fallbackValue;
       }
     }
+
+    function loadStoredClinicianPinMode() {
+      try {
+        return normalizeClinicianPinMode(window.localStorage.getItem(clinicianPinModeStorageKey));
+      } catch (error) {
+        return "work";
+      }
+    }
+
+    function persistStoredClinicianPinMode() {
+      try {
+        window.localStorage.setItem(clinicianPinModeStorageKey, normalizeClinicianPinMode(appState.clinicianPinMode));
+      } catch (error) {
+        // Ignore local storage write issues in prototype mode.
+      }
+    }
+
+    appState.clinicianPinMode = loadStoredClinicianPinMode();
 
     function loadStoredAgencyDrafts() {
       const storedValue = safeParseStoredJson(agencyDraftStorageKey, {});
@@ -5467,7 +5776,7 @@
       const lng = toNumber(row.patient_lng);
       const address = getCompletedServiceSiteAddress(row);
 
-      if (typeof lat === "number" && typeof lng === "number") {
+      if (hasValidCoordinatePair(lat, lng)) {
         return lat.toFixed(5) + "|" + lng.toFixed(5) + "|" + normalizeGeocodeAddressKey(address);
       }
 
@@ -5475,7 +5784,7 @@
     }
 
     function hasCompletedServiceCoordinates(site) {
-      return typeof site.lat === "number" && typeof site.lng === "number";
+      return hasValidCoordinatePair(site.lat, site.lng);
     }
 
     function getCompletedServiceAssignmentName(assignment) {
@@ -6555,6 +6864,9 @@
         renderZipCoverageCheck();
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
+        if (appState.clinicianPinMode === "work") {
+          refreshClinicianCoordinateDependentViews();
+        }
       } catch (error) {
         console.error("Completed services load failed:", error);
         appState.completedServiceSites = [];
@@ -7143,6 +7455,8 @@
         return {
           key: site.key,
           fullAddress: site.fullAddress,
+          lat: site.lat,
+          lng: site.lng,
           rows: matchingRows,
           serviceRowsCount: matchingRows.length,
           uniquePatientCount: uniquePatients.length,
@@ -7502,6 +7816,10 @@
           await persistClinicianDerivedStartDate(normalizedClinicianId, history.earliestServiceDate);
         }
 
+        if (appState.clinicianPinMode === "work") {
+          refreshClinicianCoordinateDependentViews();
+        }
+
         return history;
       } catch (error) {
         console.error("Clinician full completed-service history load failed:", error);
@@ -7673,6 +7991,9 @@
         if (snapshot.ignoreHistoryBefore) {
           metaChips.push("<span class='meta-chip'>Ignore before " + escapeHtml(formatAcceptedDate(snapshot.ignoreHistoryBefore)) + "</span>");
         }
+        if (snapshot.workCenterSource) {
+          metaChips.push("<span class='meta-chip'>Work Center " + escapeHtml(getClinicianWorkCenterSourceLabel(snapshot.workCenterSource)) + "</span>");
+        }
         if (snapshot.pauseStart || snapshot.pauseEnd) {
           const pauseText = snapshot.pauseStart && snapshot.pauseEnd
             ? formatAcceptedDate(snapshot.pauseStart) + " to " + formatAcceptedDate(snapshot.pauseEnd)
@@ -7689,6 +8010,19 @@
         }
 
         const detailLines = [];
+        if (snapshot.workCenterSource) {
+          const workCenterParts = [
+            "Work Center: " + getClinicianWorkCenterSourceLabel(snapshot.workCenterSource)
+          ];
+          const coordinateText = formatCoordinateLabel(snapshot.workCenterLat, snapshot.workCenterLng);
+          if (coordinateText) {
+            workCenterParts.push(coordinateText);
+          }
+          if (snapshot.workCenterLabel) {
+            workCenterParts.push(snapshot.workCenterLabel);
+          }
+          detailLines.push(workCenterParts.join(" | "));
+        }
         if (snapshot.phone || snapshot.email) {
           detailLines.push("Contact: " + [snapshot.phone, snapshot.email].filter(Boolean).join(" | "));
         }
@@ -7791,6 +8125,20 @@
         : "Isolate Visits";
     }
 
+    function syncProfileClinicianIsolationButton() {
+      if (!elements.profileIsolateClinician) return;
+
+      const clinicianId = String(appState.currentProfileClinicianId || "").trim();
+      const isCreateMode = appState.profileCreateMode;
+      const isActive = !isCreateMode && Boolean(clinicianId) && appState.isolatedClinicianId === clinicianId;
+
+      elements.profileIsolateClinician.disabled = isCreateMode || !clinicianId;
+      elements.profileIsolateClinician.classList.toggle("active", isActive);
+      elements.profileIsolateClinician.textContent = isActive
+        ? "Clear Isolated Clinician"
+        : "Isolate Clinician";
+    }
+
     function refreshCompletedServiceIsolationViews() {
       rebuildCompletedServiceVisibleSiteCaches();
       const visibleCompletedServiceKeys = new Set(getVisibleCompletedServiceSites(false).map(function(site) {
@@ -7805,6 +8153,7 @@
       renderRadiusCoverage();
       renderClinicianCompletedServiceHistory();
       updateSummary();
+      syncProfileClinicianIsolationButton();
       syncProfileVisitIsolationButton();
     }
 
@@ -7850,6 +8199,199 @@
       elements.profilePreferredZips.textContent = formatPreferredZips(preferredZips);
     }
 
+    function getClinicianPinModeLabel(value) {
+      return normalizeClinicianPinMode(value) === "home" ? "Home Pin" : "Work Center";
+    }
+
+    function getClinicianWorkCenterSourceLabel(source) {
+      const normalizedSource = normalizeClinicianWorkCenterSource(source);
+      if (normalizedSource === "history") return "History-derived";
+      if (normalizedSource === "manual") return "Manual";
+      if (normalizedSource === "home") return "Home Pin";
+      return "Not set";
+    }
+
+    function formatCoordinateLabel(lat, lng) {
+      if (typeof lat !== "number" || typeof lng !== "number") return "";
+      return lat.toFixed(5) + ", " + lng.toFixed(5);
+    }
+
+    function syncClinicianPinModeButtons() {
+      elements.clinicianPinModeButtons.forEach(function(button) {
+        const mode = normalizeClinicianPinMode(button.dataset.pinModeToggle);
+        const isActive = appState.clinicianPinMode === mode;
+        button.classList.toggle("active", isActive);
+        button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+    }
+
+    function getCurrentProfileClinicianRecord() {
+      if (!appState.currentProfileClinicianId) return null;
+      return appState.clinicians.find(function(entry) {
+        return entry.id === appState.currentProfileClinicianId;
+      }) || null;
+    }
+
+    function getCurrentProfileDraftValue() {
+      if (appState.profileCreateMode) {
+        return appState.newClinicianDraft || getDefaultProfileDraft();
+      }
+      return getProfileDraftForClinician(getCurrentProfileClinicianRecord());
+    }
+
+    function getProfileWorkCenterFocusCoordinates() {
+      const clinician = getCurrentProfileClinicianRecord();
+      const draft = buildProfileDraftFromInputs();
+      const workCenter = getEffectiveClinicianWorkCenterState(clinician, draft);
+      if (workCenter && hasValidCoordinatePair(workCenter.lat, workCenter.lng)) {
+        return {
+          lat: workCenter.lat,
+          lng: workCenter.lng,
+          source: workCenter.source,
+          label: workCenter.label || ""
+        };
+      }
+      return getClinicianHomeCoordinates(clinician);
+    }
+
+    function setProfileWorkCenterState(nextState) {
+      const normalizedState = nextState && typeof nextState === "object" ? nextState : {};
+      const normalizedSource = normalizeClinicianWorkCenterSource(normalizedState.source);
+      const lat = toNumber(normalizedState.lat);
+      const lng = toNumber(normalizedState.lng);
+      elements.profileWorkCenterSource.value = normalizedSource;
+      elements.profileWorkCenterLat.value = typeof lat === "number" ? String(lat) : "";
+      elements.profileWorkCenterLng.value = typeof lng === "number" ? String(lng) : "";
+      elements.profileWorkCenterLabel.value = String(normalizedState.label || "").trim();
+      elements.profileWorkCenterUpdatedAt.value = String(normalizedState.updatedAt || "").trim();
+    }
+
+    function syncProfileWorkCenterUi() {
+      const clinician = getCurrentProfileClinicianRecord();
+      const draft = getCurrentProfileDraftValue();
+      const savedWorkCenter = getProfileDraftWorkCenterState(draft, clinician);
+      const workCenter = getEffectiveClinicianWorkCenterState(clinician, draft);
+      const homeCoordinates = getClinicianHomeCoordinates(clinician);
+      const activePinCoordinates = clinician
+        ? getClinicianMapCoordinates(clinician)
+        : null;
+      const pointSearchReady = Boolean(
+        appState.lastPointSearchResult
+        && typeof appState.lastPointSearchResult.lat === "number"
+        && typeof appState.lastPointSearchResult.lng === "number"
+      );
+
+      let summary = "No work center saved yet. The map pin will fall back to Home Pin.";
+      if (workCenter && workCenter.source === "history" && hasValidCoordinatePair(workCenter.lat, workCenter.lng)) {
+        summary = (workCenter.autoDerived ? "Auto-derived" : "History-derived") + " work center at " + formatCoordinateLabel(workCenter.lat, workCenter.lng) + ".";
+      } else if (workCenter && workCenter.source === "manual" && hasValidCoordinatePair(workCenter.lat, workCenter.lng)) {
+        summary = "Manual work center at " + formatCoordinateLabel(workCenter.lat, workCenter.lng) + ".";
+      } else if (workCenter && workCenter.source === "home") {
+        summary = homeCoordinates
+          ? ((workCenter.autoDerived ? "Auto default" : "Work Center is currently") + " using the Home Pin.")
+          : "Work Center is set to Home Pin and will use the home geocode once it exists.";
+      } else if (homeCoordinates) {
+        summary = "No dedicated work center saved yet. The map pin will currently fall back to Home Pin.";
+      }
+
+      const metaParts = [];
+      metaParts.push("Pin mode on map: " + getClinicianPinModeLabel(appState.clinicianPinMode));
+      metaParts.push("Effective source: " + getClinicianWorkCenterSourceLabel(workCenter ? workCenter.source : ""));
+      metaParts.push("Saved source: " + getClinicianWorkCenterSourceLabel(savedWorkCenter.source));
+      if (workCenter && workCenter.autoDerived) {
+        metaParts.push("Auto default");
+      }
+      if (workCenter && workCenter.label) {
+        metaParts.push(workCenter.label);
+      }
+      if (activePinCoordinates) {
+        metaParts.push("Live pin: " + getClinicianPinModeLabel(appState.clinicianPinMode));
+      }
+
+      elements.profileWorkCenterSummary.textContent = summary;
+      elements.profileWorkCenterMeta.textContent = metaParts.join(" | ");
+      elements.profileWorkCenterHistory.disabled = appState.profileCreateMode || !appState.currentProfileClinicianId;
+      elements.profileWorkCenterHome.disabled = appState.profileCreateMode && !String(elements.profileCoreAddressInput.value || "").trim();
+      elements.profileWorkCenterSearch.disabled = !pointSearchReady;
+      elements.profileWorkCenterCenterMap.disabled = !Boolean(getProfileWorkCenterFocusCoordinates());
+    }
+
+    function applyProfileWorkCenterDraftChange(nextState) {
+      setProfileWorkCenterState(nextState);
+      persistCurrentProfileDraft(true);
+      syncProfileWorkCenterUi();
+      refreshClinicianCoordinateDependentViews();
+    }
+
+    function centerMapOnProfileWorkCenter() {
+      const coordinates = getProfileWorkCenterFocusCoordinates();
+      if (!coordinates) {
+        window.alert("This clinician does not have a mappable Home Pin or Work Center yet.");
+        return;
+      }
+
+      map.flyTo({
+        center: [coordinates.lng, coordinates.lat],
+        zoom: Math.max(map.getZoom(), 12.5),
+        speed: 0.85,
+        curve: 1.2,
+        essential: true
+      });
+    }
+
+    function refreshClinicianCoordinateDependentViews() {
+      renderMarkers();
+      if (appState.selectionCenter) {
+        selectCliniciansByRadius(appState.selectionCenter, appState.selectedRadiusMiles);
+        return;
+      }
+      renderSidebar();
+      updateSelectionLabels();
+      updateSummary();
+    }
+
+    function computeClinicianHistoryWorkCenter(history, ignoreHistoryBefore) {
+      if (!history || !Array.isArray(history.sites) || !history.sites.length) return null;
+
+      const cutoffDate = parseProfileDateValue(ignoreHistoryBefore);
+      let totalWeight = 0;
+      let weightedLat = 0;
+      let weightedLng = 0;
+      let contributingSiteCount = 0;
+
+      history.sites.forEach(function(site) {
+        if (!hasValidCoordinatePair(site.lat, site.lng)) return;
+        const eligibleRows = (site.rows || []).filter(function(row) {
+          if (!cutoffDate) return true;
+          const anchorDate = getCompletedServiceCoverageAnchorDate(row);
+          if (!anchorDate) return true;
+          return new Date(anchorDate) >= cutoffDate;
+        });
+        if (!eligibleRows.length) return;
+
+        const siteWeight = eligibleRows.reduce(function(total, row) {
+          const visits = Number(row && row.service_visits || 0) || 0;
+          return total + Math.max(visits, 1);
+        }, 0);
+        if (siteWeight <= 0) return;
+
+        weightedLat += site.lat * siteWeight;
+        weightedLng += site.lng * siteWeight;
+        totalWeight += siteWeight;
+        contributingSiteCount += 1;
+      });
+
+      if (!totalWeight || contributingSiteCount < 3) return null;
+
+      return {
+        source: "history",
+        lat: Number((weightedLat / totalWeight).toFixed(6)),
+        lng: Number((weightedLng / totalWeight).toFixed(6)),
+        label: "History-derived from " + contributingSiteCount + " site" + (contributingSiteCount === 1 ? "" : "s"),
+        updatedAt: new Date().toISOString()
+      };
+    }
+
     function syncProfileModeUi() {
       const isCreateMode = appState.profileCreateMode;
       elements.profileCreateFields.hidden = !isCreateMode;
@@ -7861,8 +8403,10 @@
           : "Show History";
       elements.profileOpenHistory.disabled = isCreateMode || !appState.currentProfileClinicianId;
       elements.profileVersionHistoryCard.hidden = !appState.profileHistoryExpanded || isCreateMode;
+      syncProfileClinicianIsolationButton();
       syncProfileVisitIsolationButton();
       syncProfileCoreSummary();
+      syncProfileWorkCenterUi();
     }
 
     function syncDisciplineToggleState() {
@@ -8469,6 +9013,11 @@
         pauseStart: "",
         pauseEnd: "",
         ignoreHistoryBefore: "",
+        workCenterSource: "",
+        workCenterLat: "",
+        workCenterLng: "",
+        workCenterLabel: "",
+        workCenterUpdatedAt: "",
         phone: "",
         email: "",
         therapyBossUnavailable: false,
@@ -9308,6 +9857,38 @@
         delete nextTags.ignoreHistoryBefore;
       }
 
+      const normalizedWorkCenterSource = normalizeClinicianWorkCenterSource(draft.workCenterSource);
+      const normalizedWorkCenterLat = toNumber(draft.workCenterLat);
+      const normalizedWorkCenterLng = toNumber(draft.workCenterLng);
+      const normalizedWorkCenterLabel = String(draft.workCenterLabel || "").trim();
+      const normalizedWorkCenterUpdatedAt = String(draft.workCenterUpdatedAt || "").trim();
+
+      if (normalizedWorkCenterSource) {
+        nextTags.workCenterSource = normalizedWorkCenterSource;
+      } else {
+        delete nextTags.workCenterSource;
+      }
+      if (typeof normalizedWorkCenterLat === "number") {
+        nextTags.workCenterLat = normalizedWorkCenterLat;
+      } else {
+        delete nextTags.workCenterLat;
+      }
+      if (typeof normalizedWorkCenterLng === "number") {
+        nextTags.workCenterLng = normalizedWorkCenterLng;
+      } else {
+        delete nextTags.workCenterLng;
+      }
+      if (normalizedWorkCenterLabel) {
+        nextTags.workCenterLabel = normalizedWorkCenterLabel;
+      } else {
+        delete nextTags.workCenterLabel;
+      }
+      if (normalizedWorkCenterUpdatedAt) {
+        nextTags.workCenterUpdatedAt = normalizedWorkCenterUpdatedAt;
+      } else {
+        delete nextTags.workCenterUpdatedAt;
+      }
+
       if (draft.pauseStart) {
         nextTags.pauseStart = draft.pauseStart;
       } else {
@@ -9364,6 +9945,10 @@
         pauseStart: draft.pauseStart || "",
         pauseEnd: draft.pauseEnd || "",
         ignoreHistoryBefore: draft.ignoreHistoryBefore || "",
+        workCenterSource: normalizeClinicianWorkCenterSource(draft.workCenterSource),
+        workCenterLat: toNumber(draft.workCenterLat),
+        workCenterLng: toNumber(draft.workCenterLng),
+        workCenterLabel: String(draft.workCenterLabel || "").trim(),
         phone: String(draft.phone || "").trim(),
         email: String(draft.email || "").trim(),
         internalRating: normalizeProfileRatingValue(draft.rating),
@@ -9401,6 +9986,10 @@
         pauseStart: String(snapshot.pauseStart || snapshot.pause_start || snapshot.pause_start_date || "").trim(),
         pauseEnd: String(snapshot.pauseEnd || snapshot.pause_end || snapshot.pause_end_date || "").trim(),
         ignoreHistoryBefore: String(snapshot.ignoreHistoryBefore || snapshot.ignore_history_before || "").trim(),
+        workCenterSource: normalizeClinicianWorkCenterSource(snapshot.workCenterSource || snapshot.work_center_source || ""),
+        workCenterLat: toNumber(snapshot.workCenterLat ?? snapshot.work_center_lat),
+        workCenterLng: toNumber(snapshot.workCenterLng ?? snapshot.work_center_lng),
+        workCenterLabel: String(snapshot.workCenterLabel || snapshot.work_center_label || "").trim(),
         phone: String(snapshot.phone || "").trim(),
         email: String(snapshot.email || "").trim(),
         internalRating: normalizeProfileRatingValue(
@@ -9435,6 +10024,10 @@
         pauseStart: safeSnapshot.pauseStart || "",
         pauseEnd: safeSnapshot.pauseEnd || "",
         ignoreHistoryBefore: safeSnapshot.ignoreHistoryBefore || "",
+        workCenterSource: normalizeClinicianWorkCenterSource(safeSnapshot.workCenterSource || ""),
+        workCenterLat: safeSnapshot.workCenterLat ?? null,
+        workCenterLng: safeSnapshot.workCenterLng ?? null,
+        workCenterLabel: safeSnapshot.workCenterLabel || "",
         phone: safeSnapshot.phone || "",
         email: safeSnapshot.email || "",
         internalRating: safeSnapshot.internalRating || null,
@@ -9467,6 +10060,11 @@
       addFieldIfChanged("Status", previousSnapshot.status, nextSnapshot.status);
       addFieldIfChanged("Start Date", previousSnapshot.startDate, nextSnapshot.startDate);
       addFieldIfChanged("Ignore History Before", previousSnapshot.ignoreHistoryBefore, nextSnapshot.ignoreHistoryBefore);
+      addFieldIfChanged(
+        "Work Center",
+        [previousSnapshot.workCenterSource, previousSnapshot.workCenterLat, previousSnapshot.workCenterLng, previousSnapshot.workCenterLabel],
+        [nextSnapshot.workCenterSource, nextSnapshot.workCenterLat, nextSnapshot.workCenterLng, nextSnapshot.workCenterLabel]
+      );
       addFieldIfChanged(
         "Pause Window",
         [previousSnapshot.pauseStart, previousSnapshot.pauseEnd],
@@ -9793,6 +10391,11 @@
         pauseStart: elements.profilePauseStart.value || "",
         pauseEnd: elements.profilePauseEnd.value || "",
         ignoreHistoryBefore: elements.profileIgnoreHistoryBefore.value || "",
+        workCenterSource: elements.profileWorkCenterSource.value || "",
+        workCenterLat: elements.profileWorkCenterLat.value || "",
+        workCenterLng: elements.profileWorkCenterLng.value || "",
+        workCenterLabel: elements.profileWorkCenterLabel.value || "",
+        workCenterUpdatedAt: elements.profileWorkCenterUpdatedAt.value || "",
         phone: elements.profilePhoneInput.value || "",
         email: elements.profileEmailInput.value || "",
         therapyBossUnavailable: Boolean(elements.profileTherapyBossUnavailableToggle.checked),
@@ -9857,6 +10460,13 @@
       elements.profilePauseStart.value = safeDraft.pauseStart;
       elements.profilePauseEnd.value = safeDraft.pauseEnd;
       elements.profileIgnoreHistoryBefore.value = safeDraft.ignoreHistoryBefore || "";
+      setProfileWorkCenterState({
+        source: safeDraft.workCenterSource || "",
+        lat: safeDraft.workCenterLat,
+        lng: safeDraft.workCenterLng,
+        label: safeDraft.workCenterLabel || "",
+        updatedAt: safeDraft.workCenterUpdatedAt || ""
+      });
       elements.profilePhoneInput.value = safeDraft.phone;
       elements.profileEmailInput.value = safeDraft.email;
       elements.profileTherapyBossUnavailableToggle.checked = Boolean(safeDraft.therapyBossUnavailable);
@@ -9871,6 +10481,7 @@
       syncProfileRestrictionAddButtonsState();
       elements.profileNotesInput.value = safeDraft.notes;
       syncProfileModeUi();
+      syncProfileWorkCenterUi();
       updateProfileHeaderStatus();
       updatePauseUI();
       renderClinicianCompletedServiceHistory();
@@ -10136,6 +10747,22 @@
       if (!draft.ignoreHistoryBefore && clinician) {
         draft.ignoreHistoryBefore = getClinicianIgnoreHistoryBeforeValue(clinician);
       }
+      const storedWorkCenter = getClinicianStoredWorkCenterState(clinician);
+      if (!draft.workCenterSource && storedWorkCenter.source) {
+        draft.workCenterSource = storedWorkCenter.source;
+      }
+      if ((draft.workCenterLat === undefined || draft.workCenterLat === null || draft.workCenterLat === "") && typeof storedWorkCenter.lat === "number") {
+        draft.workCenterLat = String(storedWorkCenter.lat);
+      }
+      if ((draft.workCenterLng === undefined || draft.workCenterLng === null || draft.workCenterLng === "") && typeof storedWorkCenter.lng === "number") {
+        draft.workCenterLng = String(storedWorkCenter.lng);
+      }
+      if (!draft.workCenterLabel && storedWorkCenter.label) {
+        draft.workCenterLabel = storedWorkCenter.label;
+      }
+      if (!draft.workCenterUpdatedAt && storedWorkCenter.updatedAt) {
+        draft.workCenterUpdatedAt = storedWorkCenter.updatedAt;
+      }
       if ((!draft.rating || draft.rating === "0") && clinician) {
         const ratingValue = getFirstAvailableFieldValue(clinician, [
           "internal_rating",
@@ -10349,6 +10976,7 @@
       if (!markerEntry) return;
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       const profileDraft = clinician ? getProfileDraftForClinician(clinician) : getDefaultProfileDraft();
+      const pinCoordinates = clinician ? getClinicianMapCoordinates(clinician) : null;
       const newClinicianInfo = getNewClinicianInfo(getProfileDraftDisplayedStartDate(profileDraft));
       const statusInfo = clinician ? getClinicianPopupStatusInfo(clinician) : { status: "Active" };
       const markerElement = markerEntry.marker.getElement();
@@ -10381,6 +11009,8 @@
       markerElement.classList.toggle("marker-paused", statusInfo.status === "Paused");
       markerElement.classList.toggle("marker-inactive", statusInfo.status === "Inactive");
       markerElement.classList.toggle("marker-hidden", !isVisible);
+      markerElement.classList.toggle("marker-source-home", Boolean(pinCoordinates && pinCoordinates.source === "home"));
+      markerElement.classList.toggle("marker-source-work", Boolean(pinCoordinates && pinCoordinates.source !== "home"));
     }
 
     function syncAllMarkerVisuals() {
@@ -10405,12 +11035,14 @@
     }
 
     function buildMarker(clinician) {
+      const pinCoordinates = getClinicianMapCoordinates(clinician);
+      if (!pinCoordinates) return;
       const popup = new mapboxgl.Popup({ offset: 16 }).setHTML(getPopupHtml(clinician));
       const marker = new mapboxgl.Marker({
         color: getDisciplineColor(clinician.discipline),
         scale: 1
       })
-        .setLngLat([clinician.lng, clinician.lat])
+        .setLngLat([pinCoordinates.lng, pinCoordinates.lat])
         .setPopup(popup)
         .addTo(map);
 
@@ -10656,7 +11288,8 @@
     function focusClinician(clinicianId, openPopup) {
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       const markerEntry = appState.markersById.get(clinicianId);
-      if (!clinician || !markerEntry || !hasCoordinates(clinician)) return;
+      const pinCoordinates = getClinicianMapCoordinates(clinician);
+      if (!clinician || !markerEntry || !pinCoordinates) return;
 
       appState.focusedCompletedServiceKey = null;
       appState.focusedId = clinicianId;
@@ -10668,7 +11301,7 @@
       updateSummary();
 
       map.flyTo({
-        center: [clinician.lng, clinician.lat],
+        center: [pinCoordinates.lng, pinCoordinates.lat],
         zoom: Math.max(map.getZoom(), 12.5),
         speed: 0.85,
         curve: 1.25,
@@ -11026,6 +11659,11 @@
     }
 
     function setSearchMarker(lng, lat, label) {
+      appState.lastPointSearchResult = {
+        lng: Number(lng),
+        lat: Number(lat),
+        label: String(label || "").trim()
+      };
       if (!appState.searchMarker) {
         const node = document.createElement("div");
         node.className = "search-pin";
@@ -11045,12 +11683,20 @@
       if (!appState.searchMarker.getPopup().isOpen()) {
         appState.searchMarker.togglePopup();
       }
+      if (elements.profilePanel.classList.contains("open")) {
+        syncProfileWorkCenterUi();
+      }
     }
 
     function clearSearchMarker() {
-      if (!appState.searchMarker) return;
-      appState.searchMarker.remove();
-      appState.searchMarker = null;
+      if (appState.searchMarker) {
+        appState.searchMarker.remove();
+        appState.searchMarker = null;
+      }
+      appState.lastPointSearchResult = null;
+      if (elements.profilePanel.classList.contains("open")) {
+        syncProfileWorkCenterUi();
+      }
     }
 
     function setToolsMenuOpen(isOpen) {
@@ -13399,7 +14045,9 @@
 
       const visibleClinicians = appState.filteredClinicians.filter(hasCoordinates);
       const selectedIds = visibleClinicians.filter(function(clinician) {
-        return haversineMiles(center.lat, center.lng, clinician.lat, clinician.lng) <= radiusMiles;
+        const pinCoordinates = getClinicianMapCoordinates(clinician);
+        if (!pinCoordinates) return false;
+        return haversineMiles(center.lat, center.lng, pinCoordinates.lat, pinCoordinates.lng) <= radiusMiles;
       }).map(function(clinician) {
         return clinician.id;
       });
@@ -13436,10 +14084,12 @@
       });
 
       selectedVisibleClinicians.forEach(function(clinician) {
+        const pinCoordinates = getClinicianMapCoordinates(clinician);
+        if (!pinCoordinates) return;
         const labelText = formatClinicianCompactLabel(clinician.name || "Unnamed clinician");
         if (appState.selectionLabelsById.has(clinician.id)) {
           const existingLabelMarker = appState.selectionLabelsById.get(clinician.id);
-          existingLabelMarker.setLngLat([clinician.lng, clinician.lat]);
+          existingLabelMarker.setLngLat([pinCoordinates.lng, pinCoordinates.lat]);
           existingLabelMarker.getElement().textContent = labelText;
           return;
         }
@@ -13453,7 +14103,7 @@
           anchor: "bottom",
           offset: [0, -42]
         })
-          .setLngLat([clinician.lng, clinician.lat])
+          .setLngLat([pinCoordinates.lng, pinCoordinates.lat])
           .addTo(map);
 
         appState.selectionLabelsById.set(clinician.id, labelMarker);
@@ -13947,7 +14597,9 @@
 
       const bounds = new mapboxgl.LngLatBounds();
       cliniciansForFit.forEach(function(clinician) {
-        bounds.extend([clinician.lng, clinician.lat]);
+        const pinCoordinates = getClinicianMapCoordinates(clinician);
+        if (!pinCoordinates) return;
+        bounds.extend([pinCoordinates.lng, pinCoordinates.lat]);
       });
 
       const leftPadding = window.innerWidth <= 980 ? 70 : 410;
@@ -13984,11 +14636,15 @@
             const candidateKey = candidate.id || ("clinician-" + candidateIndex);
             if (visited.has(candidateKey)) return;
 
+            const currentCoordinates = getClinicianMapCoordinates(currentClinician);
+            const candidateCoordinates = getClinicianMapCoordinates(candidate);
+            if (!currentCoordinates || !candidateCoordinates) return;
+
             const distanceMiles = haversineMiles(
-              currentClinician.lat,
-              currentClinician.lng,
-              candidate.lat,
-              candidate.lng
+              currentCoordinates.lat,
+              currentCoordinates.lng,
+              candidateCoordinates.lat,
+              candidateCoordinates.lng
             );
 
             if (distanceMiles <= clusterDistanceMiles) {
@@ -14044,6 +14700,7 @@
       renderImportMappingGrid();
       renderImportPreview();
       syncImportUploadState();
+      syncClinicianPinModeButtons();
 
       elements.runPointSearch.addEventListener("click", function() {
         runPointSearch();
@@ -14051,6 +14708,18 @@
 
       elements.zoomExtentsButton.addEventListener("click", function() {
         fitMapToVisibleClinicians(true);
+      });
+
+      elements.clinicianPinModeButtons.forEach(function(button) {
+        button.addEventListener("click", function() {
+          const nextMode = normalizeClinicianPinMode(button.dataset.pinModeToggle);
+          if (appState.clinicianPinMode === nextMode) return;
+          appState.clinicianPinMode = nextMode;
+          persistStoredClinicianPinMode();
+          syncClinicianPinModeButtons();
+          syncProfileWorkCenterUi();
+          refreshClinicianCoordinateDependentViews();
+        });
       });
 
       elements.runZipCoverageCheck.addEventListener("click", function() {
@@ -14459,6 +15128,11 @@
         saveCurrentClinicianProfile();
       });
 
+      elements.profileIsolateClinician.addEventListener("click", function() {
+        if (!appState.currentProfileClinicianId || appState.profileCreateMode) return;
+        toggleClinicianIsolation(appState.currentProfileClinicianId);
+      });
+
       elements.profileIsolateVisits.addEventListener("click", function() {
         if (!appState.currentProfileClinicianId || appState.profileCreateMode) return;
         toggleCompletedServiceClinicianIsolation(appState.currentProfileClinicianId);
@@ -14495,6 +15169,7 @@
         if (config.updatePauseUi) {
           updatePauseUI();
         }
+        syncProfileWorkCenterUi();
         if (config.refreshFilters) {
           applyFilters();
         }
@@ -14531,6 +15206,49 @@
       elements.profilePauseStart.addEventListener("change", handleProfileDraftChange);
       elements.profilePauseEnd.addEventListener("change", handleProfileDraftChange);
       elements.profileIgnoreHistoryBefore.addEventListener("change", handleProfileDraftChange);
+      elements.profileWorkCenterHistory.addEventListener("click", async function() {
+        if (appState.profileCreateMode || !appState.currentProfileClinicianId) {
+          window.alert("Create the clinician first before deriving a work center from visit history.");
+          return;
+        }
+        const clinicianId = appState.currentProfileClinicianId;
+        const cachedHistory = appState.clinicianCompletedServiceHistoryByClinicianId.get(clinicianId) || null;
+        const history = cachedHistory || await loadClinicianCompletedServiceFullHistory(clinicianId);
+        const nextCenter = computeClinicianHistoryWorkCenter(
+          history,
+          String(elements.profileIgnoreHistoryBefore.value || "").trim()
+        );
+        if (!nextCenter) {
+          window.alert("No mapped completed-service history could be used to derive a work center for this clinician.");
+          return;
+        }
+        applyProfileWorkCenterDraftChange(nextCenter);
+      });
+      elements.profileWorkCenterHome.addEventListener("click", function() {
+        applyProfileWorkCenterDraftChange({
+          source: "home",
+          lat: "",
+          lng: "",
+          label: "Home Pin",
+          updatedAt: new Date().toISOString()
+        });
+      });
+      elements.profileWorkCenterSearch.addEventListener("click", function() {
+        if (!appState.lastPointSearchResult) {
+          window.alert("Run Point Search first, then use that search pin as the work center.");
+          return;
+        }
+        applyProfileWorkCenterDraftChange({
+          source: "manual",
+          lat: appState.lastPointSearchResult.lat,
+          lng: appState.lastPointSearchResult.lng,
+          label: appState.lastPointSearchResult.label || "Search pin",
+          updatedAt: new Date().toISOString()
+        });
+      });
+      elements.profileWorkCenterCenterMap.addEventListener("click", function() {
+        centerMapOnProfileWorkCenter();
+      });
       elements.profilePhoneInput.addEventListener("input", handleProfileDraftChange);
       elements.profileEmailInput.addEventListener("input", handleProfileDraftChange);
       elements.profileTherapyBossUnavailableToggle.addEventListener("change", handleProfileDraftChange);
