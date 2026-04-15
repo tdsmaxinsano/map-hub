@@ -866,7 +866,7 @@
       height: 8px;
       border-radius: 999px;
       overflow: hidden;
-      background: rgba(140, 170, 210, 0.26);
+      background: rgba(159, 182, 169, 0.26);
     }
 
     .completed-service-load-progress-fill {
@@ -1106,7 +1106,7 @@
 
     .top-toolbar {
       position: relative;
-      z-index: 20;
+      z-index: 20;           /* above floating-status-panel (z-index:2) so dropdown wins */
       display: block;
       padding: 10px 16px;
       background:
@@ -1114,6 +1114,7 @@
       border-bottom: 1px solid rgba(190, 210, 235, 0.92);
       box-shadow: 0 12px 30px rgba(12, 22, 50, 0.06);
       backdrop-filter: blur(12px);
+      z-index: 2;
     }
 
     .map-stage {
@@ -1179,73 +1180,9 @@
       flex-shrink: 0;
     }
 
-    /* Hybrid icon + short label buttons */
-    .btn-icon {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      white-space: nowrap;
-    }
-    .btn-icon svg {
-      width: 15px;
-      height: 15px;
-      flex-shrink: 0;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    /* Legacy dual-label kept for any remaining uses */
+    /* Dual-label system: .btn-short hidden by default, shown at tight breakpoints */
     .btn-short { display: none; }
     .btn-full  { display: inline; }
-
-    /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
-    .toolbar-view-switch {
-      display: inline-flex;
-      align-items: center;
-      background: rgba(190, 210, 235, 0.35);
-      border-radius: 8px;
-      padding: 2px;
-      gap: 2px;
-      flex-shrink: 0;
-    }
-    .toolbar-view-switch button {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 6px 10px;
-      border: none;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.15s ease;
-      line-height: 1;
-    }
-    .toolbar-view-switch button svg {
-      width: 14px;
-      height: 14px;
-      flex-shrink: 0;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .toolbar-view-switch button:hover {
-      color: var(--text);
-      background: rgba(190, 210, 235, 0.3);
-    }
-    .toolbar-view-switch button.active {
-      background: #fff;
-      color: var(--accent);
-      box-shadow: 0 1px 3px rgba(12, 22, 50, 0.1);
-    }
 
     /* ── Tier 1 (≤1450px): reduce cell padding, tighten buttons ── */
     @media (max-width: 1450px) {
@@ -1256,13 +1193,13 @@
       .toolbar-select { min-width: 132px; max-width: 170px; }
     }
 
-    /* ── Tier 2 (≤1200px): compress further ── */
+    /* ── Tier 2 (≤1200px): swap to short labels, compress further ── */
     @media (max-width: 1200px) {
       .toolbar-cell { padding: 0 8px; gap: 5px; }
       .toolbar-cell:first-child { padding-left: 0; }
       .btn-full  { display: none; }
       .btn-short { display: inline; }
-      .toolbar-pin-mode-button { min-width: 54px; padding: 8px 8px; }
+      .toolbar-pin-mode-button { min-width: 64px; padding: 8px 8px; }
       .toolbar-radius-presets .radius-btn { padding: 7px 7px; font-size: 10px; }
       .toolbar-select { min-width: 118px; max-width: 148px; }
       .toolbar-cell-grow { min-width: 100px; }
@@ -2311,61 +2248,7 @@
       font-size: 12px;
       font-weight: 700;
       text-align: center;
-      padding: 0;
-      position: relative;
-      overflow: hidden;
-      cursor: pointer;
-    }
-    .profile-photo-shell .photo-placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      width: 100%;
-      height: 100%;
       padding: 10px;
-    }
-    .profile-photo-shell .photo-placeholder svg {
-      width: 28px;
-      height: 28px;
-      stroke: var(--muted);
-      fill: none;
-      stroke-width: 1.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      opacity: 0.6;
-    }
-    .profile-photo-shell .photo-placeholder span {
-      font-size: 10px;
-      opacity: 0.8;
-    }
-    .profile-photo-shell img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .profile-photo-shell:hover::after {
-      content: "Change";
-      position: absolute;
-      inset: 0;
-      background: rgba(12, 22, 50, 0.55);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 700;
-      display: grid;
-      place-items: center;
-      border-radius: 18px;
-    }
-    .profile-photo-shell input[type="file"] {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      opacity: 0;
-      cursor: pointer;
-      z-index: 1;
     }
 
     .profile-rating {
@@ -2785,32 +2668,6 @@
     .profile-field textarea {
       min-height: 86px;
       resize: vertical;
-    }
-
-    .referral-zips-display {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-      font-size: 12px;
-      color: var(--muted);
-      min-height: 28px;
-      align-items: center;
-    }
-    .referral-zip-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px 8px;
-      border-radius: 6px;
-      background: rgba(30, 77, 140, 0.08);
-      color: var(--accent);
-      font-size: 11px;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .referral-zip-chip .zip-count {
-      font-weight: 400;
-      opacity: 0.7;
     }
 
     .work-center-shell {
@@ -3698,16 +3555,6 @@
       <div class="top-toolbar">
         <div class="toolbar-row">
 
-          <!-- ── Cell 0: View Switch ── -->
-          <div class="toolbar-cell" style="padding-left:0">
-            <div class="toolbar-view-switch" role="group" aria-label="Sidebar view switch">
-              <button id="view-switch-clinicians" type="button" class="active" title="Open Clinician List in sidebar"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Clinicians</button>
-              <button id="view-switch-services" type="button" title="Open Completed Services in sidebar"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Services</button>
-            </div>
-          </div>
-
-          <div class="toolbar-sep"></div>
-
           <!-- ── Cell 1: Find Clinician ── -->
           <div id="clinician-search-shell" class="toolbar-cell toolbar-cell-grow" style="position:relative">
             <input id="clinician-search" class="toolbar-input" type="text" placeholder="Find clinician by name" autocomplete="off" aria-label="Find clinician by name">
@@ -3734,8 +3581,8 @@
 
           <!-- ── Cell 4: Radius Selection ── -->
           <div class="toolbar-cell toolbar-radius-cell" aria-label="Radius selection tools">
-            <button id="radius-mode-toggle" class="btn-secondary" type="button" title="Toggle radius selection mode"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Radius</span></button>
-            <button id="clear-selection" class="btn-secondary" type="button" title="Clear current selection"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Clear</span></button>
+            <button id="radius-mode-toggle" class="btn-secondary" type="button"><span class="btn-full">Radius Mode</span><span class="btn-short">Radius</span></button>
+            <button id="clear-selection" class="btn-secondary" type="button">Clear</button>
             <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">−</button>
             <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
             <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
@@ -3752,8 +3599,8 @@
           <!-- ── Cell 5: Clinician Pin Mode ── -->
           <div class="toolbar-cell">
             <div class="toolbar-pin-mode-toggle" role="group" aria-label="Clinician pin display mode">
-              <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true" title="Show clinician work center locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="4"/></svg>Work</span></button>
-              <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false" title="Show clinician home locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Home</span></button>
+              <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true"><span class="btn-full">Work Center</span><span class="btn-short">Work</span></button>
+              <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false"><span class="btn-full">Home Pin</span><span class="btn-short">Home</span></button>
             </div>
           </div>
 
@@ -3761,8 +3608,8 @@
 
           <!-- ── Cell 6: Map Utilities ── -->
           <div class="toolbar-cell">
-            <button id="zoom-extents" class="btn-secondary" type="button" title="Zoom to fit all visible clinicians"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>Fit</span></button>
-            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button" title="Toggle TherapyBoss integration panel"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>TB</span></button>
+            <button id="zoom-extents" class="btn-secondary" type="button"><span class="btn-full">Zoom Extents</span><span class="btn-short">Zoom</span></button>
+            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button"><span class="btn-full">TherapyBoss</span><span class="btn-short">TB</span></button>
             <select id="style-selector" class="toolbar-select" aria-label="Map style">
               <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
               <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
@@ -3771,7 +3618,7 @@
               <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
             </select>
             <div class="toolbar-menu" id="toolbar-menu">
-              <button id="tools-menu-button" class="btn-secondary menu-button" type="button" title="Additional map tools"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>Tools</span></button>
+              <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
               <div class="menu-panel">
                 <button id="toolbar-add-clinician" class="menu-item" type="button">Add Clinician</button>
                 <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
@@ -3786,7 +3633,7 @@
 
       <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 113</div>
+        <div class="version-indicator">Prototype Rev 112</div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Status</div>
         <div class="status-card">
@@ -3956,14 +3803,7 @@
           </div>
           <div class="profile-panel-side">
             <button id="profile-close" type="button" class="btn-secondary profile-close">Close</button>
-            <div id="profile-photo-shell" class="profile-photo-shell">
-              <input id="profile-photo-input" type="file" accept="image/*" title="Upload clinician photo">
-              <div class="photo-placeholder" id="profile-photo-placeholder">
-                <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4-4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                <span>Add Photo</span>
-              </div>
-              <img id="profile-photo-img" src="" alt="Clinician photo" style="display:none">
-            </div>
+            <div id="profile-photo-shell" class="profile-photo-shell">Photo if available</div>
             <div class="profile-rating" aria-label="Internal clinician rating">
               <button type="button" class="rating-star" data-profile-rating-star="1" aria-label="1 star" aria-pressed="false">&#9733;</button>
               <button type="button" class="rating-star" data-profile-rating-star="2" aria-label="2 stars" aria-pressed="false">&#9733;</button>
@@ -4001,16 +3841,14 @@
                     <label for="profile-core-zip-input">ZIP</label>
                     <input id="profile-core-zip-input" type="text" placeholder="ZIP code">
                   </div>
-                  <input id="profile-core-radius-input" type="hidden" value="">
+                  <div class="profile-field">
+                    <label for="profile-core-radius-input">Radius</label>
+                    <input id="profile-core-radius-input" type="text" placeholder="Optional radius">
+                  </div>
                   <div class="profile-field full">
                     <label for="profile-core-preferred-zips-input">Preferred ZIPs</label>
                     <input id="profile-core-preferred-zips-input" type="text" placeholder="Optional preferred ZIP list">
                     <div class="helper-text">Maintain ZIP coverage in TherapyBoss first, then use the ZIP Coverage import here to sync this list.</div>
-                  </div>
-                  <div class="profile-field full">
-                    <label>Referral History ZIPs</label>
-                    <div id="profile-referral-zips" class="referral-zips-display">No completed service history loaded yet.</div>
-                    <div class="helper-text">Auto-computed from completed service history. Respects the Ignore History Before date.</div>
                   </div>
                 </div>
                 <div class="helper-text">Address and ZIP will be geocoded when you create the clinician so the new marker lands on the map.</div>
@@ -4152,8 +3990,8 @@
                 <div id="profile-zip" class="profile-kv-value">Not set</div>
               </div>
               <div class="profile-kv">
-                <div class="profile-kv-label">Referral ZIPs</div>
-                <div id="profile-referral-zips-snapshot" class="profile-kv-value referral-zips-display">—</div>
+                <div class="profile-kv-label">Radius</div>
+                <div id="profile-radius" class="profile-kv-value">Not set</div>
               </div>
               <div class="profile-kv">
                 <div class="profile-kv-label">Address</div>
@@ -4601,14 +4439,9 @@
       profileRatingStars: Array.from(document.querySelectorAll("[data-profile-rating-star]")),
       profileAddress: document.getElementById("profile-address"),
       profileZip: document.getElementById("profile-zip"),
-      profileRadius: document.getElementById("profile-radius") || document.createElement("div"),
-      profileReferralZipsSnapshot: document.getElementById("profile-referral-zips-snapshot"),
+      profileRadius: document.getElementById("profile-radius"),
       profilePreferredZips: document.getElementById("profile-preferred-zips"),
-      profileReferralZips: document.getElementById("profile-referral-zips"),
       profilePhotoShell: document.getElementById("profile-photo-shell"),
-      profilePhotoInput: document.getElementById("profile-photo-input"),
-      profilePhotoImg: document.getElementById("profile-photo-img"),
-      profilePhotoPlaceholder: document.getElementById("profile-photo-placeholder"),
       profileStatusInput: document.getElementById("profile-status-input"),
       profileStatusButtons: Array.from(document.querySelectorAll("[data-profile-status]")),
       profileStatusHistory: document.getElementById("profile-status-history"),
@@ -4815,9 +4648,6 @@
       maxPitch: 0,
       bearingSnap: 7
     });
-
-    // Ensure Mapbox picks up the correct container size after flex layout settles
-    window.requestAnimationFrame(function() { map.resize(); });
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, function(char) {
@@ -5643,9 +5473,6 @@
       if (!agency) return;
 
       persistCurrentAgencyDraft();
-      if (hasCurrentProfileUnsavedChanges()) {
-        if (!window.confirm("You have unsaved changes on the current clinician profile. Discard and switch to agency?")) return;
-      }
       closeClinicianProfile();
       appState.currentAgencyId = agencyId;
       applyAgencyDraft(getAgencyDraftForRecord(agency));
@@ -7201,7 +7028,6 @@
         renderZipCoverageCheck();
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
-        renderProfileReferralZips();
         if (appState.clinicianPinMode === "work") {
           refreshClinicianCoordinateDependentViews();
         }
@@ -7604,131 +7430,6 @@
         });
     }
 
-    function getClinicianReferralZips(clinician) {
-      const clinicianId = String((clinician && clinician.id) || "").trim();
-      if (!clinicianId) return [];
-
-      const draft = appState.profileDraftByClinicianId.get(clinicianId) || {};
-      const ignoreBeforeRaw = getClinicianEffectiveIgnoreHistoryBeforeValue(draft, clinician);
-      const cutoffDate = parseProfileDateValue(ignoreBeforeRaw);
-      const zipCounts = {};
-
-      function isRowEligible(row) {
-        if (!cutoffDate) return true;
-        var anchorDate = getCompletedServiceCoverageAnchorDate(row);
-        if (!anchorDate) return true;
-        return new Date(anchorDate) >= cutoffDate;
-      }
-
-      // Source 1: per-clinician detailed history (loaded when profile opens)
-      var perClinicianHistory = appState.clinicianCompletedServiceHistoryByClinicianId.get(clinicianId);
-      if (perClinicianHistory && Array.isArray(perClinicianHistory.sites)) {
-        perClinicianHistory.sites.forEach(function(site) {
-          var zip = getNormalizedZip((site.rows && site.rows.length && site.rows[0].zip_code) || "");
-          if (!zip && site.fullAddress) {
-            var addressMatch = String(site.fullAddress).match(/\b(\d{5})\b/);
-            if (addressMatch) zip = addressMatch[1];
-          }
-          if (!zip) return;
-
-          var eligibleRows = (site.rows || []).filter(isRowEligible);
-          if (eligibleRows.length) {
-            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
-          }
-        });
-      }
-
-      // Source 2: global completed service site index (batch-loaded)
-      if (!Object.keys(zipCounts).length && appState.hasLoadedCompletedServices && !appState.completedServiceLoadError) {
-        var siteKeys = appState.completedServiceSiteKeysByClinicianId.get(clinicianId) || [];
-        siteKeys.forEach(function(siteKey) {
-          var site = appState.completedServiceSitesByKey.get(siteKey);
-          if (!site) return;
-          var zip = getNormalizedZip(site.zip || "");
-          if (!zip && site.rows && site.rows.length) {
-            zip = getNormalizedZip(site.rows[0].zip_code);
-          }
-          if (!zip) return;
-
-          var matchingAssignments = (site.assignments || []).filter(function(a) {
-            return String(a.matched_clinician_id || "").trim() === clinicianId;
-          });
-          var matchingRowIds = new Set(matchingAssignments.map(function(a) { return a.service_row_id; }));
-          var eligibleRows = (site.rows || []).filter(function(row) {
-            if (!matchingRowIds.has(row.id)) return false;
-            return isRowEligible(row);
-          });
-
-          if (eligibleRows.length) {
-            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
-          }
-        });
-      }
-
-      return Object.keys(zipCounts).sort(function(a, b) {
-        return zipCounts[b] - zipCounts[a];
-      }).map(function(zip) {
-        return { zip_code: zip, service_count: zipCounts[zip] };
-      });
-    }
-
-    function renderProfileReferralZips() {
-      if (!elements.profileReferralZips) return;
-
-      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
-        elements.profileReferralZips.innerHTML = "<span>No completed service history loaded yet.</span>";
-        return;
-      }
-
-      const clinicianId = appState.currentProfileClinicianId;
-      if (!clinicianId && !appState.profileCreateMode) {
-        elements.profileReferralZips.innerHTML = "";
-        return;
-      }
-
-      const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
-      if (!clinician) {
-        elements.profileReferralZips.innerHTML = "<span>No referral history.</span>";
-        return;
-      }
-
-      const referralZips = getClinicianReferralZips(clinician);
-      if (!referralZips.length) {
-        elements.profileReferralZips.innerHTML = "<span>No referral history in any ZIP code.</span>";
-        return;
-      }
-
-      elements.profileReferralZips.innerHTML = referralZips.map(function(entry) {
-        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
-      }).join("");
-    }
-
-    function renderProfileReferralZipsSnapshot() {
-      if (!elements.profileReferralZipsSnapshot) return;
-
-      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
-        elements.profileReferralZipsSnapshot.textContent = "—";
-        return;
-      }
-
-      const clinicianId = appState.currentProfileClinicianId;
-      const clinician = clinicianId ? appState.clinicians.find(function(item) { return item.id === clinicianId; }) : null;
-      if (!clinician) {
-        elements.profileReferralZipsSnapshot.textContent = "—";
-        return;
-      }
-
-      const referralZips = getClinicianReferralZips(clinician);
-      if (!referralZips.length) {
-        elements.profileReferralZipsSnapshot.textContent = "None";
-        return;
-      }
-
-      elements.profileReferralZipsSnapshot.innerHTML = referralZips.slice(0, 8).map(function(entry) {
-        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
-      }).join("") + (referralZips.length > 8 ? "<span class='referral-zip-chip'>+" + (referralZips.length - 8) + " more</span>" : "");
-    }
-
     function getZipCoverageHistoryStatsByClinician(zipCode) {
       const normalizedZip = getNormalizedZip(zipCode);
       const statsByClinicianId = new Map();
@@ -7784,14 +7485,7 @@
         const matchingZipEntries = getClinicianZipCoverageEntries(clinician).filter(function(entry) {
           return getNormalizedZip(entry.zip_code) === normalizedZip;
         });
-
-        // Check referral history ZIPs (respects ignoreHistoryBefore)
-        const referralZips = getClinicianReferralZips(clinician);
-        const referralZipMatch = referralZips.find(function(entry) {
-          return entry.zip_code === normalizedZip;
-        });
-
-        if (!matchingZipEntries.length && !referralZipMatch) return null;
+        if (!matchingZipEntries.length) return null;
 
         const profileDraft = getProfileDraftForClinician(clinician);
         const statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
@@ -7801,8 +7495,6 @@
           clinician: clinician,
           statusInfo: statusInfo,
           zipEntries: matchingZipEntries,
-          referralZipMatch: referralZipMatch || null,
-          matchSource: matchingZipEntries.length ? (referralZipMatch ? "both" : "tb") : "referral",
           historySiteCount: historyStats ? historyStats.siteKeys.size : 0,
           historyServiceCount: historyStats ? historyStats.rowIds.size : 0,
           historyVisitCount: historyStats ? historyStats.totalVisits : 0,
@@ -7839,7 +7531,7 @@
 
       if (!results.length) {
         elements.zipCoverageResults.innerHTML = "";
-        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage or referral history for " + normalizedZip + ".";
+        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage for " + normalizedZip + ".";
         return;
       }
 
@@ -7866,8 +7558,7 @@
           "</div>",
           "<div class='zip-coverage-meta'>",
           "<span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(result.statusInfo.status) + "</span>",
-          result.matchSource === "tb" || result.matchSource === "both" ? "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>" : "",
-          result.referralZipMatch ? "<span class='meta-chip'>Referral History (" + result.referralZipMatch.service_count + " services)</span>" : "",
+          "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>",
           historyLoaded && result.historySiteCount ? "<span class='meta-chip'>" + result.historySiteCount + " service site" + (result.historySiteCount === 1 ? "" : "s") + "</span>" : "",
           "</div>",
           result.statusInfo.detail ? "<div class='zip-coverage-detail'>" + escapeHtml(result.statusInfo.detail) + "</div>" : "",
@@ -7878,7 +7569,7 @@
       }).join("");
 
       elements.zipCoverageResults.innerHTML = resultsHtml;
-      elements.zipCoverageNote.textContent = results.length + " clinicians cover ZIP " + normalizedZip + " (via TherapyBoss ZIP coverage and/or referral history). Results respect the current clinician filters and the Ignore History Before date.";
+      elements.zipCoverageNote.textContent = results.length + " clinicians cover ZIP " + normalizedZip + ". Results respect the current clinician filters, and completed-service history reflects the loaded year and discipline view.";
       if (results.length > visibleResults.length) {
         elements.zipCoverageNote.textContent += " Showing the first " + visibleResults.length + ".";
       }
@@ -8312,10 +8003,6 @@
     function renderClinicianCompletedServiceHistory() {
       if (!elements.profileCompletedHistory) return;
 
-      // Refresh referral ZIPs whenever history display updates
-      renderProfileReferralZips();
-      renderProfileReferralZipsSnapshot();
-
       if (appState.profileCreateMode) {
         elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>Completed-service history will appear here after this clinician is created and matched to imported TherapyBoss rows.</div>";
         return;
@@ -8672,8 +8359,8 @@
       elements.profilePanelDiscipline.textContent = discipline || "Discipline not set";
       elements.profileAddress.textContent = address || "No address";
       elements.profileZip.textContent = zip || "Not set";
+      elements.profileRadius.textContent = formatRadius(radius);
       elements.profilePreferredZips.textContent = formatPreferredZips(preferredZips);
-      renderProfileReferralZipsSnapshot();
     }
 
     function getClinicianPinModeLabel(value) {
@@ -9502,8 +9189,7 @@
         languages: [],
         restrictedClinicians: [],
         restrictedAgencies: [],
-        notes: "",
-        photoUrl: ""
+        notes: ""
       };
     }
 
@@ -10697,7 +10383,6 @@
         emr_capabilities: normalizedEmrCapabilities,
         restrictions: normalizedRestrictions,
         notes: String(draft.notes || "").trim() || null,
-        photo_url: String(draft.photoUrl || "").trim() || null,
         tags: buildClinicianProfileTagsForSave(
           clinician,
           draft,
@@ -10885,8 +10570,7 @@
         languages: normalizeProfileLanguageList(getProfileLanguagesFromUi()),
         restrictedClinicians: restrictions.clinicians,
         restrictedAgencies: restrictions.agencies,
-        notes: elements.profileNotesInput.value || "",
-        photoUrl: elements.profilePhotoImg.dataset.photoUrl || ""
+        notes: elements.profileNotesInput.value || ""
       };
     }
 
@@ -10926,67 +10610,6 @@
       syncProfileUnsavedBadge(Boolean(draft._dirty));
     }
 
-    /* ── Clinician Profile Photo Helpers ── */
-    function applyProfilePhoto(url) {
-      const img = elements.profilePhotoImg;
-      const placeholder = elements.profilePhotoPlaceholder;
-      img.dataset.photoUrl = url || "";
-      if (url) {
-        img.src = url;
-        img.style.display = "block";
-        placeholder.style.display = "none";
-      } else {
-        img.src = "";
-        img.style.display = "none";
-        placeholder.style.display = "flex";
-      }
-    }
-
-    async function uploadClinicianPhoto(file) {
-      const clinicianId = appState.currentProfileClinicianId;
-      const isCreateMode = appState.profileCreateMode;
-      if (!clinicianId && !isCreateMode) return;
-
-      const maxSize = 2 * 1024 * 1024; // 2 MB
-      if (file.size > maxSize) {
-        window.alert("Photo must be under 2 MB. Please resize and try again.");
-        return;
-      }
-
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-      const allowedExts = ["jpg", "jpeg", "png", "webp"];
-      if (allowedExts.indexOf(ext) === -1) {
-        window.alert("Only JPG, PNG, and WebP images are supported.");
-        return;
-      }
-
-      const storagePath = isCreateMode
-        ? "temp/new-clinician-photo." + ext
-        : clinicianId + "/photo." + ext;
-
-      try {
-        const { error: uploadError } = await supabaseClient.storage
-          .from("clinician-photos")
-          .upload(storagePath, file, { upsert: true, contentType: file.type });
-
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = supabaseClient.storage
-          .from("clinician-photos")
-          .getPublicUrl(storagePath);
-
-        const publicUrl = urlData.publicUrl + "?t=" + Date.now();
-        applyProfilePhoto(publicUrl);
-        elements.profilePhotoImg.dataset.photoUrl = publicUrl;
-
-        // Mark draft dirty so the unsaved badge shows
-        persistCurrentProfileDraft(true);
-      } catch (err) {
-        console.error("Photo upload failed:", err);
-        window.alert("Photo upload failed. Make sure the 'clinician-photos' storage bucket exists in Supabase and has public access enabled.");
-      }
-    }
-
     function applyProfileDraft(draft) {
       const safeDraft = Object.assign(getDefaultProfileDraft(), draft || {});
       elements.profileNameInput.value = safeDraft.name || "";
@@ -11024,8 +10647,6 @@
       elements.profileRestrictedAgenciesInput.value = "";
       syncProfileRestrictionAddButtonsState();
       elements.profileNotesInput.value = safeDraft.notes;
-      applyProfilePhoto(safeDraft.photoUrl || "");
-      renderProfileReferralZips();
       syncProfileModeUi();
       syncProfileWorkCenterUi();
       updateProfileHeaderStatus();
@@ -11343,9 +10964,6 @@
       }
       if (!draft.email && clinician) {
         draft.email = getFirstAvailableFieldValue(clinician, ["email", "email_address"]) || "";
-      }
-      if (!draft.photoUrl && clinician) {
-        draft.photoUrl = clinician.photo_url || "";
       }
       if ((!draft.restrictedClinicians.length && !draft.restrictedAgencies.length) && clinician) {
         draft.restrictedClinicians = normalizeProfileRestrictionList(
@@ -11877,10 +11495,6 @@
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       if (!clinician) return;
 
-      if (appState.currentProfileClinicianId && appState.currentProfileClinicianId !== clinicianId && hasCurrentProfileUnsavedChanges()) {
-        if (!window.confirm("You have unsaved changes on the current profile. Switch clinicians without saving?")) return;
-      }
-
       closeAgencyProfile();
       persistCurrentProfileDraft();
       persistCurrentTerritoryDraft();
@@ -11890,7 +11504,7 @@
         elements.addClinicianMode.classList.remove("active");
       }
       appState.currentProfileClinicianId = clinicianId;
-      applyProfilePhoto("");
+      elements.profilePhotoShell.textContent = "Photo if available";
       resetProfileVersionHistoryUi();
       applyProfileDraft(getProfileDraftForClinician(clinician));
       loadTerritoryDraft(clinicianId);
@@ -11911,7 +11525,7 @@
       persistCurrentTerritoryDraft();
       appState.currentProfileClinicianId = null;
       appState.profileCreateMode = true;
-      applyProfilePhoto("");
+      elements.profilePhotoShell.textContent = "Photo if available";
       resetProfileVersionHistoryUi();
       applyProfileDraft(appState.newClinicianDraft || getDefaultProfileDraft());
       appState.territoryDrawMode = false;
@@ -15274,26 +14888,6 @@
         runPointSearch();
       });
 
-      /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
-      (function initViewSwitch() {
-        var btnClinicians = document.getElementById("view-switch-clinicians");
-        var btnServices   = document.getElementById("view-switch-services");
-        var clinicianPanel = document.querySelector(".clinician-directory-panel");
-        var servicesPanel  = document.querySelector(".completed-service-directory-panel");
-        if (!btnClinicians || !btnServices) return;
-
-        function activate(btn, panel) {
-          btnClinicians.classList.toggle("active", btn === btnClinicians);
-          btnServices.classList.toggle("active", btn === btnServices);
-          if (panel) {
-            panel.open = true;
-            panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-          }
-        }
-        btnClinicians.addEventListener("click", function() { activate(btnClinicians, clinicianPanel); });
-        btnServices.addEventListener("click", function()   { activate(btnServices, servicesPanel); });
-      })();
-
       elements.zoomExtentsButton.addEventListener("click", function() {
         fitMapToVisibleClinicians(true);
       });
@@ -15465,9 +15059,6 @@
       });
 
       elements.profileClose.addEventListener("click", function() {
-        if (hasCurrentProfileUnsavedChanges()) {
-          if (!window.confirm("You have unsaved changes. Close without saving?")) return;
-        }
         closeClinicianProfile();
       });
 
@@ -15713,12 +15304,6 @@
           event.preventDefault();
           applyFloatingStatusPanelHeight(getFloatingStatusPanelHeightBounds().max, true);
         }
-      });
-
-      elements.profilePhotoInput.addEventListener("change", function() {
-        const file = elements.profilePhotoInput.files[0];
-        if (file) uploadClinicianPhoto(file);
-        elements.profilePhotoInput.value = "";
       });
 
       elements.profileSaveShell.addEventListener("click", function() {
@@ -16197,9 +15782,6 @@
       if (elements.addClinicianMode) {
         elements.addClinicianMode.addEventListener("click", function() {
           if (appState.addClinicianMode && appState.profileCreateMode) {
-            if (hasCurrentProfileUnsavedChanges()) {
-              if (!window.confirm("You have unsaved changes. Close without saving?")) return;
-            }
             closeClinicianProfile();
             return;
           }
