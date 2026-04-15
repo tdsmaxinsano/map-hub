@@ -9,13 +9,13 @@
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <style>
     :root {
-      --bg: #eef3f1;
-      --panel-border: #d5e0dc;
-      --panel-shadow: 0 20px 60px rgba(22, 35, 30, 0.14);
-      --text: #18332a;
-      --muted: #5a7269;
-      --accent: #0f6d59;
-      --accent-strong: #0b5243;
+      --bg: #edf1f8;
+      --panel-border: #c8d5e8;
+      --panel-shadow: 0 20px 60px rgba(12, 22, 50, 0.14);
+      --text: #18274a;
+      --muted: #526480;
+      --accent: #1e4d8c;
+      --accent-strong: #163a6e;
       --danger: #bf3f34;
       --danger-strong: #952d24;
       --selected: #fff1ca;
@@ -31,7 +31,7 @@
       margin: 0;
       height: 100%;
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-      background: radial-gradient(circle at top left, #ffffff 0%, var(--bg) 58%, #dde7e3 100%);
+      background: radial-gradient(circle at top left, #ffffff 0%, var(--bg) 58%, #d4dff0 100%);
       color: var(--text);
     }
 
@@ -49,14 +49,15 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
-      background: rgba(248, 250, 249, 0.97);
+      background:
+        linear-gradient(180deg, rgba(250, 252, 255, 0.99) 0%, rgba(243, 247, 254, 0.98) 28%, rgba(238, 243, 252, 0.98) 100%);
       border-right: 1px solid var(--panel-border);
       box-shadow: var(--panel-shadow);
       z-index: 2;
     }
 
     .sidebar.resizing {
-      box-shadow: 0 28px 60px rgba(19, 25, 22, 0.24);
+      box-shadow: 0 28px 60px rgba(10, 18, 42, 0.24);
     }
 
     .sidebar-resize-handle {
@@ -79,15 +80,15 @@
       height: 58px;
       transform: translateY(-50%);
       border-radius: 999px;
-      background: linear-gradient(180deg, rgba(168, 184, 176, 0.15) 0%, rgba(135, 152, 144, 0.7) 50%, rgba(168, 184, 176, 0.15) 100%);
+      background: linear-gradient(180deg, rgba(160, 180, 215, 0.15) 0%, rgba(120, 145, 195, 0.7) 50%, rgba(160, 180, 215, 0.15) 100%);
       transition: background 0.18s ease, box-shadow 0.18s ease;
     }
 
     .sidebar-resize-handle:hover::after,
     .sidebar-resize-handle:focus-visible::after,
     .sidebar.resizing .sidebar-resize-handle::after {
-      background: linear-gradient(180deg, rgba(92, 125, 110, 0.25) 0%, rgba(39, 84, 64, 0.82) 50%, rgba(92, 125, 110, 0.25) 100%);
-      box-shadow: 0 0 0 2px rgba(23, 73, 53, 0.12);
+      background: linear-gradient(180deg, rgba(80, 110, 180, 0.25) 0%, rgba(30, 62, 140, 0.82) 50%, rgba(80, 110, 180, 0.25) 100%);
+      box-shadow: 0 0 0 2px rgba(20, 55, 120, 0.12);
     }
 
     .sidebar-scroll {
@@ -96,7 +97,7 @@
       overflow-y: auto;
       overflow-x: hidden;
       scrollbar-width: auto;
-      scrollbar-color: rgba(24, 51, 42, 0.55) rgba(214, 229, 224, 0.7);
+      scrollbar-color: rgba(15, 35, 80, 0.55) rgba(200, 218, 240, 0.7);
     }
 
     .sidebar-scroll::-webkit-scrollbar {
@@ -104,38 +105,109 @@
     }
 
     .sidebar-scroll::-webkit-scrollbar-track {
-      background: rgba(214, 229, 224, 0.7);
-      border-left: 1px solid rgba(213, 224, 220, 0.9);
+      background: rgba(200, 218, 240, 0.7);
+      border-left: 1px solid rgba(196, 214, 238, 0.9);
     }
 
     .sidebar-scroll::-webkit-scrollbar-thumb {
-      background: linear-gradient(180deg, rgba(24, 51, 42, 0.78) 0%, rgba(15, 109, 89, 0.78) 100%);
+      background: linear-gradient(180deg, rgba(15, 35, 80, 0.78) 0%, rgba(30, 77, 140, 0.78) 100%);
       border-radius: 999px;
-      border: 3px solid rgba(214, 229, 224, 0.75);
+      border: 3px solid rgba(200, 218, 240, 0.75);
     }
 
     .sidebar-header {
-      padding: 24px 20px 16px;
+      padding: 20px 20px 18px;
       border-bottom: 1px solid var(--panel-border);
-      background: linear-gradient(180deg, #fdfefd 0%, #f2f7f5 100%);
+      background:
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.98) 0%, rgba(241, 248, 245, 0.96) 56%, rgba(229, 239, 235, 0.98) 100%);
+      box-shadow: inset 0 -1px 0 rgba(214, 227, 221, 0.86);
+    }
+
+    .sidebar-brand-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr);
+      gap: 12px;
+      align-items: start;
+      margin-bottom: 14px;
+    }
+
+    .brand-mark {
+      width: 48px;
+      height: 48px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 16px;
+      background: linear-gradient(160deg, #1a3a6e 0%, #1e4d8c 52%, #2a6bbf 100%);
+      box-shadow:
+        0 16px 30px rgba(30, 77, 140, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      color: #fff;
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .sidebar-title-stack {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
     }
 
     .eyebrow {
-      margin: 0 0 8px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.14em;
+      margin: 0;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.16em;
       text-transform: uppercase;
       color: var(--accent);
     }
 
-    h1 { margin: 0; font-size: 24px; line-height: 1.1; }
+    .sidebar-kicker {
+      font-size: 12px;
+      font-weight: 700;
+      color: #3f5580;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 29px;
+      line-height: 1.02;
+      letter-spacing: -0.03em;
+    }
 
     .subhead {
-      margin: 10px 0 0;
+      margin: 0;
       color: var(--muted);
       font-size: 14px;
-      line-height: 1.5;
+      line-height: 1.55;
+      max-width: 28ch;
+    }
+
+    .sidebar-header-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .portal-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 12px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.74);
+      border: 1px solid rgba(201, 216, 208, 0.95);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+      color: #394e75;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
 
     .controls {
@@ -146,7 +218,7 @@
     }
 
     .control-section {
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.84);
       overflow: hidden;
@@ -165,7 +237,7 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text);
-      background: linear-gradient(180deg, #fbfcfc 0%, #f1f6f4 100%);
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
       border-bottom: 1px solid transparent;
     }
 
@@ -174,7 +246,7 @@
     }
 
     .control-section[open] summary {
-      border-bottom-color: #dbe5e0;
+      border-bottom-color: #c8d5e8;
     }
 
     .section-body {
@@ -197,7 +269,7 @@
 
     select, input {
       width: 100%;
-      border: 1px solid #c6d4cf;
+      border: 1px solid #c0d0e5;
       border-radius: 12px;
       padding: 11px 12px;
       background: #fff;
@@ -235,9 +307,9 @@
       justify-content: center;
       min-height: 48px;
       padding: 0 12px;
-      border: 1px solid #c9d8d3;
+      border: 1px solid #c3d3e7;
       border-radius: 14px;
-      background: linear-gradient(180deg, #ffffff 0%, #f1f6f4 100%);
+      background: linear-gradient(180deg, #ffffff 0%, #f0f4fc 100%);
       color: var(--text);
       font-weight: 800;
       letter-spacing: 0.04em;
@@ -250,8 +322,8 @@
 
     .radius-readout:focus-visible {
       outline: none;
-      border-color: #7aa492;
-      box-shadow: 0 0 0 3px rgba(24, 51, 42, 0.12);
+      border-color: #7a9ec0;
+      box-shadow: 0 0 0 3px rgba(15, 35, 80, 0.12);
     }
 
     .import-kind-row {
@@ -261,7 +333,7 @@
     }
 
     .import-kind-button {
-      border: 1px solid #c9d8d3;
+      border: 1px solid #c3d3e7;
       background: #fff;
       color: var(--text);
       transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
@@ -269,7 +341,7 @@
 
     .import-kind-button:hover,
     .import-kind-button:focus-visible {
-      border-color: #7aa492;
+      border-color: #7a9ec0;
       transform: translateY(-1px);
       outline: none;
     }
@@ -278,7 +350,7 @@
       background: var(--accent);
       border-color: var(--accent);
       color: #fff;
-      box-shadow: 0 10px 18px rgba(24, 51, 42, 0.12);
+      box-shadow: 0 10px 18px rgba(15, 35, 80, 0.12);
     }
 
     .import-submode-row {
@@ -314,14 +386,14 @@
     .btn-primary { background: var(--accent); color: #fff; }
     .btn-primary.has-unsaved {
       box-shadow: 0 0 0 3px rgba(231, 178, 77, 0.2);
-      background: linear-gradient(180deg, #1f8b72 0%, #16725d 100%);
+      background: linear-gradient(180deg, #2565a8 0%, #1e5590 100%);
     }
-    .btn-secondary { background: #dbe8e3; color: var(--text); }
-    .btn-secondary.active, .radius-btn.active { background: #1e7e68; color: #fff; }
+    .btn-secondary { background: #d5e3f5; color: var(--text); }
+    .btn-secondary.active, .radius-btn.active { background: #2558a3; color: #fff; }
     .btn-danger { background: var(--danger); color: #fff; }
 
     .discipline-toggle {
-      border: 1px solid #c9d8d3;
+      border: 1px solid #c3d3e7;
       background: #fff;
       color: var(--discipline-color, var(--text));
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
@@ -337,11 +409,11 @@
       background: var(--discipline-color, var(--accent));
       border-color: var(--discipline-color, var(--accent));
       color: #fff;
-      box-shadow: 0 10px 18px rgba(24, 51, 42, 0.12);
+      box-shadow: 0 10px 18px rgba(15, 35, 80, 0.12);
     }
 
     .filter-chip-toggle {
-      border: 1px solid #c9d8d3;
+      border: 1px solid #c3d3e7;
       background: #fff;
       color: var(--text);
       box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.65);
@@ -357,7 +429,7 @@
       background: var(--accent);
       border-color: var(--accent);
       color: #fff;
-      box-shadow: 0 10px 18px rgba(24, 51, 42, 0.12);
+      box-shadow: 0 10px 18px rgba(15, 35, 80, 0.12);
     }
 
     .filter-chip-toggle[data-completed-service-year-loaded="false"] {
@@ -376,8 +448,8 @@
     .status-card {
       padding: 12px 14px;
       border-radius: 16px;
-      background: linear-gradient(180deg, #f5faf8 0%, #edf5f2 100%);
-      border: 1px solid #d6e5e0;
+      background: linear-gradient(180deg, #f3f7fd 0%, #e7eef8 100%);
+      border: 1px solid #d0ddf0;
       display: grid;
       gap: 8px;
     }
@@ -391,7 +463,7 @@
     .stat {
       padding: 12px;
       background: #fff;
-      border: 1px solid #dde7e3;
+      border: 1px solid #d0ddf0;
       border-radius: 14px;
     }
 
@@ -415,7 +487,7 @@
       gap: 6px;
       padding: 6px 10px;
       background: #fff;
-      border: 1px solid #d8e3de;
+      border: 1px solid #d2dcee;
       border-radius: 999px;
       color: var(--muted);
     }
@@ -458,7 +530,7 @@
 
     .radius-coverage-site {
       width: 100%;
-      border: 1px solid #d8e3de;
+      border: 1px solid #d2dcee;
       border-radius: 14px;
       background: #fff;
       padding: 10px 12px;
@@ -470,9 +542,9 @@
 
     .radius-coverage-site:hover,
     .radius-coverage-site:focus-visible {
-      border-color: #7aa492;
+      border-color: #7a9ec0;
       transform: translateY(-1px);
-      box-shadow: 0 10px 18px rgba(24, 51, 42, 0.08);
+      box-shadow: 0 10px 18px rgba(15, 35, 80, 0.08);
       outline: none;
     }
 
@@ -515,7 +587,7 @@
 
     .zip-coverage-result {
       width: 100%;
-      border: 1px solid #d8e3de;
+      border: 1px solid #d2dcee;
       border-radius: 14px;
       background: #fff;
       padding: 10px 12px;
@@ -527,9 +599,9 @@
 
     .zip-coverage-result:hover,
     .zip-coverage-result:focus-visible {
-      border-color: #7aa492;
+      border-color: #7a9ec0;
       transform: translateY(-1px);
-      box-shadow: 0 10px 18px rgba(24, 51, 42, 0.08);
+      box-shadow: 0 10px 18px rgba(15, 35, 80, 0.08);
       outline: none;
     }
 
@@ -594,7 +666,7 @@
 
     .clinician-item {
       padding: 13px 14px 12px;
-      border: 1px solid #dce6e1;
+      border: 1px solid #d6e0f1;
       border-radius: 16px;
       background: #fff;
       cursor: pointer;
@@ -667,9 +739,9 @@
       align-items: center;
       padding: 4px 8px;
       border-radius: 999px;
-      border: 1px solid #d7e2dd;
-      background: #f7fbf9;
-      color: #1f3f33;
+      border: 1px solid #d1dbed;
+      background: #f5f8fd;
+      color: #1f3358;
       font-size: 10px;
       font-weight: 800;
       letter-spacing: 0.06em;
@@ -678,8 +750,8 @@
     }
 
     .clinician-status-pill.active {
-      background: linear-gradient(180deg, #eef9f4 0%, #daf1e5 100%);
-      border-color: #8fcbb0;
+      background: linear-gradient(180deg, #e8f2fb 0%, #d4e5f7 100%);
+      border-color: #8fb8da;
       color: #16613b;
     }
 
@@ -703,7 +775,7 @@
 
     .empty-state {
       padding: 22px 18px;
-      border: 1px dashed #c8d7d2;
+      border: 1px dashed #c2d2e6;
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.7);
       color: var(--muted);
@@ -741,7 +813,7 @@
       display: grid;
       gap: 10px;
       scrollbar-width: thin;
-      scrollbar-color: rgba(24, 51, 42, 0.4) rgba(214, 229, 224, 0.5);
+      scrollbar-color: rgba(15, 35, 80, 0.4) rgba(200, 218, 240, 0.5);
     }
 
     .completed-service-directory-panel .section-body {
@@ -755,14 +827,14 @@
       display: grid;
       gap: 10px;
       scrollbar-width: thin;
-      scrollbar-color: rgba(24, 51, 42, 0.4) rgba(214, 229, 224, 0.5);
+      scrollbar-color: rgba(15, 35, 80, 0.4) rgba(200, 218, 240, 0.5);
     }
 
     .completed-service-load-progress {
       display: grid;
       gap: 7px;
       padding: 10px 12px;
-      border: 1px solid rgba(119, 154, 137, 0.24);
+      border: 1px solid rgba(100, 130, 190, 0.24);
       border-radius: 14px;
       background: rgba(247, 251, 250, 0.92);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
@@ -794,7 +866,7 @@
       height: 8px;
       border-radius: 999px;
       overflow: hidden;
-      background: rgba(159, 182, 169, 0.26);
+      background: rgba(140, 170, 210, 0.26);
     }
 
     .completed-service-load-progress-fill {
@@ -802,7 +874,7 @@
       inset: 0 auto 0 0;
       width: 0%;
       border-radius: 999px;
-      background: linear-gradient(90deg, rgba(43, 127, 93, 0.72) 0%, rgba(27, 118, 108, 0.96) 100%);
+      background: linear-gradient(90deg, rgba(30, 77, 140, 0.72) 0%, rgba(22, 58, 110, 0.96) 100%);
       transition: width 180ms ease;
     }
 
@@ -814,15 +886,15 @@
 
     .agency-item {
       padding: 14px 14px 13px;
-      border: 1px solid #dce6e1;
+      border: 1px solid #d6e0f1;
       border-radius: 16px;
       background: #fff;
       cursor: pointer;
     }
 
     .agency-item.focused {
-      box-shadow: 0 0 0 3px rgba(15, 109, 89, 0.18);
-      border-color: #8fc3b6;
+      box-shadow: 0 0 0 3px rgba(30, 77, 140, 0.18);
+      border-color: #8fb5d8;
     }
 
     .agency-topline {
@@ -847,8 +919,8 @@
       letter-spacing: 0.05em;
       text-transform: uppercase;
       white-space: nowrap;
-      background: linear-gradient(180deg, #eef9f4 0%, #daf1e5 100%);
-      border: 1px solid #8fcbb0;
+      background: linear-gradient(180deg, #e8f2fb 0%, #d4e5f7 100%);
+      border: 1px solid #8fb8da;
       color: #16613b;
     }
 
@@ -877,7 +949,7 @@
 
     .completed-service-item {
       padding: 14px 14px 13px;
-      border: 1px solid #dce6e1;
+      border: 1px solid #d6e0f1;
       border-radius: 16px;
       background: #fff;
       cursor: pointer;
@@ -886,8 +958,8 @@
     }
 
     .completed-service-item.focused {
-      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.18);
-      border-color: #7cc7bf;
+      box-shadow: 0 0 0 3px rgba(30, 77, 140, 0.18);
+      border-color: #7cb5db;
     }
 
     .completed-service-topline {
@@ -923,9 +995,9 @@
       gap: 4px;
       padding: 8px 10px;
       border-radius: 12px;
-      background: #f5faf8;
-      border: 1px solid #e0ebe6;
-      box-shadow: inset 3px 0 0 var(--completed-service-discipline-color, #d4e2dc);
+      background: #f3f7fd;
+      border: 1px solid #dae4f3;
+      box-shadow: inset 3px 0 0 var(--completed-service-discipline-color, #ced8ec);
     }
 
     .completed-service-groups.compact .completed-service-group {
@@ -950,7 +1022,7 @@
       padding: 0;
       border: 0;
       background: transparent;
-      color: #0f5f58;
+      color: #154880;
       font: inherit;
       font-weight: 700;
       text-decoration: underline;
@@ -961,7 +1033,7 @@
 
     .completed-service-clinician-link:hover,
     .completed-service-clinician-link:focus-visible {
-      color: #0b4b45;
+      color: #0f3568;
     }
 
     .completed-service-clinician-text {
@@ -985,7 +1057,7 @@
     }
 
     .mapboxgl-marker.completed-service-marker.focused {
-      filter: drop-shadow(0 0 0.35rem rgba(15, 118, 110, 0.45));
+      filter: drop-shadow(0 0 0.35rem rgba(30, 77, 140, 0.45));
     }
 
     .completed-service-count {
@@ -1028,22 +1100,24 @@
     .map-panel {
       position: relative;
       min-width: 0;
-      min-height: 100vh;
-      display: grid;
-      grid-template-rows: auto minmax(0, 1fr);
+      display: flex;
+      flex-direction: column;
     }
 
     .top-toolbar {
       position: relative;
+      z-index: 20;
       display: block;
-      padding: 14px 18px;
-      background: rgba(248, 250, 249, 0.92);
-      border-bottom: 1px solid rgba(207, 221, 215, 0.95);
-      backdrop-filter: blur(10px);
-      z-index: 2;
+      padding: 10px 16px;
+      background:
+        linear-gradient(180deg, rgba(250, 252, 255, 0.95) 0%, rgba(243, 247, 254, 0.94) 100%);
+      border-bottom: 1px solid rgba(190, 210, 235, 0.92);
+      box-shadow: 0 12px 30px rgba(12, 22, 50, 0.06);
+      backdrop-filter: blur(12px);
     }
 
     .map-stage {
+      flex: 1;
       position: relative;
       min-height: 0;
       overflow: hidden;
@@ -1070,34 +1144,139 @@
       white-space: normal;
     }
 
-    .toolbar-actions {
-      display: grid;
-      grid-template-columns: 1fr;
-      grid-template-areas:
-        "tools"
-        "utility";
-      gap: 10px;
-      min-width: 0;
-      align-items: start;
-    }
-
-    .toolbar-tool-grid {
-      grid-area: tools;
-      display: grid;
-      grid-template-columns: minmax(230px, 1.05fr) minmax(220px, 0.9fr) minmax(220px, 0.9fr) minmax(340px, 1.25fr);
-      gap: 10px;
-      align-items: start;
-      min-width: 0;
-    }
-
-    .toolbar-utility-row {
-      grid-area: utility;
+    .toolbar-row {
       display: flex;
       align-items: center;
-      justify-content: flex-start;
-      gap: 10px;
+      gap: 0;
       min-width: 0;
       flex-wrap: wrap;
+      row-gap: 8px;
+    }
+
+    .toolbar-cell {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 14px;
+      flex-shrink: 0;
+      min-width: 0;
+    }
+
+    .toolbar-cell:first-child {
+      padding-left: 0;
+    }
+
+    .toolbar-cell-grow {
+      flex: 1 1 170px;
+      min-width: 130px;
+    }
+
+    .toolbar-sep {
+      display: none; /* hidden — cells use padding for spacing when wrapping */
+      width: 1px;
+      height: 28px;
+      background: rgba(190, 210, 235, 0.9);
+      flex-shrink: 0;
+    }
+
+    /* Hybrid icon + short label buttons */
+    .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .btn-icon svg {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* Legacy dual-label kept for any remaining uses */
+    .btn-short { display: none; }
+    .btn-full  { display: inline; }
+
+    /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
+    .toolbar-view-switch {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(190, 210, 235, 0.35);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .toolbar-view-switch button {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+    .toolbar-view-switch button svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .toolbar-view-switch button:hover {
+      color: var(--text);
+      background: rgba(190, 210, 235, 0.3);
+    }
+    .toolbar-view-switch button.active {
+      background: #fff;
+      color: var(--accent);
+      box-shadow: 0 1px 3px rgba(12, 22, 50, 0.1);
+    }
+
+    /* ── Tier 1 (≤1450px): reduce cell padding, tighten buttons ── */
+    @media (max-width: 1450px) {
+      .toolbar-cell { padding: 0 10px; gap: 6px; }
+      .toolbar-cell:first-child { padding-left: 0; }
+      .toolbar-pin-mode-button { min-width: 86px; padding: 8px 10px; }
+      .toolbar-radius-cell { gap: 5px; }
+      .toolbar-select { min-width: 132px; max-width: 170px; }
+    }
+
+    /* ── Tier 2 (≤1200px): compress further ── */
+    @media (max-width: 1200px) {
+      .toolbar-cell { padding: 0 8px; gap: 5px; }
+      .toolbar-cell:first-child { padding-left: 0; }
+      .btn-full  { display: none; }
+      .btn-short { display: inline; }
+      .toolbar-pin-mode-button { min-width: 54px; padding: 8px 8px; }
+      .toolbar-radius-presets .radius-btn { padding: 7px 7px; font-size: 10px; }
+      .toolbar-select { min-width: 118px; max-width: 148px; }
+      .toolbar-cell-grow { min-width: 100px; }
+    }
+
+    /* ── Tier 3 (≤1000px): hide radius presets, allow search inputs to shrink ── */
+    @media (max-width: 1000px) {
+      .toolbar-cell { padding: 0 6px; gap: 4px; }
+      .toolbar-cell:first-child { padding-left: 0; }
+      .toolbar-radius-presets { display: none; }
+      .toolbar-cell-grow { flex: 1 1 80px; min-width: 80px; }
+      .toolbar-cell .toolbar-input { min-width: 80px; }
+      .toolbar-pin-mode-button { min-width: 54px; padding: 7px 7px; font-size: 12px; }
+      .toolbar-select { min-width: 100px; max-width: 120px; font-size: 12px; }
     }
 
     .toolbar-pin-mode-shell {
@@ -1111,15 +1290,15 @@
       align-items: center;
       gap: 8px;
       padding: 6px;
-      border: 1px solid #d8e4df;
+      border: 1px solid #c8d5e8;
       border-radius: 16px;
       background: rgba(255, 255, 255, 0.86);
-      box-shadow: 0 10px 24px rgba(23, 47, 38, 0.08);
+      box-shadow: 0 10px 24px rgba(18, 40, 90, 0.08);
     }
 
     .toolbar-pin-mode-button {
-      min-width: 110px;
-      padding: 10px 14px;
+      min-width: 96px;
+      padding: 9px 11px;
       white-space: nowrap;
     }
 
@@ -1127,7 +1306,7 @@
       background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
       color: #fff;
       border-color: transparent;
-      box-shadow: 0 10px 18px rgba(15, 109, 89, 0.22);
+      box-shadow: 0 10px 18px rgba(30, 77, 140, 0.22);
     }
 
     .floating-status-panel {
@@ -1143,8 +1322,13 @@
       z-index: 2;
     }
 
+    .floating-status-panel > .toolbar-tool-label {
+      padding: 0 2px;
+      color: #3a4f80;
+    }
+
     .floating-status-panel.resizing {
-      box-shadow: 0 24px 56px rgba(19, 25, 22, 0.2);
+      box-shadow: 0 24px 56px rgba(10, 18, 42, 0.2);
     }
 
     .floating-status-resize-handle {
@@ -1167,26 +1351,29 @@
       height: 4px;
       transform: translateX(-50%);
       border-radius: 999px;
-      background: linear-gradient(90deg, rgba(168, 184, 176, 0.15) 0%, rgba(135, 152, 144, 0.7) 50%, rgba(168, 184, 176, 0.15) 100%);
+      background: linear-gradient(90deg, rgba(160, 180, 215, 0.15) 0%, rgba(120, 145, 195, 0.7) 50%, rgba(160, 180, 215, 0.15) 100%);
       transition: background 0.18s ease, box-shadow 0.18s ease;
     }
 
     .floating-status-resize-handle:hover::after,
     .floating-status-resize-handle:focus-visible::after,
     .floating-status-panel.resizing .floating-status-resize-handle::after {
-      background: linear-gradient(90deg, rgba(92, 125, 110, 0.25) 0%, rgba(39, 84, 64, 0.82) 50%, rgba(92, 125, 110, 0.25) 100%);
-      box-shadow: 0 0 0 2px rgba(23, 73, 53, 0.12);
+      background: linear-gradient(90deg, rgba(80, 110, 180, 0.25) 0%, rgba(30, 62, 140, 0.82) 50%, rgba(80, 110, 180, 0.25) 100%);
+      box-shadow: 0 0 0 2px rgba(20, 55, 120, 0.12);
     }
 
     .toolbar-tool {
       display: grid;
       gap: 8px;
       min-width: 0;
-      padding: 10px 12px;
-      border: 1px solid rgba(207, 221, 215, 0.95);
-      border-radius: 16px;
-      background: rgba(255, 255, 255, 0.88);
-      box-shadow: 0 12px 30px rgba(19, 25, 22, 0.08);
+      padding: 11px 13px;
+      border: 1px solid rgba(190, 210, 235, 0.92);
+      border-radius: 18px;
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.93) 0%, rgba(244, 249, 255, 0.9) 100%);
+      box-shadow:
+        0 14px 34px rgba(10, 18, 42, 0.08),
+        inset 0 1px 0 rgba(255, 255, 255, 0.68);
     }
 
     .toolbar-tool-label {
@@ -1194,7 +1381,7 @@
       font-weight: 800;
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--muted);
+      color: #3f5688;
     }
 
     .toolbar-inline-row {
@@ -1209,54 +1396,52 @@
       width: 100%;
     }
 
-    .toolbar-radius-tool {
-      display: grid;
-      gap: 8px;
-      min-width: 0;
-    }
-
-    .toolbar-radius-topline {
-      display: grid;
-      grid-template-columns: auto auto minmax(150px, 1fr);
-      gap: 8px;
+    .toolbar-radius-presets {
+      display: flex;
+      gap: 4px;
       align-items: center;
     }
 
-    .toolbar-radius-presets {
-      display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
+    .toolbar-radius-presets .radius-btn {
+      padding: 8px 10px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
     }
 
-    .toolbar-radius-tool .radius-step-button {
-      min-width: 40px;
-      padding: 9px 0;
-      font-size: 20px;
+    .toolbar-radius-cell .radius-step-button {
+      min-width: 34px;
+      padding: 8px 0;
+      font-size: 18px;
     }
 
-    .toolbar-radius-tool .radius-readout {
-      min-height: 42px;
-      font-size: 12px;
-      letter-spacing: 0.06em;
+    .toolbar-radius-cell .radius-readout {
+      min-height: 38px;
+      min-width: 50px;
+      font-size: 11px;
+      letter-spacing: 0.04em;
+      padding: 0 8px;
     }
 
-    .toolbar-radius-tool .btn-secondary {
+    .toolbar-radius-cell .btn-secondary {
       white-space: nowrap;
     }
 
     .toolbar-menu {
-      position: relative;
+      /* No position:relative — .menu-panel must escape the overflow-x:auto
+         clipping context of .toolbar-row and anchor to .top-toolbar instead. */
       flex: 0 0 auto;
     }
 
     .menu-button {
-      min-width: 140px;
+      min-width: auto;
       white-space: nowrap;
     }
 
     .toolbar-select {
-      min-width: 210px;
-      max-width: 260px;
+      min-width: 148px;
+      max-width: 190px;
       white-space: nowrap;
     }
 
@@ -1276,15 +1461,18 @@
       position: absolute;
       top: calc(100% + 8px);
       left: 0;
-      right: 0;
+      right: auto;           /* don't stretch to toolbar edge */
+      min-width: 100%;       /* at least as wide as the search cell */
+      width: max-content;    /* grow to fit results text */
+      max-width: 360px;      /* cap so it doesn't get silly wide */
       display: none;
       gap: 6px;
       padding: 8px;
       background: rgba(255, 255, 255, 0.98);
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
       border-radius: 16px;
-      box-shadow: 0 18px 40px rgba(19, 25, 22, 0.14);
-      z-index: 21;
+      box-shadow: 0 18px 40px rgba(10, 18, 42, 0.14);
+      z-index: 100;          /* above wrapped toolbar rows */
     }
 
     .floating-status-panel .status-card {
@@ -1362,17 +1550,17 @@
     .search-result-item {
       width: 100%;
       text-align: left;
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
       border-radius: 14px;
-      background: #f7fbf9;
+      background: #f5f8fd;
       color: var(--text);
       padding: 10px 12px;
     }
 
     .search-result-item:hover,
     .search-result-item.active {
-      background: #e5f1ec;
-      border-color: #bdd5cc;
+      background: #dfebf7;
+      border-color: #b8cfe8;
     }
 
     .search-result-name {
@@ -1390,7 +1578,7 @@
     .search-result-empty {
       padding: 10px 12px;
       border-radius: 14px;
-      background: #f7fbf9;
+      background: #f5f8fd;
       color: var(--muted);
       font-size: 13px;
       text-align: center;
@@ -1408,15 +1596,17 @@
 
     .menu-panel {
       position: absolute;
-      top: calc(100% + 8px);
-      right: 0;
+      /* Positioned relative to .top-toolbar (nearest positioned ancestor
+         without overflow clipping), not .toolbar-menu. */
+      top: calc(100% + 6px);
+      right: 16px;
       width: 220px;
       padding: 8px;
       display: none;
       background: rgba(255, 255, 255, 0.98);
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
       border-radius: 16px;
-      box-shadow: 0 18px 40px rgba(19, 25, 22, 0.14);
+      box-shadow: 0 18px 40px rgba(10, 18, 42, 0.14);
       z-index: 20;
     }
 
@@ -1428,12 +1618,12 @@
     .menu-item {
       width: 100%;
       text-align: left;
-      background: #f2f7f5;
+      background: #f0f4fc;
       color: var(--text);
     }
 
     .menu-item:hover {
-      background: #e5f1ec;
+      background: #dfebf7;
     }
 
     .therapyboss-toggle.active {
@@ -1446,19 +1636,34 @@
       inset: 0;
       width: 100%;
       height: 100%;
-      background: #dbe7e2;
+      background: #d5dff0;
     }
 
     .map-overlay {
       position: absolute;
-      top: 16px;
-      right: 16px;
-      width: min(320px, calc(100% - 32px));
-      padding: 14px 16px;
-      background: rgba(248, 250, 249, 0.94);
-      border: 1px solid rgba(207, 221, 215, 0.95);
-      border-radius: 18px;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(620px, calc(100% - 48px));
+      padding: 8px 20px;
+      background: rgba(247, 250, 255, 0.92);
+      border: 1px solid rgba(190, 210, 235, 0.95);
+      border-radius: 999px;
+      box-shadow: 0 6px 18px rgba(10, 18, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.65);
+      backdrop-filter: blur(10px);
       z-index: 1;
+      pointer-events: none;
+    }
+
+    #map-instructions {
+      margin: 0;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     .profile-panel {
@@ -1469,10 +1674,10 @@
       width: min(400px, calc(100% - 32px));
       display: none;
       flex-direction: column;
-      background: rgba(248, 250, 249, 0.97);
-      border: 1px solid rgba(207, 221, 215, 0.98);
+      background: rgba(247, 250, 255, 0.97);
+      border: 1px solid rgba(190, 210, 235, 0.98);
       border-radius: 22px;
-      box-shadow: 0 24px 54px rgba(19, 25, 22, 0.18);
+      box-shadow: 0 24px 54px rgba(10, 18, 42, 0.18);
       overflow: hidden;
       z-index: 3;
       backdrop-filter: blur(12px);
@@ -1490,10 +1695,10 @@
       width: min(460px, calc(100% - 32px));
       display: none;
       flex-direction: column;
-      background: rgba(248, 250, 249, 0.97);
-      border: 1px solid rgba(207, 221, 215, 0.98);
+      background: rgba(247, 250, 255, 0.97);
+      border: 1px solid rgba(190, 210, 235, 0.98);
       border-radius: 22px;
-      box-shadow: 0 24px 54px rgba(19, 25, 22, 0.18);
+      box-shadow: 0 24px 54px rgba(10, 18, 42, 0.18);
       overflow: hidden;
       z-index: 2;
       backdrop-filter: blur(12px);
@@ -1509,8 +1714,8 @@
       align-items: start;
       gap: 12px;
       padding: 18px 18px 14px;
-      border-bottom: 1px solid #dbe5e0;
-      background: linear-gradient(180deg, #fcfdfd 0%, #f1f6f4 100%);
+      border-bottom: 1px solid #c8d5e8;
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
     }
 
     .therapyboss-header h2 {
@@ -1560,8 +1765,8 @@
     .therapyboss-status {
       padding: 10px 12px;
       border-radius: 14px;
-      border: 1px solid #d8e5df;
-      background: linear-gradient(180deg, #f7fbf9 0%, #eff6f3 100%);
+      border: 1px solid #d2def0;
+      background: linear-gradient(180deg, #f5f8fd 0%, #e9f0f8 100%);
       color: var(--muted);
       font-size: 12px;
       line-height: 1.45;
@@ -1570,9 +1775,9 @@
     .therapyboss-launcher-card {
       min-height: 0;
       flex: 1;
-      border: 1px solid #d6e3de;
+      border: 1px solid #c8d5e8;
       border-radius: 18px;
-      background: linear-gradient(180deg, #fbfdfc 0%, #f2f7f5 100%);
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
       padding: 16px;
       display: grid;
       gap: 14px;
@@ -1627,10 +1832,10 @@
       max-height: min(86vh, 860px);
       display: grid;
       grid-template-rows: auto 1fr auto;
-      background: rgba(248, 250, 249, 0.98);
-      border: 1px solid rgba(207, 221, 215, 0.98);
+      background: rgba(247, 250, 255, 0.98);
+      border: 1px solid rgba(190, 210, 235, 0.98);
       border-radius: 24px;
-      box-shadow: 0 28px 70px rgba(19, 25, 22, 0.26);
+      box-shadow: 0 28px 70px rgba(10, 18, 42, 0.26);
       overflow: hidden;
     }
 
@@ -1640,8 +1845,8 @@
       gap: 14px;
       align-items: start;
       padding: 18px 22px 16px;
-      border-bottom: 1px solid #dbe5e0;
-      background: linear-gradient(180deg, #fcfdfd 0%, #f1f6f4 100%);
+      border-bottom: 1px solid #c8d5e8;
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
     }
 
     .import-modal-header h2 {
@@ -1678,8 +1883,8 @@
       gap: 12px;
       padding: 16px;
       border-radius: 18px;
-      background: linear-gradient(180deg, #fbfdfc 0%, #f2f7f5 100%);
-      border: 1px solid #d6e3de;
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
+      border: 1px solid #c8d5e8;
     }
 
     .import-card h3 {
@@ -1707,7 +1912,7 @@
       padding: 5px 10px;
       border-radius: 999px;
       background: #fff;
-      border: 1px solid #d6e3de;
+      border: 1px solid #c8d5e8;
       font-size: 12px;
       color: var(--muted);
       font-weight: 700;
@@ -1727,7 +1932,7 @@
     .import-preview-shell {
       overflow: auto;
       border-radius: 16px;
-      border: 1px solid #d6e3de;
+      border: 1px solid #c8d5e8;
       background: #fff;
     }
 
@@ -1740,7 +1945,7 @@
     .import-preview-table th,
     .import-preview-table td {
       padding: 10px 12px;
-      border-bottom: 1px solid #e5ece8;
+      border-bottom: 1px solid #dfe7f3;
       text-align: left;
       vertical-align: top;
       font-size: 12px;
@@ -1750,7 +1955,7 @@
     .import-preview-table th {
       position: sticky;
       top: 0;
-      background: #f5faf8;
+      background: #f3f7fd;
       color: var(--muted);
       font-size: 11px;
       text-transform: uppercase;
@@ -1761,8 +1966,8 @@
     .import-status {
       padding: 12px 14px;
       border-radius: 14px;
-      border: 1px solid #d8e5df;
-      background: linear-gradient(180deg, #f7fbf9 0%, #eff6f3 100%);
+      border: 1px solid #d2def0;
+      background: linear-gradient(180deg, #f5f8fd 0%, #e9f0f8 100%);
       color: var(--muted);
       font-size: 13px;
       line-height: 1.5;
@@ -1778,8 +1983,8 @@
     }
 
     .import-status.success {
-      background: linear-gradient(180deg, #eef9f4 0%, #def3e6 100%);
-      border-color: #9fcdb2;
+      background: linear-gradient(180deg, #e8f2fb 0%, #d8e8f8 100%);
+      border-color: #9fbbda;
       color: #155e39;
     }
 
@@ -1789,8 +1994,8 @@
       align-items: center;
       gap: 12px;
       padding: 16px 22px 18px;
-      border-top: 1px solid #dbe5e0;
-      background: rgba(250, 252, 251, 0.96);
+      border-top: 1px solid #c8d5e8;
+      background: rgba(248, 250, 255, 0.96);
     }
 
     .import-footer-copy {
@@ -1800,7 +2005,7 @@
     }
 
     .profile-panel.resizing {
-      box-shadow: 0 28px 60px rgba(19, 25, 22, 0.24);
+      box-shadow: 0 28px 60px rgba(10, 18, 42, 0.24);
     }
 
     .profile-resize-handle {
@@ -1823,15 +2028,15 @@
       height: 58px;
       transform: translateY(-50%);
       border-radius: 999px;
-      background: linear-gradient(180deg, rgba(168, 184, 176, 0.15) 0%, rgba(135, 152, 144, 0.7) 50%, rgba(168, 184, 176, 0.15) 100%);
+      background: linear-gradient(180deg, rgba(160, 180, 215, 0.15) 0%, rgba(120, 145, 195, 0.7) 50%, rgba(160, 180, 215, 0.15) 100%);
       transition: background 0.18s ease, box-shadow 0.18s ease;
     }
 
     .profile-resize-handle:hover::after,
     .profile-resize-handle:focus-visible::after,
     .profile-panel.resizing .profile-resize-handle::after {
-      background: linear-gradient(180deg, rgba(92, 125, 110, 0.25) 0%, rgba(39, 84, 64, 0.82) 50%, rgba(92, 125, 110, 0.25) 100%);
-      box-shadow: 0 0 0 2px rgba(23, 73, 53, 0.12);
+      background: linear-gradient(180deg, rgba(80, 110, 180, 0.25) 0%, rgba(30, 62, 140, 0.82) 50%, rgba(80, 110, 180, 0.25) 100%);
+      box-shadow: 0 0 0 2px rgba(20, 55, 120, 0.12);
     }
 
     .profile-panel-header {
@@ -1840,8 +2045,8 @@
       align-items: start;
       gap: 12px;
       padding: 18px 18px 14px;
-      border-bottom: 1px solid #dbe5e0;
-      background: linear-gradient(180deg, #fcfdfd 0%, #f1f6f4 100%);
+      border-bottom: 1px solid #c8d5e8;
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
     }
 
     .profile-panel-copy {
@@ -1866,8 +2071,8 @@
       min-width: 108px;
       padding: 10px 14px;
       border-radius: 14px;
-      background: linear-gradient(180deg, #f3f7f5 0%, #e7efeb 100%);
-      border: 1px solid #d6e1dd;
+      background: linear-gradient(180deg, #f0f4fb 0%, #e1e9f4 100%);
+      border: 1px solid #d0daed;
       color: var(--muted);
       font-size: 12px;
       font-weight: 700;
@@ -1934,8 +2139,8 @@
     }
 
     .profile-header-status.active {
-      background: linear-gradient(180deg, #e7f7ef 0%, #d5efe2 100%);
-      border-color: #9fd1b6;
+      background: linear-gradient(180deg, #e1f0fa 0%, #cfe2f5 100%);
+      border-color: #9fbfdc;
       color: #116840;
     }
 
@@ -2021,8 +2226,8 @@
     .agency-map-status {
       padding: 12px 14px;
       border-radius: 14px;
-      background: linear-gradient(180deg, #f5faf8 0%, #edf5f2 100%);
-      border: 1px solid #d6e5e0;
+      background: linear-gradient(180deg, #f3f7fd 0%, #e7eef8 100%);
+      border: 1px solid #d0ddf0;
       color: var(--muted);
       line-height: 1.45;
     }
@@ -2050,7 +2255,7 @@
 
     .profile-header-start-date input {
       width: 100%;
-      border: 1px solid #cfdcd7;
+      border: 1px solid #c9d6ea;
       border-radius: 12px;
       padding: 9px 11px;
       background: rgba(255, 255, 255, 0.96);
@@ -2098,8 +2303,8 @@
       width: 88px;
       height: 88px;
       border-radius: 18px;
-      background: linear-gradient(180deg, #dfeae5 0%, #cadbd4 100%);
-      border: 1px solid #d4e2dd;
+      background: linear-gradient(180deg, #d9e3f2 0%, #c4d4e8 100%);
+      border: 1px solid #ced8ec;
       display: grid;
       place-items: center;
       color: var(--muted);
@@ -2122,7 +2327,7 @@
       height: 16px;
       border: 0;
       background: transparent;
-      color: #cfd7d3;
+      color: #c9d3e6;
       font-size: 15px;
       line-height: 1;
       padding: 0;
@@ -2140,7 +2345,7 @@
     }
 
     .profile-card {
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
       border-radius: 18px;
       background: rgba(255, 255, 255, 0.9);
       padding: 14px;
@@ -2172,8 +2377,8 @@
     .profile-kv {
       padding: 10px;
       border-radius: 14px;
-      background: #f6faf8;
-      border: 1px solid #e0ebe6;
+      background: #f3f7ff;
+      border: 1px solid #dae4f3;
     }
 
     .profile-kv-label {
@@ -2216,7 +2421,7 @@
       width: 100%;
       padding: 12px;
       border-radius: 16px;
-      border: 1px solid #dce6e1;
+      border: 1px solid #d6e0f1;
       background: #fff;
       display: grid;
       gap: 10px;
@@ -2228,12 +2433,12 @@
     }
 
     .profile-history-site:hover {
-      border-color: #8fc3b6;
-      box-shadow: 0 0 0 3px rgba(15, 109, 89, 0.08);
+      border-color: #8fb5d8;
+      box-shadow: 0 0 0 3px rgba(30, 77, 140, 0.08);
     }
 
     .profile-history-site:focus-visible {
-      outline: 2px solid #0f6d59;
+      outline: 2px solid #1e4d8c;
       outline-offset: 2px;
     }
 
@@ -2264,7 +2469,7 @@
     }
 
     .profile-version-entry {
-      border: 1px solid #dce6e1;
+      border: 1px solid #d6e0f1;
       border-radius: 16px;
       background: #fff;
       padding: 14px;
@@ -2332,7 +2537,7 @@
     }
 
     .status-segment {
-      border: 1px solid #cfdcd7;
+      border: 1px solid #c9d6ea;
       border-radius: 12px;
       background: #fff;
       color: var(--text);
@@ -2347,8 +2552,8 @@
 
     .status-segment:hover,
     .status-segment:focus-visible {
-      border-color: #9fc1b5;
-      background: #f4faf7;
+      border-color: #9fb8d5;
+      background: #f1f6ff;
       transform: translateY(-1px);
     }
 
@@ -2375,8 +2580,8 @@
       gap: 10px;
       padding: 12px 14px;
       border-radius: 16px;
-      border: 1px solid #d6e3de;
-      background: linear-gradient(180deg, #fbfdfc 0%, #f2f7f5 100%);
+      border: 1px solid #c8d5e8;
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
     }
 
     .status-history-title {
@@ -2398,7 +2603,7 @@
       padding: 10px 12px;
       border-radius: 14px;
       background: #fff;
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
     }
 
     .status-history-topline {
@@ -2479,9 +2684,9 @@
       display: grid;
       gap: 10px;
       padding: 12px;
-      border: 1px solid #d6e3de;
+      border: 1px solid #c8d5e8;
       border-radius: 16px;
-      background: linear-gradient(180deg, #fbfdfc 0%, #f2f7f5 100%);
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
     }
 
     .profile-create-fields[hidden] {
@@ -2515,7 +2720,7 @@
     .profile-field input,
     .profile-field select {
       width: 100%;
-      border: 1px solid #cfdcd7;
+      border: 1px solid #c9d6ea;
       border-radius: 12px;
       padding: 10px 12px;
       background: #fff;
@@ -2532,9 +2737,9 @@
       display: grid;
       gap: 10px;
       padding: 12px;
-      border: 1px solid #d6e3de;
+      border: 1px solid #c8d5e8;
       border-radius: 16px;
-      background: linear-gradient(180deg, #fbfdfc 0%, #f2f7f5 100%);
+      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
     }
 
     .work-center-summary {
@@ -2559,9 +2764,9 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      border: 1px solid #cfdcd7;
+      border: 1px solid #c9d6ea;
       border-radius: 12px;
-      background: #f4faf7;
+      background: #f1f6ff;
       color: var(--accent-strong);
       padding: 9px 10px 9px 12px;
       font-weight: 700;
@@ -2573,7 +2778,7 @@
       min-width: 24px;
       padding: 0;
       border-radius: 999px;
-      background: rgba(15, 109, 89, 0.12);
+      background: rgba(30, 77, 140, 0.12);
       color: var(--accent-strong);
       display: inline-flex;
       align-items: center;
@@ -2584,14 +2789,14 @@
 
     .profile-emr-remove:hover,
     .profile-emr-remove:focus-visible {
-      background: rgba(15, 109, 89, 0.2);
+      background: rgba(30, 77, 140, 0.2);
     }
 
     .profile-emr-empty {
       padding: 10px 12px;
-      border: 1px dashed #cfdcd7;
+      border: 1px dashed #c9d6ea;
       border-radius: 12px;
-      background: #fbfdfc;
+      background: #f8faff;
       color: var(--muted);
       font-size: 13px;
       line-height: 1.4;
@@ -2615,8 +2820,8 @@
       gap: 8px;
       padding: 12px;
       border-radius: 14px;
-      border: 1px solid #dbe5e0;
-      background: #fbfdfc;
+      border: 1px solid #c8d5e8;
+      background: #f8faff;
       min-width: 0;
     }
 
@@ -2639,9 +2844,9 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      border: 1px solid #cfdcd7;
+      border: 1px solid #c9d6ea;
       border-radius: 12px;
-      background: #f4faf7;
+      background: #f1f6ff;
       color: var(--accent-strong);
       padding: 8px 10px 8px 12px;
       font-weight: 700;
@@ -2659,7 +2864,7 @@
       min-width: 24px;
       padding: 0;
       border-radius: 999px;
-      background: rgba(15, 109, 89, 0.12);
+      background: rgba(30, 77, 140, 0.12);
       color: var(--accent-strong);
       display: inline-flex;
       align-items: center;
@@ -2670,14 +2875,14 @@
 
     .profile-restriction-remove:hover,
     .profile-restriction-remove:focus-visible {
-      background: rgba(15, 109, 89, 0.2);
+      background: rgba(30, 77, 140, 0.2);
     }
 
     .profile-restriction-empty {
       padding: 10px 12px;
-      border: 1px dashed #cfdcd7;
+      border: 1px dashed #c9d6ea;
       border-radius: 12px;
-      background: #fbfdfc;
+      background: #f8faff;
       color: var(--muted);
       font-size: 13px;
       line-height: 1.4;
@@ -2698,8 +2903,8 @@
       gap: 12px;
       padding: 10px 12px;
       border-radius: 14px;
-      background: #f6faf8;
-      border: 1px solid #e0ebe6;
+      background: #f3f7ff;
+      border: 1px solid #dae4f3;
     }
 
     .toggle-copy {
@@ -2735,7 +2940,7 @@
       position: absolute;
       inset: 0;
       border-radius: 999px;
-      background: #ccd9d4;
+      background: #c6d5e8;
       transition: background-color 140ms ease;
       cursor: pointer;
     }
@@ -2749,7 +2954,7 @@
       height: 22px;
       border-radius: 50%;
       background: #fff;
-      box-shadow: 0 4px 10px rgba(19, 25, 22, 0.18);
+      box-shadow: 0 4px 10px rgba(10, 18, 42, 0.18);
       transition: transform 140ms ease;
     }
 
@@ -2771,16 +2976,18 @@
       position: absolute;
       right: 18px;
       bottom: 18px;
-      padding: 6px 10px;
-      background: rgba(255, 255, 255, 0.9);
+      padding: 7px 11px;
+      background: rgba(247, 251, 249, 0.92);
+      border: 1px solid rgba(196, 214, 207, 0.9);
       border-radius: 999px;
-      color: #000;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: 0.04em;
+      color: #364b72;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
       z-index: 1;
       pointer-events: none;
+      box-shadow: 0 10px 22px rgba(12, 22, 50, 0.08);
     }
 
     .mapboxgl-popup-content {
@@ -2821,9 +3028,9 @@
       gap: 4px;
     }
     .popup-accordion {
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
       border-radius: 14px;
-      background: #f9fcfb;
+      background: #f7f9fd;
       overflow: hidden;
     }
     .popup-accordion summary {
@@ -2835,13 +3042,13 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text);
-      background: #f1f6f4;
+      background: #eef3fc;
     }
     .popup-accordion summary::-webkit-details-marker {
       display: none;
     }
     .popup-accordion[open] summary {
-      border-bottom: 1px solid #dbe5e0;
+      border-bottom: 1px solid #c8d5e8;
     }
     .popup-accordion-body {
       display: grid;
@@ -2868,7 +3075,7 @@
       display: grid;
       gap: 8px;
       padding-top: 2px;
-      border-top: 1px solid #e3ece8;
+      border-top: 1px solid #dde6f3;
     }
     .popup-tool-row {
       display: flex;
@@ -2880,9 +3087,9 @@
       width: 42px;
       height: 42px;
       padding: 0;
-      border: 1px solid #dbe5e0;
+      border: 1px solid #c8d5e8;
       border-radius: 14px;
-      background: #eef5f2;
+      background: #e8eff8;
       color: var(--text);
       display: inline-flex;
       align-items: center;
@@ -2901,8 +3108,8 @@
     .popup-icon-btn:hover,
     .popup-icon-btn:focus-visible,
     .popup-icon-btn.active {
-      background: #dcece6;
-      border-color: #bdd5cc;
+      background: #d6e4f5;
+      border-color: #b8cfe8;
       color: var(--accent-strong);
     }
     .popup-icon-btn.is-disabled {
@@ -2917,7 +3124,7 @@
       transform: translate(-50%, 4px);
       padding: 6px 8px;
       border-radius: 10px;
-      background: rgba(24, 51, 42, 0.96);
+      background: rgba(15, 35, 80, 0.96);
       color: #fff;
       font-size: 11px;
       font-weight: 700;
@@ -2935,7 +3142,7 @@
       left: 50%;
       width: 8px;
       height: 8px;
-      background: rgba(24, 51, 42, 0.96);
+      background: rgba(15, 35, 80, 0.96);
       transform: translateX(-50%) rotate(45deg);
       opacity: 0;
       transition: opacity 0.16s ease;
@@ -2960,7 +3167,7 @@
 
     .mapboxgl-marker.marker-selected svg,
     .mapboxgl-marker.marker-focused svg {
-      filter: drop-shadow(0 10px 18px rgba(19, 25, 22, 0.28));
+      filter: drop-shadow(0 10px 18px rgba(10, 18, 42, 0.28));
     }
 
     .mapboxgl-marker.marker-selected svg {
@@ -3018,7 +3225,7 @@
       box-shadow:
         0 0 0 1px rgba(30, 52, 44, 0.22),
         0 8px 16px rgba(18, 32, 27, 0.18);
-      color: #17352c;
+      color: #1a2d52;
       font-size: 10px;
       font-weight: 900;
       line-height: 1;
@@ -3084,7 +3291,7 @@
       border-radius: 50%;
       border: 2px solid #fff;
       background: var(--accent-strong);
-      box-shadow: 0 0 0 6px rgba(15, 109, 89, 0.2);
+      box-shadow: 0 0 0 6px rgba(30, 77, 140, 0.2);
     }
 
     .search-pin {
@@ -3108,13 +3315,13 @@
     .selection-label {
       padding: 5px 9px;
       border-radius: 999px;
-      background: rgba(24, 51, 42, 0.92);
+      background: rgba(15, 35, 80, 0.92);
       color: #fff;
       font-size: 12px;
       font-weight: 700;
       line-height: 1;
       white-space: nowrap;
-      box-shadow: 0 10px 24px rgba(19, 25, 22, 0.18);
+      box-shadow: 0 10px 24px rgba(10, 18, 42, 0.18);
     }
 
     .clinician-selection-label {
@@ -3126,7 +3333,7 @@
     .completed-service-radius-label {
       max-width: 220px;
       border-radius: 12px;
-      background: rgba(15, 118, 110, 0.94);
+      background: rgba(30, 77, 140, 0.94);
       white-space: normal;
       line-height: 1.28;
       text-align: center;
@@ -3231,17 +3438,28 @@
       .profile-restriction-grid {
         grid-template-columns: 1fr;
       }
-      .map-overlay { top: auto; bottom: 16px; }
+      .map-overlay { top: auto; bottom: 14px; width: min(480px, calc(100% - 32px)); }
     }
   </style>
 </head>
 <body>
   <div class="app-shell" id="app-shell">
+
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <p class="eyebrow">DependableCare Staffing</p>
+        <div class="sidebar-brand-row">
+          <div class="brand-mark" aria-hidden="true">DC</div>
+          <div class="sidebar-title-stack">
+            <p class="eyebrow">DependableCare Staffing</p>
+            <div class="sidebar-kicker">Internal Staffing Portal</div>
+          </div>
+        </div>
         <h1>Clinician Coverage Dashboard</h1>
-        <p class="subhead">Review clinician coverage, staffing geography, and territory activity for DependableCare Staffing from one internal tool.</p>
+        <div class="sidebar-header-meta">
+          <span class="portal-chip">Coverage Workspace</span>
+          <span class="portal-chip">Map + History</span>
+          <span class="portal-chip">Staffing Ops</span>
+        </div>
       </div>
       <div class="sidebar-scroll">
         <section class="controls">
@@ -3396,58 +3614,76 @@
     </aside>
 
     <main class="map-panel">
+
       <div class="top-toolbar">
-        <div class="toolbar-actions">
-          <div class="toolbar-tool-grid">
-            <div id="clinician-search-shell" class="toolbar-search toolbar-tool">
-              <div class="toolbar-tool-label">Find Clinician</div>
-              <input id="clinician-search" class="toolbar-select toolbar-search-input" type="text" placeholder="Find clinician by name" autocomplete="off">
-              <div id="clinician-search-results" class="toolbar-search-results" role="listbox" aria-label="Clinician name search results"></div>
-            </div>
-            <div class="toolbar-tool toolbar-inline-tool">
-              <div class="toolbar-tool-label">Point Search</div>
-              <div class="toolbar-inline-row">
-                <input id="point-search" class="toolbar-input" type="text" placeholder="Search address or ZIP">
-                <button id="run-point-search" class="btn-primary" type="button">Find</button>
-              </div>
-            </div>
-            <div class="toolbar-tool toolbar-inline-tool">
-              <div class="toolbar-tool-label">ZIP Coverage Check</div>
-              <div class="toolbar-inline-row">
-                <input id="zip-coverage-search" class="toolbar-input" type="text" placeholder="Enter patient ZIP">
-                <button id="run-zip-coverage-check" class="btn-secondary" type="button">Check</button>
-              </div>
-            </div>
-            <div class="toolbar-radius-tool toolbar-tool" aria-label="Radius selection tools">
-              <div class="toolbar-tool-label">Radius Selection</div>
-              <div class="toolbar-radius-topline">
-                <button id="radius-mode-toggle" class="btn-secondary" type="button">Radius Mode</button>
-                <button id="clear-selection" class="btn-secondary" type="button">Clear Selection</button>
-                <div class="radius-control-shell">
-                  <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">-</button>
-                  <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
-                  <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
-                </div>
-              </div>
-              <div class="toolbar-radius-presets radius-row">
-                <button type="button" class="btn-secondary radius-btn active" data-radius="1">1 mile</button>
-                <button type="button" class="btn-secondary radius-btn" data-radius="2">2 miles</button>
-                <button type="button" class="btn-secondary radius-btn" data-radius="5">5 miles</button>
-                <button type="button" class="btn-secondary radius-btn" data-radius="10">10 miles</button>
-              </div>
+        <div class="toolbar-row">
+
+          <!-- ── Cell 0: View Switch ── -->
+          <div class="toolbar-cell" style="padding-left:0">
+            <div class="toolbar-view-switch" role="group" aria-label="Sidebar view switch">
+              <button id="view-switch-clinicians" type="button" class="active" title="Open Clinician List in sidebar"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Clinicians</button>
+              <button id="view-switch-services" type="button" title="Open Completed Services in sidebar"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Services</button>
             </div>
           </div>
-          <div class="toolbar-utility-row">
-            <button id="zoom-extents" class="btn-secondary" type="button">Zoom Extents</button>
-            <div class="toolbar-pin-mode-shell">
-              <div class="toolbar-tool-label">Clinician Pins</div>
-              <div class="toolbar-pin-mode-toggle" role="group" aria-label="Clinician pin display mode">
-                <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true">Work Center</button>
-                <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false">Home Pin</button>
-              </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Cell 1: Find Clinician ── -->
+          <div id="clinician-search-shell" class="toolbar-cell toolbar-cell-grow" style="position:relative">
+            <input id="clinician-search" class="toolbar-input" type="text" placeholder="Find clinician by name" autocomplete="off" aria-label="Find clinician by name">
+            <div id="clinician-search-results" class="toolbar-search-results" role="listbox" aria-label="Clinician name search results"></div>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Cell 2: Point Search ── -->
+          <div class="toolbar-cell toolbar-cell-grow">
+            <input id="point-search" class="toolbar-input" type="text" placeholder="Address or ZIP" aria-label="Search address or ZIP">
+            <button id="run-point-search" class="btn-primary" type="button">Find</button>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Cell 3: ZIP Coverage Check ── -->
+          <div class="toolbar-cell toolbar-cell-grow">
+            <input id="zip-coverage-search" class="toolbar-input" type="text" placeholder="Patient ZIP" aria-label="Enter patient ZIP">
+            <button id="run-zip-coverage-check" class="btn-secondary" type="button">Check</button>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Cell 4: Radius Selection ── -->
+          <div class="toolbar-cell toolbar-radius-cell" aria-label="Radius selection tools">
+            <button id="radius-mode-toggle" class="btn-secondary" type="button" title="Toggle radius selection mode"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Radius</span></button>
+            <button id="clear-selection" class="btn-secondary" type="button" title="Clear current selection"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Clear</span></button>
+            <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">−</button>
+            <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
+            <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
+            <div class="toolbar-radius-presets">
+              <button type="button" class="btn-secondary radius-btn active" data-radius="1">1 mi</button>
+              <button type="button" class="btn-secondary radius-btn" data-radius="2">2 mi</button>
+              <button type="button" class="btn-secondary radius-btn" data-radius="5">5 mi</button>
+              <button type="button" class="btn-secondary radius-btn" data-radius="10">10 mi</button>
             </div>
-            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button">TherapyBoss</button>
-            <select id="style-selector" class="toolbar-select">
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Cell 5: Clinician Pin Mode ── -->
+          <div class="toolbar-cell">
+            <div class="toolbar-pin-mode-toggle" role="group" aria-label="Clinician pin display mode">
+              <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true" title="Show clinician work center locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="4"/></svg>Work</span></button>
+              <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false" title="Show clinician home locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Home</span></button>
+            </div>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Cell 6: Map Utilities ── -->
+          <div class="toolbar-cell">
+            <button id="zoom-extents" class="btn-secondary" type="button" title="Zoom to fit all visible clinicians"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>Fit</span></button>
+            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button" title="Toggle TherapyBoss integration panel"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>TB</span></button>
+            <select id="style-selector" class="toolbar-select" aria-label="Map style">
               <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
               <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
               <option value="mapbox://styles/mapbox/streets-v12">Mapbox Streets</option>
@@ -3455,7 +3691,7 @@
               <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
             </select>
             <div class="toolbar-menu" id="toolbar-menu">
-              <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
+              <button id="tools-menu-button" class="btn-secondary menu-button" type="button" title="Additional map tools"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>Tools</span></button>
               <div class="menu-panel">
                 <button id="toolbar-add-clinician" class="menu-item" type="button">Add Clinician</button>
                 <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
@@ -3464,11 +3700,13 @@
               </div>
             </div>
           </div>
+
         </div>
       </div>
+
       <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 111</div>
+        <div class="version-indicator">Prototype Rev 112</div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Status</div>
         <div class="status-card">
@@ -3501,8 +3739,7 @@
         <div id="floating-status-resize-handle" class="floating-status-resize-handle" role="separator" aria-label="Resize status panel" aria-orientation="horizontal" tabindex="0"></div>
       </div>
       <div class="map-overlay">
-        <h2>Map Interaction</h2>
-        <p id="map-instructions">Search any address or ZIP to place a location pin, click clinician markers for details, toggle home health or completed-service locations on only when needed, or enable Radius Mode and click the map to select clinicians within the chosen distance.</p>
+        <p id="map-instructions">Search any address or ZIP to place a location pin — Radius Mode will activate automatically at the minimum radius so you can see nearby clinicians right away. Click anywhere on the map to move the radius center, then use − and + to refine the distance.</p>
       </div>
       <aside id="therapyboss-dock" class="therapyboss-dock" aria-hidden="true">
         <div class="therapyboss-header">
@@ -4485,6 +4722,9 @@
       bearingSnap: 7
     });
 
+    // Ensure Mapbox picks up the correct container size after flex layout settles
+    window.requestAnimationFrame(function() { map.resize(); });
+
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, function(char) {
         const entities = { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" };
@@ -5309,6 +5549,9 @@
       if (!agency) return;
 
       persistCurrentAgencyDraft();
+      if (hasCurrentProfileUnsavedChanges()) {
+        if (!window.confirm("You have unsaved changes on the current clinician profile. Discard and switch to agency?")) return;
+      }
       closeClinicianProfile();
       appState.currentAgencyId = agencyId;
       applyAgencyDraft(getAgencyDraftForRecord(agency));
@@ -6039,7 +6282,7 @@
               "#42535c"
             ],
             "circle-opacity": 0.92,
-            "circle-stroke-color": "#f7fbfa",
+            "circle-stroke-color": "#f5f8fd",
             "circle-stroke-width": 2,
             "circle-radius": [
               "step",
@@ -6065,7 +6308,7 @@
             "text-size": 12
           },
           paint: {
-            "text-color": "#f7fbfa"
+            "text-color": "#f5f8fd"
           }
         });
       }
@@ -6087,7 +6330,7 @@
               "#42535c"
             ],
             "circle-opacity": 0.97,
-            "circle-stroke-color": "#f7fbfa",
+            "circle-stroke-color": "#f5f8fd",
             "circle-stroke-width": [
               "interpolate",
               ["linear"],
@@ -6142,7 +6385,7 @@
             "text-size": 10
           },
           paint: {
-            "text-color": "#f7fbfa"
+            "text-color": "#f5f8fd"
           }
         });
       }
@@ -8638,7 +8881,7 @@
     }
 
     function getDefaultMapInstruction() {
-      return "Search any address or ZIP to place a location pin, click clinician markers for details, toggle home health or completed-service locations on only when needed, or enable Radius Mode and click the map to select clinicians within the chosen distance.";
+      return "Search any address or ZIP to place a location pin — Radius Mode will activate automatically at the minimum radius so you can see nearby clinicians right away. Click anywhere on the map to move the radius center, then use \u2212 and + to refine the distance.";
     }
 
     function isProfilePanelResizable() {
@@ -9295,6 +9538,9 @@
 
     function normalizeProfileStatusValue(status, clinician) {
       const normalized = String(status || "").trim().toLowerCase();
+      // Explicit "Active" must win before any old-record fallback is checked,
+      // otherwise saving an inactive→active change is blocked by clinician.active===false.
+      if (normalized === "active") return "Active";
       if (normalized === "paused") return "Paused";
       if (normalized === "inactive") return "Inactive";
       if (clinician && clinician.active === false) return "Inactive";
@@ -11328,6 +11574,10 @@
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       if (!clinician) return;
 
+      if (appState.currentProfileClinicianId && appState.currentProfileClinicianId !== clinicianId && hasCurrentProfileUnsavedChanges()) {
+        if (!window.confirm("You have unsaved changes on the current profile. Switch clinicians without saving?")) return;
+      }
+
       closeAgencyProfile();
       persistCurrentProfileDraft();
       persistCurrentTerritoryDraft();
@@ -11395,6 +11645,13 @@
       elements.profilePanel.classList.remove("open");
       elements.profilePanel.setAttribute("aria-hidden", "true");
       syncProfileUnsavedBadge(false);
+
+      // Clear any active isolation — both clinician and visit isolation must reset
+      // when the profile shell closes, otherwise the map stays isolated with no way
+      // to clear it.
+      appState.isolatedClinicianId = null;
+      appState.isolatedCompletedServiceClinicianId = null;
+      applyFilters();
     }
 
     function updatePauseUI() {
@@ -11608,7 +11865,7 @@
           id: "selection-circle-fill",
           type: "fill",
           source: appState.selectionCircleId,
-          paint: { "fill-color": "#0f6d59", "fill-opacity": 0.12 }
+          paint: { "fill-color": "#1e4d8c", "fill-opacity": 0.12 }
         });
       }
 
@@ -11617,7 +11874,7 @@
           id: "selection-circle-line",
           type: "line",
           source: appState.selectionCircleId,
-          paint: { "line-color": "#0f6d59", "line-width": 2, "line-dasharray": [2, 2] }
+          paint: { "line-color": "#1e4d8c", "line-width": 2, "line-dasharray": [2, 2] }
         });
       }
     }
@@ -13741,7 +13998,7 @@
             "fill-color": [
               "coalesce",
               ["get", "fillColor"],
-              "#0f6d59"
+              "#1e4d8c"
             ],
             "fill-opacity": 0.16
           }
@@ -13757,7 +14014,7 @@
             "line-color": [
               "coalesce",
               ["get", "lineColor"],
-              "#0f6d59"
+              "#1e4d8c"
             ],
             "line-width": 2
           }
@@ -14240,6 +14497,14 @@
       const lng = Number(feature.center[0]);
       const lat = Number(feature.center[1]);
       setSearchMarker(lng, lat, feature.place_name || query);
+
+      // Auto-enable Radius Mode snapped to the search result (one-time init only —
+      // the user can click elsewhere on the map to move the radius center independently).
+      setRadiusMode(true);
+      appState.selectedRadiusMiles = radiusMinimumMiles;
+      syncRadiusControls();
+      selectCliniciansByRadius(appState.lastPointSearchResult, radiusMinimumMiles);
+
       map.flyTo({
         center: [lng, lat],
         zoom: Math.max(map.getZoom(), 13),
@@ -14706,6 +14971,26 @@
         runPointSearch();
       });
 
+      /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
+      (function initViewSwitch() {
+        var btnClinicians = document.getElementById("view-switch-clinicians");
+        var btnServices   = document.getElementById("view-switch-services");
+        var clinicianPanel = document.querySelector(".clinician-directory-panel");
+        var servicesPanel  = document.querySelector(".completed-service-directory-panel");
+        if (!btnClinicians || !btnServices) return;
+
+        function activate(btn, panel) {
+          btnClinicians.classList.toggle("active", btn === btnClinicians);
+          btnServices.classList.toggle("active", btn === btnServices);
+          if (panel) {
+            panel.open = true;
+            panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        }
+        btnClinicians.addEventListener("click", function() { activate(btnClinicians, clinicianPanel); });
+        btnServices.addEventListener("click", function()   { activate(btnServices, servicesPanel); });
+      })();
+
       elements.zoomExtentsButton.addEventListener("click", function() {
         fitMapToVisibleClinicians(true);
       });
@@ -14877,6 +15162,9 @@
       });
 
       elements.profileClose.addEventListener("click", function() {
+        if (hasCurrentProfileUnsavedChanges()) {
+          if (!window.confirm("You have unsaved changes. Close without saving?")) return;
+        }
         closeClinicianProfile();
       });
 
@@ -15600,6 +15888,9 @@
       if (elements.addClinicianMode) {
         elements.addClinicianMode.addEventListener("click", function() {
           if (appState.addClinicianMode && appState.profileCreateMode) {
+            if (hasCurrentProfileUnsavedChanges()) {
+              if (!window.confirm("You have unsaved changes. Close without saving?")) return;
+            }
             closeClinicianProfile();
             return;
           }
