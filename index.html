@@ -2311,7 +2311,61 @@
       font-size: 12px;
       font-weight: 700;
       text-align: center;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .profile-photo-shell .photo-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      width: 100%;
+      height: 100%;
       padding: 10px;
+    }
+    .profile-photo-shell .photo-placeholder svg {
+      width: 28px;
+      height: 28px;
+      stroke: var(--muted);
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.6;
+    }
+    .profile-photo-shell .photo-placeholder span {
+      font-size: 10px;
+      opacity: 0.8;
+    }
+    .profile-photo-shell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .profile-photo-shell:hover::after {
+      content: "Change";
+      position: absolute;
+      inset: 0;
+      background: rgba(12, 22, 50, 0.55);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+    }
+    .profile-photo-shell input[type="file"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      z-index: 1;
     }
 
     .profile-rating {
@@ -3876,7 +3930,14 @@
           </div>
           <div class="profile-panel-side">
             <button id="profile-close" type="button" class="btn-secondary profile-close">Close</button>
-            <div id="profile-photo-shell" class="profile-photo-shell">Photo if available</div>
+            <div id="profile-photo-shell" class="profile-photo-shell">
+              <input id="profile-photo-input" type="file" accept="image/*" title="Upload clinician photo">
+              <div class="photo-placeholder" id="profile-photo-placeholder">
+                <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4-4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span>Add Photo</span>
+              </div>
+              <img id="profile-photo-img" src="" alt="Clinician photo" style="display:none">
+            </div>
             <div class="profile-rating" aria-label="Internal clinician rating">
               <button type="button" class="rating-star" data-profile-rating-star="1" aria-label="1 star" aria-pressed="false">&#9733;</button>
               <button type="button" class="rating-star" data-profile-rating-star="2" aria-label="2 stars" aria-pressed="false">&#9733;</button>
@@ -4515,6 +4576,9 @@
       profileRadius: document.getElementById("profile-radius"),
       profilePreferredZips: document.getElementById("profile-preferred-zips"),
       profilePhotoShell: document.getElementById("profile-photo-shell"),
+      profilePhotoInput: document.getElementById("profile-photo-input"),
+      profilePhotoImg: document.getElementById("profile-photo-img"),
+      profilePhotoPlaceholder: document.getElementById("profile-photo-placeholder"),
       profileStatusInput: document.getElementById("profile-status-input"),
       profileStatusButtons: Array.from(document.querySelectorAll("[data-profile-status]")),
       profileStatusHistory: document.getElementById("profile-status-history"),
@@ -9268,7 +9332,8 @@
         languages: [],
         restrictedClinicians: [],
         restrictedAgencies: [],
-        notes: ""
+        notes: "",
+        photoUrl: ""
       };
     }
 
@@ -10462,6 +10527,7 @@
         emr_capabilities: normalizedEmrCapabilities,
         restrictions: normalizedRestrictions,
         notes: String(draft.notes || "").trim() || null,
+        photo_url: String(draft.photoUrl || "").trim() || null,
         tags: buildClinicianProfileTagsForSave(
           clinician,
           draft,
@@ -10649,7 +10715,8 @@
         languages: normalizeProfileLanguageList(getProfileLanguagesFromUi()),
         restrictedClinicians: restrictions.clinicians,
         restrictedAgencies: restrictions.agencies,
-        notes: elements.profileNotesInput.value || ""
+        notes: elements.profileNotesInput.value || "",
+        photoUrl: elements.profilePhotoImg.dataset.photoUrl || ""
       };
     }
 
@@ -10689,6 +10756,67 @@
       syncProfileUnsavedBadge(Boolean(draft._dirty));
     }
 
+    /* ── Clinician Profile Photo Helpers ── */
+    function applyProfilePhoto(url) {
+      const img = elements.profilePhotoImg;
+      const placeholder = elements.profilePhotoPlaceholder;
+      img.dataset.photoUrl = url || "";
+      if (url) {
+        img.src = url;
+        img.style.display = "block";
+        placeholder.style.display = "none";
+      } else {
+        img.src = "";
+        img.style.display = "none";
+        placeholder.style.display = "flex";
+      }
+    }
+
+    async function uploadClinicianPhoto(file) {
+      const clinicianId = appState.currentProfileClinicianId;
+      const isCreateMode = appState.profileCreateMode;
+      if (!clinicianId && !isCreateMode) return;
+
+      const maxSize = 2 * 1024 * 1024; // 2 MB
+      if (file.size > maxSize) {
+        window.alert("Photo must be under 2 MB. Please resize and try again.");
+        return;
+      }
+
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const allowedExts = ["jpg", "jpeg", "png", "webp"];
+      if (allowedExts.indexOf(ext) === -1) {
+        window.alert("Only JPG, PNG, and WebP images are supported.");
+        return;
+      }
+
+      const storagePath = isCreateMode
+        ? "temp/new-clinician-photo." + ext
+        : clinicianId + "/photo." + ext;
+
+      try {
+        const { error: uploadError } = await supabaseClient.storage
+          .from("clinician-photos")
+          .upload(storagePath, file, { upsert: true, contentType: file.type });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabaseClient.storage
+          .from("clinician-photos")
+          .getPublicUrl(storagePath);
+
+        const publicUrl = urlData.publicUrl + "?t=" + Date.now();
+        applyProfilePhoto(publicUrl);
+        elements.profilePhotoImg.dataset.photoUrl = publicUrl;
+
+        // Mark draft dirty so the unsaved badge shows
+        persistCurrentProfileDraft(true);
+      } catch (err) {
+        console.error("Photo upload failed:", err);
+        window.alert("Photo upload failed. Make sure the 'clinician-photos' storage bucket exists in Supabase and has public access enabled.");
+      }
+    }
+
     function applyProfileDraft(draft) {
       const safeDraft = Object.assign(getDefaultProfileDraft(), draft || {});
       elements.profileNameInput.value = safeDraft.name || "";
@@ -10726,6 +10854,7 @@
       elements.profileRestrictedAgenciesInput.value = "";
       syncProfileRestrictionAddButtonsState();
       elements.profileNotesInput.value = safeDraft.notes;
+      applyProfilePhoto(safeDraft.photoUrl || "");
       syncProfileModeUi();
       syncProfileWorkCenterUi();
       updateProfileHeaderStatus();
@@ -11043,6 +11172,9 @@
       }
       if (!draft.email && clinician) {
         draft.email = getFirstAvailableFieldValue(clinician, ["email", "email_address"]) || "";
+      }
+      if (!draft.photoUrl && clinician) {
+        draft.photoUrl = clinician.photo_url || "";
       }
       if ((!draft.restrictedClinicians.length && !draft.restrictedAgencies.length) && clinician) {
         draft.restrictedClinicians = normalizeProfileRestrictionList(
@@ -11587,7 +11719,7 @@
         elements.addClinicianMode.classList.remove("active");
       }
       appState.currentProfileClinicianId = clinicianId;
-      elements.profilePhotoShell.textContent = "Photo if available";
+      applyProfilePhoto("");
       resetProfileVersionHistoryUi();
       applyProfileDraft(getProfileDraftForClinician(clinician));
       loadTerritoryDraft(clinicianId);
@@ -11608,7 +11740,7 @@
       persistCurrentTerritoryDraft();
       appState.currentProfileClinicianId = null;
       appState.profileCreateMode = true;
-      elements.profilePhotoShell.textContent = "Photo if available";
+      applyProfilePhoto("");
       resetProfileVersionHistoryUi();
       applyProfileDraft(appState.newClinicianDraft || getDefaultProfileDraft());
       appState.territoryDrawMode = false;
@@ -15410,6 +15542,12 @@
           event.preventDefault();
           applyFloatingStatusPanelHeight(getFloatingStatusPanelHeightBounds().max, true);
         }
+      });
+
+      elements.profilePhotoInput.addEventListener("change", function() {
+        const file = elements.profilePhotoInput.files[0];
+        if (file) uploadClinicianPhoto(file);
+        elements.profilePhotoInput.value = "";
       });
 
       elements.profileSaveShell.addEventListener("click", function() {
