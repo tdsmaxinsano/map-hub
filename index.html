@@ -2787,6 +2787,32 @@
       resize: vertical;
     }
 
+    .referral-zips-display {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 28px;
+      align-items: center;
+    }
+    .referral-zip-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(30, 77, 140, 0.08);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .referral-zip-chip .zip-count {
+      font-weight: 400;
+      opacity: 0.7;
+    }
+
     .work-center-shell {
       display: grid;
       gap: 10px;
@@ -3760,7 +3786,7 @@
 
       <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 112</div>
+        <div class="version-indicator">Prototype Rev 113</div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Status</div>
         <div class="status-card">
@@ -3975,14 +4001,16 @@
                     <label for="profile-core-zip-input">ZIP</label>
                     <input id="profile-core-zip-input" type="text" placeholder="ZIP code">
                   </div>
-                  <div class="profile-field">
-                    <label for="profile-core-radius-input">Radius</label>
-                    <input id="profile-core-radius-input" type="text" placeholder="Optional radius">
-                  </div>
+                  <input id="profile-core-radius-input" type="hidden" value="">
                   <div class="profile-field full">
                     <label for="profile-core-preferred-zips-input">Preferred ZIPs</label>
                     <input id="profile-core-preferred-zips-input" type="text" placeholder="Optional preferred ZIP list">
                     <div class="helper-text">Maintain ZIP coverage in TherapyBoss first, then use the ZIP Coverage import here to sync this list.</div>
+                  </div>
+                  <div class="profile-field full">
+                    <label>Referral History ZIPs</label>
+                    <div id="profile-referral-zips" class="referral-zips-display">No completed service history loaded yet.</div>
+                    <div class="helper-text">Auto-computed from completed service history. Respects the Ignore History Before date.</div>
                   </div>
                 </div>
                 <div class="helper-text">Address and ZIP will be geocoded when you create the clinician so the new marker lands on the map.</div>
@@ -4124,8 +4152,8 @@
                 <div id="profile-zip" class="profile-kv-value">Not set</div>
               </div>
               <div class="profile-kv">
-                <div class="profile-kv-label">Radius</div>
-                <div id="profile-radius" class="profile-kv-value">Not set</div>
+                <div class="profile-kv-label">Referral ZIPs</div>
+                <div id="profile-referral-zips-snapshot" class="profile-kv-value referral-zips-display">—</div>
               </div>
               <div class="profile-kv">
                 <div class="profile-kv-label">Address</div>
@@ -4573,8 +4601,10 @@
       profileRatingStars: Array.from(document.querySelectorAll("[data-profile-rating-star]")),
       profileAddress: document.getElementById("profile-address"),
       profileZip: document.getElementById("profile-zip"),
-      profileRadius: document.getElementById("profile-radius"),
+      profileRadius: document.getElementById("profile-radius") || document.createElement("div"),
+      profileReferralZipsSnapshot: document.getElementById("profile-referral-zips-snapshot"),
       profilePreferredZips: document.getElementById("profile-preferred-zips"),
+      profileReferralZips: document.getElementById("profile-referral-zips"),
       profilePhotoShell: document.getElementById("profile-photo-shell"),
       profilePhotoInput: document.getElementById("profile-photo-input"),
       profilePhotoImg: document.getElementById("profile-photo-img"),
@@ -7171,6 +7201,7 @@
         renderZipCoverageCheck();
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
+        renderProfileReferralZips();
         if (appState.clinicianPinMode === "work") {
           refreshClinicianCoordinateDependentViews();
         }
@@ -7573,6 +7604,131 @@
         });
     }
 
+    function getClinicianReferralZips(clinician) {
+      const clinicianId = String((clinician && clinician.id) || "").trim();
+      if (!clinicianId) return [];
+
+      const draft = appState.profileDraftByClinicianId.get(clinicianId) || {};
+      const ignoreBeforeRaw = getClinicianEffectiveIgnoreHistoryBeforeValue(draft, clinician);
+      const cutoffDate = parseProfileDateValue(ignoreBeforeRaw);
+      const zipCounts = {};
+
+      function isRowEligible(row) {
+        if (!cutoffDate) return true;
+        var anchorDate = getCompletedServiceCoverageAnchorDate(row);
+        if (!anchorDate) return true;
+        return new Date(anchorDate) >= cutoffDate;
+      }
+
+      // Source 1: per-clinician detailed history (loaded when profile opens)
+      var perClinicianHistory = appState.clinicianCompletedServiceHistoryByClinicianId.get(clinicianId);
+      if (perClinicianHistory && Array.isArray(perClinicianHistory.sites)) {
+        perClinicianHistory.sites.forEach(function(site) {
+          var zip = getNormalizedZip((site.rows && site.rows.length && site.rows[0].zip_code) || "");
+          if (!zip && site.fullAddress) {
+            var addressMatch = String(site.fullAddress).match(/\b(\d{5})\b/);
+            if (addressMatch) zip = addressMatch[1];
+          }
+          if (!zip) return;
+
+          var eligibleRows = (site.rows || []).filter(isRowEligible);
+          if (eligibleRows.length) {
+            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
+          }
+        });
+      }
+
+      // Source 2: global completed service site index (batch-loaded)
+      if (!Object.keys(zipCounts).length && appState.hasLoadedCompletedServices && !appState.completedServiceLoadError) {
+        var siteKeys = appState.completedServiceSiteKeysByClinicianId.get(clinicianId) || [];
+        siteKeys.forEach(function(siteKey) {
+          var site = appState.completedServiceSitesByKey.get(siteKey);
+          if (!site) return;
+          var zip = getNormalizedZip(site.zip || "");
+          if (!zip && site.rows && site.rows.length) {
+            zip = getNormalizedZip(site.rows[0].zip_code);
+          }
+          if (!zip) return;
+
+          var matchingAssignments = (site.assignments || []).filter(function(a) {
+            return String(a.matched_clinician_id || "").trim() === clinicianId;
+          });
+          var matchingRowIds = new Set(matchingAssignments.map(function(a) { return a.service_row_id; }));
+          var eligibleRows = (site.rows || []).filter(function(row) {
+            if (!matchingRowIds.has(row.id)) return false;
+            return isRowEligible(row);
+          });
+
+          if (eligibleRows.length) {
+            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
+          }
+        });
+      }
+
+      return Object.keys(zipCounts).sort(function(a, b) {
+        return zipCounts[b] - zipCounts[a];
+      }).map(function(zip) {
+        return { zip_code: zip, service_count: zipCounts[zip] };
+      });
+    }
+
+    function renderProfileReferralZips() {
+      if (!elements.profileReferralZips) return;
+
+      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
+        elements.profileReferralZips.innerHTML = "<span>No completed service history loaded yet.</span>";
+        return;
+      }
+
+      const clinicianId = appState.currentProfileClinicianId;
+      if (!clinicianId && !appState.profileCreateMode) {
+        elements.profileReferralZips.innerHTML = "";
+        return;
+      }
+
+      const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
+      if (!clinician) {
+        elements.profileReferralZips.innerHTML = "<span>No referral history.</span>";
+        return;
+      }
+
+      const referralZips = getClinicianReferralZips(clinician);
+      if (!referralZips.length) {
+        elements.profileReferralZips.innerHTML = "<span>No referral history in any ZIP code.</span>";
+        return;
+      }
+
+      elements.profileReferralZips.innerHTML = referralZips.map(function(entry) {
+        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
+      }).join("");
+    }
+
+    function renderProfileReferralZipsSnapshot() {
+      if (!elements.profileReferralZipsSnapshot) return;
+
+      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
+        elements.profileReferralZipsSnapshot.textContent = "—";
+        return;
+      }
+
+      const clinicianId = appState.currentProfileClinicianId;
+      const clinician = clinicianId ? appState.clinicians.find(function(item) { return item.id === clinicianId; }) : null;
+      if (!clinician) {
+        elements.profileReferralZipsSnapshot.textContent = "—";
+        return;
+      }
+
+      const referralZips = getClinicianReferralZips(clinician);
+      if (!referralZips.length) {
+        elements.profileReferralZipsSnapshot.textContent = "None";
+        return;
+      }
+
+      elements.profileReferralZipsSnapshot.innerHTML = referralZips.slice(0, 8).map(function(entry) {
+        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
+      }).join("") + (referralZips.length > 8 ? "<span class='referral-zip-chip'>+" + (referralZips.length - 8) + " more</span>" : "");
+    }
+
     function getZipCoverageHistoryStatsByClinician(zipCode) {
       const normalizedZip = getNormalizedZip(zipCode);
       const statsByClinicianId = new Map();
@@ -7628,7 +7784,14 @@
         const matchingZipEntries = getClinicianZipCoverageEntries(clinician).filter(function(entry) {
           return getNormalizedZip(entry.zip_code) === normalizedZip;
         });
-        if (!matchingZipEntries.length) return null;
+
+        // Check referral history ZIPs (respects ignoreHistoryBefore)
+        const referralZips = getClinicianReferralZips(clinician);
+        const referralZipMatch = referralZips.find(function(entry) {
+          return entry.zip_code === normalizedZip;
+        });
+
+        if (!matchingZipEntries.length && !referralZipMatch) return null;
 
         const profileDraft = getProfileDraftForClinician(clinician);
         const statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
@@ -7638,6 +7801,8 @@
           clinician: clinician,
           statusInfo: statusInfo,
           zipEntries: matchingZipEntries,
+          referralZipMatch: referralZipMatch || null,
+          matchSource: matchingZipEntries.length ? (referralZipMatch ? "both" : "tb") : "referral",
           historySiteCount: historyStats ? historyStats.siteKeys.size : 0,
           historyServiceCount: historyStats ? historyStats.rowIds.size : 0,
           historyVisitCount: historyStats ? historyStats.totalVisits : 0,
@@ -7674,7 +7839,7 @@
 
       if (!results.length) {
         elements.zipCoverageResults.innerHTML = "";
-        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage for " + normalizedZip + ".";
+        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage or referral history for " + normalizedZip + ".";
         return;
       }
 
@@ -7701,7 +7866,8 @@
           "</div>",
           "<div class='zip-coverage-meta'>",
           "<span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(result.statusInfo.status) + "</span>",
-          "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>",
+          result.matchSource === "tb" || result.matchSource === "both" ? "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>" : "",
+          result.referralZipMatch ? "<span class='meta-chip'>Referral History (" + result.referralZipMatch.service_count + " services)</span>" : "",
           historyLoaded && result.historySiteCount ? "<span class='meta-chip'>" + result.historySiteCount + " service site" + (result.historySiteCount === 1 ? "" : "s") + "</span>" : "",
           "</div>",
           result.statusInfo.detail ? "<div class='zip-coverage-detail'>" + escapeHtml(result.statusInfo.detail) + "</div>" : "",
@@ -7712,7 +7878,7 @@
       }).join("");
 
       elements.zipCoverageResults.innerHTML = resultsHtml;
-      elements.zipCoverageNote.textContent = results.length + " clinicians cover ZIP " + normalizedZip + ". Results respect the current clinician filters, and completed-service history reflects the loaded year and discipline view.";
+      elements.zipCoverageNote.textContent = results.length + " clinicians cover ZIP " + normalizedZip + " (via TherapyBoss ZIP coverage and/or referral history). Results respect the current clinician filters and the Ignore History Before date.";
       if (results.length > visibleResults.length) {
         elements.zipCoverageNote.textContent += " Showing the first " + visibleResults.length + ".";
       }
@@ -8146,6 +8312,10 @@
     function renderClinicianCompletedServiceHistory() {
       if (!elements.profileCompletedHistory) return;
 
+      // Refresh referral ZIPs whenever history display updates
+      renderProfileReferralZips();
+      renderProfileReferralZipsSnapshot();
+
       if (appState.profileCreateMode) {
         elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>Completed-service history will appear here after this clinician is created and matched to imported TherapyBoss rows.</div>";
         return;
@@ -8502,8 +8672,8 @@
       elements.profilePanelDiscipline.textContent = discipline || "Discipline not set";
       elements.profileAddress.textContent = address || "No address";
       elements.profileZip.textContent = zip || "Not set";
-      elements.profileRadius.textContent = formatRadius(radius);
       elements.profilePreferredZips.textContent = formatPreferredZips(preferredZips);
+      renderProfileReferralZipsSnapshot();
     }
 
     function getClinicianPinModeLabel(value) {
@@ -10855,6 +11025,7 @@
       syncProfileRestrictionAddButtonsState();
       elements.profileNotesInput.value = safeDraft.notes;
       applyProfilePhoto(safeDraft.photoUrl || "");
+      renderProfileReferralZips();
       syncProfileModeUi();
       syncProfileWorkCenterUi();
       updateProfileHeaderStatus();
