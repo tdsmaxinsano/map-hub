@@ -8888,6 +8888,12 @@
         }
       }
 
+      // Auto-expand the status panel so ZIP results are visible without manual dragging
+      if (normalizedZip && elements.floatingStatusPanel) {
+        var currentH = appState.floatingStatusPanelHeight || floatingStatusPanelDefaultHeight;
+        if (currentH < 420) applyFloatingStatusPanelHeight(420, false);
+      }
+
       renderZipCoverageCheck();
     }
 
@@ -17488,18 +17494,4 @@
       if (appState.rulerPoints.length >= 2) {
         updateRulerLine();
       }
-      updateSelectionLabels();
-      renderTerritories();
-      updateTerritoryShell();
-      renderSidebar();
-      renderAgencySidebar();
-      renderCompletedServiceSidebar();
-      if (appState.currentAgencyId) {
-        syncAgencyProfileSummary();
-      }
-      syncMapInstructions();
-      updateSummary();
-    });
-  </script>
-</body>
-</html>
+      updateSelectionLab
