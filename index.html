@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
   <style>
     :root {
       --bg: #edf1f8;
@@ -3971,7 +3971,7 @@
       <!-- Sign In form -->
       <div id="auth-panel-signin">
         <p class="auth-subtitle">Welcome back. Enter your credentials to continue.</p>
-        <form id="auth-signin-form" autocomplete="on" onsubmit="authSignIn(event)">
+        <form id="auth-signin-form" autocomplete="on" method="post" action="#" onsubmit="authSignIn(event); return false;">
           <div class="auth-field">
             <label for="auth-email">Email</label>
             <input id="auth-email" type="email" name="email" placeholder="you@dependablecare.com" autocomplete="email" required>
@@ -3989,7 +3989,7 @@
       <!-- Sign Up form -->
       <div id="auth-panel-signup" style="display:none">
         <p class="auth-subtitle">Create your account. You'll have read-only access until an admin upgrades you.</p>
-        <form id="auth-signup-form" autocomplete="on" onsubmit="authSignUp(event)">
+        <form id="auth-signup-form" autocomplete="on" method="post" action="#" onsubmit="authSignUp(event); return false;">
           <div class="auth-field">
             <label for="auth-signup-name">Full Name</label>
             <input id="auth-signup-name" type="text" placeholder="Jane Smith" autocomplete="name" required>
@@ -4047,7 +4047,7 @@
   <div class="um-overlay hidden" id="um-overlay" onclick="umClose(event)">
     <div class="um-modal" onclick="event.stopPropagation()">
       <div class="um-header">
-        <h2>👥 Manage Users</h2>
+        <h2>� Manage Users</h2>
         <button class="um-close" onclick="umClose()" title="Close">✕</button>
       </div>
       <div class="um-body">
@@ -4318,7 +4318,7 @@
 
           <!-- ── User chip + logout ── -->
           <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
-            <button type="button" class="um-manage-btn edit-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
+            <button type="button" class="um-manage-btn edit-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">� Users</button>
             <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
               <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
               <div style="display:flex;flex-direction:column;line-height:1.2">
@@ -17494,4 +17494,18 @@
       if (appState.rulerPoints.length >= 2) {
         updateRulerLine();
       }
-      updateSelectionLab
+      updateSelectionLabels();
+      renderTerritories();
+      updateTerritoryShell();
+      renderSidebar();
+      renderAgencySidebar();
+      renderCompletedServiceSidebar();
+      if (appState.currentAgencyId) {
+        syncAgencyProfileSummary();
+      }
+      syncMapInstructions();
+      updateSummary();
+    });
+  </script>
+</body>
+</html>
