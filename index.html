@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Clinician Territory Dashboard</title>
+  <title>DependableCare Portal</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
-  <script src="https://unpkg.com/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+  <script src="./supabase.js"></script>
   <style>
     :root {
       --bg: #edf1f8;
@@ -4895,9 +4896,50 @@
   <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <script>
+    // Synchronous session check — hides login overlay instantly if session exists in storage
+    // Prevents the login screen flash on refresh
+    (function() {
+      try {
+        for (var i = 0; i < sessionStorage.length; i++) {
+          var k = sessionStorage.key(i);
+          if (k && k.indexOf('sb-') === 0 && k.indexOf('-auth-token') !== -1) {
+            var el = document.getElementById('auth-overlay');
+            if (el) el.style.display = 'none';
+            break;
+          }
+        }
+      } catch(e) {}
+    })();
+
     mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
     const supabaseUrl = "https://jpemlcuxjvynlbeygukb.supabase.co";
     const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+    // Cookie-based storage — survives refresh, not blocked by tracking prevention
+    const cookieAuthStorage = {
+      getItem: function(key) {
+        try {
+          var name = key + '=';
+          var parts = document.cookie.split(';');
+          for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf(name) === 0) return decodeURIComponent(c.substring(name.length));
+          }
+        } catch(e) {}
+        return null;
+      },
+      setItem: function(key, value) {
+        try {
+          var expires = new Date();
+          expires.setDate(expires.getDate() + 7);
+          document.cookie = key + '=' + encodeURIComponent(value) + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+        } catch(e) {}
+      },
+      removeItem: function(key) {
+        try {
+          document.cookie = key + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        } catch(e) {}
+      }
+    };
     const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
       auth: {
         storage: window.sessionStorage,
@@ -5062,6 +5104,13 @@
       document.body.classList.toggle("readonly-mode", isReadOnly);
     }
 
+    function withTimeout(promise, ms, fallback) {
+      return Promise.race([
+        promise,
+        new Promise(function(resolve) { setTimeout(function() { resolve(fallback); }, ms); })
+      ]);
+    }
+
     async function handleAuthSession(session) {
       var authOverlay = document.getElementById("auth-overlay");
       if (!session || !session.user) {
@@ -5073,9 +5122,8 @@
       }
       try {
         appCurrentUser = session.user;
-        // Ensure a role row exists (for new sign-ups where trigger may not exist)
-        await ensureUserRoleExists(session.user.id, "readonly", session.user.email);
-        appUserRole = await fetchUserRole(session.user.id);
+        await withTimeout(ensureUserRoleExists(session.user.id, "readonly", session.user.email), 4000, null);
+        appUserRole = await withTimeout(fetchUserRole(session.user.id), 4000, "readonly");
         applyUserToToolbar(session.user, appUserRole);
         applyReadOnlyMode(appUserRole !== "admin");
       } catch (e) {
@@ -5084,7 +5132,6 @@
         applyUserToToolbar(session.user, "readonly");
         applyReadOnlyMode(true);
       } finally {
-        // Always hide the overlay if we have a valid session
         if (authOverlay) authOverlay.style.display = "none";
       }
     }
@@ -5101,13 +5148,13 @@
 
     /* ── Auth state listener (handles token refresh, tab focus, etc.) ── */
     supabaseClient.auth.onAuthStateChange(async function(event, session) {
+      console.log("[Auth] event:", event, "| session:", session ? session.user.email : "null");
       if (event === "PASSWORD_RECOVERY") {
-        // User clicked a password reset link — show set-password screen
         var authOverlay = document.getElementById("auth-overlay");
         if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("setpassword"); }
         return;
       }
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
         await handleAuthSession(session);
       }
       if (event === "SIGNED_OUT") {
