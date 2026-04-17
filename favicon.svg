@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Outer swoosh -->
+  <path d="M 75 15 C 95 35, 95 70, 60 88 C 85 70, 82 35, 55 20 Z" fill="#1e3a7a"/>
+  <!-- Inner swoosh -->
+  <path d="M 62 22 C 78 38, 76 65, 52 80 C 70 64, 68 38, 48 26 Z" fill="#1e3a7a"/>
+  <!-- Body arc -->
+  <path d="M 28 72 C 18 55, 22 35, 42 24 C 25 36, 22 57, 34 72 Z" fill="#1e3a7a"/>
+  <!-- Person body -->
+  <ellipse cx="44" cy="55" rx="10" ry="13" fill="#1e3a7a"/>
+  <!-- Person head (top) -->
+  <circle cx="62" cy="14" r="7" fill="#1e3a7a"/>
+  <!-- Inner body dot -->
+  <circle cx="44" cy="55" r="5" fill="#1e3a7a"/>
+</svg>
