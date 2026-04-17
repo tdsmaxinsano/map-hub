@@ -4047,7 +4047,7 @@
   <div class="um-overlay hidden" id="um-overlay" onclick="umClose(event)">
     <div class="um-modal" onclick="event.stopPropagation()">
       <div class="um-header">
-        <h2>� Manage Users</h2>
+        <h2>👥 Manage Users</h2>
         <button class="um-close" onclick="umClose()" title="Close">✕</button>
       </div>
       <div class="um-body">
@@ -4318,7 +4318,7 @@
 
           <!-- ── User chip + logout ── -->
           <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
-            <button type="button" class="um-manage-btn edit-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">� Users</button>
+            <button type="button" class="um-manage-btn edit-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
             <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
               <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
               <div style="display:flex;flex-direction:column;line-height:1.2">
@@ -4898,7 +4898,14 @@
     mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
     const supabaseUrl = "https://jpemlcuxjvynlbeygukb.supabase.co";
     const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        storage: window.sessionStorage,
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    });
 
     /* ══════════════════════════════════════════════════
        AUTH LAYER
