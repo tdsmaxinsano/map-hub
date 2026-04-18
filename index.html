@@ -2,11 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Clinician Territory Dashboard</title>
+  <title>DependableCare Portal</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
-  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+  <script src="./supabase.js"></script>
   <style>
     :root {
       --bg: #edf1f8;
@@ -25,6 +26,360 @@
       --ota: #ef7d23;
     }
 
+    /* ── Toast notifications ── */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+    .toast {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 12px 18px;
+      border-radius: 10px;
+      font-size: 13.5px;
+      font-weight: 500;
+      color: #fff;
+      box-shadow: 0 8px 28px rgba(12,22,50,0.18);
+      pointer-events: auto;
+      animation: toastIn 0.25s ease;
+      max-width: 340px;
+    }
+    .toast.success { background: #1e4d8c; }
+    .toast.error   { background: #bf3f34; }
+    .toast.warning { background: #c47a1a; }
+    .toast.info    { background: #2463eb; }
+    .toast.hide    { animation: toastOut 0.3s ease forwards; }
+    @keyframes toastIn  { from { opacity:0; transform: translateY(16px); } to { opacity:1; transform: translateY(0); } }
+    @keyframes toastOut { from { opacity:1; transform: translateY(0); } to { opacity:0; transform: translateY(16px); } }
+
+    /* ── Auth overlay ── */
+    .auth-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: radial-gradient(circle at top left, #ffffff 0%, #edf1f8 58%, #d4dff0 100%);
+    }
+
+    .auth-card {
+      width: 360px;
+      background: #fff;
+      border-radius: 18px;
+      box-shadow: 0 24px 64px rgba(12, 22, 50, 0.16);
+      padding: 36px 32px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .auth-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 28px;
+    }
+
+    .auth-logo-mark {
+      width: 38px;
+      height: 38px;
+      border-radius: 10px;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .auth-logo-mark svg {
+      width: 20px;
+      height: 20px;
+      stroke: #fff;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .auth-logo-text {
+      display: flex;
+      flex-direction: column;
+      line-height: 1.2;
+    }
+
+    .auth-logo-name {
+      font-size: 14px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    .auth-logo-sub {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+
+    .auth-title {
+      font-size: 20px;
+      font-weight: 800;
+      color: var(--text);
+      margin: 0 0 6px;
+    }
+
+    .auth-subtitle {
+      font-size: 13px;
+      color: var(--muted);
+      margin: 0 0 24px;
+    }
+
+    .auth-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .auth-field label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .auth-field input {
+      height: 42px;
+      border: 1.5px solid #c8d5e8;
+      border-radius: 10px;
+      padding: 0 12px;
+      font-size: 14px;
+      color: var(--text);
+      background: #fff;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+
+    .auth-field input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(30, 77, 140, 0.08);
+    }
+
+    .auth-submit {
+      width: 100%;
+      height: 44px;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 8px;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .auth-submit:hover { background: var(--accent-strong); }
+    .auth-submit:active { transform: scale(0.98); }
+    .auth-submit:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .auth-error {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--danger);
+      background: #fdf0ef;
+      border: 1px solid #f5c5c2;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-top: 12px;
+      display: none;
+    }
+
+    .auth-error.visible { display: block; }
+
+    .auth-success {
+      font-size: 12px;
+      font-weight: 600;
+      color: #1a6e36;
+      background: #edf7f0;
+      border: 1px solid #a3d9b5;
+      border-radius: 8px;
+      padding: 8px 12px;
+      margin-top: 12px;
+    }
+
+    .auth-tabs {
+      display: flex;
+      gap: 0;
+      background: rgba(190, 210, 235, 0.25);
+      border-radius: 10px;
+      padding: 3px;
+      margin-bottom: 20px;
+    }
+
+    .auth-tab {
+      flex: 1;
+      height: 34px;
+      border: none;
+      border-radius: 8px;
+      background: transparent;
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    .auth-tab.active {
+      background: #fff;
+      color: var(--accent);
+      box-shadow: 0 1px 4px rgba(12, 22, 50, 0.1);
+    }
+
+    .auth-forgot-link {
+      display: block;
+      margin-top: 12px;
+      background: none;
+      border: none;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--muted);
+      cursor: pointer;
+      text-align: center;
+      width: 100%;
+      padding: 0;
+    }
+
+    .auth-forgot-link:hover { color: var(--accent); }
+
+    /* ── User chip in toolbar ── */
+    .toolbar-user-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px 4px 6px;
+      border-radius: 20px;
+      background: rgba(190, 210, 235, 0.35);
+      border: 1px solid rgba(190, 210, 235, 0.7);
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--accent);
+      cursor: default;
+      flex-shrink: 0;
+    }
+
+    .toolbar-user-avatar {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent);
+      color: #fff;
+      font-size: 10px;
+      font-weight: 800;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .toolbar-user-role {
+      font-size: 10px;
+      font-weight: 600;
+      color: var(--muted);
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .toolbar-logout-btn {
+      height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      background: transparent;
+      border: 1px solid #c8d5e8;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: color 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+
+    .toolbar-logout-btn:hover {
+      color: var(--danger);
+      border-color: var(--danger);
+    }
+
+    /* ── Read-only mode ── */
+    body.readonly-mode .edit-only {
+      display: none !important;
+    }
+
+    /* ── User Management Modal ── */
+    .um-overlay {
+      position: fixed; inset: 0; z-index: 9998;
+      background: rgba(12,22,50,0.45);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .um-overlay.hidden { display: none; }
+    .um-modal {
+      background: #fff; border-radius: 18px;
+      box-shadow: 0 24px 64px rgba(12,22,50,0.18);
+      width: 560px; max-width: 96vw; max-height: 80vh;
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .um-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 22px 24px 16px; border-bottom: 1px solid #e6edf7;
+    }
+    .um-header h2 { margin: 0; font-size: 17px; font-weight: 800; color: var(--text); }
+    .um-close {
+      width: 32px; height: 32px; border-radius: 8px; border: 1px solid #c8d5e8;
+      background: transparent; cursor: pointer; font-size: 16px; color: var(--muted);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .um-close:hover { background: #f0f4fa; color: var(--text); }
+    .um-body { padding: 16px 24px; overflow-y: auto; flex: 1; }
+    .um-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .um-table th {
+      text-align: left; padding: 6px 8px; font-size: 11px; font-weight: 700;
+      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
+      border-bottom: 2px solid #e6edf7;
+    }
+    .um-table td { padding: 10px 8px; border-bottom: 1px solid #f0f4fa; vertical-align: middle; }
+    .um-table tr:last-child td { border-bottom: none; }
+    .um-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 20px;
+      font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .um-badge.admin { background: #dbeafe; color: #1e4d8c; }
+    .um-badge.readonly { background: #f0f4fa; color: var(--muted); }
+    .um-action-btn {
+      padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: 700;
+      cursor: pointer; border: 1px solid; transition: all 0.15s;
+    }
+    .um-action-btn.promote { border-color: #1e4d8c; color: #1e4d8c; background: transparent; }
+    .um-action-btn.promote:hover { background: #1e4d8c; color: #fff; }
+    .um-action-btn.demote { border-color: var(--muted); color: var(--muted); background: transparent; }
+    .um-action-btn.demote:hover { background: var(--muted); color: #fff; }
+    .um-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .um-empty { text-align: center; color: var(--muted); padding: 32px 0; font-size: 13px; }
+    .um-loading { text-align: center; color: var(--muted); padding: 32px 0; font-size: 13px; }
+    .um-manage-btn {
+      height: 28px; padding: 0 12px; font-size: 12px; font-weight: 700;
+      color: var(--accent); background: transparent;
+      border: 1px solid var(--accent); border-radius: 8px;
+      cursor: pointer; transition: all 0.15s; flex-shrink: 0;
+    }
+    .um-manage-btn:hover { background: var(--accent); color: #fff; }
+
     * { box-sizing: border-box; }
 
     html, body {
@@ -33,9 +388,8 @@
       font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
       background: radial-gradient(circle at top left, #ffffff 0%, var(--bg) 58%, #d4dff0 100%);
       color: var(--text);
+      overflow: hidden;
     }
-
-    body { overflow: hidden; }
 
     .app-shell {
       display: grid;
@@ -119,8 +473,8 @@
       padding: 20px 20px 18px;
       border-bottom: 1px solid var(--panel-border);
       background:
-        radial-gradient(circle at top left, rgba(255, 255, 255, 0.98) 0%, rgba(241, 248, 245, 0.96) 56%, rgba(229, 239, 235, 0.98) 100%);
-      box-shadow: inset 0 -1px 0 rgba(214, 227, 221, 0.86);
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.98) 0%, rgba(237, 241, 248, 0.96) 56%, rgba(224, 232, 244, 0.98) 100%);
+      box-shadow: inset 0 -1px 0 rgba(190, 210, 235, 0.86);
     }
 
     .sidebar-brand-row {
@@ -201,7 +555,7 @@
       padding: 7px 12px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.74);
-      border: 1px solid rgba(201, 216, 208, 0.95);
+      border: 1px solid rgba(190, 210, 235, 0.95);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
       color: #394e75;
       font-size: 11px;
@@ -287,6 +641,20 @@
     .search-row { grid-template-columns: minmax(0, 1fr) auto; }
     .discipline-toggle-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .filter-chip-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .rating-filter-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .rating-chip {
+      letter-spacing: -1px;
+      color: rgba(180, 140, 0, 0.38);
+      font-size: 12px;
+      padding-left: 4px;
+      padding-right: 4px;
+    }
+    .rating-chip.active {
+      background: linear-gradient(135deg, #fff8e1 0%, #ffe082 100%);
+      border-color: #d4a843;
+      color: #b8860b;
+      box-shadow: 0 2px 8px rgba(212, 168, 67, 0.28);
+    }
 
     .radius-control-shell {
       display: grid;
@@ -327,86 +695,56 @@
     }
 
     .import-kind-row {
-      display: grid;
-      gap: 10px;
-    }
-
-    .import-kind-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 10px;
-    }
-
-    .import-kind-button {
-      min-height: 54px;
       display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 12px 14px;
-      border: 1px solid #c3d3e7;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .import-kind-button {
+      border: 1px solid #c8d5e8;
       background: #fff;
-      color: var(--text);
+      color: var(--muted);
+      font-size: 12px;
       font-weight: 700;
-      line-height: 1.2;
+      padding: 8px 14px;
+      border-radius: 10px;
+      transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.12s ease;
+      line-height: 1;
+      white-space: nowrap;
       text-align: center;
-      text-wrap: balance;
-      overflow-wrap: anywhere;
-      transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+      flex: 0 0 auto;
     }
-
-    .import-kind-grid .import-kind-button {
-      min-height: 78px;
-      padding: 14px 16px;
-      border-radius: 16px;
-      font-size: 14px;
-    }
-
-    .import-submode-row .import-kind-button {
-      min-height: 58px;
-      font-size: 13px;
-    }
-
     .import-kind-button:hover,
     .import-kind-button:focus-visible {
       border-color: #7a9ec0;
+      color: var(--text);
       transform: translateY(-1px);
+      box-shadow: 0 4px 10px rgba(10,18,42,0.07);
       outline: none;
     }
-
     .import-kind-button.active {
-      background: var(--accent);
-      border-color: var(--accent);
+      background: linear-gradient(180deg, var(--accent) 0%, var(--accent-strong) 100%);
+      border-color: transparent;
       color: #fff;
-      box-shadow: 0 10px 18px rgba(15, 35, 80, 0.12);
+      box-shadow: 0 8px 18px rgba(30,77,140,0.22);
+      transform: none;
     }
-
-    .import-submode-row {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
-    .import-control-block {
-      display: grid;
-      gap: 10px;
-      padding: 14px;
-      border-radius: 16px;
-      border: 1px solid #d7e2f1;
-      background: rgba(255, 255, 255, 0.8);
-    }
+    .import-submode-row { flex-wrap: nowrap; }
 
     .import-warning {
-      margin-top: 8px;
+      margin-top: 6px;
       padding: 10px 12px;
-      border-radius: 12px;
+      border-radius: 10px;
       border: 1px solid #e7c48f;
-      background: linear-gradient(180deg, #fff8eb 0%, #fff1d5 100%);
+      background: linear-gradient(135deg, #fffbf0 0%, #fff3d5 100%);
       color: #7a4a00;
       font-size: 12px;
       line-height: 1.5;
     }
-
     .import-warning strong {
       display: block;
-      margin-bottom: 4px;
+      margin-bottom: 3px;
+      font-size: 11.5px;
+      letter-spacing: 0.04em;
       color: #6b3e00;
     }
 
@@ -538,7 +876,34 @@
     .radius-coverage-shell {
       display: grid;
       gap: 10px;
-      padding-top: 4px;
+      padding-top: 14px;
+      margin-top: 0;
+      border-top: none;
+    }
+
+    .zip-coverage-resize-handle {
+      height: 12px;
+      margin: 4px 0;
+      cursor: row-resize;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-top: 4px solid var(--panel-border);
+      position: relative;
+      flex-shrink: 0;
+    }
+    .zip-coverage-resize-handle::after {
+      content: "";
+      width: 36px;
+      height: 4px;
+      border-radius: 2px;
+      background: var(--panel-border);
+      position: absolute;
+      bottom: 0;
+    }
+    .zip-coverage-resize-handle:hover::after,
+    .zip-coverage-resize-handle:active::after {
+      background: var(--accent);
     }
 
     .radius-coverage-shell[hidden] {
@@ -551,7 +916,221 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 6px;
     }
+    .radius-coverage-title .section-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .section-hint {
+      font-size: 10.5px;
+      font-weight: 500;
+      color: var(--muted);
+      background: #f0f4fa;
+      border-radius: 5px;
+      padding: 4px 8px;
+      margin: 3px 0 5px;
+      line-height: 1.4;
+    }
+    .zip-coverage-shell {
+      border-left: 3px solid #d4a843;
+      padding-left: 8px;
+      margin-top: 6px;
+    }
+    .radius-panel-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 10px;
+      margin-bottom: 4px;
+      border: 1.5px solid rgba(36, 99, 235, 0.22);
+      background: rgba(36, 99, 235, 0.03);
+      transition: border-color 0.25s, box-shadow 0.25s;
+    }
+    .radius-panel-controls.radius-active {
+      border-color: #2463eb;
+      box-shadow: 0 0 0 2.5px rgba(36, 99, 235, 0.15), 0 0 14px rgba(36, 99, 235, 0.18);
+    }
+    .radius-panel-controls .radius-readout {
+      flex: 1;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 800;
+      color: #154880;
+      background: #f0f4fa;
+      border-radius: 7px;
+      padding: 4px 10px;
+      min-width: 56px;
+      cursor: default;
+    }
+    .radius-panel-controls.radius-active .radius-readout {
+      background: rgba(36, 99, 235, 0.08);
+      color: #1a3ebd;
+    }
+    .radius-panel-controls .radius-step-button {
+      min-width: 34px;
+      padding: 6px 0;
+      font-size: 18px;
+    }
+    .radius-panel-controls.radius-active .radius-step-button {
+      border-color: #2463eb;
+      color: #2463eb;
+      box-shadow: 0 0 0 1.5px rgba(36, 99, 235, 0.18);
+    }
+    /* Radius mode toggle button — glow blue when active */
+    #radius-mode-toggle.active {
+      background: linear-gradient(135deg, #3b7df5 0%, #2463eb 100%);
+      color: #fff;
+      border-color: #1a4fc4;
+      box-shadow: 0 0 0 2.5px rgba(36, 99, 235, 0.22), 0 0 14px rgba(36, 99, 235, 0.32);
+    }
+    .radius-panel-mode-btn,
+    .radius-panel-clear-btn {
+      white-space: nowrap;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    .zip-panel-search-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+      border-radius: 10px;
+      transition: box-shadow 0.25s, background 0.25s;
+    }
+    .zip-panel-search-row .toolbar-input {
+      flex: 1;
+      min-width: 0;
+      transition: border-color 0.25s, box-shadow 0.25s;
+    }
+    .zip-panel-search-row.zip-active .toolbar-input {
+      border-color: #e07c1a;
+      box-shadow: 0 0 0 2.5px rgba(224, 124, 26, 0.22), 0 0 10px rgba(224, 124, 26, 0.18);
+    }
+    .zip-panel-search-row.zip-active #run-zip-panel-check {
+      background: linear-gradient(135deg, #f5a623 0%, #e07c1a 100%);
+      color: #fff;
+      border-color: #c96a10;
+      box-shadow: 0 0 0 2.5px rgba(224, 124, 26, 0.25), 0 0 12px rgba(224, 124, 26, 0.28);
+    }
+    .zip-panel-clear-btn {
+      white-space: nowrap;
+      flex-shrink: 0;
+      padding: 6px 10px;
+      font-size: 12px;
+    }
+    .zip-panel-search-row.zip-active .zip-panel-clear-btn {
+      border-color: rgba(224, 124, 26, 0.5);
+      color: #c96a10;
+    }
+    .zip-panel-search-row.zip-active .zip-panel-clear-btn:hover {
+      background: rgba(224, 124, 26, 0.10);
+      border-color: #e07c1a;
+    }
+    .radius-coverage-shell {
+      border-left: 3px solid #2463eb;
+      padding-left: 8px;
+      margin-top: 6px;
+    }
+    .completed-service-shell {
+      border-left: 3px solid #7c3aed;
+      padding-left: 8px;
+      margin-top: 6px;
+    }
+
+    /* ── Radius clinician-centric cards ── */
+    .radius-clinician-card {
+      background: #fff;
+      border: 1px solid #d2dcee;
+      border-radius: 10px;
+      padding: 9px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      transition: border-color 0.15s ease, transform 0.12s ease;
+      min-width: 0;
+    }
+    .radius-clinician-card:hover {
+      border-color: #7a9ec0;
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(12,22,50,0.07);
+    }
+    .radius-clinician-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
+    .radius-clinician-badge {
+      font-size: 10px;
+      font-weight: 800;
+      color: #fff;
+      border-radius: 5px;
+      padding: 2px 6px;
+      flex-shrink: 0;
+      letter-spacing: 0.04em;
+    }
+    .radius-clinician-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #154880;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      text-decoration: underline;
+      text-decoration-thickness: 1px;
+      text-underline-offset: 2px;
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: left;
+    }
+    .radius-clinician-name:hover { color: #0f3568; }
+    .radius-clinician-name-nolink {
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .radius-clinician-stars {
+      font-size: 11.5px;
+      color: #c18b18;
+      flex-shrink: 0;
+      letter-spacing: 1px;
+    }
+    .radius-clinician-dist {
+      font-size: 11px;
+      font-weight: 700;
+      color: #526480;
+      background: #f0f4fa;
+      border-radius: 6px;
+      padding: 2px 7px;
+      flex-shrink: 0;
+    }
+    .radius-clinician-addr {
+      font-size: 11px;
+      color: #526480;
+      border: 0;
+      background: transparent;
+      padding: 0;
+      cursor: pointer;
+      text-align: left;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 100%;
+      display: block;
+    }
+    .radius-clinician-addr:hover { color: #1e4d8c; text-decoration: underline; }
 
     .radius-coverage-summary {
       display: flex;
@@ -619,53 +1198,144 @@
     .zip-coverage-results {
       display: grid;
       gap: 8px;
+      max-height: 340px;
+      overflow-y: auto;
+      padding-right: 4px;
     }
+    .zip-coverage-results::-webkit-scrollbar { width: 5px; }
+    .zip-coverage-results::-webkit-scrollbar-thumb { background: rgba(30, 77, 140, 0.2); border-radius: 4px; }
+    .zip-coverage-results::-webkit-scrollbar-thumb:hover { background: rgba(30, 77, 140, 0.35); }
 
-    .zip-coverage-result {
+    /* ── ZIP clinician-centric cards (matches radius style) ── */
+    .zip-clinician-card {
       width: 100%;
       border: 1px solid #d2dcee;
-      border-radius: 14px;
+      border-radius: 10px;
       background: #fff;
-      padding: 10px 12px;
-      display: grid;
-      gap: 8px;
+      padding: 9px 11px;
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
       text-align: left;
-      transition: border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
     }
-
-    .zip-coverage-result:hover,
-    .zip-coverage-result:focus-visible {
-      border-color: #7a9ec0;
+    .zip-clinician-card:hover,
+    .zip-clinician-card:focus-visible {
+      border-color: #c4a93a;
       transform: translateY(-1px);
-      box-shadow: 0 10px 18px rgba(15, 35, 80, 0.08);
+      box-shadow: 0 4px 12px rgba(180, 140, 0, 0.10);
       outline: none;
     }
-
-    .zip-coverage-topline {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 10px;
+    .zip-clinician-proximity {
+      border-left: 3px solid #d4a843;
+      background: linear-gradient(135deg, #fffdf5 0%, #fff 100%);
     }
-
-    .zip-coverage-name {
-      min-width: 0;
+    .zip-clinician-name {
       font-size: 13px;
-      font-weight: 800;
+      font-weight: 700;
       color: var(--text);
-      line-height: 1.4;
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-
-    .zip-coverage-meta {
+    .zip-match-badge {
+      font-size: 10px;
+      font-weight: 800;
+      color: #7a5a00;
+      background: #fff3cc;
+      border: 1px solid #e8cc70;
+      border-radius: 6px;
+      padding: 2px 7px;
+      flex-shrink: 0;
+      letter-spacing: 0.02em;
+    }
+    .zip-clinician-meta {
       display: flex;
       flex-wrap: wrap;
-      gap: 6px;
+      align-items: center;
+      gap: 4px;
+    }
+    .zip-clinician-detail {
+      font-size: 11px;
+      color: var(--muted);
+      width: 100%;
     }
 
-    .zip-coverage-detail {
-      font-size: 12px;
-      color: var(--muted);
-      line-height: 1.45;
+    /* keep old class for any legacy references */
+    .zip-coverage-result { display: none; }
+    .zip-coverage-proximity { border-left: 3px solid #d4a843; }
+
+    .zip-coverage-radius-controls {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      border-radius: 10px;
+      margin-top: 6px;
+      border: 1.5px solid rgba(212, 168, 67, 0.38);
+      background: rgba(212, 168, 67, 0.04);
+      box-shadow: 0 0 0 2px rgba(212, 168, 67, 0.12), 0 0 12px rgba(212, 168, 67, 0.14);
+      transition: border-color 0.25s, box-shadow 0.25s;
+    }
+    .zip-coverage-radius-readout {
+      flex: 1;
+      min-width: 56px;
+      text-align: center;
+      font-size: 13px;
+      font-weight: 800;
+      color: #8a6d1b;
+      background: rgba(212, 168, 67, 0.10);
+      border-radius: 7px;
+      padding: 4px 10px;
+    }
+    .zip-coverage-radius-controls .radius-step-button {
+      border-color: rgba(212, 168, 67, 0.55);
+      color: #8a6d1b;
+      min-width: 34px;
+      padding: 6px 0;
+      font-size: 18px;
+    }
+    .zip-coverage-radius-controls .radius-step-button:hover {
+      border-color: #d4a843;
+      background: rgba(212, 168, 67, 0.12);
+    }
+    .zip-coverage-radius-label {
+      font-size: 10px;
+      font-weight: 700;
+      color: #c18b18;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
+      text-transform: uppercase;
+    }
+
+    /* ── ZIP revolving ring text ── */
+    #zip-text-overlay {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      overflow: visible;
+      z-index: 3;
+    }
+    .zip-revolving-text {
+      font-size: 10.5px;
+      font-weight: 700;
+      fill: rgba(212, 168, 67, 0.5);
+      letter-spacing: 3.5px;
+      font-family: inherit;
+    }
+
+    .zip-coverage-center-pin {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #d4a843;
+      border: 2.5px solid #fff;
+      box-shadow: 0 0 6px rgba(212, 168, 67, 0.5);
     }
 
     .list-panel {
@@ -902,7 +1572,7 @@
       height: 8px;
       border-radius: 999px;
       overflow: hidden;
-      background: rgba(159, 182, 169, 0.26);
+      background: rgba(140, 170, 210, 0.26);
     }
 
     .completed-service-load-progress-fill {
@@ -1142,7 +1812,7 @@
 
     .top-toolbar {
       position: relative;
-      z-index: 20;           /* above floating-status-panel (z-index:2) so dropdown wins */
+      z-index: 20;
       display: block;
       padding: 10px 16px;
       background:
@@ -1150,7 +1820,6 @@
       border-bottom: 1px solid rgba(190, 210, 235, 0.92);
       box-shadow: 0 12px 30px rgba(12, 22, 50, 0.06);
       backdrop-filter: blur(12px);
-      z-index: 2;
     }
 
     .map-stage {
@@ -1216,36 +1885,97 @@
       flex-shrink: 0;
     }
 
-    /* Dual-label system: .btn-short hidden by default, shown at tight breakpoints */
+    /* Hybrid icon + short label buttons */
+    .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      white-space: nowrap;
+    }
+    .btn-icon svg {
+      width: 15px;
+      height: 15px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    /* Legacy dual-label kept for any remaining uses */
     .btn-short { display: none; }
     .btn-full  { display: inline; }
+
+    /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
+    .toolbar-view-switch {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(190, 210, 235, 0.35);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .toolbar-view-switch button {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      line-height: 1;
+    }
+    .toolbar-view-switch button svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+    .toolbar-view-switch button:hover {
+      color: var(--text);
+      background: rgba(190, 210, 235, 0.3);
+    }
+    .toolbar-view-switch button.active {
+      background: #fff;
+      color: var(--accent);
+      box-shadow: 0 1px 3px rgba(12, 22, 50, 0.1);
+    }
 
     /* ── Tier 1 (≤1450px): reduce cell padding, tighten buttons ── */
     @media (max-width: 1450px) {
       .toolbar-cell { padding: 0 10px; gap: 6px; }
       .toolbar-cell:first-child { padding-left: 0; }
       .toolbar-pin-mode-button { min-width: 86px; padding: 8px 10px; }
-      .toolbar-radius-cell { gap: 5px; }
       .toolbar-select { min-width: 132px; max-width: 170px; }
     }
 
-    /* ── Tier 2 (≤1200px): swap to short labels, compress further ── */
+    /* ── Tier 2 (≤1200px): compress further ── */
     @media (max-width: 1200px) {
       .toolbar-cell { padding: 0 8px; gap: 5px; }
       .toolbar-cell:first-child { padding-left: 0; }
       .btn-full  { display: none; }
       .btn-short { display: inline; }
-      .toolbar-pin-mode-button { min-width: 64px; padding: 8px 8px; }
-      .toolbar-radius-presets .radius-btn { padding: 7px 7px; font-size: 10px; }
+      .toolbar-pin-mode-button { min-width: 54px; padding: 8px 8px; }
       .toolbar-select { min-width: 118px; max-width: 148px; }
       .toolbar-cell-grow { min-width: 100px; }
     }
 
-    /* ── Tier 3 (≤1000px): hide radius presets, allow search inputs to shrink ── */
+    /* ── Tier 3 (≤1000px): allow search inputs to shrink ── */
     @media (max-width: 1000px) {
       .toolbar-cell { padding: 0 6px; gap: 4px; }
       .toolbar-cell:first-child { padding-left: 0; }
-      .toolbar-radius-presets { display: none; }
       .toolbar-cell-grow { flex: 1 1 80px; min-width: 80px; }
       .toolbar-cell .toolbar-input { min-width: 80px; }
       .toolbar-pin-mode-button { min-width: 54px; padding: 7px 7px; font-size: 12px; }
@@ -1357,6 +2087,75 @@
       color: #3f5688;
     }
 
+    /* ── Toolbar status cluster ── */
+    .toolbar-stat-cluster {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      flex-shrink: 0;
+    }
+    .toolbar-stat-chip {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1px;
+      padding: 4px 9px;
+      border-radius: 8px;
+      border: 1px solid transparent;
+      min-width: 44px;
+      transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
+    }
+    .toolbar-stat-value {
+      font-size: 15px;
+      font-weight: 800;
+      color: rgba(82, 100, 128, 0.45);
+      line-height: 1;
+      transition: color 0.25s ease;
+    }
+    .toolbar-stat-label {
+      font-size: 9px;
+      font-weight: 700;
+      color: rgba(82, 100, 128, 0.45);
+      letter-spacing: 0.07em;
+      text-transform: uppercase;
+    }
+    .toolbar-stat-chip.active {
+      background: rgba(30, 77, 140, 0.07);
+      border-color: rgba(30, 77, 140, 0.18);
+      box-shadow: 0 0 10px rgba(30, 77, 140, 0.14);
+    }
+    .toolbar-stat-chip.active .toolbar-stat-value  { color: var(--accent); }
+    .toolbar-stat-chip.active .toolbar-stat-label  { color: var(--accent); opacity: 0.7; }
+    .toolbar-stat-chip.selected-active {
+      background: rgba(36, 99, 235, 0.10);
+      border-color: rgba(36, 99, 235, 0.28);
+      box-shadow: 0 0 14px rgba(36, 99, 235, 0.22);
+    }
+    .toolbar-stat-chip.selected-active .toolbar-stat-value { color: var(--pt); }
+    .toolbar-stat-chip.selected-active .toolbar-stat-label { color: var(--pt); opacity: 0.7; }
+
+    .toolbar-disc-pills {
+      display: flex;
+      gap: 3px;
+      align-items: center;
+    }
+    .toolbar-disc-pill {
+      font-size: 10px;
+      font-weight: 800;
+      color: rgba(82, 100, 128, 0.38);
+      background: rgba(200, 213, 232, 0.22);
+      border-radius: 5px;
+      padding: 3px 6px;
+      letter-spacing: 0.04em;
+      border: 1px solid transparent;
+      transition: color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+    }
+    .toolbar-disc-pill.active {
+      color: #fff;
+      background: var(--disc-color);
+      box-shadow: 0 0 9px var(--disc-color);
+    }
+
     .toolbar-inline-row {
       display: grid;
       grid-template-columns: minmax(0, 1fr) auto;
@@ -1367,38 +2166,6 @@
     .toolbar-input {
       min-width: 0;
       width: 100%;
-    }
-
-    .toolbar-radius-presets {
-      display: flex;
-      gap: 4px;
-      align-items: center;
-    }
-
-    .toolbar-radius-presets .radius-btn {
-      padding: 8px 10px;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.04em;
-      white-space: nowrap;
-    }
-
-    .toolbar-radius-cell .radius-step-button {
-      min-width: 34px;
-      padding: 8px 0;
-      font-size: 18px;
-    }
-
-    .toolbar-radius-cell .radius-readout {
-      min-height: 38px;
-      min-width: 50px;
-      font-size: 11px;
-      letter-spacing: 0.04em;
-      padding: 0 8px;
-    }
-
-    .toolbar-radius-cell .btn-secondary {
-      white-space: nowrap;
     }
 
     .toolbar-menu {
@@ -1487,7 +2254,11 @@
       flex: 1 1 auto;
       overflow-y: auto;
       overscroll-behavior: contain;
-      padding-right: 2px;
+      padding: 6px 8px 6px 6px;
+      border: 1.5px dashed rgba(36, 99, 235, 0.38);
+      border-radius: 10px;
+      box-shadow: 0 0 16px rgba(36, 99, 235, 0.10), inset 0 0 10px rgba(36, 99, 235, 0.04);
+      margin-top: 4px;
     }
 
     .floating-status-panel .zip-coverage-results {
@@ -1496,6 +2267,19 @@
       overflow-y: auto;
       overscroll-behavior: contain;
       padding-right: 2px;
+    }
+
+    .floating-status-panel .radius-coverage-title {
+      position: sticky;
+      top: 0;
+      background: #fff;
+      z-index: 3;
+      padding: 4px 0 6px;
+      margin: -6px -8px 6px -6px;
+      padding-left: 6px;
+      padding-right: 8px;
+      border-bottom: 1px solid rgba(36, 99, 235, 0.18);
+      box-shadow: 0 4px 10px rgba(255, 255, 255, 1);
     }
 
     .floating-status-panel .radius-coverage-list {
@@ -1784,53 +2568,52 @@
       padding-left: 2px;
     }
 
+    /* ── Import modal ── */
     .import-modal-backdrop {
       position: absolute;
       inset: 0;
       display: none;
       align-items: center;
       justify-content: center;
-      padding: 28px;
-      background: rgba(15, 24, 20, 0.42);
-      backdrop-filter: blur(4px);
+      padding: 24px;
+      background: rgba(10, 18, 42, 0.48);
+      backdrop-filter: blur(6px);
       z-index: 6;
     }
-
-    .import-modal-backdrop.open {
-      display: flex;
-    }
+    .import-modal-backdrop.open { display: flex; }
 
     .import-modal {
-      width: min(1180px, calc(100vw - 48px));
-      max-height: min(88vh, 900px);
+      width: min(1040px, calc(100vw - 48px));
+      max-height: min(88vh, 880px);
       display: grid;
       grid-template-rows: auto 1fr auto;
-      background: rgba(247, 250, 255, 0.98);
-      border: 1px solid rgba(190, 210, 235, 0.98);
-      border-radius: 24px;
-      box-shadow: 0 28px 70px rgba(10, 18, 42, 0.26);
+      background: #f4f7fc;
+      border: 1px solid rgba(190, 210, 235, 0.9);
+      border-radius: 22px;
+      box-shadow: 0 32px 80px rgba(10, 18, 42, 0.32), 0 2px 0 rgba(255,255,255,0.6) inset;
       overflow: hidden;
     }
 
     .import-modal-header {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      gap: 14px;
-      align-items: start;
-      padding: 18px 22px 16px;
-      border-bottom: 1px solid #c8d5e8;
-      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 20px 24px 18px;
+      border-bottom: 1px solid #d0ddf0;
+      background: linear-gradient(180deg, #fff 0%, #f4f7fc 100%);
     }
-
+    .import-modal-header-copy { min-width: 0; }
     .import-modal-header h2 {
       margin: 0;
-      font-size: 20px;
-      line-height: 1.2;
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--text);
+      letter-spacing: -0.01em;
     }
-
     .import-modal-header p {
-      margin: 8px 0 0;
-      font-size: 13px;
+      margin: 4px 0 0;
+      font-size: 12.5px;
       color: var(--muted);
       line-height: 1.5;
     }
@@ -1838,16 +2621,17 @@
     .import-modal-body {
       min-height: 0;
       overflow: auto;
-      padding: 20px 22px 22px;
+      padding: 20px 24px 22px;
       display: grid;
-      gap: 20px;
+      gap: 16px;
       align-content: start;
+      scrollbar-width: thin;
     }
 
     .import-grid {
       display: grid;
-      grid-template-columns: minmax(390px, 430px) minmax(0, 1fr);
-      gap: 20px;
+      grid-template-columns: minmax(0, 310px) minmax(0, 1fr);
+      gap: 16px;
       align-items: start;
     }
 
@@ -1855,52 +2639,35 @@
       display: grid;
       gap: 14px;
       padding: 18px;
-      border-radius: 20px;
-      background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
-      border: 1px solid #c8d5e8;
+      border-radius: 16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.95) 0%, rgba(244,249,255,0.92) 100%);
+      border: 1px solid rgba(190,210,235,0.9);
+      box-shadow: 0 10px 28px rgba(10,18,42,0.06), inset 0 1px 0 rgba(255,255,255,0.7);
     }
-
-    .import-setup-card {
-      align-content: start;
-      gap: 16px;
-    }
-
-    .import-workspace-card {
-      align-content: start;
-      min-height: 100%;
-    }
-
-    .import-preview-card {
-      gap: 12px;
-    }
-
     .import-card h3 {
       margin: 0;
-      font-size: 14px;
-      line-height: 1.25;
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
     }
-
     .import-card p {
       margin: 0;
-      font-size: 13px;
+      font-size: 12.5px;
       color: var(--muted);
-      line-height: 1.5;
+      line-height: 1.55;
     }
 
-    .import-file-meta {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-
+    .import-file-meta { display: flex; flex-wrap: wrap; gap: 6px; }
     .import-meta-chip {
       display: inline-flex;
       align-items: center;
-      padding: 5px 10px;
+      padding: 4px 10px;
       border-radius: 999px;
       background: #fff;
       border: 1px solid #c8d5e8;
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--muted);
       font-weight: 700;
     }
@@ -1908,128 +2675,65 @@
     .import-mapping-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-      min-height: 220px;
-      align-content: start;
+      gap: 10px;
     }
-
-    .import-mapping-grid.empty {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 22px;
-      border-radius: 16px;
-      border: 1px dashed #c8d5e8;
-      background: rgba(255, 255, 255, 0.76);
-      min-height: 220px;
-    }
-
-    .import-empty-state {
-      display: grid;
-      gap: 8px;
-      max-width: 420px;
-      text-align: left;
-      color: var(--muted);
-    }
-
-    .import-empty-state strong {
-      color: var(--text);
-      font-size: 16px;
-      line-height: 1.2;
-    }
-
-    .import-empty-state span {
-      font-size: 14px;
-      line-height: 1.55;
-    }
-
-    .import-mapping-field {
-      display: grid;
-      gap: 6px;
-    }
-
-    #import-file-input {
-      padding: 10px 12px;
-      background: linear-gradient(180deg, #ffffff 0%, #f6f9fe 100%);
-    }
-
-    #import-file-input::file-selector-button {
-      margin-right: 12px;
-      padding: 10px 14px;
-      border: 1px solid #c0d0e5;
-      border-radius: 10px;
-      background: #fff;
-      color: var(--text);
-      font-weight: 700;
-      cursor: pointer;
-      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
-    }
-
-    #import-file-input::file-selector-button:hover,
-    #import-file-input::file-selector-button:focus-visible {
-      border-color: #7a9ec0;
-      box-shadow: 0 0 0 3px rgba(15, 35, 80, 0.08);
-      transform: translateY(-1px);
-      outline: none;
-    }
+    .import-mapping-field { display: grid; gap: 5px; }
 
     .import-preview-shell {
       overflow: auto;
-      border-radius: 16px;
-      border: 1px solid #c8d5e8;
+      border-radius: 12px;
+      border: 1px solid #d0ddf0;
       background: #fff;
-      min-height: 260px;
+      box-shadow: inset 0 1px 3px rgba(10,18,42,0.04);
     }
-
     .import-preview-table {
       width: 100%;
       border-collapse: collapse;
       min-width: 780px;
     }
-
     .import-preview-table th,
     .import-preview-table td {
-      padding: 10px 12px;
-      border-bottom: 1px solid #dfe7f3;
+      padding: 9px 12px;
+      border-bottom: 1px solid #e8eef8;
       text-align: left;
       vertical-align: top;
       font-size: 12px;
       line-height: 1.45;
     }
-
     .import-preview-table th {
       position: sticky;
       top: 0;
-      background: #f3f7fd;
+      background: #f0f4fb;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 10.5px;
+      font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.07em;
       z-index: 1;
+      border-bottom: 1px solid #d0ddf0;
     }
+    .import-preview-table tr:last-child td { border-bottom: none; }
 
     .import-status {
-      padding: 12px 14px;
-      border-radius: 14px;
+      padding: 11px 14px;
+      border-radius: 12px;
       border: 1px solid #d2def0;
-      background: linear-gradient(180deg, #f5f8fd 0%, #e9f0f8 100%);
+      background: #f0f4fb;
       color: var(--muted);
-      font-size: 13px;
-      line-height: 1.5;
+      font-size: 12.5px;
+      line-height: 1.55;
       white-space: normal;
       overflow-wrap: anywhere;
       user-select: text;
     }
-
     .import-status.error {
-      background: linear-gradient(180deg, #fff5f3 0%, #fde8e3 100%);
+      background: #fff5f3;
       border-color: #f0b7ab;
       color: #8a3527;
     }
-
     .import-status.success {
-      background: linear-gradient(180deg, #e8f2fb 0%, #d8e8f8 100%);
-      border-color: #9fbbda;
+      background: #eaf6f0;
+      border-color: #88c9a8;
       color: #155e39;
     }
 
@@ -2038,15 +2742,15 @@
       justify-content: space-between;
       align-items: center;
       gap: 12px;
-      padding: 16px 22px 18px;
-      border-top: 1px solid #c8d5e8;
-      background: rgba(248, 250, 255, 0.96);
+      padding: 14px 24px 16px;
+      border-top: 1px solid #d0ddf0;
+      background: linear-gradient(180deg, #f4f7fc 0%, #edf1f8 100%);
     }
-
     .import-footer-copy {
       font-size: 12px;
       color: var(--muted);
       line-height: 1.45;
+      font-style: italic;
     }
 
     .profile-panel.resizing {
@@ -2356,7 +3060,61 @@
       font-size: 12px;
       font-weight: 700;
       text-align: center;
+      padding: 0;
+      position: relative;
+      overflow: hidden;
+      cursor: pointer;
+    }
+    .profile-photo-shell .photo-placeholder {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      width: 100%;
+      height: 100%;
       padding: 10px;
+    }
+    .profile-photo-shell .photo-placeholder svg {
+      width: 28px;
+      height: 28px;
+      stroke: var(--muted);
+      fill: none;
+      stroke-width: 1.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      opacity: 0.6;
+    }
+    .profile-photo-shell .photo-placeholder span {
+      font-size: 10px;
+      opacity: 0.8;
+    }
+    .profile-photo-shell img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .profile-photo-shell:hover::after {
+      content: "Change";
+      position: absolute;
+      inset: 0;
+      background: rgba(12, 22, 50, 0.55);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+    }
+    .profile-photo-shell input[type="file"] {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+      z-index: 1;
     }
 
     .profile-rating {
@@ -2778,6 +3536,55 @@
       resize: vertical;
     }
 
+    .referral-zips-display {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+      min-height: 28px;
+      align-items: center;
+    }
+    .referral-zip-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 8px;
+      border-radius: 6px;
+      background: rgba(30, 77, 140, 0.08);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .referral-zip-chip .zip-count {
+      font-weight: 400;
+      opacity: 0.7;
+    }
+
+    .preferred-zips-stale-warning {
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: #fff3cd;
+      border: 1px solid #e6c547;
+      color: #7a5d00;
+      font-size: 11px;
+      font-weight: 600;
+      line-height: 1.4;
+      margin-top: 6px;
+    }
+    .preferred-zips-stale-warning svg {
+      flex-shrink: 0;
+      margin-top: 1px;
+      color: #b8860b;
+    }
+    .preferred-zips-stale-warning[hidden] {
+      display: none;
+    }
+
     .work-center-shell {
       display: grid;
       gap: 10px;
@@ -3021,18 +3828,59 @@
       position: absolute;
       right: 18px;
       bottom: 18px;
-      padding: 7px 11px;
-      background: rgba(247, 251, 249, 0.92);
+      padding: 4px 6px 4px 8px;
+      background: rgba(247, 251, 249, 0.94);
       border: 1px solid rgba(196, 214, 207, 0.9);
       border-radius: 999px;
       color: #364b72;
       font-size: 11px;
       font-weight: 800;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       z-index: 1;
-      pointer-events: none;
+      pointer-events: all;
       box-shadow: 0 10px 22px rgba(12, 22, 50, 0.08);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      user-select: none;
+    }
+    .zoom-nudge {
+      background: none;
+      border: 1px solid rgba(54, 75, 114, 0.22);
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      font-size: 15px;
+      line-height: 1;
+      color: #364b72;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      transition: background 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .zoom-nudge:hover {
+      background: rgba(36, 99, 235, 0.08);
+      border-color: #2463eb;
+      color: #2463eb;
+    }
+    .zoom-label {
+      font-size: 11px;
+      font-weight: 800;
+      color: #2463eb;
+      min-width: 32px;
+      text-align: center;
+      letter-spacing: 0.04em;
+    }
+    .zoom-rev {
+      font-size: 10px;
+      font-weight: 700;
+      color: #8aa0be;
+      letter-spacing: 0.08em;
+      padding-left: 2px;
     }
 
     .mapboxgl-popup-content {
@@ -3488,6 +4336,118 @@
   </style>
 </head>
 <body>
+
+  <!-- ── Login overlay (hidden once authenticated) ── -->
+  <div class="auth-overlay" id="auth-overlay">
+    <div class="auth-card">
+
+      <!-- Logo -->
+      <div class="auth-logo">
+        <div class="auth-logo-mark">
+          <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        </div>
+        <div class="auth-logo-text">
+          <span class="auth-logo-name">DependableCare</span>
+          <span class="auth-logo-sub">Staffing Dashboard</span>
+        </div>
+      </div>
+
+      <!-- Tab switcher -->
+      <div class="auth-tabs" id="auth-tabs">
+        <button type="button" class="auth-tab active" id="tab-signin" onclick="authShowTab('signin')">Sign In</button>
+        <button type="button" class="auth-tab" id="tab-signup" onclick="authShowTab('signup')">Sign Up</button>
+      </div>
+
+      <!-- Sign In form -->
+      <div id="auth-panel-signin">
+        <p class="auth-subtitle">Welcome back. Enter your credentials to continue.</p>
+        <form id="auth-signin-form" autocomplete="on" method="post" action="#" onsubmit="authSignIn(event); return false;">
+          <div class="auth-field">
+            <label for="auth-email">Email</label>
+            <input id="auth-email" type="email" name="email" placeholder="you@dependablecare.com" autocomplete="email" required>
+          </div>
+          <div class="auth-field">
+            <label for="auth-password">Password</label>
+            <input id="auth-password" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="auth-submit" id="auth-signin-btn">Sign in</button>
+          <div class="auth-error" id="auth-signin-error"></div>
+        </form>
+        <button type="button" class="auth-forgot-link" id="auth-forgot-btn" onclick="authShowForgot()">Forgot password?</button>
+      </div>
+
+      <!-- Sign Up form -->
+      <div id="auth-panel-signup" style="display:none">
+        <p class="auth-subtitle">Create your account. You'll have read-only access until an admin upgrades you.</p>
+        <form id="auth-signup-form" autocomplete="on" method="post" action="#" onsubmit="authSignUp(event); return false;">
+          <div class="auth-field">
+            <label for="auth-signup-name">Full Name</label>
+            <input id="auth-signup-name" type="text" placeholder="Jane Smith" autocomplete="name" required>
+          </div>
+          <div class="auth-field">
+            <label for="auth-signup-email">Email</label>
+            <input id="auth-signup-email" type="email" placeholder="you@dependablecare.com" autocomplete="email" required>
+          </div>
+          <div class="auth-field">
+            <label for="auth-signup-password">Password</label>
+            <input id="auth-signup-password" type="password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8">
+          </div>
+          <button type="submit" class="auth-submit" id="auth-signup-btn">Create account</button>
+          <div class="auth-error" id="auth-signup-error"></div>
+          <div class="auth-success" id="auth-signup-success" style="display:none"></div>
+        </form>
+      </div>
+
+      <!-- Forgot password form -->
+      <div id="auth-panel-forgot" style="display:none">
+        <p class="auth-subtitle">Enter your email and we'll send a password reset link.</p>
+        <form id="auth-forgot-form" autocomplete="on" onsubmit="authForgot(event)">
+          <div class="auth-field">
+            <label for="auth-forgot-email">Email</label>
+            <input id="auth-forgot-email" type="email" placeholder="you@dependablecare.com" autocomplete="email" required>
+          </div>
+          <button type="submit" class="auth-submit" id="auth-forgot-btn-submit">Send reset link</button>
+          <div class="auth-error" id="auth-forgot-error"></div>
+          <div class="auth-success" id="auth-forgot-success" style="display:none"></div>
+        </form>
+        <button type="button" class="auth-forgot-link" onclick="authShowTab('signin'">← Back to sign in</button>
+      </div>
+
+      <!-- Set new password (after invite/reset link) -->
+      <div id="auth-panel-setpassword" style="display:none">
+        <p class="auth-subtitle">Choose a new password for your account.</p>
+        <form id="auth-setpassword-form" onsubmit="authSetPassword(event)">
+          <div class="auth-field">
+            <label for="auth-new-password">New Password</label>
+            <input id="auth-new-password" type="password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8">
+          </div>
+          <div class="auth-field">
+            <label for="auth-new-password2">Confirm Password</label>
+            <input id="auth-new-password2" type="password" placeholder="Same password again" autocomplete="new-password" required minlength="8">
+          </div>
+          <button type="submit" class="auth-submit" id="auth-setpassword-btn">Set password &amp; sign in</button>
+          <div class="auth-error" id="auth-setpassword-error"></div>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ── User Management Modal (admin only) ── -->
+  <div id="toast-container"></div>
+
+  <div class="um-overlay hidden" id="um-overlay" onclick="umClose(event)">
+    <div class="um-modal" onclick="event.stopPropagation()">
+      <div class="um-header">
+        <h2>👥 Manage Users</h2>
+        <button class="um-close" onclick="umClose()" title="Close">✕</button>
+      </div>
+      <div class="um-body">
+        <div id="um-content"><div class="um-loading">Loading users…</div></div>
+      </div>
+    </div>
+  </div>
+
   <div class="app-shell" id="app-shell">
 
     <aside class="sidebar" id="sidebar">
@@ -3545,6 +4505,17 @@
               </div>
 
               <div class="field">
+                <label>Minimum Rating</label>
+                <div class="filter-chip-grid rating-filter-grid" role="group" aria-label="Minimum rating filter">
+                  <button type="button" class="filter-chip-toggle rating-chip" data-rating-min="1" aria-pressed="false">★</button>
+                  <button type="button" class="filter-chip-toggle rating-chip" data-rating-min="2" aria-pressed="false">★★</button>
+                  <button type="button" class="filter-chip-toggle rating-chip" data-rating-min="3" aria-pressed="false">★★★</button>
+                  <button type="button" class="filter-chip-toggle rating-chip" data-rating-min="4" aria-pressed="false">★★★★</button>
+                  <button type="button" class="filter-chip-toggle rating-chip" data-rating-min="5" aria-pressed="false">★★★★★</button>
+                </div>
+              </div>
+
+              <div class="field">
                 <label>Languages</label>
                 <div id="language-filter-grid" class="filter-chip-grid" role="group" aria-label="Language filter toggles"></div>
               </div>
@@ -3581,33 +4552,6 @@
         </section>
 
         <section class="controls">
-          <details class="control-section agency-directory-panel">
-            <summary>Home Health Agencies</summary>
-            <div class="section-body">
-              <div class="field">
-                <label for="agency-search">Agency Search</label>
-                <input id="agency-search" type="text" placeholder="Search home health agency">
-              </div>
-              <div class="toggle-row compact">
-                <div class="toggle-copy">
-                  <div class="toggle-title">Show all HH on map</div>
-                  <div class="toggle-caption">Home health locations stay off the map until you explicitly turn them on.</div>
-                </div>
-                <label class="switch">
-                  <input id="show-all-agencies-toggle" type="checkbox">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-              <div class="agency-directory-meta">
-                <span id="agency-list-summary" class="helper-text">0 loaded</span>
-                <span class="helper-text">Separate HH directory</span>
-              </div>
-              <div class="agency-directory-list">
-                <ul id="agency-list"></ul>
-              </div>
-            </div>
-          </details>
-
           <details class="control-section completed-service-directory-panel">
             <summary>Completed Services</summary>
             <div class="section-body">
@@ -3653,6 +4597,33 @@
               </div>
             </div>
           </details>
+
+          <details class="control-section agency-directory-panel">
+            <summary>Home Health Agencies</summary>
+            <div class="section-body">
+              <div class="field">
+                <label for="agency-search">Agency Search</label>
+                <input id="agency-search" type="text" placeholder="Search home health agency">
+              </div>
+              <div class="toggle-row compact">
+                <div class="toggle-copy">
+                  <div class="toggle-title">Show all HH on map</div>
+                  <div class="toggle-caption">Home health locations stay off the map until you explicitly turn them on.</div>
+                </div>
+                <label class="switch">
+                  <input id="show-all-agencies-toggle" type="checkbox">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div class="agency-directory-meta">
+                <span id="agency-list-summary" class="helper-text">0 loaded</span>
+                <span class="helper-text">Separate HH directory</span>
+              </div>
+              <div class="agency-directory-list">
+                <ul id="agency-list"></ul>
+              </div>
+            </div>
+          </details>
         </section>
       </div>
       <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-label="Resize dashboard sidebar" aria-orientation="vertical" tabindex="0"></div>
@@ -3662,6 +4633,16 @@
 
       <div class="top-toolbar">
         <div class="toolbar-row">
+
+          <!-- ── Cell 0: View Switch ── -->
+          <div class="toolbar-cell" style="padding-left:0">
+            <div class="toolbar-view-switch" role="group" aria-label="Sidebar view switch">
+              <button id="view-switch-clinicians" type="button" class="active" title="Open Clinician List in sidebar"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Clinicians</button>
+              <button id="view-switch-services" type="button" title="Open Completed Services in sidebar"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Services</button>
+            </div>
+          </div>
+
+          <div class="toolbar-sep"></div>
 
           <!-- ── Cell 1: Find Clinician ── -->
           <div id="clinician-search-shell" class="toolbar-cell toolbar-cell-grow" style="position:relative">
@@ -3679,36 +4660,11 @@
 
           <div class="toolbar-sep"></div>
 
-          <!-- ── Cell 3: ZIP Coverage Check ── -->
-          <div class="toolbar-cell toolbar-cell-grow">
-            <input id="zip-coverage-search" class="toolbar-input" type="text" placeholder="Patient ZIP" aria-label="Enter patient ZIP">
-            <button id="run-zip-coverage-check" class="btn-secondary" type="button">Check</button>
-          </div>
-
-          <div class="toolbar-sep"></div>
-
-          <!-- ── Cell 4: Radius Selection ── -->
-          <div class="toolbar-cell toolbar-radius-cell" aria-label="Radius selection tools">
-            <button id="radius-mode-toggle" class="btn-secondary" type="button"><span class="btn-full">Radius Mode</span><span class="btn-short">Radius</span></button>
-            <button id="clear-selection" class="btn-secondary" type="button">Clear</button>
-            <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">−</button>
-            <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
-            <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
-            <div class="toolbar-radius-presets">
-              <button type="button" class="btn-secondary radius-btn active" data-radius="1">1 mi</button>
-              <button type="button" class="btn-secondary radius-btn" data-radius="2">2 mi</button>
-              <button type="button" class="btn-secondary radius-btn" data-radius="5">5 mi</button>
-              <button type="button" class="btn-secondary radius-btn" data-radius="10">10 mi</button>
-            </div>
-          </div>
-
-          <div class="toolbar-sep"></div>
-
           <!-- ── Cell 5: Clinician Pin Mode ── -->
           <div class="toolbar-cell">
             <div class="toolbar-pin-mode-toggle" role="group" aria-label="Clinician pin display mode">
-              <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true"><span class="btn-full">Work Center</span><span class="btn-short">Work</span></button>
-              <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false"><span class="btn-full">Home Pin</span><span class="btn-short">Home</span></button>
+              <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true" title="Show clinician work center locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="4"/></svg>Work</span></button>
+              <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false" title="Show clinician home locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Home</span></button>
             </div>
           </div>
 
@@ -3716,8 +4672,8 @@
 
           <!-- ── Cell 6: Map Utilities ── -->
           <div class="toolbar-cell">
-            <button id="zoom-extents" class="btn-secondary" type="button"><span class="btn-full">Zoom Extents</span><span class="btn-short">Zoom</span></button>
-            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button"><span class="btn-full">TherapyBoss</span><span class="btn-short">TB</span></button>
+            <button id="zoom-extents" class="btn-secondary" type="button" title="Zoom to fit all visible clinicians"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>Fit</span></button>
+            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button" title="Toggle TherapyBoss integration panel"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>TB</span></button>
             <select id="style-selector" class="toolbar-select" aria-label="Map style">
               <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
               <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
@@ -3726,14 +4682,53 @@
               <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
             </select>
             <div class="toolbar-menu" id="toolbar-menu">
-              <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
+              <button id="tools-menu-button" class="btn-secondary menu-button" type="button" title="Additional map tools"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>Tools</span></button>
               <div class="menu-panel">
-                <button id="toolbar-add-clinician" class="menu-item" type="button">Add Clinician</button>
+                <button id="toolbar-add-clinician" class="menu-item edit-only" type="button">Add Clinician</button>
                 <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
-                <button id="toolbar-bulk-import" class="menu-item" type="button">Bulk Import</button>
+                <button id="toolbar-bulk-import" class="menu-item edit-only" type="button">Bulk Import</button>
                 <button id="toolbar-clear-map-search" class="menu-item" type="button">Clear Search Pin</button>
               </div>
             </div>
+          </div>
+
+          <!-- hidden ZIP inputs — still wired to JS, just not shown in toolbar -->
+          <input id="zip-coverage-search" type="text" aria-hidden="true" tabindex="-1" style="display:none">
+          <button id="run-zip-coverage-check" type="button" style="display:none" tabindex="-1"></button>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Status cluster ── -->
+          <div class="toolbar-cell toolbar-stat-cluster">
+            <div class="toolbar-stat-chip" id="toolbar-visible-chip">
+              <span class="toolbar-stat-value" id="visible-count">0</span>
+              <span class="toolbar-stat-label">Visible</span>
+            </div>
+            <div class="toolbar-stat-chip" id="toolbar-selected-chip">
+              <span class="toolbar-stat-value" id="selected-count">0</span>
+              <span class="toolbar-stat-label">Selected</span>
+            </div>
+            <div class="toolbar-disc-pills">
+              <span class="toolbar-disc-pill" data-toolbar-disc="PT"  style="--disc-color:#2463eb">PT</span>
+              <span class="toolbar-disc-pill" data-toolbar-disc="PTA" style="--disc-color:#1e9b58">PTA</span>
+              <span class="toolbar-disc-pill" data-toolbar-disc="OT"  style="--disc-color:#7c3aed">OT</span>
+              <span class="toolbar-disc-pill" data-toolbar-disc="OTA" style="--disc-color:#ef7d23">OTA</span>
+            </div>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── User chip + logout ── -->
+          <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
+            <button type="button" class="um-manage-btn edit-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
+            <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
+              <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
+              <div style="display:flex;flex-direction:column;line-height:1.2">
+                <span id="toolbar-user-email" style="font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                <span class="toolbar-user-role" id="toolbar-user-role">loading…</span>
+              </div>
+            </div>
+            <button type="button" class="toolbar-logout-btn" id="toolbar-logout" style="display:none;">Sign out</button>
           </div>
 
         </div>
@@ -3741,33 +4736,40 @@
 
       <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 112</div>
+        <div class="version-indicator" id="version-indicator">
+          <button class="zoom-nudge" id="zoom-out" title="Zoom out (Ctrl + scroll)">−</button>
+          <span class="zoom-label" id="zoom-label">100%</span>
+          <button class="zoom-nudge" id="zoom-in" title="Zoom in (Ctrl + scroll)">+</button>
+          <span class="zoom-rev">Rev 120</span>
+        </div>
       <div class="floating-status-panel">
-        <div class="toolbar-tool-label">Status</div>
+        <div class="toolbar-tool-label">Coverage</div>
         <div class="status-card">
-          <div class="status-grid">
-            <div class="stat">
-              <div class="stat-label">Visible</div>
-              <div class="stat-value" id="visible-count">0</div>
-            </div>
-            <div class="stat">
-              <div class="stat-label">Selected</div>
-              <div class="stat-value" id="selected-count">0</div>
-            </div>
-          </div>
-
-          <div class="legend">
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--pt);"></span>PT</span>
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--pta);"></span>PTA</span>
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--ot);"></span>OT</span>
-            <span class="legend-item"><span class="legend-swatch" style="background: var(--ota);"></span>OTA</span>
-          </div>
-
           <div class="helper-text" id="selection-message">Load clinicians to begin.</div>
           <div class="zip-coverage-shell">
-            <div class="radius-coverage-title">ZIP Coverage Results</div>
-            <div id="zip-coverage-note" class="radius-coverage-note">Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage against the current clinician filters and loaded completed-service history.</div>
+            <div class="radius-coverage-title"><span class="section-icon">🗂</span> ZIP Coverage Results</div>
+            <div class="zip-panel-search-row">
+              <input id="zip-panel-search" class="toolbar-input" type="text" placeholder="Enter ZIP" maxlength="10" aria-label="Enter patient ZIP">
+              <button id="run-zip-panel-check" class="btn-secondary" type="button">Check</button>
+              <button id="clear-zip-panel-check" class="btn-secondary zip-panel-clear-btn" type="button" title="Clear ZIP coverage" style="display:none"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Clear</span></button>
+            </div>
+            <div id="zip-coverage-note" class="radius-coverage-note" style="display:none"></div>
+            <div id="zip-coverage-radius-controls" class="zip-coverage-radius-controls" hidden>
+              <button id="zip-coverage-radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink proximity radius">−</button>
+              <div id="zip-coverage-radius-readout" class="radius-readout zip-coverage-radius-readout">5 mi</div>
+              <button id="zip-coverage-radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow proximity radius">+</button>
+              <span class="zip-coverage-radius-label">proximity radius</span>
+            </div>
             <div id="zip-coverage-results" class="zip-coverage-results"></div>
+          </div>
+          <div id="zip-coverage-resize-handle" class="zip-coverage-resize-handle" role="separator" aria-label="Resize ZIP coverage results" tabindex="0"></div>
+          <!-- ── Radius step controls — live in panel, same IDs as before ── -->
+          <div id="radius-panel-controls" class="radius-panel-controls" hidden>
+            <button id="radius-mode-toggle" class="btn-secondary radius-panel-mode-btn" type="button" title="Toggle radius selection mode"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Radius</span></button>
+            <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">−</button>
+            <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
+            <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
+            <button id="clear-selection" class="btn-secondary radius-panel-clear-btn" type="button" title="Clear current selection"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Clear</span></button>
           </div>
           <div id="radius-coverage-shell" class="radius-coverage-shell" hidden></div>
         </div>
@@ -3816,28 +4818,29 @@
       <div id="import-modal-backdrop" class="import-modal-backdrop" aria-hidden="true">
         <div class="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
           <div class="import-modal-header">
-            <div>
+            <div class="import-modal-header-copy">
               <h2 id="import-modal-title">Data Import</h2>
-              <p>Upload a CSV or XLSX file, review the detected headers, map the fields you care about, preview the rows, and load them into Supabase.</p>
+              <p>Upload a CSV or XLSX file, review detected headers, map fields, preview rows, and load into Supabase.</p>
             </div>
             <button id="import-modal-close" type="button" class="btn-secondary">Close</button>
           </div>
           <div class="import-modal-body">
             <div class="import-grid">
-              <section class="import-card import-setup-card">
+              <section class="import-card">
                 <h3>File</h3>
                 <p>Choose the import lane first, then upload the matching CSV or XLSX file. Each import type keeps its own field map and upload path.</p>
-                <div class="field import-control-block">
+                <div class="field">
                   <label>Import Type</label>
-                  <div class="import-kind-row import-kind-grid" role="group" aria-label="Import type">
+                  <div class="import-kind-row" role="group" aria-label="Import type">
                     <button type="button" class="import-kind-button active" data-import-kind-button="clinician_master">Clinicians</button>
                     <button type="button" class="import-kind-button" data-import-kind-button="zip_coverage">ZIP Coverage</button>
                     <button type="button" class="import-kind-button" data-import-kind-button="home_health_agencies">HH Agencies</button>
                     <button type="button" class="import-kind-button" data-import-kind-button="completed_services">Completed Services</button>
+
                   </div>
                   <div id="import-kind-copy" class="toolbar-subtext">Upsert therapist roster data into clinician profiles and home pins.</div>
                 </div>
-                <div id="clinician-import-mode-shell" class="field import-control-block">
+                <div id="clinician-import-mode-shell" class="field">
                   <label>Clinician Import Mode</label>
                   <div class="import-kind-row import-submode-row" role="group" aria-label="Clinician import mode">
                     <button type="button" class="import-kind-button" data-clinician-import-mode="full_initial_load">Full Initial Load</button>
@@ -3849,7 +4852,7 @@
                     Full Initial Load can overwrite roster fields like name, discipline, home pin, phone, and email on matched clinicians. Use it only for the baseline roster load.
                   </div>
                 </div>
-                <div class="field import-control-block">
+                <div class="field">
                   <label for="import-file-input">Import File</label>
                   <input id="import-file-input" type="file" accept=".csv,text/csv,.txt,text/plain,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
                 </div>
@@ -3863,13 +4866,13 @@
                 <div id="import-file-meta" class="import-file-meta"></div>
                 <div id="import-status" class="import-status">Choose a CSV or XLSX file to begin.</div>
               </section>
-              <section class="import-card import-workspace-card">
+              <section class="import-card">
                 <h3>Field Mapping</h3>
                 <p>Header mapping is editable, so if TherapyBoss changes a column name you can still preview and stage the rows without touching code.</p>
                 <div id="import-mapping-grid" class="import-mapping-grid"></div>
               </section>
             </div>
-            <section class="import-card import-preview-card">
+            <section class="import-card">
               <h3>Preview</h3>
               <p>The preview shows the first staged rows after mapping, including clinician matches found from the current directory. Completed-services files also split semicolon-delimited clinician names into child assignment rows for upload.</p>
               <div id="import-preview-shell" class="import-preview-shell"></div>
@@ -3879,7 +4882,7 @@
             <div id="import-footer-copy" class="import-footer-copy">Clinician imports upsert into `clinician_v2`, preserving map-ready records while updating the roster profile data.</div>
             <div class="button-row">
               <button id="import-reset" type="button" class="btn-secondary">Reset</button>
-              <button id="import-upload" type="button" class="btn-primary" disabled>Upload to Supabase</button>
+              <button id="import-upload" type="button" class="btn-primary edit-only" disabled>Upload to Supabase</button>
             </div>
           </div>
         </div>
@@ -3911,7 +4914,14 @@
           </div>
           <div class="profile-panel-side">
             <button id="profile-close" type="button" class="btn-secondary profile-close">Close</button>
-            <div id="profile-photo-shell" class="profile-photo-shell">Photo if available</div>
+            <div id="profile-photo-shell" class="profile-photo-shell">
+              <input id="profile-photo-input" type="file" accept="image/*" title="Upload clinician photo">
+              <div class="photo-placeholder" id="profile-photo-placeholder">
+                <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4-4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                <span>Add Photo</span>
+              </div>
+              <img id="profile-photo-img" src="" alt="Clinician photo" style="display:none">
+            </div>
             <div class="profile-rating" aria-label="Internal clinician rating">
               <button type="button" class="rating-star" data-profile-rating-star="1" aria-label="1 star" aria-pressed="false">&#9733;</button>
               <button type="button" class="rating-star" data-profile-rating-star="2" aria-label="2 stars" aria-pressed="false">&#9733;</button>
@@ -3949,14 +4959,20 @@
                     <label for="profile-core-zip-input">ZIP</label>
                     <input id="profile-core-zip-input" type="text" placeholder="ZIP code">
                   </div>
-                  <div class="profile-field">
-                    <label for="profile-core-radius-input">Radius</label>
-                    <input id="profile-core-radius-input" type="text" placeholder="Optional radius">
-                  </div>
+                  <input id="profile-core-radius-input" type="hidden" value="">
                   <div class="profile-field full">
                     <label for="profile-core-preferred-zips-input">Preferred ZIPs</label>
                     <input id="profile-core-preferred-zips-input" type="text" placeholder="Optional preferred ZIP list">
                     <div class="helper-text">Maintain ZIP coverage in TherapyBoss first, then use the ZIP Coverage import here to sync this list.</div>
+                    <div id="preferred-zips-stale-warning" class="preferred-zips-stale-warning" hidden>
+                      <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                      Ignore History Before is set — these Preferred ZIPs may be outdated. Please update this clinician's ZIP coverage in TherapyBoss and re-import.
+                    </div>
+                  </div>
+                  <div class="profile-field full">
+                    <label>Referral History ZIPs</label>
+                    <div id="profile-referral-zips" class="referral-zips-display">No completed service history loaded yet.</div>
+                    <div class="helper-text">Auto-computed from completed service history. Respects the Ignore History Before date.</div>
                   </div>
                 </div>
                 <div class="helper-text">Address and ZIP will be geocoded when you create the clinician so the new marker lands on the map.</div>
@@ -4098,8 +5114,8 @@
                 <div id="profile-zip" class="profile-kv-value">Not set</div>
               </div>
               <div class="profile-kv">
-                <div class="profile-kv-label">Radius</div>
-                <div id="profile-radius" class="profile-kv-value">Not set</div>
+                <div class="profile-kv-label">Referral ZIPs</div>
+                <div id="profile-referral-zips-snapshot" class="profile-kv-value referral-zips-display">—</div>
               </div>
               <div class="profile-kv">
                 <div class="profile-kv-label">Address</div>
@@ -4134,7 +5150,7 @@
             </div>
             <div class="button-row">
               <button id="territory-draw-toggle" type="button" class="btn-secondary">Draw Territory</button>
-              <button id="territory-save-draft" type="button" class="btn-primary">Save Local Draft</button>
+              <button id="territory-save-draft" type="button" class="btn-primary edit-only">Save Local Draft</button>
             </div>
             <div class="button-row">
               <button id="territory-clear-draft" type="button" class="btn-secondary">Clear Draft</button>
@@ -4146,7 +5162,7 @@
           <section class="profile-card">
             <h3 class="profile-card-title">Quick Actions</h3>
             <div class="button-row">
-          <button id="profile-save-shell" type="button" class="btn-primary">Save Profile</button>
+          <button id="profile-save-shell" type="button" class="btn-primary edit-only">Save Profile</button>
               <button id="profile-open-history" type="button" class="btn-secondary" disabled>Show History</button>
             </div>
           </section>
@@ -4269,7 +5285,7 @@
           <section class="profile-card">
             <h3 class="profile-card-title">Quick Actions</h3>
             <div class="button-row">
-              <button id="agency-save-draft" type="button" class="btn-primary">Save Local Draft</button>
+              <button id="agency-save-draft" type="button" class="btn-primary edit-only">Save Local Draft</button>
               <button id="agency-center-on-map" type="button" class="btn-secondary">Center on Map</button>
             </div>
           </section>
@@ -4280,12 +5296,374 @@
   </div>
 
   <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-  <script src="./home-health-agencies.js"></script>
+
   <script>
+    // Synchronous session check — hides login overlay instantly if session exists in storage
+    // Prevents the login screen flash on refresh
+    (function() {
+      try {
+        for (var i = 0; i < sessionStorage.length; i++) {
+          var k = sessionStorage.key(i);
+          if (k && k.indexOf('sb-') === 0 && k.indexOf('-auth-token') !== -1) {
+            var el = document.getElementById('auth-overlay');
+            if (el) el.style.display = 'none';
+            break;
+          }
+        }
+      } catch(e) {}
+    })();
+
     mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
     const supabaseUrl = "https://jpemlcuxjvynlbeygukb.supabase.co";
-    const supabaseKey = "sb_publishable_C7GdOG7L64y92IDDreglcQ_C0jNcbhl";
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
+    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+    // Cookie-based storage — survives refresh, not blocked by tracking prevention
+    const cookieAuthStorage = {
+      getItem: function(key) {
+        try {
+          var name = key + '=';
+          var parts = document.cookie.split(';');
+          for (var i = 0; i < parts.length; i++) {
+            var c = parts[i].trim();
+            if (c.indexOf(name) === 0) return decodeURIComponent(c.substring(name.length));
+          }
+        } catch(e) {}
+        return null;
+      },
+      setItem: function(key, value) {
+        try {
+          var expires = new Date();
+          expires.setDate(expires.getDate() + 7);
+          document.cookie = key + '=' + encodeURIComponent(value) + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
+        } catch(e) {}
+      },
+      removeItem: function(key) {
+        try {
+          document.cookie = key + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+        } catch(e) {}
+      }
+    };
+    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        storage: window.sessionStorage,
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    });
+
+    /* ══════════════════════════════════════════════════
+       AUTH LAYER
+       ══════════════════════════════════════════════════ */
+    var appCurrentUser = null;
+    var appUserRole = "readonly";
+
+    /* ── Helpers ── */
+    function getAuthInitials(email) {
+      var parts = String(email || "?").split("@")[0].split(/[\._\-]/);
+      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+      return String(email || "?")[0].toUpperCase();
+    }
+
+    function authShowTab(tab) {
+      document.getElementById("auth-panel-signin").style.display  = tab === "signin"  ? "" : "none";
+      document.getElementById("auth-panel-signup").style.display  = tab === "signup"  ? "" : "none";
+      document.getElementById("auth-panel-forgot").style.display  = tab === "forgot"  ? "" : "none";
+      document.getElementById("auth-panel-setpassword").style.display = tab === "setpassword" ? "" : "none";
+      var tabs = document.getElementById("auth-tabs");
+      if (tabs) tabs.style.display = (tab === "setpassword" || tab === "forgot") ? "none" : "";
+      document.getElementById("tab-signin") && document.getElementById("tab-signin").classList.toggle("active", tab === "signin");
+      document.getElementById("tab-signup") && document.getElementById("tab-signup").classList.toggle("active", tab === "signup");
+    }
+
+    function authShowForgot() { authShowTab("forgot"); }
+
+    function authSetError(id, msg) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = msg;
+      el.classList.toggle("visible", Boolean(msg));
+      el.style.display = msg ? "block" : "none";
+    }
+
+    function authSetSuccess(id, msg) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = msg;
+      el.style.display = msg ? "block" : "none";
+    }
+
+    /* ── Sign In ── */
+    async function authSignIn(event) {
+      event.preventDefault();
+      var email    = String(document.getElementById("auth-email").value || "").trim();
+      var password = String(document.getElementById("auth-password").value || "");
+      var btn      = document.getElementById("auth-signin-btn");
+      authSetError("auth-signin-error", "");
+      btn.disabled = true; btn.textContent = "Signing in…";
+      var result = await supabaseClient.auth.signInWithPassword({ email, password });
+      btn.disabled = false; btn.textContent = "Sign in";
+      if (result.error) { authSetError("auth-signin-error", result.error.message || "Incorrect email or password."); return; }
+      await handleAuthSession(result.data.session);
+    }
+
+    /* ── Sign Up ── */
+    async function authSignUp(event) {
+      event.preventDefault();
+      var name     = String(document.getElementById("auth-signup-name").value || "").trim();
+      var email    = String(document.getElementById("auth-signup-email").value || "").trim();
+      var password = String(document.getElementById("auth-signup-password").value || "");
+      var btn      = document.getElementById("auth-signup-btn");
+      authSetError("auth-signup-error", "");
+      authSetSuccess("auth-signup-success", "");
+      btn.disabled = true; btn.textContent = "Creating account…";
+      var result = await supabaseClient.auth.signUp({
+        email, password,
+        options: { data: { full_name: name } }
+      });
+      btn.disabled = false; btn.textContent = "Create account";
+      if (result.error) { authSetError("auth-signup-error", result.error.message || "Sign-up failed."); return; }
+      // Auto-insert readonly role and sign in right away
+      if (result.data && result.data.session) {
+        await ensureUserRoleExists(result.data.session.user.id, "readonly");
+        await handleAuthSession(result.data.session);
+      } else {
+        authSetSuccess("auth-signup-success", "Account created! Check your email to confirm, then sign in.");
+      }
+    }
+
+    /* ── Forgot password ── */
+    async function authForgot(event) {
+      event.preventDefault();
+      var email = String(document.getElementById("auth-forgot-email").value || "").trim();
+      var btn   = document.getElementById("auth-forgot-btn-submit");
+      authSetError("auth-forgot-error", "");
+      authSetSuccess("auth-forgot-success", "");
+      btn.disabled = true; btn.textContent = "Sending…";
+      var redirectUrl = window.location.origin + window.location.pathname;
+      var result = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
+      btn.disabled = false; btn.textContent = "Send reset link";
+      if (result.error) { authSetError("auth-forgot-error", result.error.message || "Could not send reset email."); return; }
+      authSetSuccess("auth-forgot-success", "Reset link sent! Check your email and click the link — it'll bring you right back here.");
+    }
+
+    /* ── Set new password (after reset/invite link) ── */
+    async function authSetPassword(event) {
+      event.preventDefault();
+      var p1  = String(document.getElementById("auth-new-password").value || "");
+      var p2  = String(document.getElementById("auth-new-password2").value || "");
+      var btn = document.getElementById("auth-setpassword-btn");
+      authSetError("auth-setpassword-error", "");
+      if (p1 !== p2) { authSetError("auth-setpassword-error", "Passwords don't match."); return; }
+      btn.disabled = true; btn.textContent = "Saving…";
+      var result = await supabaseClient.auth.updateUser({ password: p1 });
+      btn.disabled = false; btn.textContent = "Set password & sign in";
+      if (result.error) { authSetError("auth-setpassword-error", result.error.message || "Could not set password."); return; }
+      // Session is already active after password update
+      var sessionResult = await supabaseClient.auth.getSession();
+      await handleAuthSession(sessionResult.data && sessionResult.data.session ? sessionResult.data.session : null);
+    }
+
+    /* ── Role helpers ── */
+    async function fetchUserRole(userId) {
+      try {
+        var result = await supabaseClient.from("user_roles").select("role").eq("user_id", userId).single();
+        if (result.data && result.data.role) return result.data.role;
+      } catch (e) { console.warn("Could not fetch user role", e); }
+      return "readonly";
+    }
+
+    async function ensureUserRoleExists(userId, defaultRole, email) {
+      try {
+        var payload = { user_id: userId, role: defaultRole };
+        if (email) payload.email = email;
+        await supabaseClient.from("user_roles").upsert(payload, { onConflict: "user_id", ignoreDuplicates: true });
+      } catch (e) { console.warn("Could not upsert user role", e); }
+    }
+
+    /* ── Apply session to app ── */
+    function applyUserToToolbar(user, role) {
+      var chip     = document.getElementById("toolbar-user-chip");
+      var avatar   = document.getElementById("toolbar-user-avatar");
+      var emailEl  = document.getElementById("toolbar-user-email");
+      var roleEl   = document.getElementById("toolbar-user-role");
+      var logoutBtn = document.getElementById("toolbar-logout");
+      if (!chip) return;
+      if (user) {
+        avatar.textContent     = getAuthInitials(user.email);
+        emailEl.textContent    = user.email;
+        roleEl.textContent     = role === "admin" ? "Admin" : "View Only";
+        chip.style.display     = "inline-flex";
+        logoutBtn.style.display = "";
+        umUpdateManageBtn(role);
+      } else {
+        chip.style.display      = "none";
+        logoutBtn.style.display = "none";
+        umUpdateManageBtn("readonly");
+      }
+    }
+
+    function applyReadOnlyMode(isReadOnly) {
+      document.body.classList.toggle("readonly-mode", isReadOnly);
+    }
+
+    function showToast(message, type, duration) {
+      type = type || "success";
+      duration = duration || 3000;
+      var icons = { success: "✓", error: "✕", warning: "⚠", info: "ℹ" };
+      var container = document.getElementById("toast-container");
+      if (!container) return;
+      var toast = document.createElement("div");
+      toast.className = "toast " + type;
+      toast.innerHTML = "<span style='font-size:15px;font-weight:700'>" + (icons[type] || "✓") + "</span> " + message;
+      container.appendChild(toast);
+      setTimeout(function() {
+        toast.classList.add("hide");
+        setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 320);
+      }, duration);
+    }
+
+    function withTimeout(promise, ms, fallback) {
+      return Promise.race([
+        promise,
+        new Promise(function(resolve) { setTimeout(function() { resolve(fallback); }, ms); })
+      ]);
+    }
+
+    async function handleAuthSession(session) {
+      var authOverlay = document.getElementById("auth-overlay");
+      if (!session || !session.user) {
+        appCurrentUser = null; appUserRole = "readonly";
+        applyUserToToolbar(null, "readonly");
+        applyReadOnlyMode(true);
+        if (authOverlay) authOverlay.style.display = "flex";
+        return;
+      }
+      try {
+        appCurrentUser = session.user;
+        await withTimeout(ensureUserRoleExists(session.user.id, "readonly", session.user.email), 4000, null);
+        appUserRole = await withTimeout(fetchUserRole(session.user.id), 4000, "readonly");
+        applyUserToToolbar(session.user, appUserRole);
+        applyReadOnlyMode(appUserRole !== "admin");
+      } catch (e) {
+        console.warn("handleAuthSession error (non-fatal):", e);
+        appUserRole = "readonly";
+        applyUserToToolbar(session.user, "readonly");
+        applyReadOnlyMode(true);
+      } finally {
+        if (authOverlay) authOverlay.style.display = "none";
+      }
+    }
+
+    /* ── Sign out ── */
+    document.getElementById("toolbar-logout").addEventListener("click", async function() {
+      await supabaseClient.auth.signOut();
+      appCurrentUser = null; appUserRole = "readonly";
+      applyUserToToolbar(null, "readonly");
+      applyReadOnlyMode(true);
+      var authOverlay = document.getElementById("auth-overlay");
+      if (authOverlay) { authShowTab("signin"); authOverlay.style.display = "flex"; }
+    });
+
+    /* ── Auth state listener (handles token refresh, tab focus, etc.) ── */
+    supabaseClient.auth.onAuthStateChange(async function(event, session) {
+      console.log("[Auth] event:", event, "| session:", session ? session.user.email : "null");
+      if (event === "PASSWORD_RECOVERY") {
+        var authOverlay = document.getElementById("auth-overlay");
+        if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("setpassword"); }
+        return;
+      }
+      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+        await handleAuthSession(session);
+      }
+      if (event === "SIGNED_OUT") {
+        await handleAuthSession(null);
+      }
+    });
+
+    /* ── On page load: check for existing session or reset/invite token in URL ── */
+    (async function initAuth() {
+      // If URL has error hash (e.g. expired OTP), show signin with a friendly message
+      var hash = window.location.hash || "";
+      if (hash.includes("error=access_denied") || hash.includes("otp_expired")) {
+        history.replaceState(null, "", window.location.pathname);
+        var authOverlay = document.getElementById("auth-overlay");
+        if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("forgot"); }
+        authSetError("auth-forgot-error", "That link expired. Enter your email below to get a fresh one.");
+        return;
+      }
+      var result = await supabaseClient.auth.getSession();
+      await handleAuthSession(result.data && result.data.session ? result.data.session : null);
+    })();
+    /* ═══════════════════════════════════════════════════════
+       USER MANAGEMENT PANEL
+    ═══════════════════════════════════════════════════════ */
+    function umOpen() {
+      var overlay = document.getElementById("um-overlay");
+      if (!overlay) return;
+      overlay.classList.remove("hidden");
+      umLoadUsers();
+    }
+
+    function umClose(event) {
+      if (event && event.target !== document.getElementById("um-overlay") && event.type === "click") return;
+      var overlay = document.getElementById("um-overlay");
+      if (overlay) overlay.classList.add("hidden");
+    }
+
+    async function umLoadUsers() {
+      var content = document.getElementById("um-content");
+      if (!content) return;
+      content.innerHTML = '<div class="um-loading">Loading users…</div>';
+      try {
+        var result = await supabaseClient.from("user_roles").select("user_id, role, email, created_at").order("created_at", { ascending: true });
+        if (result.error) throw result.error;
+        var rows = result.data || [];
+        if (rows.length === 0) {
+          content.innerHTML = '<div class="um-empty">No users found.</div>';
+          return;
+        }
+        var html = '<table class="um-table"><thead><tr><th>Email</th><th>Role</th><th>Joined</th><th>Action</th></tr></thead><tbody>';
+        rows.forEach(function(row) {
+          var isAdmin = row.role === "admin";
+          var isSelf = appCurrentUser && row.user_id === appCurrentUser.id;
+          var email = row.email || row.user_id.substring(0, 8) + "…";
+          var joined = row.created_at ? new Date(row.created_at).toLocaleDateString() : "—";
+          var badge = isAdmin
+            ? '<span class="um-badge admin">Admin</span>'
+            : '<span class="um-badge readonly">View Only</span>';
+          var actionBtn = isSelf
+            ? '<span style="font-size:11px;color:var(--muted)">You</span>'
+            : isAdmin
+              ? '<button class="um-action-btn demote" onclick="umChangeRole(\'' + row.user_id + '\', \'readonly\')">Demote</button>'
+              : '<button class="um-action-btn promote" onclick="umChangeRole(\'' + row.user_id + '\', \'admin\')">Make Admin</button>';
+          html += '<tr><td style="font-size:12px;word-break:break-all;">' + email + '</td><td>' + badge + '</td><td style="font-size:11px;color:var(--muted);">' + joined + '</td><td>' + actionBtn + '</td></tr>';
+        });
+        html += '</tbody></table>';
+        content.innerHTML = html;
+      } catch (e) {
+        console.error("umLoadUsers error:", e);
+        content.innerHTML = '<div class="um-empty">Could not load users. Make sure the admin policies are set in Supabase.</div>';
+      }
+    }
+
+    async function umChangeRole(userId, newRole) {
+      try {
+        var result = await supabaseClient.from("user_roles").update({ role: newRole }).eq("user_id", userId);
+        if (result.error) throw result.error;
+        await umLoadUsers(); // refresh the list
+      } catch (e) {
+        console.error("umChangeRole error:", e);
+        showToast("Could not update role: " + (e.message || e), "error");
+      }
+    }
+
+    /* ── Show "Users" button only when admin is signed in ── */
+    function umUpdateManageBtn(role) {
+      var btn = document.getElementById("toolbar-manage-users");
+      if (!btn) return;
+      btn.style.display = role === "admin" ? "" : "none";
+    }
+
     let completedServiceLoadTimerHandle = null;
 
     const disciplineColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
@@ -4450,6 +5828,10 @@
       runZipCoverageCheck: document.getElementById("run-zip-coverage-check"),
       zipCoverageNote: document.getElementById("zip-coverage-note"),
       zipCoverageResults: document.getElementById("zip-coverage-results"),
+      zipCoverageRadiusControls: document.getElementById("zip-coverage-radius-controls"),
+      zipCoverageRadiusShrink: document.getElementById("zip-coverage-radius-shrink"),
+      zipCoverageRadiusGrow: document.getElementById("zip-coverage-radius-grow"),
+      zipCoverageRadiusReadout: document.getElementById("zip-coverage-radius-readout"),
       applyFilters: document.getElementById("apply-filters"),
       clearFilters: document.getElementById("clear-filters"),
       addClinicianMode: document.getElementById("add-clinician-mode"),
@@ -4547,9 +5929,15 @@
       profileRatingStars: Array.from(document.querySelectorAll("[data-profile-rating-star]")),
       profileAddress: document.getElementById("profile-address"),
       profileZip: document.getElementById("profile-zip"),
-      profileRadius: document.getElementById("profile-radius"),
+      profileRadius: document.getElementById("profile-radius") || document.createElement("div"),
+      profileReferralZipsSnapshot: document.getElementById("profile-referral-zips-snapshot"),
       profilePreferredZips: document.getElementById("profile-preferred-zips"),
+      profileReferralZips: document.getElementById("profile-referral-zips"),
+      preferredZipsStaleWarning: document.getElementById("preferred-zips-stale-warning"),
       profilePhotoShell: document.getElementById("profile-photo-shell"),
+      profilePhotoInput: document.getElementById("profile-photo-input"),
+      profilePhotoImg: document.getElementById("profile-photo-img"),
+      profilePhotoPlaceholder: document.getElementById("profile-photo-placeholder"),
       profileStatusInput: document.getElementById("profile-status-input"),
       profileStatusButtons: Array.from(document.querySelectorAll("[data-profile-status]")),
       profileStatusHistory: document.getElementById("profile-status-history"),
@@ -4691,12 +6079,20 @@
       agencySearch: "",
       disciplineFilters: new Set(),
       statusFilters: new Set(["Active", "Paused"]),
+      ratingMinFilter: 0,
       emrFilters: new Set(),
       languageFilters: new Set(),
       sharedLanguageOptions: defaultProfileLanguageOptions.slice(),
       sharedLanguageRecordsByNormalized: new Map(),
       zipFilter: "",
       zipCoverageCheckQuery: "",
+      zipCentroidCache: new Map(),
+      zipCoverageLoading: false,
+      zipCoverageRunToken: 0,
+      zipCoverageRadiusMiles: 5,
+      zipCoverageCentroid: null,
+      zipCoverageCenterMarker: null,
+      zipCoverageCircleSourceId: "zip-coverage-circle-source",
       pointSearch: "",
       clinicianPinMode: "work",
       radiusMode: false,
@@ -4756,6 +6152,9 @@
       maxPitch: 0,
       bearingSnap: 7
     });
+
+    // Ensure Mapbox picks up the correct container size after flex layout settles
+    window.requestAnimationFrame(function() { map.resize(); });
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, function(char) {
@@ -5581,6 +6980,9 @@
       if (!agency) return;
 
       persistCurrentAgencyDraft();
+      if (hasCurrentProfileUnsavedChanges()) {
+        if (!window.confirm("You have unsaved changes on the current clinician profile. Discard and switch to agency?")) return;
+      }
       closeClinicianProfile();
       appState.currentAgencyId = agencyId;
       applyAgencyDraft(getAgencyDraftForRecord(agency));
@@ -7136,6 +8538,7 @@
         renderZipCoverageCheck();
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
+        renderProfileReferralZips();
         if (appState.clinicianPinMode === "work") {
           refreshClinicianCoordinateDependentViews();
         }
@@ -7427,20 +8830,77 @@
       });
     }
 
+    function getRadiusClinicianCards(radiusSites) {
+      const byKey = new Map();
+      radiusSites.forEach(function(entry) {
+        const site = entry.site;
+        (site.disciplineGroups || []).forEach(function(group) {
+          (group.entries || []).forEach(function(clinicianEntry) {
+            const mapKey = (clinicianEntry.clinicianId || clinicianEntry.name || "").trim().toLowerCase();
+            if (!mapKey) return;
+            const existing = byKey.get(mapKey);
+            if (existing && existing.distanceMiles <= entry.distanceMiles) return;
+            let rating = null;
+            let statusInfo = { status: "Active", detail: "" };
+            if (clinicianEntry.clinicianId) {
+              const loaded = appState.clinicians.find(function(c) { return c.id === clinicianEntry.clinicianId; });
+              if (loaded) {
+                const draft = getProfileDraftForClinician(loaded);
+                rating = normalizeProfileRatingValue(draft.rating);
+                statusInfo = getClinicianSidebarStatusInfo(draft, loaded);
+              }
+            }
+            byKey.set(mapKey, {
+              clinicianId: clinicianEntry.clinicianId || "",
+              name: clinicianEntry.name || "",
+              discipline: group.discipline || "",
+              distanceMiles: entry.distanceMiles,
+              siteKey: site.key,
+              address: site.fullAddress || "",
+              rating: rating,
+              status: statusInfo.status || "Active",
+              statusDetail: statusInfo.detail || ""
+            });
+          });
+        });
+      });
+      return Array.from(byKey.values()).sort(function(a, b) {
+        if (a.distanceMiles !== b.distanceMiles) return a.distanceMiles - b.distanceMiles;
+        return a.name.localeCompare(b.name);
+      });
+    }
+
+    function buildRadiusClinicianStarsHtml(rating) {
+      if (!rating) return "";
+      var stars = "";
+      for (var i = 1; i <= 5; i++) stars += (i <= rating ? "★" : "☆");
+      return "<span class='radius-clinician-stars'>" + stars + "</span>";
+    }
+
     function renderRadiusCoverage() {
       if (!elements.radiusCoverageShell) return;
+
+      var radiusPanelControls = document.getElementById("radius-panel-controls");
 
       if (!appState.radiusMode && !appState.selectionCenter) {
         elements.radiusCoverageShell.hidden = true;
         elements.radiusCoverageShell.innerHTML = "";
+        if (radiusPanelControls) { radiusPanelControls.hidden = true; radiusPanelControls.classList.remove("radius-active"); }
         return;
+      }
+
+      // Show step controls with glow when radius mode is on
+      if (radiusPanelControls) {
+        radiusPanelControls.hidden = false;
+        radiusPanelControls.classList.toggle("radius-active", !!appState.radiusMode);
       }
 
       elements.radiusCoverageShell.hidden = false;
 
       if (appState.radiusMode && !appState.selectionCenter) {
         elements.radiusCoverageShell.innerHTML = [
-          "<div class='radius-coverage-title'>Completed-Service Coverage</div>",
+          "<div class='radius-coverage-title'><span class='section-icon'>📍</span> Radius — Completed-Service Coverage</div>",
+          "<div class='section-hint'>Shows clinicians physically near a location. Click anywhere on the map to drop the radius center, then use − and + to adjust the distance.</div>",
           "<div class='radius-coverage-note'>Click the map to drop the radius, then use - and + to grow or shrink the same coverage area.</div>"
         ].join("");
         return;
@@ -7448,7 +8908,7 @@
 
       if (appState.completedServiceLoadError) {
         elements.radiusCoverageShell.innerHTML = [
-          "<div class='radius-coverage-title'>Completed-Service Coverage</div>",
+          "<div class='radius-coverage-title'><span class='section-icon'>📍</span> Radius — Completed-Service Coverage</div>",
           "<div class='empty-state'>" + escapeHtml(appState.completedServiceLoadError) + "</div>"
         ].join("");
         return;
@@ -7456,7 +8916,7 @@
 
       if (appState.radiusCompletedServicesLoading || !appState.hasLoadedCompletedServices) {
         elements.radiusCoverageShell.innerHTML = [
-          "<div class='radius-coverage-title'>Completed-Service Coverage</div>",
+          "<div class='radius-coverage-title'><span class='section-icon'>📍</span> Radius — Completed-Service Coverage</div>",
           "<div class='radius-coverage-note'>Loading completed-service history for this " + formatRadiusMilesLabel(appState.selectedRadiusMiles) + " radius...</div>"
         ].join("");
         return;
@@ -7465,55 +8925,57 @@
       const radiusSites = getCompletedServiceSitesInRadius();
       if (!radiusSites.length) {
         elements.radiusCoverageShell.innerHTML = [
-          "<div class='radius-coverage-title'>Completed-Service Coverage</div>",
+          "<div class='radius-coverage-title'><span class='section-icon'>📍</span> Radius — Completed-Service Coverage</div>",
           "<div class='radius-coverage-note'>No completed-service sites fall inside this " + formatRadiusMilesLabel(appState.selectedRadiusMiles) + " radius with the current filters.</div>"
         ].join("");
         return;
       }
 
       const summary = getRadiusCoverageSummary(radiusSites);
-      const visibleSites = radiusSites.slice(0, 6);
-      const siteCardsHtml = visibleSites.map(function(entry) {
-        const site = entry.site;
-        const groupsHtml = buildCompletedServiceDisciplineGroupsHtml(site.disciplineGroups || [], {
-          compact: true,
-          maxNamesPerGroup: 3,
-          linkClinicians: true,
-          emptyHtml: "<div class='helper-text'>No clinician names resolved for this site yet.</div>"
-        });
+      const clinicianCards = getRadiusClinicianCards(radiusSites);
+      const visibleCards = clinicianCards.slice(0, 25);
 
+      const cardHtml = visibleCards.map(function(card) {
+        const color = getDisciplineColor(card.discipline);
+        const badgeHtml = card.discipline
+          ? "<span class='radius-clinician-badge' style='background:" + escapeHtml(color) + "'>" + escapeHtml(card.discipline) + "</span>"
+          : "";
+        const nameHtml = card.clinicianId
+          ? "<button type='button' class='radius-clinician-name' data-completed-service-clinician-id='" + escapeHtml(card.clinicianId) + "'>" + escapeHtml(card.name) + "</button>"
+          : "<span class='radius-clinician-name-nolink'>" + escapeHtml(card.name) + "</span>";
+        const starsHtml = buildRadiusClinicianStarsHtml(card.rating);
+        const distHtml = "<span class='radius-clinician-dist'>" + card.distanceMiles.toFixed(1) + " mi</span>";
+        const statusClass = String(card.status || "Active").toLowerCase();
+        const statusPillHtml = "<span class='clinician-status-pill " + escapeHtml(statusClass) + "' style='font-size:10px;padding:1px 6px'>" + escapeHtml(card.status || "Active") + "</span>";
+        const addrHtml = card.address
+          ? "<button type='button' class='radius-clinician-addr' data-radius-coverage-site='" + escapeHtml(card.siteKey) + "'>" + escapeHtml(card.address) + " ›</button>"
+          : "";
         return [
-          "<button type='button' class='radius-coverage-site' data-radius-coverage-site='" + escapeHtml(site.key) + "'>",
-          "<div class='radius-coverage-topline'>",
-          "<div class='radius-coverage-name'>" + escapeHtml(site.fullAddress || "Completed service site") + "</div>",
-          "<span class='meta-chip'>" + escapeHtml(entry.distanceMiles.toFixed(1)) + " mi</span>",
+          "<div class='radius-clinician-card'>",
+          "<div class='radius-clinician-row'>",
+          badgeHtml, nameHtml, starsHtml, distHtml,
           "</div>",
-          "<div class='radius-coverage-meta'>",
-          site.serviceRowsCount ? "<span class='meta-chip'>" + site.serviceRowsCount + " services</span>" : "",
-          site.uniquePatientCount ? "<span class='meta-chip'>" + site.uniquePatientCount + " patients</span>" : "",
-          site.totalServiceVisits ? "<span class='meta-chip'>" + site.totalServiceVisits + " visits</span>" : "",
-          site.latestServiceDate ? "<span class='meta-chip'>Latest " + escapeHtml(formatAcceptedDate(site.latestServiceDate)) + "</span>" : "",
+          "<div style='display:flex;align-items:center;gap:6px;min-width:0'>",
+          statusPillHtml,
+          addrHtml,
           "</div>",
-          groupsHtml,
-          "</button>"
+          "</div>"
         ].join("");
       }).join("");
 
       elements.radiusCoverageShell.innerHTML = [
-        "<div class='radius-coverage-title'>Completed-Service Coverage</div>",
+        "<div class='radius-coverage-title'><span class='section-icon'>📍</span> Radius — Completed-Service Coverage</div>",
         "<div class='radius-coverage-summary'>",
-        "<span class='meta-chip'>" + appState.selectedIds.size + " current clinicians</span>",
+        "<span class='meta-chip'>" + clinicianCards.length + " clinicians</span>",
         "<span class='meta-chip'>" + radiusSites.length + " service sites</span>",
-        "<span class='meta-chip'>" + summary.clinicianCount + " historical clinicians</span>",
-        summary.patientCount ? "<span class='meta-chip'>" + summary.patientCount + " patients</span>" : "",
         summary.totalVisits ? "<span class='meta-chip'>" + summary.totalVisits + " visits</span>" : "",
         "</div>",
         "<div class='radius-coverage-list'>",
-        siteCardsHtml,
+        cardHtml,
         "</div>",
-        radiusSites.length > visibleSites.length
-          ? "<div class='radius-coverage-note'>Showing the nearest " + visibleSites.length + " sites out of " + radiusSites.length + " in this radius.</div>"
-          : "<div class='radius-coverage-note'>Click a site to focus it on the map, or click a clinician name to open that profile.</div>"
+        clinicianCards.length > visibleCards.length
+          ? "<div class='radius-coverage-note'>Showing top " + visibleCards.length + " of " + clinicianCards.length + " clinicians, sorted by distance.</div>"
+          : "<div class='radius-coverage-note'>Click a name to open their profile · click an address to focus the map.</div>"
       ].join("");
     }
 
@@ -7536,6 +8998,131 @@
             updated_at: null
           };
         });
+    }
+
+    function getClinicianReferralZips(clinician) {
+      const clinicianId = String((clinician && clinician.id) || "").trim();
+      if (!clinicianId) return [];
+
+      const draft = appState.profileDraftByClinicianId.get(clinicianId) || {};
+      const ignoreBeforeRaw = getClinicianEffectiveIgnoreHistoryBeforeValue(draft, clinician);
+      const cutoffDate = parseProfileDateValue(ignoreBeforeRaw);
+      const zipCounts = {};
+
+      function isRowEligible(row) {
+        if (!cutoffDate) return true;
+        var anchorDate = getCompletedServiceCoverageAnchorDate(row);
+        if (!anchorDate) return true;
+        return new Date(anchorDate) >= cutoffDate;
+      }
+
+      // Source 1: per-clinician detailed history (loaded when profile opens)
+      var perClinicianHistory = appState.clinicianCompletedServiceHistoryByClinicianId.get(clinicianId);
+      if (perClinicianHistory && Array.isArray(perClinicianHistory.sites)) {
+        perClinicianHistory.sites.forEach(function(site) {
+          var zip = getNormalizedZip((site.rows && site.rows.length && site.rows[0].zip_code) || "");
+          if (!zip && site.fullAddress) {
+            var addressMatch = String(site.fullAddress).match(/\b(\d{5})\b/);
+            if (addressMatch) zip = addressMatch[1];
+          }
+          if (!zip) return;
+
+          var eligibleRows = (site.rows || []).filter(isRowEligible);
+          if (eligibleRows.length) {
+            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
+          }
+        });
+      }
+
+      // Source 2: global completed service site index (batch-loaded)
+      if (!Object.keys(zipCounts).length && appState.hasLoadedCompletedServices && !appState.completedServiceLoadError) {
+        var siteKeys = appState.completedServiceSiteKeysByClinicianId.get(clinicianId) || [];
+        siteKeys.forEach(function(siteKey) {
+          var site = appState.completedServiceSitesByKey.get(siteKey);
+          if (!site) return;
+          var zip = getNormalizedZip(site.zip || "");
+          if (!zip && site.rows && site.rows.length) {
+            zip = getNormalizedZip(site.rows[0].zip_code);
+          }
+          if (!zip) return;
+
+          var matchingAssignments = (site.assignments || []).filter(function(a) {
+            return String(a.matched_clinician_id || "").trim() === clinicianId;
+          });
+          var matchingRowIds = new Set(matchingAssignments.map(function(a) { return a.service_row_id; }));
+          var eligibleRows = (site.rows || []).filter(function(row) {
+            if (!matchingRowIds.has(row.id)) return false;
+            return isRowEligible(row);
+          });
+
+          if (eligibleRows.length) {
+            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
+          }
+        });
+      }
+
+      return Object.keys(zipCounts).sort(function(a, b) {
+        return zipCounts[b] - zipCounts[a];
+      }).map(function(zip) {
+        return { zip_code: zip, service_count: zipCounts[zip] };
+      });
+    }
+
+    function renderProfileReferralZips() {
+      if (!elements.profileReferralZips) return;
+
+      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
+        elements.profileReferralZips.innerHTML = "<span>No completed service history loaded yet.</span>";
+        return;
+      }
+
+      const clinicianId = appState.currentProfileClinicianId;
+      if (!clinicianId && !appState.profileCreateMode) {
+        elements.profileReferralZips.innerHTML = "";
+        return;
+      }
+
+      const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
+      if (!clinician) {
+        elements.profileReferralZips.innerHTML = "<span>No referral history.</span>";
+        return;
+      }
+
+      const referralZips = getClinicianReferralZips(clinician);
+      if (!referralZips.length) {
+        elements.profileReferralZips.innerHTML = "<span>No referral history in any ZIP code.</span>";
+        return;
+      }
+
+      elements.profileReferralZips.innerHTML = referralZips.map(function(entry) {
+        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
+      }).join("");
+    }
+
+    function renderProfileReferralZipsSnapshot() {
+      if (!elements.profileReferralZipsSnapshot) return;
+
+      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
+        elements.profileReferralZipsSnapshot.textContent = "—";
+        return;
+      }
+
+      const clinicianId = appState.currentProfileClinicianId;
+      const clinician = clinicianId ? appState.clinicians.find(function(item) { return item.id === clinicianId; }) : null;
+      if (!clinician) {
+        elements.profileReferralZipsSnapshot.textContent = "—";
+        return;
+      }
+
+      const referralZips = getClinicianReferralZips(clinician);
+      if (!referralZips.length) {
+        elements.profileReferralZipsSnapshot.textContent = "None";
+        return;
+      }
+
+      elements.profileReferralZipsSnapshot.innerHTML = referralZips.slice(0, 8).map(function(entry) {
+        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
+      }).join("") + (referralZips.length > 8 ? "<span class='referral-zip-chip'>+" + (referralZips.length - 8) + " more</span>" : "");
     }
 
     function getZipCoverageHistoryStatsByClinician(zipCode) {
@@ -7584,31 +9171,120 @@
       return statsByClinicianId;
     }
 
-    function getZipCoverageCheckResults(zipCode) {
+    function getZoomForRadiusMiles(lat, radiusMiles, viewportPx, fillFraction) {
+      var fraction = fillFraction || 0.65;
+      var diameterMeters = 2 * radiusMiles * 1609.34;
+      var metersPerPixel = diameterMeters / (viewportPx * fraction);
+      var zoom = Math.log2(156543.03392 * Math.cos(lat * Math.PI / 180) / metersPerPixel);
+      return Math.max(8, Math.min(15, zoom));
+    }
+
+    async function getZipCentroid(zipCode) {
+      const normalized = getNormalizedZip(zipCode);
+      if (!normalized) return null;
+      if (appState.zipCentroidCache.has(normalized)) {
+        return appState.zipCentroidCache.get(normalized);
+      }
+      try {
+        const data = await geocodeMapboxQuery(normalized);
+        if (data && data.features && data.features.length > 0) {
+          const feature = data.features[0];
+          const center = feature.center;
+          if (Array.isArray(center) && center.length >= 2) {
+            const result = { lat: center[1], lng: center[0] };
+            appState.zipCentroidCache.set(normalized, result);
+            return result;
+          }
+        }
+      } catch (err) {
+        console.warn("ZIP centroid geocode failed for " + normalized, err);
+      }
+      appState.zipCentroidCache.set(normalized, null);
+      return null;
+    }
+
+    function getZipCoverageCheckResults(zipCode, zipCenter) {
       const normalizedZip = getNormalizedZip(zipCode);
       if (!normalizedZip) return [];
 
       const historyStatsByClinicianId = getZipCoverageHistoryStatsByClinician(normalizedZip);
-      return appState.filteredClinicians.map(function(clinician) {
+      const matchedClinicianIds = new Set();
+
+      // Phase 1: TB ZIP + Referral History matches
+      const directMatches = appState.filteredClinicians.map(function(clinician) {
         const matchingZipEntries = getClinicianZipCoverageEntries(clinician).filter(function(entry) {
           return getNormalizedZip(entry.zip_code) === normalizedZip;
         });
-        if (!matchingZipEntries.length) return null;
 
+        const referralZips = getClinicianReferralZips(clinician);
+        const referralZipMatch = referralZips.find(function(entry) {
+          return entry.zip_code === normalizedZip;
+        });
+
+        if (!matchingZipEntries.length && !referralZipMatch) return null;
+
+        matchedClinicianIds.add(clinician.id);
         const profileDraft = getProfileDraftForClinician(clinician);
         const statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
         const historyStats = historyStatsByClinicianId.get(clinician.id) || null;
+        const languages = normalizeProfileLanguageList(profileDraft.languages || []);
+        const rating = normalizeProfileRatingValue(profileDraft.rating);
 
         return {
           clinician: clinician,
           statusInfo: statusInfo,
           zipEntries: matchingZipEntries,
+          referralZipMatch: referralZipMatch || null,
+          matchSource: matchingZipEntries.length ? (referralZipMatch ? "both" : "tb") : "referral",
+          proximityMiles: null,
+          languages: languages,
+          rating: rating,
           historySiteCount: historyStats ? historyStats.siteKeys.size : 0,
           historyServiceCount: historyStats ? historyStats.rowIds.size : 0,
           historyVisitCount: historyStats ? historyStats.totalVisits : 0,
           latestServiceDate: historyStats ? historyStats.latestServiceDate : null
         };
-      }).filter(Boolean).sort(function(left, right) {
+      }).filter(Boolean);
+
+      // Phase 2: Proximity matches — clinicians whose pin is within X miles of the ZIP centroid
+      var proximityMatches = [];
+      if (zipCenter) {
+        appState.filteredClinicians.forEach(function(clinician) {
+          if (matchedClinicianIds.has(clinician.id)) return;
+          var pin = getClinicianMapCoordinates(clinician);
+          if (!pin || !hasValidCoordinatePair(pin.lat, pin.lng)) return;
+          var distMiles = haversineMiles(zipCenter.lat, zipCenter.lng, pin.lat, pin.lng);
+          if (distMiles > appState.zipCoverageRadiusMiles) return;
+
+          matchedClinicianIds.add(clinician.id);
+          var profileDraft = getProfileDraftForClinician(clinician);
+          var statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
+          var historyStats = historyStatsByClinicianId.get(clinician.id) || null;
+          var languages = normalizeProfileLanguageList(profileDraft.languages || []);
+          var rating = normalizeProfileRatingValue(profileDraft.rating);
+
+          proximityMatches.push({
+            clinician: clinician,
+            statusInfo: statusInfo,
+            zipEntries: [],
+            referralZipMatch: null,
+            matchSource: "proximity",
+            proximityMiles: Math.round(distMiles * 10) / 10,
+            languages: languages,
+            rating: rating,
+            historySiteCount: historyStats ? historyStats.siteKeys.size : 0,
+            historyServiceCount: historyStats ? historyStats.rowIds.size : 0,
+            historyVisitCount: historyStats ? historyStats.totalVisits : 0,
+            latestServiceDate: historyStats ? historyStats.latestServiceDate : null
+          });
+        });
+        proximityMatches.sort(function(a, b) {
+          return a.proximityMiles - b.proximityMiles;
+        });
+      }
+
+      // Combine: direct matches sorted by history weight first, then proximity by distance
+      directMatches.sort(function(left, right) {
         if (right.historySiteCount !== left.historySiteCount) {
           return right.historySiteCount - left.historySiteCount;
         }
@@ -7619,72 +9295,169 @@
         }
         return String(left.clinician.name || "").localeCompare(String(right.clinician.name || ""));
       });
+
+      return directMatches.concat(proximityMatches);
     }
 
+    function syncZipCoverageRadiusReadout() {
+      if (elements.zipCoverageRadiusReadout) {
+        elements.zipCoverageRadiusReadout.textContent = appState.zipCoverageRadiusMiles + " mi";
+      }
+    }
+
+    /* Synchronous render — uses cached centroid for proximity. Always instant. */
     function renderZipCoverageCheck() {
       if (!elements.zipCoverageResults || !elements.zipCoverageNote || !elements.zipCoverageSearch) return;
 
-      const normalizedZip = getNormalizedZip(appState.zipCoverageCheckQuery);
+      // Keep panel input in sync
+      var panelInput = document.getElementById("zip-panel-search");
+      if (panelInput && panelInput !== document.activeElement) {
+        panelInput.value = elements.zipCoverageSearch.value;
+      }
+
+      var normalizedZip = getNormalizedZip(appState.zipCoverageCheckQuery);
       elements.zipCoverageSearch.value = appState.zipCoverageCheckQuery || "";
+
+      // Glow the panel row orange when a ZIP is active; show/hide Clear button
+      var zipSearchRow = document.querySelector(".zip-panel-search-row");
+      if (zipSearchRow) zipSearchRow.classList.toggle("zip-active", !!normalizedZip);
+      var zipClearBtn = document.getElementById("clear-zip-panel-check");
+      if (zipClearBtn) zipClearBtn.style.display = normalizedZip ? "" : "none";
 
       if (!normalizedZip) {
         elements.zipCoverageResults.innerHTML = "";
-        elements.zipCoverageNote.textContent = "Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage against the current clinician filters and loaded completed-service history.";
+        elements.zipCoverageNote.textContent = "Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage, referral history, and nearby clinicians against the current filters.";
+        if (elements.zipCoverageRadiusControls) elements.zipCoverageRadiusControls.hidden = true;
+        clearZipCoverageMapOverlays();
         return;
       }
 
-      const results = getZipCoverageCheckResults(normalizedZip);
-      const visibleResults = results.slice(0, 20);
-      const historyLoaded = appState.hasLoadedCompletedServices && !appState.completedServiceLoadError;
+      // Use cached centroid (null if not yet geocoded)
+      var centroid = appState.zipCoverageCentroid;
+      var results = getZipCoverageCheckResults(normalizedZip, centroid);
+
+      // Update circle + marker on map
+      if (centroid) {
+        updateZipCoverageCircle(centroid, appState.zipCoverageRadiusMiles);
+        setZipCoverageCenterMarker(centroid);
+        if (elements.zipCoverageRadiusControls) elements.zipCoverageRadiusControls.hidden = false;
+        syncZipCoverageRadiusReadout();
+      } else {
+        if (elements.zipCoverageRadiusControls) elements.zipCoverageRadiusControls.hidden = true;
+      }
+
+      var visibleResults = results.slice(0, 30);
 
       if (!results.length) {
         elements.zipCoverageResults.innerHTML = "";
-        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage for " + normalizedZip + ".";
+        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage, referral history, or are within " + appState.zipCoverageRadiusMiles + " miles of " + normalizedZip + ".";
         return;
       }
 
-      const resultsHtml = visibleResults.map(function(result) {
-        const clinician = result.clinician;
-        const statusClassName = String(result.statusInfo.status || "Active").toLowerCase();
-        const memoText = result.zipEntries.map(function(entry) {
-          return normalizeImportTextValue(entry.memo);
-        }).filter(Boolean)[0] || "";
-        const historyBits = historyLoaded
-          ? [
-              result.historySiteCount ? result.historySiteCount + " sites" : "No loaded site history",
-              result.historyServiceCount ? result.historyServiceCount + " services" : "",
-              result.historyVisitCount ? result.historyVisitCount + " visits" : "",
-              result.latestServiceDate ? "Latest " + formatAcceptedDate(result.latestServiceDate) : ""
-            ].filter(Boolean).join(" | ")
-          : "Completed-service history is not loaded yet for this session.";
+      var directCount = results.filter(function(r) { return r.matchSource !== "proximity"; }).length;
+      var proximityCount = results.filter(function(r) { return r.matchSource === "proximity"; }).length;
+
+      var resultsHtml = visibleResults.map(function(result) {
+        var clinician = result.clinician;
+        var statusClassName = String(result.statusInfo.status || "Active").toLowerCase();
+        var isProximity = result.matchSource === "proximity";
+
+        // Stars HTML
+        var starsHtml = result.rating
+          ? "<span class='radius-clinician-stars'>" + "★".repeat(result.rating) + "<span style='opacity:0.28'>" + "★".repeat(5 - result.rating) + "</span></span>"
+          : "";
+
+        // Right-side badge: distance chip for proximity, ✓ ZIP badge for direct matches
+        var matchBadgeHtml = isProximity
+          ? "<span class='radius-clinician-dist'>" + result.proximityMiles + " mi</span>"
+          : "<span class='zip-match-badge'>✓ ZIP</span>";
+
+        // Secondary meta row
+        var metaParts = [];
+        metaParts.push("<span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(result.statusInfo.status) + "</span>");
+        if (result.languages.length) {
+          metaParts.push("<span class='meta-chip'>" + escapeHtml(result.languages.join(", ")) + "</span>");
+        }
+        if (result.referralZipMatch && result.referralZipMatch.service_count) {
+          metaParts.push("<span class='meta-chip'>" + result.referralZipMatch.service_count + " svcs</span>");
+        }
+        if (result.statusInfo.detail) {
+          metaParts.push("<span class='zip-clinician-detail'>" + escapeHtml(result.statusInfo.detail) + "</span>");
+        }
 
         return [
-          "<button type='button' class='zip-coverage-result' data-zip-coverage-clinician='" + escapeHtml(clinician.id) + "'>",
-          "<div class='zip-coverage-topline'>",
-          "<div class='zip-coverage-name'>" + escapeHtml(formatClinicianDisplayName(clinician.name || "Unnamed clinician")) + "</div>",
-          "<span class='discipline-pill' style='background:" + getDisciplineColor(clinician.discipline) + ";'>" + escapeHtml(clinician.discipline || "UNK") + "</span>",
+          "<button type='button' class='zip-clinician-card" + (isProximity ? " zip-clinician-proximity" : "") + "' data-zip-coverage-clinician='" + escapeHtml(clinician.id) + "'>",
+          "<div class='radius-clinician-row'>",
+          "<span class='radius-clinician-badge' style='background:" + getDisciplineColor(clinician.discipline) + "'>" + escapeHtml(clinician.discipline || "?") + "</span>",
+          "<span class='zip-clinician-name'>" + escapeHtml(formatClinicianDisplayName(clinician.name || "Unnamed clinician")) + "</span>",
+          starsHtml,
+          matchBadgeHtml,
           "</div>",
-          "<div class='zip-coverage-meta'>",
-          "<span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(result.statusInfo.status) + "</span>",
-          "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>",
-          historyLoaded && result.historySiteCount ? "<span class='meta-chip'>" + result.historySiteCount + " service site" + (result.historySiteCount === 1 ? "" : "s") + "</span>" : "",
+          "<div class='zip-clinician-meta'>",
+          metaParts.join(""),
           "</div>",
-          result.statusInfo.detail ? "<div class='zip-coverage-detail'>" + escapeHtml(result.statusInfo.detail) + "</div>" : "",
-          memoText ? "<div class='zip-coverage-detail'>Memo: " + escapeHtml(memoText) + "</div>" : "",
-          "<div class='zip-coverage-detail'>" + escapeHtml(historyBits) + "</div>",
           "</button>"
         ].join("");
       }).join("");
 
       elements.zipCoverageResults.innerHTML = resultsHtml;
-      elements.zipCoverageNote.textContent = results.length + " clinicians cover ZIP " + normalizedZip + ". Results respect the current clinician filters, and completed-service history reflects the loaded year and discipline view.";
-      if (results.length > visibleResults.length) {
-        elements.zipCoverageNote.textContent += " Showing the first " + visibleResults.length + ".";
+
+      var noteText = "";
+      if (directCount > 0 && proximityCount > 0) {
+        noteText = directCount + " clinicians cover ZIP " + normalizedZip + " (TB ZIP or referral history) + " + proximityCount + " nearby (within " + appState.zipCoverageRadiusMiles + " mi).";
+      } else if (directCount > 0) {
+        noteText = directCount + " clinicians cover ZIP " + normalizedZip + " (via TB ZIP coverage and/or referral history).";
+      } else {
+        noteText = proximityCount + " clinicians nearby ZIP " + normalizedZip + " (within " + appState.zipCoverageRadiusMiles + " mi). No direct ZIP coverage found.";
       }
+      noteText += " Results respect the current clinician filters.";
+      if (results.length > visibleResults.length) {
+        noteText += " Showing the first " + visibleResults.length + " of " + results.length + ".";
+      }
+      elements.zipCoverageNote.textContent = noteText;
     }
 
-    function runZipCoverageCheck() {
+    /* Async wrapper — geocodes the ZIP centroid on first search, then renders. */
+    async function runZipCoverageCheck() {
       appState.zipCoverageCheckQuery = getNormalizedZip(elements.zipCoverageSearch.value || "");
+      var normalizedZip = appState.zipCoverageCheckQuery;
+
+      if (!normalizedZip) {
+        renderZipCoverageCheck();
+        return;
+      }
+
+      // Geocode the centroid if not already cached
+      if (!appState.zipCentroidCache.has(normalizedZip)) {
+        elements.zipCoverageNote.textContent = "Looking up ZIP " + normalizedZip + "…";
+        var centroid = await getZipCentroid(normalizedZip);
+        appState.zipCoverageCentroid = centroid;
+        if (centroid) {
+          var mapEl = document.getElementById("map");
+          var viewportPx = Math.min(mapEl.offsetWidth || 600, mapEl.offsetHeight || 600);
+          var targetZoom = getZoomForRadiusMiles(centroid.lat, appState.zipCoverageRadiusMiles, viewportPx, 0.65);
+          map.flyTo({ center: [centroid.lng, centroid.lat], zoom: targetZoom, duration: 1400, essential: true });
+        }
+      } else {
+        var cached = appState.zipCentroidCache.get(normalizedZip);
+        var isNewCentroid = !appState.zipCoverageCentroid || !cached
+          || appState.zipCoverageCentroid.lat !== cached.lat
+          || appState.zipCoverageCentroid.lng !== cached.lng;
+        appState.zipCoverageCentroid = cached;
+        if (cached && isNewCentroid) {
+          var mapEl = document.getElementById("map");
+          var viewportPx = Math.min(mapEl.offsetWidth || 600, mapEl.offsetHeight || 600);
+          var targetZoom = getZoomForRadiusMiles(cached.lat, appState.zipCoverageRadiusMiles, viewportPx, 0.65);
+          map.flyTo({ center: [cached.lng, cached.lat], zoom: targetZoom, duration: 1400, essential: true });
+        }
+      }
+
+      // Auto-expand the status panel so ZIP results are visible without manual dragging
+      if (normalizedZip && elements.floatingStatusPanel) {
+        var currentH = appState.floatingStatusPanelHeight || floatingStatusPanelDefaultHeight;
+        if (currentH < 420) applyFloatingStatusPanelHeight(420, false);
+      }
+
       renderZipCoverageCheck();
     }
 
@@ -8111,6 +9884,10 @@
     function renderClinicianCompletedServiceHistory() {
       if (!elements.profileCompletedHistory) return;
 
+      // Refresh referral ZIPs whenever history display updates
+      renderProfileReferralZips();
+      renderProfileReferralZipsSnapshot();
+
       if (appState.profileCreateMode) {
         elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>Completed-service history will appear here after this clinician is created and matched to imported TherapyBoss rows.</div>";
         return;
@@ -8452,6 +10229,13 @@
       refreshCompletedServiceIsolationViews();
     }
 
+    function syncPreferredZipsStaleWarning() {
+      if (!elements.preferredZipsStaleWarning) return;
+      var ignoreDate = String(elements.profileIgnoreHistoryBefore.value || "").trim();
+      var hasPreferredZips = String(elements.profileCorePreferredZipsInput.value || "").trim().length > 0;
+      elements.preferredZipsStaleWarning.hidden = !(ignoreDate && hasPreferredZips);
+    }
+
     function syncProfileCoreSummary() {
       const name = String(elements.profileNameInput.value || "").trim();
       const discipline = getNormalizedDiscipline(elements.profileDisciplineSelect.value);
@@ -8467,8 +10251,8 @@
       elements.profilePanelDiscipline.textContent = discipline || "Discipline not set";
       elements.profileAddress.textContent = address || "No address";
       elements.profileZip.textContent = zip || "Not set";
-      elements.profileRadius.textContent = formatRadius(radius);
       elements.profilePreferredZips.textContent = formatPreferredZips(preferredZips);
+      renderProfileReferralZipsSnapshot();
     }
 
     function getClinicianPinModeLabel(value) {
@@ -8696,6 +10480,15 @@
         const isActive = appState.statusFilters.has(status);
         button.classList.toggle("active", isActive);
         button.setAttribute("aria-pressed", isActive ? "true" : "false");
+      });
+    }
+
+    function syncRatingFilterState() {
+      document.querySelectorAll("[data-rating-min]").forEach(function(btn) {
+        const val = Number(btn.dataset.ratingMin || 0);
+        const isActive = appState.ratingMinFilter === val;
+        btn.classList.toggle("active", isActive);
+        btn.setAttribute("aria-pressed", isActive ? "true" : "false");
       });
     }
 
@@ -9297,7 +11090,8 @@
         languages: [],
         restrictedClinicians: [],
         restrictedAgencies: [],
-        notes: ""
+        notes: "",
+        photoUrl: ""
       };
     }
 
@@ -10491,6 +12285,7 @@
         emr_capabilities: normalizedEmrCapabilities,
         restrictions: normalizedRestrictions,
         notes: String(draft.notes || "").trim() || null,
+        photo_url: String(draft.photoUrl || "").trim() || null,
         tags: buildClinicianProfileTagsForSave(
           clinician,
           draft,
@@ -10678,7 +12473,8 @@
         languages: normalizeProfileLanguageList(getProfileLanguagesFromUi()),
         restrictedClinicians: restrictions.clinicians,
         restrictedAgencies: restrictions.agencies,
-        notes: elements.profileNotesInput.value || ""
+        notes: elements.profileNotesInput.value || "",
+        photoUrl: elements.profilePhotoImg.dataset.photoUrl || ""
       };
     }
 
@@ -10718,6 +12514,67 @@
       syncProfileUnsavedBadge(Boolean(draft._dirty));
     }
 
+    /* ── Clinician Profile Photo Helpers ── */
+    function applyProfilePhoto(url) {
+      const img = elements.profilePhotoImg;
+      const placeholder = elements.profilePhotoPlaceholder;
+      img.dataset.photoUrl = url || "";
+      if (url) {
+        img.src = url;
+        img.style.display = "block";
+        placeholder.style.display = "none";
+      } else {
+        img.src = "";
+        img.style.display = "none";
+        placeholder.style.display = "flex";
+      }
+    }
+
+    async function uploadClinicianPhoto(file) {
+      const clinicianId = appState.currentProfileClinicianId;
+      const isCreateMode = appState.profileCreateMode;
+      if (!clinicianId && !isCreateMode) return;
+
+      const maxSize = 2 * 1024 * 1024; // 2 MB
+      if (file.size > maxSize) {
+        showToast("Photo must be under 2 MB. Please resize and try again.", "warning");
+        return;
+      }
+
+      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+      const allowedExts = ["jpg", "jpeg", "png", "webp"];
+      if (allowedExts.indexOf(ext) === -1) {
+        showToast("Only JPG, PNG, and WebP images are supported.", "warning");
+        return;
+      }
+
+      const storagePath = isCreateMode
+        ? "temp/new-clinician-photo." + ext
+        : clinicianId + "/photo." + ext;
+
+      try {
+        const { error: uploadError } = await supabaseClient.storage
+          .from("clinician-photos")
+          .upload(storagePath, file, { upsert: true, contentType: file.type });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabaseClient.storage
+          .from("clinician-photos")
+          .getPublicUrl(storagePath);
+
+        const publicUrl = urlData.publicUrl + "?t=" + Date.now();
+        applyProfilePhoto(publicUrl);
+        elements.profilePhotoImg.dataset.photoUrl = publicUrl;
+
+        // Mark draft dirty so the unsaved badge shows
+        persistCurrentProfileDraft(true);
+      } catch (err) {
+        console.error("Photo upload failed:", err);
+        showToast("Photo upload failed. Check Supabase storage bucket.", "error");
+      }
+    }
+
     function applyProfileDraft(draft) {
       const safeDraft = Object.assign(getDefaultProfileDraft(), draft || {});
       elements.profileNameInput.value = safeDraft.name || "";
@@ -10755,6 +12612,9 @@
       elements.profileRestrictedAgenciesInput.value = "";
       syncProfileRestrictionAddButtonsState();
       elements.profileNotesInput.value = safeDraft.notes;
+      applyProfilePhoto(safeDraft.photoUrl || "");
+      renderProfileReferralZips();
+      syncPreferredZipsStaleWarning();
       syncProfileModeUi();
       syncProfileWorkCenterUi();
       updateProfileHeaderStatus();
@@ -11072,6 +12932,9 @@
       }
       if (!draft.email && clinician) {
         draft.email = getFirstAvailableFieldValue(clinician, ["email", "email_address"]) || "";
+      }
+      if (!draft.photoUrl && clinician) {
+        draft.photoUrl = clinician.photo_url || "";
       }
       if ((!draft.restrictedClinicians.length && !draft.restrictedAgencies.length) && clinician) {
         draft.restrictedClinicians = normalizeProfileRestrictionList(
@@ -11423,8 +13286,31 @@
     }
 
     function updateSummary() {
-      elements.visibleCount.textContent = String(appState.showClinicians ? appState.filteredClinicians.length : 0);
-      elements.selectedCount.textContent = String(appState.selectedIds.size);
+      const visibleCount = appState.showClinicians ? appState.filteredClinicians.length : 0;
+      const selectedCount = appState.selectedIds.size;
+
+      elements.visibleCount.textContent = String(visibleCount);
+      elements.selectedCount.textContent = String(selectedCount);
+
+      // Drive toolbar chip glow states
+      const visibleChip = document.getElementById("toolbar-visible-chip");
+      const selectedChip = document.getElementById("toolbar-selected-chip");
+      if (visibleChip)  visibleChip.classList.toggle("active", visibleCount > 0);
+      if (selectedChip) {
+        selectedChip.classList.toggle("selected-active", selectedCount > 0);
+        selectedChip.classList.toggle("active", false);
+      }
+
+      // Drive discipline pill glow states
+      const discCounts = { PT: 0, PTA: 0, OT: 0, OTA: 0 };
+      if (appState.showClinicians) {
+        appState.filteredClinicians.forEach(function(c) {
+          if (Object.prototype.hasOwnProperty.call(discCounts, c.discipline)) discCounts[c.discipline]++;
+        });
+      }
+      document.querySelectorAll("[data-toolbar-disc]").forEach(function(pill) {
+        pill.classList.toggle("active", (discCounts[pill.dataset.toolbarDisc] || 0) > 0);
+      });
 
       if (!appState.clinicians.length) {
         elements.selectionMessage.textContent = "No clinicians loaded yet.";
@@ -11528,6 +13414,7 @@
         );
         const clinicianEmrCapabilities = normalizeProfileEmrCapabilities(profileDraft.emrCapabilities);
         const clinicianLanguages = new Set(normalizeProfileLanguageList(profileDraft.languages));
+        const clinicianRating = normalizeProfileRatingValue(profileDraft.rating);
         const disciplineMatch = !hasDisciplineFilter || appState.disciplineFilters.has(clinicianDiscipline);
         const emrMatch = !hasEmrFilter || Array.from(activeEmrFilters).some(function(key) {
           return clinicianEmrCapabilities[key];
@@ -11538,7 +13425,8 @@
         const statusMatch = !hasStatusFilter || appState.statusFilters.has(clinicianStatus);
         const zipMatch = !zipFilter || String(clinician.zip || "").toLowerCase().includes(zipFilter);
         const isolationMatch = !appState.isolatedClinicianId || clinician.id === appState.isolatedClinicianId;
-        return disciplineMatch && statusMatch && emrMatch && languageMatch && zipMatch && isolationMatch;
+        const ratingMatch = !appState.ratingMinFilter || (clinicianRating !== null && clinicianRating >= appState.ratingMinFilter);
+        return disciplineMatch && statusMatch && emrMatch && languageMatch && zipMatch && isolationMatch && ratingMatch;
       });
 
       rebuildCompletedServiceVisibleSiteCaches();
@@ -11603,6 +13491,10 @@
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       if (!clinician) return;
 
+      if (appState.currentProfileClinicianId && appState.currentProfileClinicianId !== clinicianId && hasCurrentProfileUnsavedChanges()) {
+        if (!window.confirm("You have unsaved changes on the current profile. Switch clinicians without saving?")) return;
+      }
+
       closeAgencyProfile();
       persistCurrentProfileDraft();
       persistCurrentTerritoryDraft();
@@ -11612,7 +13504,7 @@
         elements.addClinicianMode.classList.remove("active");
       }
       appState.currentProfileClinicianId = clinicianId;
-      elements.profilePhotoShell.textContent = "Photo if available";
+      applyProfilePhoto("");
       resetProfileVersionHistoryUi();
       applyProfileDraft(getProfileDraftForClinician(clinician));
       loadTerritoryDraft(clinicianId);
@@ -11633,7 +13525,7 @@
       persistCurrentTerritoryDraft();
       appState.currentProfileClinicianId = null;
       appState.profileCreateMode = true;
-      elements.profilePhotoShell.textContent = "Photo if available";
+      applyProfilePhoto("");
       resetProfileVersionHistoryUi();
       applyProfileDraft(appState.newClinicianDraft || getDefaultProfileDraft());
       appState.territoryDrawMode = false;
@@ -11938,6 +13830,161 @@
       if (!appState.selectionCenterMarker) return;
       appState.selectionCenterMarker.remove();
       appState.selectionCenterMarker = null;
+    }
+
+    /* ── ZIP Coverage Circle (gold, separate from selection circle) ── */
+    function ensureZipCoverageCircleLayer() {
+      if (!map.getSource(appState.zipCoverageCircleSourceId)) {
+        map.addSource(appState.zipCoverageCircleSourceId, {
+          type: "geojson",
+          data: { type: "FeatureCollection", features: [] }
+        });
+      }
+      if (!map.getLayer("zip-coverage-circle-fill")) {
+        map.addLayer({
+          id: "zip-coverage-circle-fill",
+          type: "fill",
+          source: appState.zipCoverageCircleSourceId,
+          paint: { "fill-color": "#d4a843", "fill-opacity": 0.10 }
+        });
+      }
+      if (!map.getLayer("zip-coverage-circle-line")) {
+        map.addLayer({
+          id: "zip-coverage-circle-line",
+          type: "line",
+          source: appState.zipCoverageCircleSourceId,
+          paint: { "line-color": "#d4a843", "line-width": 2.5, "line-dasharray": [4, 3] }
+        });
+      }
+    }
+
+    function updateZipCoverageCircle(center, radiusMiles) {
+      ensureZipCoverageCircleLayer();
+      var source = map.getSource(appState.zipCoverageCircleSourceId);
+      if (!source) return;
+      source.setData({
+        type: "FeatureCollection",
+        features: [createCircleGeoJson(center, radiusMiles)]
+      });
+      updateZipTextOverlay();
+    }
+
+    function clearZipCoverageCircle() {
+      var source = map.getSource(appState.zipCoverageCircleSourceId);
+      if (source) source.setData({ type: "FeatureCollection", features: [] });
+    }
+
+    function setZipCoverageCenterMarker(center) {
+      if (!appState.zipCoverageCenterMarker) {
+        var node = document.createElement("div");
+        node.className = "zip-coverage-center-pin";
+        appState.zipCoverageCenterMarker = new mapboxgl.Marker({ element: node })
+          .setLngLat([center.lng, center.lat])
+          .addTo(map);
+        return;
+      }
+      appState.zipCoverageCenterMarker.setLngLat([center.lng, center.lat]);
+    }
+
+    function clearZipCoverageCenterMarker() {
+      if (!appState.zipCoverageCenterMarker) return;
+      appState.zipCoverageCenterMarker.remove();
+      appState.zipCoverageCenterMarker = null;
+    }
+
+    function clearZipCoverageMapOverlays() {
+      clearZipCoverageCircle();
+      clearZipCoverageCenterMarker();
+      clearZipTextOverlay();
+      appState.zipCoverageCentroid = null;
+    }
+
+    /* ── ZIP revolving ring text ── */
+    function initZipTextOverlay() {
+      var mapEl = document.getElementById("map");
+      if (!mapEl || appState.zipTextOverlay) return;
+      var ns = "http://www.w3.org/2000/svg";
+      var svg = document.createElementNS(ns, "svg");
+      svg.id = "zip-text-overlay";
+      svg.style.display = "none";
+      var defs = document.createElementNS(ns, "defs");
+      var circlePath = document.createElementNS(ns, "path");
+      circlePath.id = "zip-text-ring-path";
+      defs.appendChild(circlePath);
+      svg.appendChild(defs);
+      var g = document.createElementNS(ns, "g");
+      g.id = "zip-text-ring-group";
+      var textEl = document.createElementNS(ns, "text");
+      textEl.setAttribute("class", "zip-revolving-text");
+      var textPath = document.createElementNS(ns, "textPath");
+      textPath.setAttribute("href", "#zip-text-ring-path");
+      textPath.setAttribute("startOffset", "0%");
+      textPath.textContent = ("\u25c6 ZIP COVERAGE RADIUS ").repeat(20);
+      textEl.appendChild(textPath);
+      g.appendChild(textEl);
+      svg.appendChild(g);
+      mapEl.appendChild(svg);
+      appState.zipTextOverlay = { svg: svg, path: circlePath, group: g };
+    }
+
+    function updateZipTextRingPath() {
+      var overlay = appState.zipTextOverlay;
+      if (!overlay || !appState.zipCoverageCentroid) return;
+      var centroid = appState.zipCoverageCentroid;
+      var centerPx = map.project([centroid.lng, centroid.lat]);
+      var northPx = map.project([centroid.lng, centroid.lat + appState.zipCoverageRadiusMiles / 69.0]);
+      var radiusPx = Math.hypot(northPx.x - centerPx.x, northPx.y - centerPx.y);
+      overlay.cx = centerPx.x;
+      overlay.cy = centerPx.y;
+      if (radiusPx < 40) { overlay.svg.style.display = "none"; return; }
+      overlay.svg.style.display = "";
+      var r = radiusPx + 18;
+      var cx = centerPx.x, cy = centerPx.y;
+      overlay.path.setAttribute("d",
+        "M " + (cx - r) + "," + cy +
+        " A " + r + "," + r + " 0 1,1 " + (cx + r) + "," + cy +
+        " A " + r + "," + r + " 0 1,1 " + (cx - r) + "," + cy
+      );
+    }
+
+    function applyZipTextTransform() {
+      var overlay = appState.zipTextOverlay;
+      if (!overlay || overlay.cx == null) return;
+      overlay.group.setAttribute("transform",
+        "rotate(" + (appState.zipTextRotationDeg || 0) + " " + overlay.cx + " " + overlay.cy + ")"
+      );
+    }
+
+    function startZipTextRotation() {
+      if (appState.zipTextRAF) return;
+      appState.zipTextRotationDeg = appState.zipTextRotationDeg || 0;
+      var lastTime = null;
+      function frame(time) {
+        if (lastTime !== null) {
+          appState.zipTextRotationDeg = (appState.zipTextRotationDeg + (time - lastTime) * (360 / 640000)) % 360;
+        }
+        lastTime = time;
+        updateZipTextRingPath();
+        applyZipTextTransform();
+        appState.zipTextRAF = requestAnimationFrame(frame);
+      }
+      appState.zipTextRAF = requestAnimationFrame(frame);
+    }
+
+    function stopZipTextRotation() {
+      if (appState.zipTextRAF) { cancelAnimationFrame(appState.zipTextRAF); appState.zipTextRAF = null; }
+    }
+
+    function updateZipTextOverlay() {
+      initZipTextOverlay();
+      if (!appState.zipCoverageCentroid) { clearZipTextOverlay(); return; }
+      updateZipTextRingPath();
+      startZipTextRotation();
+    }
+
+    function clearZipTextOverlay() {
+      stopZipTextRotation();
+      if (appState.zipTextOverlay) appState.zipTextOverlay.svg.style.display = "none";
     }
 
     function setSearchMarker(lng, lat, label) {
@@ -12421,17 +14468,9 @@
 
     function renderImportMappingGrid() {
       if (!appState.importHeaders.length) {
-        elements.importMappingGrid.classList.add("empty");
-        elements.importMappingGrid.innerHTML = [
-          "<div class='import-empty-state'>",
-          "<strong>Upload a file to unlock mapping</strong>",
-          "<span>Once a CSV or XLSX file is loaded, we&apos;ll detect the headers here so you can confirm the field mapping before upload.</span>",
-          "</div>"
-        ].join("");
+        elements.importMappingGrid.innerHTML = "<div class='import-mapping-field'>Upload a CSV or XLSX file to review and map the headers.</div>";
         return;
       }
-
-      elements.importMappingGrid.classList.remove("empty");
 
       elements.importMappingGrid.innerHTML = getActiveImportFields().map(function(field) {
         const selectedHeader = appState.importFieldMap[field.key] || "";
@@ -14438,6 +16477,7 @@
       appState.statusFilters = new Set(["Active", "Paused"]);
       appState.emrFilters.clear();
       appState.languageFilters.clear();
+      appState.ratingMinFilter = 0;
       appState.completedServiceYearFilters = new Set((appState.completedServiceAvailableYears || []).slice(0, completedServiceDefaultVisibleYearCount));
       appState.zipFilter = "";
       appState.selectedRadiusMiles = radiusMinimumMiles;
@@ -14451,6 +16491,7 @@
       syncStatusFilterToggleState();
       syncEmrFilterToggleState();
       syncLanguageFilterToggleState();
+      syncRatingFilterState();
       syncCompletedServiceYearFilterState();
       syncRadiusControls();
       clearClinicianSearchResults();
@@ -14573,7 +16614,7 @@
         await saveClinicianLanguagesToSupabase(clinicianId, draft.languages);
       } catch (error) {
         console.error("Clinician profile save failed:", error);
-        window.alert("Clinician profile save failed. Make sure the new profile and language updates from clinician-profile-schema.sql are loaded in Supabase.");
+        showToast("Profile save failed. Check Supabase setup.", "error");
         return;
       }
 
@@ -14582,7 +16623,7 @@
       } catch (error) {
         versionSaveFailed = true;
         console.error("Clinician profile version save failed:", error);
-        window.alert("Clinician profile saved, but the version snapshot failed. Make sure clinician_profile_versions is ready in Supabase.");
+        showToast("Profile saved but version snapshot failed.", "warning");
       }
 
       appState.profileDraftByClinicianId.delete(clinicianId);
@@ -14597,7 +16638,7 @@
       }
 
       if (versionResult && versionResult.saved) {
-        window.alert("Clinician profile saved to Supabase. Version " + versionResult.versionNumber + " captured.");
+        showToast("Profile saved — Version " + versionResult.versionNumber, "success");
         return;
       }
 
@@ -14606,7 +16647,7 @@
       }
 
       if (versionResult && versionResult.skipped) {
-        window.alert("Clinician profile saved to Supabase. No new version snapshot was needed.");
+        showToast("Profile saved successfully.", "success");
         return;
       }
 
@@ -15004,6 +17045,26 @@
         runPointSearch();
       });
 
+      /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
+      (function initViewSwitch() {
+        var btnClinicians = document.getElementById("view-switch-clinicians");
+        var btnServices   = document.getElementById("view-switch-services");
+        var clinicianPanel = document.querySelector(".clinician-directory-panel");
+        var servicesPanel  = document.querySelector(".completed-service-directory-panel");
+        if (!btnClinicians || !btnServices) return;
+
+        function activate(btn, panel) {
+          btnClinicians.classList.toggle("active", btn === btnClinicians);
+          btnServices.classList.toggle("active", btn === btnServices);
+          if (panel) {
+            panel.open = true;
+            panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }
+        }
+        btnClinicians.addEventListener("click", function() { activate(btnClinicians, clinicianPanel); });
+        btnServices.addEventListener("click", function()   { activate(btnServices, servicesPanel); });
+      })();
+
       elements.zoomExtentsButton.addEventListener("click", function() {
         fitMapToVisibleClinicians(true);
       });
@@ -15025,6 +17086,8 @@
       });
 
       elements.zipCoverageSearch.addEventListener("input", function() {
+        var panelInput = document.getElementById("zip-panel-search");
+        if (panelInput) panelInput.value = elements.zipCoverageSearch.value;
         if (!String(elements.zipCoverageSearch.value || "").trim()) {
           appState.zipCoverageCheckQuery = "";
           renderZipCoverageCheck();
@@ -15038,6 +17101,44 @@
         }
       });
 
+      /* ── Panel ZIP search (mirrors toolbar input) ── */
+      (function() {
+        var panelInput = document.getElementById("zip-panel-search");
+        var panelBtn = document.getElementById("run-zip-panel-check");
+        if (!panelInput || !panelBtn) return;
+
+        panelInput.addEventListener("input", function() {
+          elements.zipCoverageSearch.value = panelInput.value;
+          if (!String(panelInput.value || "").trim()) {
+            appState.zipCoverageCheckQuery = "";
+            renderZipCoverageCheck();
+          }
+        });
+        panelInput.addEventListener("keydown", function(event) {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            elements.zipCoverageSearch.value = panelInput.value;
+            runZipCoverageCheck();
+          }
+        });
+        panelBtn.addEventListener("click", function() {
+          elements.zipCoverageSearch.value = panelInput.value;
+          runZipCoverageCheck();
+        });
+
+        var clearBtn = document.getElementById("clear-zip-panel-check");
+        if (clearBtn) {
+          clearBtn.addEventListener("click", function() {
+            panelInput.value = "";
+            elements.zipCoverageSearch.value = "";
+            appState.zipCoverageCheckQuery = "";
+            appState.zipCoverageCentroid = null;
+            clearZipCoverageMapOverlays();
+            renderZipCoverageCheck();
+          });
+        }
+      })();
+
       elements.zipCoverageResults.addEventListener("click", function(event) {
         const resultButton = event.target.closest("[data-zip-coverage-clinician]");
         if (!resultButton) return;
@@ -15045,6 +17146,78 @@
         if (!clinicianId) return;
         focusClinician(clinicianId, true);
       });
+
+      /* ── Page zoom nudge control ── */
+      (function() {
+        var STEPS = [50, 60, 70, 75, 80, 85, 90, 95, 100, 110, 120, 125, 133, 150];
+        var currentZoom = 100;
+
+        function applyZoom(pct) {
+          currentZoom = pct;
+          var scale = pct / 100;
+          var shell = document.getElementById("app-shell");
+          if (shell) {
+            shell.style.transformOrigin = "top left";
+            shell.style.transform = "scale(" + scale + ")";
+            // Expand layout dimensions so scaled content fills the viewport exactly
+            shell.style.width  = (100 / scale).toFixed(4) + "vw";
+            shell.style.height = (100 / scale).toFixed(4) + "vh";
+          }
+          var label = document.getElementById("zoom-label");
+          if (label) label.textContent = pct + "%";
+          // Tell Mapbox to redraw its canvas to the new container size
+          if (typeof map !== "undefined" && map && typeof map.resize === "function") {
+            requestAnimationFrame(function() { map.resize(); });
+          }
+        }
+
+        function nudge(dir) {
+          var idx = STEPS.indexOf(currentZoom);
+          if (idx === -1) {
+            // snap to nearest
+            idx = STEPS.reduce(function(best, v, i) {
+              return Math.abs(v - currentZoom) < Math.abs(STEPS[best] - currentZoom) ? i : best;
+            }, 0);
+          }
+          var next = STEPS[Math.max(0, Math.min(STEPS.length - 1, idx + dir))];
+          applyZoom(next);
+        }
+
+        var btnIn  = document.getElementById("zoom-in");
+        var btnOut = document.getElementById("zoom-out");
+        if (btnIn)  btnIn.addEventListener("click",  function(e) { e.stopPropagation(); nudge(+1); });
+        if (btnOut) btnOut.addEventListener("click", function(e) { e.stopPropagation(); nudge(-1); });
+
+        // Re-apply on window resize so the compensating dimensions stay accurate
+        window.addEventListener("resize", function() {
+          applyZoom(currentZoom);
+        });
+      })();
+
+      /* ── ZIP coverage proximity radius +/− ── */
+      function adjustZipCoverageRadius(delta) {
+        var next = Math.max(1, Math.min(50, appState.zipCoverageRadiusMiles + delta));
+        if (next === appState.zipCoverageRadiusMiles) return;
+        appState.zipCoverageRadiusMiles = next;
+        syncZipCoverageRadiusReadout();
+        // Redraw circle instantly
+        if (appState.zipCoverageCentroid) {
+          updateZipCoverageCircle(appState.zipCoverageCentroid, appState.zipCoverageRadiusMiles);
+        }
+        // Re-run the full results (async, will re-query proximity)
+        renderZipCoverageCheck();
+      }
+
+      if (elements.zipCoverageRadiusShrink) {
+        elements.zipCoverageRadiusShrink.addEventListener("click", function() {
+          adjustZipCoverageRadius(-1);
+        });
+      }
+      if (elements.zipCoverageRadiusGrow) {
+        elements.zipCoverageRadiusGrow.addEventListener("click", function() {
+          adjustZipCoverageRadius(1);
+        });
+      }
 
       elements.clinicianSearchInput.addEventListener("input", function() {
         renderClinicianSearchResults(elements.clinicianSearchInput.value);
@@ -15175,6 +17348,9 @@
       });
 
       elements.profileClose.addEventListener("click", function() {
+        if (hasCurrentProfileUnsavedChanges()) {
+          if (!window.confirm("You have unsaved changes. Close without saving?")) return;
+        }
         closeClinicianProfile();
       });
 
@@ -15422,6 +17598,50 @@
         }
       });
 
+      /* ── ZIP Coverage Results resize handle ── */
+      (function initZipCoverageResize() {
+        var handle = document.getElementById("zip-coverage-resize-handle");
+        var resultsEl = document.getElementById("zip-coverage-results");
+        if (!handle || !resultsEl) return;
+
+        var startY = 0;
+        var startHeight = 0;
+        var dragging = false;
+
+        handle.addEventListener("pointerdown", function(e) {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          dragging = true;
+          startY = e.clientY;
+          startHeight = resultsEl.offsetHeight;
+          handle.setPointerCapture(e.pointerId);
+          resultsEl.style.transition = "none";
+        });
+        handle.addEventListener("pointermove", function(e) {
+          if (!dragging) return;
+          var delta = e.clientY - startY;
+          var next = Math.max(120, Math.min(800, startHeight + delta));
+          resultsEl.style.maxHeight = next + "px";
+        });
+        function endDrag() {
+          if (!dragging) return;
+          dragging = false;
+          resultsEl.style.transition = "";
+        }
+        handle.addEventListener("pointerup", endDrag);
+        handle.addEventListener("pointercancel", endDrag);
+        handle.addEventListener("lostpointercapture", endDrag);
+        handle.addEventListener("dblclick", function() {
+          resultsEl.style.maxHeight = "340px";
+        });
+      })();
+
+      elements.profilePhotoInput.addEventListener("change", function() {
+        const file = elements.profilePhotoInput.files[0];
+        if (file) uploadClinicianPhoto(file);
+        elements.profilePhotoInput.value = "";
+      });
+
       elements.profileSaveShell.addEventListener("click", function() {
         saveCurrentClinicianProfile();
       });
@@ -15468,6 +17688,7 @@
           updatePauseUI();
         }
         syncProfileWorkCenterUi();
+        syncPreferredZipsStaleWarning();
         if (config.refreshFilters) {
           applyFilters();
         }
@@ -15886,6 +18107,15 @@
         toggleLanguageFilter(toggleButton.dataset.languageFilterToggle);
       });
 
+      document.querySelectorAll("[data-rating-min]").forEach(function(btn) {
+        btn.addEventListener("click", function() {
+          const val = Number(btn.dataset.ratingMin || 0);
+          appState.ratingMinFilter = (appState.ratingMinFilter === val) ? 0 : val;
+          syncRatingFilterState();
+          applyFilters();
+        });
+      });
+
       elements.zipFilter.addEventListener("input", function() {
         appState.zipFilter = elements.zipFilter.value;
         applyFilters();
@@ -15898,6 +18128,9 @@
       if (elements.addClinicianMode) {
         elements.addClinicianMode.addEventListener("click", function() {
           if (appState.addClinicianMode && appState.profileCreateMode) {
+            if (hasCurrentProfileUnsavedChanges()) {
+              if (!window.confirm("You have unsaved changes. Close without saving?")) return;
+            }
             closeClinicianProfile();
             return;
           }
@@ -16025,6 +18258,10 @@
         }
       });
     }
+
+    map.on("move", function() {
+      if (appState.zipCoverageCentroid) updateZipTextRingPath();
+    });
 
     map.on("style.load", async function() {
       ensureSelectionCircleLayer();
