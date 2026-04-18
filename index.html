@@ -2,12 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>DependableCare Portal</title>
-  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <title>Clinician Territory Dashboard</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
   <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
-  <script src="./supabase.js"></script>
+  <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --bg: #edf1f8;
@@ -25,327 +24,6 @@
       --ot: #7c3aed;
       --ota: #ef7d23;
     }
-
-    /* ── Auth overlay ── */
-    .auth-overlay {
-      position: fixed;
-      inset: 0;
-      z-index: 9999;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      background: radial-gradient(circle at top left, #ffffff 0%, #edf1f8 58%, #d4dff0 100%);
-    }
-
-    .auth-card {
-      width: 360px;
-      background: #fff;
-      border-radius: 18px;
-      box-shadow: 0 24px 64px rgba(12, 22, 50, 0.16);
-      padding: 36px 32px 32px;
-      display: flex;
-      flex-direction: column;
-      gap: 0;
-    }
-
-    .auth-logo {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 28px;
-    }
-
-    .auth-logo-mark {
-      width: 38px;
-      height: 38px;
-      border-radius: 10px;
-      background: var(--accent);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .auth-logo-mark svg {
-      width: 20px;
-      height: 20px;
-      stroke: #fff;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-
-    .auth-logo-text {
-      display: flex;
-      flex-direction: column;
-      line-height: 1.2;
-    }
-
-    .auth-logo-name {
-      font-size: 14px;
-      font-weight: 800;
-      color: var(--text);
-      letter-spacing: -0.01em;
-    }
-
-    .auth-logo-sub {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--muted);
-    }
-
-    .auth-title {
-      font-size: 20px;
-      font-weight: 800;
-      color: var(--text);
-      margin: 0 0 6px;
-    }
-
-    .auth-subtitle {
-      font-size: 13px;
-      color: var(--muted);
-      margin: 0 0 24px;
-    }
-
-    .auth-field {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      margin-bottom: 14px;
-    }
-
-    .auth-field label {
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--text);
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-    }
-
-    .auth-field input {
-      height: 42px;
-      border: 1.5px solid #c8d5e8;
-      border-radius: 10px;
-      padding: 0 12px;
-      font-size: 14px;
-      color: var(--text);
-      background: #fff;
-      outline: none;
-      transition: border-color 0.15s;
-    }
-
-    .auth-field input:focus {
-      border-color: var(--accent);
-      box-shadow: 0 0 0 3px rgba(30, 77, 140, 0.08);
-    }
-
-    .auth-submit {
-      width: 100%;
-      height: 44px;
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      border-radius: 10px;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
-      margin-top: 8px;
-      transition: background 0.15s, transform 0.1s;
-    }
-
-    .auth-submit:hover { background: var(--accent-strong); }
-    .auth-submit:active { transform: scale(0.98); }
-    .auth-submit:disabled { opacity: 0.6; cursor: not-allowed; }
-
-    .auth-error {
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--danger);
-      background: #fdf0ef;
-      border: 1px solid #f5c5c2;
-      border-radius: 8px;
-      padding: 8px 12px;
-      margin-top: 12px;
-      display: none;
-    }
-
-    .auth-error.visible { display: block; }
-
-    .auth-success {
-      font-size: 12px;
-      font-weight: 600;
-      color: #1a6e36;
-      background: #edf7f0;
-      border: 1px solid #a3d9b5;
-      border-radius: 8px;
-      padding: 8px 12px;
-      margin-top: 12px;
-    }
-
-    .auth-tabs {
-      display: flex;
-      gap: 0;
-      background: rgba(190, 210, 235, 0.25);
-      border-radius: 10px;
-      padding: 3px;
-      margin-bottom: 20px;
-    }
-
-    .auth-tab {
-      flex: 1;
-      height: 34px;
-      border: none;
-      border-radius: 8px;
-      background: transparent;
-      font-size: 13px;
-      font-weight: 700;
-      color: var(--muted);
-      cursor: pointer;
-      transition: background 0.15s, color 0.15s;
-    }
-
-    .auth-tab.active {
-      background: #fff;
-      color: var(--accent);
-      box-shadow: 0 1px 4px rgba(12, 22, 50, 0.1);
-    }
-
-    .auth-forgot-link {
-      display: block;
-      margin-top: 12px;
-      background: none;
-      border: none;
-      font-size: 12px;
-      font-weight: 600;
-      color: var(--muted);
-      cursor: pointer;
-      text-align: center;
-      width: 100%;
-      padding: 0;
-    }
-
-    .auth-forgot-link:hover { color: var(--accent); }
-
-    /* ── User chip in toolbar ── */
-    .toolbar-user-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 4px 10px 4px 6px;
-      border-radius: 20px;
-      background: rgba(190, 210, 235, 0.35);
-      border: 1px solid rgba(190, 210, 235, 0.7);
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--accent);
-      cursor: default;
-      flex-shrink: 0;
-    }
-
-    .toolbar-user-avatar {
-      width: 22px;
-      height: 22px;
-      border-radius: 50%;
-      background: var(--accent);
-      color: #fff;
-      font-size: 10px;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .toolbar-user-role {
-      font-size: 10px;
-      font-weight: 600;
-      color: var(--muted);
-      letter-spacing: 0.02em;
-      text-transform: uppercase;
-    }
-
-    .toolbar-logout-btn {
-      height: 28px;
-      padding: 0 10px;
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--muted);
-      background: transparent;
-      border: 1px solid #c8d5e8;
-      border-radius: 8px;
-      cursor: pointer;
-      transition: color 0.15s, border-color 0.15s;
-      flex-shrink: 0;
-    }
-
-    .toolbar-logout-btn:hover {
-      color: var(--danger);
-      border-color: var(--danger);
-    }
-
-    /* ── Read-only mode ── */
-    body.readonly-mode .edit-only {
-      display: none !important;
-    }
-
-    /* ── User Management Modal ── */
-    .um-overlay {
-      position: fixed; inset: 0; z-index: 9998;
-      background: rgba(12,22,50,0.45);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .um-overlay.hidden { display: none; }
-    .um-modal {
-      background: #fff; border-radius: 18px;
-      box-shadow: 0 24px 64px rgba(12,22,50,0.18);
-      width: 560px; max-width: 96vw; max-height: 80vh;
-      display: flex; flex-direction: column; overflow: hidden;
-    }
-    .um-header {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 22px 24px 16px; border-bottom: 1px solid #e6edf7;
-    }
-    .um-header h2 { margin: 0; font-size: 17px; font-weight: 800; color: var(--text); }
-    .um-close {
-      width: 32px; height: 32px; border-radius: 8px; border: 1px solid #c8d5e8;
-      background: transparent; cursor: pointer; font-size: 16px; color: var(--muted);
-      display: flex; align-items: center; justify-content: center;
-    }
-    .um-close:hover { background: #f0f4fa; color: var(--text); }
-    .um-body { padding: 16px 24px; overflow-y: auto; flex: 1; }
-    .um-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .um-table th {
-      text-align: left; padding: 6px 8px; font-size: 11px; font-weight: 700;
-      color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em;
-      border-bottom: 2px solid #e6edf7;
-    }
-    .um-table td { padding: 10px 8px; border-bottom: 1px solid #f0f4fa; vertical-align: middle; }
-    .um-table tr:last-child td { border-bottom: none; }
-    .um-badge {
-      display: inline-block; padding: 2px 8px; border-radius: 20px;
-      font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
-    }
-    .um-badge.admin { background: #dbeafe; color: #1e4d8c; }
-    .um-badge.readonly { background: #f0f4fa; color: var(--muted); }
-    .um-action-btn {
-      padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: 700;
-      cursor: pointer; border: 1px solid; transition: all 0.15s;
-    }
-    .um-action-btn.promote { border-color: #1e4d8c; color: #1e4d8c; background: transparent; }
-    .um-action-btn.promote:hover { background: #1e4d8c; color: #fff; }
-    .um-action-btn.demote { border-color: var(--muted); color: var(--muted); background: transparent; }
-    .um-action-btn.demote:hover { background: var(--muted); color: #fff; }
-    .um-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .um-empty { text-align: center; color: var(--muted); padding: 32px 0; font-size: 13px; }
-    .um-loading { text-align: center; color: var(--muted); padding: 32px 0; font-size: 13px; }
-    .um-manage-btn {
-      height: 28px; padding: 0 12px; font-size: 12px; font-weight: 700;
-      color: var(--accent); background: transparent;
-      border: 1px solid var(--accent); border-radius: 8px;
-      cursor: pointer; transition: all 0.15s; flex-shrink: 0;
-    }
-    .um-manage-btn:hover { background: var(--accent); color: #fff; }
 
     * { box-sizing: border-box; }
 
@@ -441,8 +119,8 @@
       padding: 20px 20px 18px;
       border-bottom: 1px solid var(--panel-border);
       background:
-        radial-gradient(circle at top left, rgba(255, 255, 255, 0.98) 0%, rgba(237, 241, 248, 0.96) 56%, rgba(224, 232, 244, 0.98) 100%);
-      box-shadow: inset 0 -1px 0 rgba(190, 210, 235, 0.86);
+        radial-gradient(circle at top left, rgba(255, 255, 255, 0.98) 0%, rgba(241, 248, 245, 0.96) 56%, rgba(229, 239, 235, 0.98) 100%);
+      box-shadow: inset 0 -1px 0 rgba(214, 227, 221, 0.86);
     }
 
     .sidebar-brand-row {
@@ -523,7 +201,7 @@
       padding: 7px 12px;
       border-radius: 999px;
       background: rgba(255, 255, 255, 0.74);
-      border: 1px solid rgba(190, 210, 235, 0.95);
+      border: 1px solid rgba(201, 216, 208, 0.95);
       box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
       color: #394e75;
       font-size: 11px;
@@ -650,15 +328,42 @@
 
     .import-kind-row {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 8px;
+      gap: 10px;
+    }
+
+    .import-kind-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
     }
 
     .import-kind-button {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 12px 14px;
       border: 1px solid #c3d3e7;
       background: #fff;
       color: var(--text);
-      transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+      font-weight: 700;
+      line-height: 1.2;
+      text-align: center;
+      text-wrap: balance;
+      overflow-wrap: anywhere;
+      transition: background 0.18s ease, color 0.18s ease, border-color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+    }
+
+    .import-kind-grid .import-kind-button {
+      min-height: 78px;
+      padding: 14px 16px;
+      border-radius: 16px;
+      font-size: 14px;
+    }
+
+    .import-submode-row .import-kind-button {
+      min-height: 58px;
+      font-size: 13px;
     }
 
     .import-kind-button:hover,
@@ -677,6 +382,15 @@
 
     .import-submode-row {
       grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .import-control-block {
+      display: grid;
+      gap: 10px;
+      padding: 14px;
+      border-radius: 16px;
+      border: 1px solid #d7e2f1;
+      background: rgba(255, 255, 255, 0.8);
     }
 
     .import-warning {
@@ -824,34 +538,7 @@
     .radius-coverage-shell {
       display: grid;
       gap: 10px;
-      padding-top: 14px;
-      margin-top: 0;
-      border-top: none;
-    }
-
-    .zip-coverage-resize-handle {
-      height: 12px;
-      margin: 4px 0;
-      cursor: row-resize;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-top: 4px solid var(--panel-border);
-      position: relative;
-      flex-shrink: 0;
-    }
-    .zip-coverage-resize-handle::after {
-      content: "";
-      width: 36px;
-      height: 4px;
-      border-radius: 2px;
-      background: var(--panel-border);
-      position: absolute;
-      bottom: 0;
-    }
-    .zip-coverage-resize-handle:hover::after,
-    .zip-coverage-resize-handle:active::after {
-      background: var(--accent);
+      padding-top: 4px;
     }
 
     .radius-coverage-shell[hidden] {
@@ -932,13 +619,7 @@
     .zip-coverage-results {
       display: grid;
       gap: 8px;
-      max-height: 340px;
-      overflow-y: auto;
-      padding-right: 4px;
     }
-    .zip-coverage-results::-webkit-scrollbar { width: 5px; }
-    .zip-coverage-results::-webkit-scrollbar-thumb { background: rgba(30, 77, 140, 0.2); border-radius: 4px; }
-    .zip-coverage-results::-webkit-scrollbar-thumb:hover { background: rgba(30, 77, 140, 0.35); }
 
     .zip-coverage-result {
       width: 100%;
@@ -985,52 +666,6 @@
       font-size: 12px;
       color: var(--muted);
       line-height: 1.45;
-    }
-
-    .zip-coverage-proximity {
-      border-left: 3px solid #d4a843;
-      background: linear-gradient(135deg, #fffdf5 0%, #fff 100%);
-    }
-
-    .zip-proximity-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 3px;
-      background: rgba(212, 168, 67, 0.13) !important;
-      color: #8a6d1b !important;
-      font-weight: 700;
-    }
-    .zip-proximity-badge svg {
-      flex-shrink: 0;
-    }
-
-    .zip-coverage-radius-controls {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 8px 0 4px;
-    }
-    .zip-coverage-radius-readout {
-      min-width: 52px;
-      text-align: center;
-      font-size: 13px;
-      font-weight: 800;
-      color: #8a6d1b;
-    }
-    .zip-coverage-radius-label {
-      font-size: 11px;
-      font-weight: 600;
-      color: var(--muted);
-      letter-spacing: 0.02em;
-    }
-
-    .zip-coverage-center-pin {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      background: #d4a843;
-      border: 2.5px solid #fff;
-      box-shadow: 0 0 6px rgba(212, 168, 67, 0.5);
     }
 
     .list-panel {
@@ -1267,7 +902,7 @@
       height: 8px;
       border-radius: 999px;
       overflow: hidden;
-      background: rgba(140, 170, 210, 0.26);
+      background: rgba(159, 182, 169, 0.26);
     }
 
     .completed-service-load-progress-fill {
@@ -1507,7 +1142,7 @@
 
     .top-toolbar {
       position: relative;
-      z-index: 20;
+      z-index: 20;           /* above floating-status-panel (z-index:2) so dropdown wins */
       display: block;
       padding: 10px 16px;
       background:
@@ -1515,6 +1150,7 @@
       border-bottom: 1px solid rgba(190, 210, 235, 0.92);
       box-shadow: 0 12px 30px rgba(12, 22, 50, 0.06);
       backdrop-filter: blur(12px);
+      z-index: 2;
     }
 
     .map-stage {
@@ -1580,73 +1216,9 @@
       flex-shrink: 0;
     }
 
-    /* Hybrid icon + short label buttons */
-    .btn-icon {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      white-space: nowrap;
-    }
-    .btn-icon svg {
-      width: 15px;
-      height: 15px;
-      flex-shrink: 0;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    /* Legacy dual-label kept for any remaining uses */
+    /* Dual-label system: .btn-short hidden by default, shown at tight breakpoints */
     .btn-short { display: none; }
     .btn-full  { display: inline; }
-
-    /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
-    .toolbar-view-switch {
-      display: inline-flex;
-      align-items: center;
-      background: rgba(190, 210, 235, 0.35);
-      border-radius: 8px;
-      padding: 2px;
-      gap: 2px;
-      flex-shrink: 0;
-    }
-    .toolbar-view-switch button {
-      display: inline-flex;
-      align-items: center;
-      gap: 5px;
-      padding: 6px 10px;
-      border: none;
-      border-radius: 6px;
-      background: transparent;
-      color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      white-space: nowrap;
-      transition: all 0.15s ease;
-      line-height: 1;
-    }
-    .toolbar-view-switch button svg {
-      width: 14px;
-      height: 14px;
-      flex-shrink: 0;
-      stroke: currentColor;
-      fill: none;
-      stroke-width: 2;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-    }
-    .toolbar-view-switch button:hover {
-      color: var(--text);
-      background: rgba(190, 210, 235, 0.3);
-    }
-    .toolbar-view-switch button.active {
-      background: #fff;
-      color: var(--accent);
-      box-shadow: 0 1px 3px rgba(12, 22, 50, 0.1);
-    }
 
     /* ── Tier 1 (≤1450px): reduce cell padding, tighten buttons ── */
     @media (max-width: 1450px) {
@@ -1657,13 +1229,13 @@
       .toolbar-select { min-width: 132px; max-width: 170px; }
     }
 
-    /* ── Tier 2 (≤1200px): compress further ── */
+    /* ── Tier 2 (≤1200px): swap to short labels, compress further ── */
     @media (max-width: 1200px) {
       .toolbar-cell { padding: 0 8px; gap: 5px; }
       .toolbar-cell:first-child { padding-left: 0; }
       .btn-full  { display: none; }
       .btn-short { display: inline; }
-      .toolbar-pin-mode-button { min-width: 54px; padding: 8px 8px; }
+      .toolbar-pin-mode-button { min-width: 64px; padding: 8px 8px; }
       .toolbar-radius-presets .radius-btn { padding: 7px 7px; font-size: 10px; }
       .toolbar-select { min-width: 118px; max-width: 148px; }
       .toolbar-cell-grow { min-width: 100px; }
@@ -2229,8 +1801,8 @@
     }
 
     .import-modal {
-      width: min(1040px, calc(100vw - 72px));
-      max-height: min(86vh, 860px);
+      width: min(1180px, calc(100vw - 48px));
+      max-height: min(88vh, 900px);
       display: grid;
       grid-template-rows: auto 1fr auto;
       background: rgba(247, 250, 255, 0.98);
@@ -2266,26 +1838,40 @@
     .import-modal-body {
       min-height: 0;
       overflow: auto;
-      padding: 18px 22px 20px;
+      padding: 20px 22px 22px;
       display: grid;
-      gap: 18px;
+      gap: 20px;
       align-content: start;
     }
 
     .import-grid {
       display: grid;
-      grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
-      gap: 18px;
+      grid-template-columns: minmax(390px, 430px) minmax(0, 1fr);
+      gap: 20px;
       align-items: start;
     }
 
     .import-card {
       display: grid;
-      gap: 12px;
-      padding: 16px;
-      border-radius: 18px;
+      gap: 14px;
+      padding: 18px;
+      border-radius: 20px;
       background: linear-gradient(180deg, #f8faff 0%, #f0f4fc 100%);
       border: 1px solid #c8d5e8;
+    }
+
+    .import-setup-card {
+      align-content: start;
+      gap: 16px;
+    }
+
+    .import-workspace-card {
+      align-content: start;
+      min-height: 100%;
+    }
+
+    .import-preview-card {
+      gap: 12px;
     }
 
     .import-card h3 {
@@ -2323,6 +1909,38 @@
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 12px;
+      min-height: 220px;
+      align-content: start;
+    }
+
+    .import-mapping-grid.empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 22px;
+      border-radius: 16px;
+      border: 1px dashed #c8d5e8;
+      background: rgba(255, 255, 255, 0.76);
+      min-height: 220px;
+    }
+
+    .import-empty-state {
+      display: grid;
+      gap: 8px;
+      max-width: 420px;
+      text-align: left;
+      color: var(--muted);
+    }
+
+    .import-empty-state strong {
+      color: var(--text);
+      font-size: 16px;
+      line-height: 1.2;
+    }
+
+    .import-empty-state span {
+      font-size: 14px;
+      line-height: 1.55;
     }
 
     .import-mapping-field {
@@ -2330,11 +1948,37 @@
       gap: 6px;
     }
 
+    #import-file-input {
+      padding: 10px 12px;
+      background: linear-gradient(180deg, #ffffff 0%, #f6f9fe 100%);
+    }
+
+    #import-file-input::file-selector-button {
+      margin-right: 12px;
+      padding: 10px 14px;
+      border: 1px solid #c0d0e5;
+      border-radius: 10px;
+      background: #fff;
+      color: var(--text);
+      font-weight: 700;
+      cursor: pointer;
+      transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease;
+    }
+
+    #import-file-input::file-selector-button:hover,
+    #import-file-input::file-selector-button:focus-visible {
+      border-color: #7a9ec0;
+      box-shadow: 0 0 0 3px rgba(15, 35, 80, 0.08);
+      transform: translateY(-1px);
+      outline: none;
+    }
+
     .import-preview-shell {
       overflow: auto;
       border-radius: 16px;
       border: 1px solid #c8d5e8;
       background: #fff;
+      min-height: 260px;
     }
 
     .import-preview-table {
@@ -2712,61 +2356,7 @@
       font-size: 12px;
       font-weight: 700;
       text-align: center;
-      padding: 0;
-      position: relative;
-      overflow: hidden;
-      cursor: pointer;
-    }
-    .profile-photo-shell .photo-placeholder {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-      width: 100%;
-      height: 100%;
       padding: 10px;
-    }
-    .profile-photo-shell .photo-placeholder svg {
-      width: 28px;
-      height: 28px;
-      stroke: var(--muted);
-      fill: none;
-      stroke-width: 1.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      opacity: 0.6;
-    }
-    .profile-photo-shell .photo-placeholder span {
-      font-size: 10px;
-      opacity: 0.8;
-    }
-    .profile-photo-shell img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      display: block;
-    }
-    .profile-photo-shell:hover::after {
-      content: "Change";
-      position: absolute;
-      inset: 0;
-      background: rgba(12, 22, 50, 0.55);
-      color: #fff;
-      font-size: 11px;
-      font-weight: 700;
-      display: grid;
-      place-items: center;
-      border-radius: 18px;
-    }
-    .profile-photo-shell input[type="file"] {
-      position: absolute;
-      inset: 0;
-      width: 100%;
-      height: 100%;
-      opacity: 0;
-      cursor: pointer;
-      z-index: 1;
     }
 
     .profile-rating {
@@ -3186,55 +2776,6 @@
     .profile-field textarea {
       min-height: 86px;
       resize: vertical;
-    }
-
-    .referral-zips-display {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 5px;
-      font-size: 12px;
-      color: var(--muted);
-      min-height: 28px;
-      align-items: center;
-    }
-    .referral-zip-chip {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      padding: 3px 8px;
-      border-radius: 6px;
-      background: rgba(30, 77, 140, 0.08);
-      color: var(--accent);
-      font-size: 11px;
-      font-weight: 600;
-      white-space: nowrap;
-    }
-    .referral-zip-chip .zip-count {
-      font-weight: 400;
-      opacity: 0.7;
-    }
-
-    .preferred-zips-stale-warning {
-      display: flex;
-      align-items: flex-start;
-      gap: 6px;
-      padding: 8px 10px;
-      border-radius: 8px;
-      background: #fff3cd;
-      border: 1px solid #e6c547;
-      color: #7a5d00;
-      font-size: 11px;
-      font-weight: 600;
-      line-height: 1.4;
-      margin-top: 6px;
-    }
-    .preferred-zips-stale-warning svg {
-      flex-shrink: 0;
-      margin-top: 1px;
-      color: #b8860b;
-    }
-    .preferred-zips-stale-warning[hidden] {
-      display: none;
     }
 
     .work-center-shell {
@@ -3947,116 +3488,6 @@
   </style>
 </head>
 <body>
-
-  <!-- ── Login overlay (hidden once authenticated) ── -->
-  <div class="auth-overlay" id="auth-overlay">
-    <div class="auth-card">
-
-      <!-- Logo -->
-      <div class="auth-logo">
-        <div class="auth-logo-mark">
-          <svg viewBox="0 0 24 24"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-        </div>
-        <div class="auth-logo-text">
-          <span class="auth-logo-name">DependableCare</span>
-          <span class="auth-logo-sub">Staffing Dashboard</span>
-        </div>
-      </div>
-
-      <!-- Tab switcher -->
-      <div class="auth-tabs" id="auth-tabs">
-        <button type="button" class="auth-tab active" id="tab-signin" onclick="authShowTab('signin')">Sign In</button>
-        <button type="button" class="auth-tab" id="tab-signup" onclick="authShowTab('signup')">Sign Up</button>
-      </div>
-
-      <!-- Sign In form -->
-      <div id="auth-panel-signin">
-        <p class="auth-subtitle">Welcome back. Enter your credentials to continue.</p>
-        <form id="auth-signin-form" autocomplete="on" method="post" action="#" onsubmit="authSignIn(event); return false;">
-          <div class="auth-field">
-            <label for="auth-email">Email</label>
-            <input id="auth-email" type="email" name="email" placeholder="you@dependablecare.com" autocomplete="email" required>
-          </div>
-          <div class="auth-field">
-            <label for="auth-password">Password</label>
-            <input id="auth-password" type="password" name="password" placeholder="••••••••" autocomplete="current-password" required>
-          </div>
-          <button type="submit" class="auth-submit" id="auth-signin-btn">Sign in</button>
-          <div class="auth-error" id="auth-signin-error"></div>
-        </form>
-        <button type="button" class="auth-forgot-link" id="auth-forgot-btn" onclick="authShowForgot()">Forgot password?</button>
-      </div>
-
-      <!-- Sign Up form -->
-      <div id="auth-panel-signup" style="display:none">
-        <p class="auth-subtitle">Create your account. You'll have read-only access until an admin upgrades you.</p>
-        <form id="auth-signup-form" autocomplete="on" method="post" action="#" onsubmit="authSignUp(event); return false;">
-          <div class="auth-field">
-            <label for="auth-signup-name">Full Name</label>
-            <input id="auth-signup-name" type="text" placeholder="Jane Smith" autocomplete="name" required>
-          </div>
-          <div class="auth-field">
-            <label for="auth-signup-email">Email</label>
-            <input id="auth-signup-email" type="email" placeholder="you@dependablecare.com" autocomplete="email" required>
-          </div>
-          <div class="auth-field">
-            <label for="auth-signup-password">Password</label>
-            <input id="auth-signup-password" type="password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8">
-          </div>
-          <button type="submit" class="auth-submit" id="auth-signup-btn">Create account</button>
-          <div class="auth-error" id="auth-signup-error"></div>
-          <div class="auth-success" id="auth-signup-success" style="display:none"></div>
-        </form>
-      </div>
-
-      <!-- Forgot password form -->
-      <div id="auth-panel-forgot" style="display:none">
-        <p class="auth-subtitle">Enter your email and we'll send a password reset link.</p>
-        <form id="auth-forgot-form" autocomplete="on" onsubmit="authForgot(event)">
-          <div class="auth-field">
-            <label for="auth-forgot-email">Email</label>
-            <input id="auth-forgot-email" type="email" placeholder="you@dependablecare.com" autocomplete="email" required>
-          </div>
-          <button type="submit" class="auth-submit" id="auth-forgot-btn-submit">Send reset link</button>
-          <div class="auth-error" id="auth-forgot-error"></div>
-          <div class="auth-success" id="auth-forgot-success" style="display:none"></div>
-        </form>
-        <button type="button" class="auth-forgot-link" onclick="authShowTab('signin'">← Back to sign in</button>
-      </div>
-
-      <!-- Set new password (after invite/reset link) -->
-      <div id="auth-panel-setpassword" style="display:none">
-        <p class="auth-subtitle">Choose a new password for your account.</p>
-        <form id="auth-setpassword-form" onsubmit="authSetPassword(event)">
-          <div class="auth-field">
-            <label for="auth-new-password">New Password</label>
-            <input id="auth-new-password" type="password" placeholder="At least 8 characters" autocomplete="new-password" required minlength="8">
-          </div>
-          <div class="auth-field">
-            <label for="auth-new-password2">Confirm Password</label>
-            <input id="auth-new-password2" type="password" placeholder="Same password again" autocomplete="new-password" required minlength="8">
-          </div>
-          <button type="submit" class="auth-submit" id="auth-setpassword-btn">Set password &amp; sign in</button>
-          <div class="auth-error" id="auth-setpassword-error"></div>
-        </form>
-      </div>
-
-    </div>
-  </div>
-
-  <!-- ── User Management Modal (admin only) ── -->
-  <div class="um-overlay hidden" id="um-overlay" onclick="umClose(event)">
-    <div class="um-modal" onclick="event.stopPropagation()">
-      <div class="um-header">
-        <h2>👥 Manage Users</h2>
-        <button class="um-close" onclick="umClose()" title="Close">✕</button>
-      </div>
-      <div class="um-body">
-        <div id="um-content"><div class="um-loading">Loading users…</div></div>
-      </div>
-    </div>
-  </div>
-
   <div class="app-shell" id="app-shell">
 
     <aside class="sidebar" id="sidebar">
@@ -4150,6 +3581,33 @@
         </section>
 
         <section class="controls">
+          <details class="control-section agency-directory-panel">
+            <summary>Home Health Agencies</summary>
+            <div class="section-body">
+              <div class="field">
+                <label for="agency-search">Agency Search</label>
+                <input id="agency-search" type="text" placeholder="Search home health agency">
+              </div>
+              <div class="toggle-row compact">
+                <div class="toggle-copy">
+                  <div class="toggle-title">Show all HH on map</div>
+                  <div class="toggle-caption">Home health locations stay off the map until you explicitly turn them on.</div>
+                </div>
+                <label class="switch">
+                  <input id="show-all-agencies-toggle" type="checkbox">
+                  <span class="switch-slider"></span>
+                </label>
+              </div>
+              <div class="agency-directory-meta">
+                <span id="agency-list-summary" class="helper-text">0 loaded</span>
+                <span class="helper-text">Separate HH directory</span>
+              </div>
+              <div class="agency-directory-list">
+                <ul id="agency-list"></ul>
+              </div>
+            </div>
+          </details>
+
           <details class="control-section completed-service-directory-panel">
             <summary>Completed Services</summary>
             <div class="section-body">
@@ -4195,33 +3653,6 @@
               </div>
             </div>
           </details>
-
-          <details class="control-section agency-directory-panel">
-            <summary>Home Health Agencies</summary>
-            <div class="section-body">
-              <div class="field">
-                <label for="agency-search">Agency Search</label>
-                <input id="agency-search" type="text" placeholder="Search home health agency">
-              </div>
-              <div class="toggle-row compact">
-                <div class="toggle-copy">
-                  <div class="toggle-title">Show all HH on map</div>
-                  <div class="toggle-caption">Home health locations stay off the map until you explicitly turn them on.</div>
-                </div>
-                <label class="switch">
-                  <input id="show-all-agencies-toggle" type="checkbox">
-                  <span class="switch-slider"></span>
-                </label>
-              </div>
-              <div class="agency-directory-meta">
-                <span id="agency-list-summary" class="helper-text">0 loaded</span>
-                <span class="helper-text">Separate HH directory</span>
-              </div>
-              <div class="agency-directory-list">
-                <ul id="agency-list"></ul>
-              </div>
-            </div>
-          </details>
         </section>
       </div>
       <div id="sidebar-resize-handle" class="sidebar-resize-handle" role="separator" aria-label="Resize dashboard sidebar" aria-orientation="vertical" tabindex="0"></div>
@@ -4231,16 +3662,6 @@
 
       <div class="top-toolbar">
         <div class="toolbar-row">
-
-          <!-- ── Cell 0: View Switch ── -->
-          <div class="toolbar-cell" style="padding-left:0">
-            <div class="toolbar-view-switch" role="group" aria-label="Sidebar view switch">
-              <button id="view-switch-clinicians" type="button" class="active" title="Open Clinician List in sidebar"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Clinicians</button>
-              <button id="view-switch-services" type="button" title="Open Completed Services in sidebar"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Services</button>
-            </div>
-          </div>
-
-          <div class="toolbar-sep"></div>
 
           <!-- ── Cell 1: Find Clinician ── -->
           <div id="clinician-search-shell" class="toolbar-cell toolbar-cell-grow" style="position:relative">
@@ -4268,8 +3689,8 @@
 
           <!-- ── Cell 4: Radius Selection ── -->
           <div class="toolbar-cell toolbar-radius-cell" aria-label="Radius selection tools">
-            <button id="radius-mode-toggle" class="btn-secondary" type="button" title="Toggle radius selection mode"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Radius</span></button>
-            <button id="clear-selection" class="btn-secondary" type="button" title="Clear current selection"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Clear</span></button>
+            <button id="radius-mode-toggle" class="btn-secondary" type="button"><span class="btn-full">Radius Mode</span><span class="btn-short">Radius</span></button>
+            <button id="clear-selection" class="btn-secondary" type="button">Clear</button>
             <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">−</button>
             <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
             <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
@@ -4286,8 +3707,8 @@
           <!-- ── Cell 5: Clinician Pin Mode ── -->
           <div class="toolbar-cell">
             <div class="toolbar-pin-mode-toggle" role="group" aria-label="Clinician pin display mode">
-              <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true" title="Show clinician work center locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="4"/></svg>Work</span></button>
-              <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false" title="Show clinician home locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Home</span></button>
+              <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true"><span class="btn-full">Work Center</span><span class="btn-short">Work</span></button>
+              <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false"><span class="btn-full">Home Pin</span><span class="btn-short">Home</span></button>
             </div>
           </div>
 
@@ -4295,8 +3716,8 @@
 
           <!-- ── Cell 6: Map Utilities ── -->
           <div class="toolbar-cell">
-            <button id="zoom-extents" class="btn-secondary" type="button" title="Zoom to fit all visible clinicians"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>Fit</span></button>
-            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button" title="Toggle TherapyBoss integration panel"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>TB</span></button>
+            <button id="zoom-extents" class="btn-secondary" type="button"><span class="btn-full">Zoom Extents</span><span class="btn-short">Zoom</span></button>
+            <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button"><span class="btn-full">TherapyBoss</span><span class="btn-short">TB</span></button>
             <select id="style-selector" class="toolbar-select" aria-label="Map style">
               <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
               <option value="mapbox://styles/mapbox/standard">Mapbox Standard</option>
@@ -4305,29 +3726,14 @@
               <option value="mapbox://styles/mapbox/satellite-streets-v12">Satellite Streets</option>
             </select>
             <div class="toolbar-menu" id="toolbar-menu">
-              <button id="tools-menu-button" class="btn-secondary menu-button" type="button" title="Additional map tools"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="1"/><circle cx="12" cy="5" r="1"/><circle cx="12" cy="19" r="1"/></svg>Tools</span></button>
+              <button id="tools-menu-button" class="btn-secondary menu-button" type="button">Tools</button>
               <div class="menu-panel">
-                <button id="toolbar-add-clinician" class="menu-item edit-only" type="button">Add Clinician</button>
+                <button id="toolbar-add-clinician" class="menu-item" type="button">Add Clinician</button>
                 <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
-                <button id="toolbar-bulk-import" class="menu-item edit-only" type="button">Bulk Import</button>
+                <button id="toolbar-bulk-import" class="menu-item" type="button">Bulk Import</button>
                 <button id="toolbar-clear-map-search" class="menu-item" type="button">Clear Search Pin</button>
               </div>
             </div>
-          </div>
-
-          <div class="toolbar-sep"></div>
-
-          <!-- ── User chip + logout ── -->
-          <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
-            <button type="button" class="um-manage-btn edit-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
-            <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
-              <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
-              <div style="display:flex;flex-direction:column;line-height:1.2">
-                <span id="toolbar-user-email" style="font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-                <span class="toolbar-user-role" id="toolbar-user-role">loading…</span>
-              </div>
-            </div>
-            <button type="button" class="toolbar-logout-btn" id="toolbar-logout" style="display:none;">Sign out</button>
           </div>
 
         </div>
@@ -4335,7 +3741,7 @@
 
       <div class="map-stage">
       <div id="map"></div>
-        <div class="version-indicator">Prototype Rev 119</div>
+        <div class="version-indicator">Prototype Rev 112</div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Status</div>
         <div class="status-card">
@@ -4361,15 +3767,8 @@
           <div class="zip-coverage-shell">
             <div class="radius-coverage-title">ZIP Coverage Results</div>
             <div id="zip-coverage-note" class="radius-coverage-note">Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage against the current clinician filters and loaded completed-service history.</div>
-            <div id="zip-coverage-radius-controls" class="zip-coverage-radius-controls" hidden>
-              <button id="zip-coverage-radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink proximity radius">−</button>
-              <div id="zip-coverage-radius-readout" class="radius-readout zip-coverage-radius-readout">5 mi</div>
-              <button id="zip-coverage-radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow proximity radius">+</button>
-              <span class="zip-coverage-radius-label">proximity radius</span>
-            </div>
             <div id="zip-coverage-results" class="zip-coverage-results"></div>
           </div>
-          <div id="zip-coverage-resize-handle" class="zip-coverage-resize-handle" role="separator" aria-label="Resize ZIP coverage results" tabindex="0"></div>
           <div id="radius-coverage-shell" class="radius-coverage-shell" hidden></div>
         </div>
         <div id="floating-status-resize-handle" class="floating-status-resize-handle" role="separator" aria-label="Resize status panel" aria-orientation="horizontal" tabindex="0"></div>
@@ -4425,12 +3824,12 @@
           </div>
           <div class="import-modal-body">
             <div class="import-grid">
-              <section class="import-card">
+              <section class="import-card import-setup-card">
                 <h3>File</h3>
                 <p>Choose the import lane first, then upload the matching CSV or XLSX file. Each import type keeps its own field map and upload path.</p>
-                <div class="field">
+                <div class="field import-control-block">
                   <label>Import Type</label>
-                  <div class="import-kind-row" role="group" aria-label="Import type">
+                  <div class="import-kind-row import-kind-grid" role="group" aria-label="Import type">
                     <button type="button" class="import-kind-button active" data-import-kind-button="clinician_master">Clinicians</button>
                     <button type="button" class="import-kind-button" data-import-kind-button="zip_coverage">ZIP Coverage</button>
                     <button type="button" class="import-kind-button" data-import-kind-button="home_health_agencies">HH Agencies</button>
@@ -4438,7 +3837,7 @@
                   </div>
                   <div id="import-kind-copy" class="toolbar-subtext">Upsert therapist roster data into clinician profiles and home pins.</div>
                 </div>
-                <div id="clinician-import-mode-shell" class="field">
+                <div id="clinician-import-mode-shell" class="field import-control-block">
                   <label>Clinician Import Mode</label>
                   <div class="import-kind-row import-submode-row" role="group" aria-label="Clinician import mode">
                     <button type="button" class="import-kind-button" data-clinician-import-mode="full_initial_load">Full Initial Load</button>
@@ -4450,7 +3849,7 @@
                     Full Initial Load can overwrite roster fields like name, discipline, home pin, phone, and email on matched clinicians. Use it only for the baseline roster load.
                   </div>
                 </div>
-                <div class="field">
+                <div class="field import-control-block">
                   <label for="import-file-input">Import File</label>
                   <input id="import-file-input" type="file" accept=".csv,text/csv,.txt,text/plain,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
                 </div>
@@ -4464,13 +3863,13 @@
                 <div id="import-file-meta" class="import-file-meta"></div>
                 <div id="import-status" class="import-status">Choose a CSV or XLSX file to begin.</div>
               </section>
-              <section class="import-card">
+              <section class="import-card import-workspace-card">
                 <h3>Field Mapping</h3>
                 <p>Header mapping is editable, so if TherapyBoss changes a column name you can still preview and stage the rows without touching code.</p>
                 <div id="import-mapping-grid" class="import-mapping-grid"></div>
               </section>
             </div>
-            <section class="import-card">
+            <section class="import-card import-preview-card">
               <h3>Preview</h3>
               <p>The preview shows the first staged rows after mapping, including clinician matches found from the current directory. Completed-services files also split semicolon-delimited clinician names into child assignment rows for upload.</p>
               <div id="import-preview-shell" class="import-preview-shell"></div>
@@ -4480,7 +3879,7 @@
             <div id="import-footer-copy" class="import-footer-copy">Clinician imports upsert into `clinician_v2`, preserving map-ready records while updating the roster profile data.</div>
             <div class="button-row">
               <button id="import-reset" type="button" class="btn-secondary">Reset</button>
-              <button id="import-upload" type="button" class="btn-primary edit-only" disabled>Upload to Supabase</button>
+              <button id="import-upload" type="button" class="btn-primary" disabled>Upload to Supabase</button>
             </div>
           </div>
         </div>
@@ -4512,14 +3911,7 @@
           </div>
           <div class="profile-panel-side">
             <button id="profile-close" type="button" class="btn-secondary profile-close">Close</button>
-            <div id="profile-photo-shell" class="profile-photo-shell">
-              <input id="profile-photo-input" type="file" accept="image/*" title="Upload clinician photo">
-              <div class="photo-placeholder" id="profile-photo-placeholder">
-                <svg viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4-4v2"/><circle cx="12" cy="7" r="4"/></svg>
-                <span>Add Photo</span>
-              </div>
-              <img id="profile-photo-img" src="" alt="Clinician photo" style="display:none">
-            </div>
+            <div id="profile-photo-shell" class="profile-photo-shell">Photo if available</div>
             <div class="profile-rating" aria-label="Internal clinician rating">
               <button type="button" class="rating-star" data-profile-rating-star="1" aria-label="1 star" aria-pressed="false">&#9733;</button>
               <button type="button" class="rating-star" data-profile-rating-star="2" aria-label="2 stars" aria-pressed="false">&#9733;</button>
@@ -4557,20 +3949,14 @@
                     <label for="profile-core-zip-input">ZIP</label>
                     <input id="profile-core-zip-input" type="text" placeholder="ZIP code">
                   </div>
-                  <input id="profile-core-radius-input" type="hidden" value="">
+                  <div class="profile-field">
+                    <label for="profile-core-radius-input">Radius</label>
+                    <input id="profile-core-radius-input" type="text" placeholder="Optional radius">
+                  </div>
                   <div class="profile-field full">
                     <label for="profile-core-preferred-zips-input">Preferred ZIPs</label>
                     <input id="profile-core-preferred-zips-input" type="text" placeholder="Optional preferred ZIP list">
                     <div class="helper-text">Maintain ZIP coverage in TherapyBoss first, then use the ZIP Coverage import here to sync this list.</div>
-                    <div id="preferred-zips-stale-warning" class="preferred-zips-stale-warning" hidden>
-                      <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                      Ignore History Before is set — these Preferred ZIPs may be outdated. Please update this clinician's ZIP coverage in TherapyBoss and re-import.
-                    </div>
-                  </div>
-                  <div class="profile-field full">
-                    <label>Referral History ZIPs</label>
-                    <div id="profile-referral-zips" class="referral-zips-display">No completed service history loaded yet.</div>
-                    <div class="helper-text">Auto-computed from completed service history. Respects the Ignore History Before date.</div>
                   </div>
                 </div>
                 <div class="helper-text">Address and ZIP will be geocoded when you create the clinician so the new marker lands on the map.</div>
@@ -4712,8 +4098,8 @@
                 <div id="profile-zip" class="profile-kv-value">Not set</div>
               </div>
               <div class="profile-kv">
-                <div class="profile-kv-label">Referral ZIPs</div>
-                <div id="profile-referral-zips-snapshot" class="profile-kv-value referral-zips-display">—</div>
+                <div class="profile-kv-label">Radius</div>
+                <div id="profile-radius" class="profile-kv-value">Not set</div>
               </div>
               <div class="profile-kv">
                 <div class="profile-kv-label">Address</div>
@@ -4748,7 +4134,7 @@
             </div>
             <div class="button-row">
               <button id="territory-draw-toggle" type="button" class="btn-secondary">Draw Territory</button>
-              <button id="territory-save-draft" type="button" class="btn-primary edit-only">Save Local Draft</button>
+              <button id="territory-save-draft" type="button" class="btn-primary">Save Local Draft</button>
             </div>
             <div class="button-row">
               <button id="territory-clear-draft" type="button" class="btn-secondary">Clear Draft</button>
@@ -4760,7 +4146,7 @@
           <section class="profile-card">
             <h3 class="profile-card-title">Quick Actions</h3>
             <div class="button-row">
-          <button id="profile-save-shell" type="button" class="btn-primary edit-only">Save Profile</button>
+          <button id="profile-save-shell" type="button" class="btn-primary">Save Profile</button>
               <button id="profile-open-history" type="button" class="btn-secondary" disabled>Show History</button>
             </div>
           </section>
@@ -4883,7 +4269,7 @@
           <section class="profile-card">
             <h3 class="profile-card-title">Quick Actions</h3>
             <div class="button-row">
-              <button id="agency-save-draft" type="button" class="btn-primary edit-only">Save Local Draft</button>
+              <button id="agency-save-draft" type="button" class="btn-primary">Save Local Draft</button>
               <button id="agency-center-on-map" type="button" class="btn-secondary">Center on Map</button>
             </div>
           </section>
@@ -4894,358 +4280,12 @@
   </div>
 
   <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-
+  <script src="./home-health-agencies.js"></script>
   <script>
-    // Synchronous session check — hides login overlay instantly if session exists in storage
-    // Prevents the login screen flash on refresh
-    (function() {
-      try {
-        for (var i = 0; i < sessionStorage.length; i++) {
-          var k = sessionStorage.key(i);
-          if (k && k.indexOf('sb-') === 0 && k.indexOf('-auth-token') !== -1) {
-            var el = document.getElementById('auth-overlay');
-            if (el) el.style.display = 'none';
-            break;
-          }
-        }
-      } catch(e) {}
-    })();
-
     mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
     const supabaseUrl = "https://jpemlcuxjvynlbeygukb.supabase.co";
-    const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
-    // Cookie-based storage — survives refresh, not blocked by tracking prevention
-    const cookieAuthStorage = {
-      getItem: function(key) {
-        try {
-          var name = key + '=';
-          var parts = document.cookie.split(';');
-          for (var i = 0; i < parts.length; i++) {
-            var c = parts[i].trim();
-            if (c.indexOf(name) === 0) return decodeURIComponent(c.substring(name.length));
-          }
-        } catch(e) {}
-        return null;
-      },
-      setItem: function(key, value) {
-        try {
-          var expires = new Date();
-          expires.setDate(expires.getDate() + 7);
-          document.cookie = key + '=' + encodeURIComponent(value) + '; expires=' + expires.toUTCString() + '; path=/; SameSite=Lax';
-        } catch(e) {}
-      },
-      removeItem: function(key) {
-        try {
-          document.cookie = key + '=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-        } catch(e) {}
-      }
-    };
-    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        storage: window.sessionStorage,
-        persistSession: true,
-        autoRefreshToken: true,
-        detectSessionInUrl: true
-      }
-    });
-
-    /* ══════════════════════════════════════════════════
-       AUTH LAYER
-       ══════════════════════════════════════════════════ */
-    var appCurrentUser = null;
-    var appUserRole = "readonly";
-
-    /* ── Helpers ── */
-    function getAuthInitials(email) {
-      var parts = String(email || "?").split("@")[0].split(/[\._\-]/);
-      if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
-      return String(email || "?")[0].toUpperCase();
-    }
-
-    function authShowTab(tab) {
-      document.getElementById("auth-panel-signin").style.display  = tab === "signin"  ? "" : "none";
-      document.getElementById("auth-panel-signup").style.display  = tab === "signup"  ? "" : "none";
-      document.getElementById("auth-panel-forgot").style.display  = tab === "forgot"  ? "" : "none";
-      document.getElementById("auth-panel-setpassword").style.display = tab === "setpassword" ? "" : "none";
-      var tabs = document.getElementById("auth-tabs");
-      if (tabs) tabs.style.display = (tab === "setpassword" || tab === "forgot") ? "none" : "";
-      document.getElementById("tab-signin") && document.getElementById("tab-signin").classList.toggle("active", tab === "signin");
-      document.getElementById("tab-signup") && document.getElementById("tab-signup").classList.toggle("active", tab === "signup");
-    }
-
-    function authShowForgot() { authShowTab("forgot"); }
-
-    function authSetError(id, msg) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.textContent = msg;
-      el.classList.toggle("visible", Boolean(msg));
-      el.style.display = msg ? "block" : "none";
-    }
-
-    function authSetSuccess(id, msg) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.textContent = msg;
-      el.style.display = msg ? "block" : "none";
-    }
-
-    /* ── Sign In ── */
-    async function authSignIn(event) {
-      event.preventDefault();
-      var email    = String(document.getElementById("auth-email").value || "").trim();
-      var password = String(document.getElementById("auth-password").value || "");
-      var btn      = document.getElementById("auth-signin-btn");
-      authSetError("auth-signin-error", "");
-      btn.disabled = true; btn.textContent = "Signing in…";
-      var result = await supabaseClient.auth.signInWithPassword({ email, password });
-      btn.disabled = false; btn.textContent = "Sign in";
-      if (result.error) { authSetError("auth-signin-error", result.error.message || "Incorrect email or password."); return; }
-      await handleAuthSession(result.data.session);
-    }
-
-    /* ── Sign Up ── */
-    async function authSignUp(event) {
-      event.preventDefault();
-      var name     = String(document.getElementById("auth-signup-name").value || "").trim();
-      var email    = String(document.getElementById("auth-signup-email").value || "").trim();
-      var password = String(document.getElementById("auth-signup-password").value || "");
-      var btn      = document.getElementById("auth-signup-btn");
-      authSetError("auth-signup-error", "");
-      authSetSuccess("auth-signup-success", "");
-      btn.disabled = true; btn.textContent = "Creating account…";
-      var result = await supabaseClient.auth.signUp({
-        email, password,
-        options: { data: { full_name: name } }
-      });
-      btn.disabled = false; btn.textContent = "Create account";
-      if (result.error) { authSetError("auth-signup-error", result.error.message || "Sign-up failed."); return; }
-      // Auto-insert readonly role and sign in right away
-      if (result.data && result.data.session) {
-        await ensureUserRoleExists(result.data.session.user.id, "readonly");
-        await handleAuthSession(result.data.session);
-      } else {
-        authSetSuccess("auth-signup-success", "Account created! Check your email to confirm, then sign in.");
-      }
-    }
-
-    /* ── Forgot password ── */
-    async function authForgot(event) {
-      event.preventDefault();
-      var email = String(document.getElementById("auth-forgot-email").value || "").trim();
-      var btn   = document.getElementById("auth-forgot-btn-submit");
-      authSetError("auth-forgot-error", "");
-      authSetSuccess("auth-forgot-success", "");
-      btn.disabled = true; btn.textContent = "Sending…";
-      var redirectUrl = window.location.origin + window.location.pathname;
-      var result = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
-      btn.disabled = false; btn.textContent = "Send reset link";
-      if (result.error) { authSetError("auth-forgot-error", result.error.message || "Could not send reset email."); return; }
-      authSetSuccess("auth-forgot-success", "Reset link sent! Check your email and click the link — it'll bring you right back here.");
-    }
-
-    /* ── Set new password (after reset/invite link) ── */
-    async function authSetPassword(event) {
-      event.preventDefault();
-      var p1  = String(document.getElementById("auth-new-password").value || "");
-      var p2  = String(document.getElementById("auth-new-password2").value || "");
-      var btn = document.getElementById("auth-setpassword-btn");
-      authSetError("auth-setpassword-error", "");
-      if (p1 !== p2) { authSetError("auth-setpassword-error", "Passwords don't match."); return; }
-      btn.disabled = true; btn.textContent = "Saving…";
-      var result = await supabaseClient.auth.updateUser({ password: p1 });
-      btn.disabled = false; btn.textContent = "Set password & sign in";
-      if (result.error) { authSetError("auth-setpassword-error", result.error.message || "Could not set password."); return; }
-      // Session is already active after password update
-      var sessionResult = await supabaseClient.auth.getSession();
-      await handleAuthSession(sessionResult.data && sessionResult.data.session ? sessionResult.data.session : null);
-    }
-
-    /* ── Role helpers ── */
-    async function fetchUserRole(userId) {
-      try {
-        var result = await supabaseClient.from("user_roles").select("role").eq("user_id", userId).single();
-        if (result.data && result.data.role) return result.data.role;
-      } catch (e) { console.warn("Could not fetch user role", e); }
-      return "readonly";
-    }
-
-    async function ensureUserRoleExists(userId, defaultRole, email) {
-      try {
-        var payload = { user_id: userId, role: defaultRole };
-        if (email) payload.email = email;
-        await supabaseClient.from("user_roles").upsert(payload, { onConflict: "user_id", ignoreDuplicates: true });
-      } catch (e) { console.warn("Could not upsert user role", e); }
-    }
-
-    /* ── Apply session to app ── */
-    function applyUserToToolbar(user, role) {
-      var chip     = document.getElementById("toolbar-user-chip");
-      var avatar   = document.getElementById("toolbar-user-avatar");
-      var emailEl  = document.getElementById("toolbar-user-email");
-      var roleEl   = document.getElementById("toolbar-user-role");
-      var logoutBtn = document.getElementById("toolbar-logout");
-      if (!chip) return;
-      if (user) {
-        avatar.textContent     = getAuthInitials(user.email);
-        emailEl.textContent    = user.email;
-        roleEl.textContent     = role === "admin" ? "Admin" : "View Only";
-        chip.style.display     = "inline-flex";
-        logoutBtn.style.display = "";
-        umUpdateManageBtn(role);
-      } else {
-        chip.style.display      = "none";
-        logoutBtn.style.display = "none";
-        umUpdateManageBtn("readonly");
-      }
-    }
-
-    function applyReadOnlyMode(isReadOnly) {
-      document.body.classList.toggle("readonly-mode", isReadOnly);
-    }
-
-    function withTimeout(promise, ms, fallback) {
-      return Promise.race([
-        promise,
-        new Promise(function(resolve) { setTimeout(function() { resolve(fallback); }, ms); })
-      ]);
-    }
-
-    async function handleAuthSession(session) {
-      var authOverlay = document.getElementById("auth-overlay");
-      if (!session || !session.user) {
-        appCurrentUser = null; appUserRole = "readonly";
-        applyUserToToolbar(null, "readonly");
-        applyReadOnlyMode(true);
-        if (authOverlay) authOverlay.style.display = "flex";
-        return;
-      }
-      try {
-        appCurrentUser = session.user;
-        await withTimeout(ensureUserRoleExists(session.user.id, "readonly", session.user.email), 4000, null);
-        appUserRole = await withTimeout(fetchUserRole(session.user.id), 4000, "readonly");
-        applyUserToToolbar(session.user, appUserRole);
-        applyReadOnlyMode(appUserRole !== "admin");
-      } catch (e) {
-        console.warn("handleAuthSession error (non-fatal):", e);
-        appUserRole = "readonly";
-        applyUserToToolbar(session.user, "readonly");
-        applyReadOnlyMode(true);
-      } finally {
-        if (authOverlay) authOverlay.style.display = "none";
-      }
-    }
-
-    /* ── Sign out ── */
-    document.getElementById("toolbar-logout").addEventListener("click", async function() {
-      await supabaseClient.auth.signOut();
-      appCurrentUser = null; appUserRole = "readonly";
-      applyUserToToolbar(null, "readonly");
-      applyReadOnlyMode(true);
-      var authOverlay = document.getElementById("auth-overlay");
-      if (authOverlay) { authShowTab("signin"); authOverlay.style.display = "flex"; }
-    });
-
-    /* ── Auth state listener (handles token refresh, tab focus, etc.) ── */
-    supabaseClient.auth.onAuthStateChange(async function(event, session) {
-      console.log("[Auth] event:", event, "| session:", session ? session.user.email : "null");
-      if (event === "PASSWORD_RECOVERY") {
-        var authOverlay = document.getElementById("auth-overlay");
-        if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("setpassword"); }
-        return;
-      }
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
-        await handleAuthSession(session);
-      }
-      if (event === "SIGNED_OUT") {
-        await handleAuthSession(null);
-      }
-    });
-
-    /* ── On page load: check for existing session or reset/invite token in URL ── */
-    (async function initAuth() {
-      // If URL has error hash (e.g. expired OTP), show signin with a friendly message
-      var hash = window.location.hash || "";
-      if (hash.includes("error=access_denied") || hash.includes("otp_expired")) {
-        history.replaceState(null, "", window.location.pathname);
-        var authOverlay = document.getElementById("auth-overlay");
-        if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("forgot"); }
-        authSetError("auth-forgot-error", "That link expired. Enter your email below to get a fresh one.");
-        return;
-      }
-      var result = await supabaseClient.auth.getSession();
-      await handleAuthSession(result.data && result.data.session ? result.data.session : null);
-    })();
-    /* ═══════════════════════════════════════════════════════
-       USER MANAGEMENT PANEL
-    ═══════════════════════════════════════════════════════ */
-    function umOpen() {
-      var overlay = document.getElementById("um-overlay");
-      if (!overlay) return;
-      overlay.classList.remove("hidden");
-      umLoadUsers();
-    }
-
-    function umClose(event) {
-      if (event && event.target !== document.getElementById("um-overlay") && event.type === "click") return;
-      var overlay = document.getElementById("um-overlay");
-      if (overlay) overlay.classList.add("hidden");
-    }
-
-    async function umLoadUsers() {
-      var content = document.getElementById("um-content");
-      if (!content) return;
-      content.innerHTML = '<div class="um-loading">Loading users…</div>';
-      try {
-        var result = await supabaseClient.from("user_roles").select("user_id, role, email, created_at").order("created_at", { ascending: true });
-        if (result.error) throw result.error;
-        var rows = result.data || [];
-        if (rows.length === 0) {
-          content.innerHTML = '<div class="um-empty">No users found.</div>';
-          return;
-        }
-        var html = '<table class="um-table"><thead><tr><th>Email</th><th>Role</th><th>Joined</th><th>Action</th></tr></thead><tbody>';
-        rows.forEach(function(row) {
-          var isAdmin = row.role === "admin";
-          var isSelf = appCurrentUser && row.user_id === appCurrentUser.id;
-          var email = row.email || row.user_id.substring(0, 8) + "…";
-          var joined = row.created_at ? new Date(row.created_at).toLocaleDateString() : "—";
-          var badge = isAdmin
-            ? '<span class="um-badge admin">Admin</span>'
-            : '<span class="um-badge readonly">View Only</span>';
-          var actionBtn = isSelf
-            ? '<span style="font-size:11px;color:var(--muted)">You</span>'
-            : isAdmin
-              ? '<button class="um-action-btn demote" onclick="umChangeRole(\'' + row.user_id + '\', \'readonly\')">Demote</button>'
-              : '<button class="um-action-btn promote" onclick="umChangeRole(\'' + row.user_id + '\', \'admin\')">Make Admin</button>';
-          html += '<tr><td style="font-size:12px;word-break:break-all;">' + email + '</td><td>' + badge + '</td><td style="font-size:11px;color:var(--muted);">' + joined + '</td><td>' + actionBtn + '</td></tr>';
-        });
-        html += '</tbody></table>';
-        content.innerHTML = html;
-      } catch (e) {
-        console.error("umLoadUsers error:", e);
-        content.innerHTML = '<div class="um-empty">Could not load users. Make sure the admin policies are set in Supabase.</div>';
-      }
-    }
-
-    async function umChangeRole(userId, newRole) {
-      try {
-        var result = await supabaseClient.from("user_roles").update({ role: newRole }).eq("user_id", userId);
-        if (result.error) throw result.error;
-        await umLoadUsers(); // refresh the list
-      } catch (e) {
-        console.error("umChangeRole error:", e);
-        alert("Could not update role: " + (e.message || e));
-      }
-    }
-
-    /* ── Show "Users" button only when admin is signed in ── */
-    function umUpdateManageBtn(role) {
-      var btn = document.getElementById("toolbar-manage-users");
-      if (!btn) return;
-      btn.style.display = role === "admin" ? "" : "none";
-    }
-
+    const supabaseKey = "sb_publishable_C7GdOG7L64y92IDDreglcQ_C0jNcbhl";
+    const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey);
     let completedServiceLoadTimerHandle = null;
 
     const disciplineColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
@@ -5410,10 +4450,6 @@
       runZipCoverageCheck: document.getElementById("run-zip-coverage-check"),
       zipCoverageNote: document.getElementById("zip-coverage-note"),
       zipCoverageResults: document.getElementById("zip-coverage-results"),
-      zipCoverageRadiusControls: document.getElementById("zip-coverage-radius-controls"),
-      zipCoverageRadiusShrink: document.getElementById("zip-coverage-radius-shrink"),
-      zipCoverageRadiusGrow: document.getElementById("zip-coverage-radius-grow"),
-      zipCoverageRadiusReadout: document.getElementById("zip-coverage-radius-readout"),
       applyFilters: document.getElementById("apply-filters"),
       clearFilters: document.getElementById("clear-filters"),
       addClinicianMode: document.getElementById("add-clinician-mode"),
@@ -5511,15 +4547,9 @@
       profileRatingStars: Array.from(document.querySelectorAll("[data-profile-rating-star]")),
       profileAddress: document.getElementById("profile-address"),
       profileZip: document.getElementById("profile-zip"),
-      profileRadius: document.getElementById("profile-radius") || document.createElement("div"),
-      profileReferralZipsSnapshot: document.getElementById("profile-referral-zips-snapshot"),
+      profileRadius: document.getElementById("profile-radius"),
       profilePreferredZips: document.getElementById("profile-preferred-zips"),
-      profileReferralZips: document.getElementById("profile-referral-zips"),
-      preferredZipsStaleWarning: document.getElementById("preferred-zips-stale-warning"),
       profilePhotoShell: document.getElementById("profile-photo-shell"),
-      profilePhotoInput: document.getElementById("profile-photo-input"),
-      profilePhotoImg: document.getElementById("profile-photo-img"),
-      profilePhotoPlaceholder: document.getElementById("profile-photo-placeholder"),
       profileStatusInput: document.getElementById("profile-status-input"),
       profileStatusButtons: Array.from(document.querySelectorAll("[data-profile-status]")),
       profileStatusHistory: document.getElementById("profile-status-history"),
@@ -5667,13 +4697,6 @@
       sharedLanguageRecordsByNormalized: new Map(),
       zipFilter: "",
       zipCoverageCheckQuery: "",
-      zipCentroidCache: new Map(),
-      zipCoverageLoading: false,
-      zipCoverageRunToken: 0,
-      zipCoverageRadiusMiles: 5,
-      zipCoverageCentroid: null,
-      zipCoverageCenterMarker: null,
-      zipCoverageCircleSourceId: "zip-coverage-circle-source",
       pointSearch: "",
       clinicianPinMode: "work",
       radiusMode: false,
@@ -5733,9 +4756,6 @@
       maxPitch: 0,
       bearingSnap: 7
     });
-
-    // Ensure Mapbox picks up the correct container size after flex layout settles
-    window.requestAnimationFrame(function() { map.resize(); });
 
     function escapeHtml(value) {
       return String(value ?? "").replace(/[&<>"']/g, function(char) {
@@ -6561,9 +5581,6 @@
       if (!agency) return;
 
       persistCurrentAgencyDraft();
-      if (hasCurrentProfileUnsavedChanges()) {
-        if (!window.confirm("You have unsaved changes on the current clinician profile. Discard and switch to agency?")) return;
-      }
       closeClinicianProfile();
       appState.currentAgencyId = agencyId;
       applyAgencyDraft(getAgencyDraftForRecord(agency));
@@ -8119,7 +7136,6 @@
         renderZipCoverageCheck();
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
-        renderProfileReferralZips();
         if (appState.clinicianPinMode === "work") {
           refreshClinicianCoordinateDependentViews();
         }
@@ -8522,131 +7538,6 @@
         });
     }
 
-    function getClinicianReferralZips(clinician) {
-      const clinicianId = String((clinician && clinician.id) || "").trim();
-      if (!clinicianId) return [];
-
-      const draft = appState.profileDraftByClinicianId.get(clinicianId) || {};
-      const ignoreBeforeRaw = getClinicianEffectiveIgnoreHistoryBeforeValue(draft, clinician);
-      const cutoffDate = parseProfileDateValue(ignoreBeforeRaw);
-      const zipCounts = {};
-
-      function isRowEligible(row) {
-        if (!cutoffDate) return true;
-        var anchorDate = getCompletedServiceCoverageAnchorDate(row);
-        if (!anchorDate) return true;
-        return new Date(anchorDate) >= cutoffDate;
-      }
-
-      // Source 1: per-clinician detailed history (loaded when profile opens)
-      var perClinicianHistory = appState.clinicianCompletedServiceHistoryByClinicianId.get(clinicianId);
-      if (perClinicianHistory && Array.isArray(perClinicianHistory.sites)) {
-        perClinicianHistory.sites.forEach(function(site) {
-          var zip = getNormalizedZip((site.rows && site.rows.length && site.rows[0].zip_code) || "");
-          if (!zip && site.fullAddress) {
-            var addressMatch = String(site.fullAddress).match(/\b(\d{5})\b/);
-            if (addressMatch) zip = addressMatch[1];
-          }
-          if (!zip) return;
-
-          var eligibleRows = (site.rows || []).filter(isRowEligible);
-          if (eligibleRows.length) {
-            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
-          }
-        });
-      }
-
-      // Source 2: global completed service site index (batch-loaded)
-      if (!Object.keys(zipCounts).length && appState.hasLoadedCompletedServices && !appState.completedServiceLoadError) {
-        var siteKeys = appState.completedServiceSiteKeysByClinicianId.get(clinicianId) || [];
-        siteKeys.forEach(function(siteKey) {
-          var site = appState.completedServiceSitesByKey.get(siteKey);
-          if (!site) return;
-          var zip = getNormalizedZip(site.zip || "");
-          if (!zip && site.rows && site.rows.length) {
-            zip = getNormalizedZip(site.rows[0].zip_code);
-          }
-          if (!zip) return;
-
-          var matchingAssignments = (site.assignments || []).filter(function(a) {
-            return String(a.matched_clinician_id || "").trim() === clinicianId;
-          });
-          var matchingRowIds = new Set(matchingAssignments.map(function(a) { return a.service_row_id; }));
-          var eligibleRows = (site.rows || []).filter(function(row) {
-            if (!matchingRowIds.has(row.id)) return false;
-            return isRowEligible(row);
-          });
-
-          if (eligibleRows.length) {
-            zipCounts[zip] = (zipCounts[zip] || 0) + eligibleRows.length;
-          }
-        });
-      }
-
-      return Object.keys(zipCounts).sort(function(a, b) {
-        return zipCounts[b] - zipCounts[a];
-      }).map(function(zip) {
-        return { zip_code: zip, service_count: zipCounts[zip] };
-      });
-    }
-
-    function renderProfileReferralZips() {
-      if (!elements.profileReferralZips) return;
-
-      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
-        elements.profileReferralZips.innerHTML = "<span>No completed service history loaded yet.</span>";
-        return;
-      }
-
-      const clinicianId = appState.currentProfileClinicianId;
-      if (!clinicianId && !appState.profileCreateMode) {
-        elements.profileReferralZips.innerHTML = "";
-        return;
-      }
-
-      const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
-      if (!clinician) {
-        elements.profileReferralZips.innerHTML = "<span>No referral history.</span>";
-        return;
-      }
-
-      const referralZips = getClinicianReferralZips(clinician);
-      if (!referralZips.length) {
-        elements.profileReferralZips.innerHTML = "<span>No referral history in any ZIP code.</span>";
-        return;
-      }
-
-      elements.profileReferralZips.innerHTML = referralZips.map(function(entry) {
-        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
-      }).join("");
-    }
-
-    function renderProfileReferralZipsSnapshot() {
-      if (!elements.profileReferralZipsSnapshot) return;
-
-      if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
-        elements.profileReferralZipsSnapshot.textContent = "—";
-        return;
-      }
-
-      const clinicianId = appState.currentProfileClinicianId;
-      const clinician = clinicianId ? appState.clinicians.find(function(item) { return item.id === clinicianId; }) : null;
-      if (!clinician) {
-        elements.profileReferralZipsSnapshot.textContent = "—";
-        return;
-      }
-
-      const referralZips = getClinicianReferralZips(clinician);
-      if (!referralZips.length) {
-        elements.profileReferralZipsSnapshot.textContent = "None";
-        return;
-      }
-
-      elements.profileReferralZipsSnapshot.innerHTML = referralZips.slice(0, 8).map(function(entry) {
-        return "<span class='referral-zip-chip'>" + escapeHtml(entry.zip_code) + " <span class='zip-count'>(" + entry.service_count + ")</span></span>";
-      }).join("") + (referralZips.length > 8 ? "<span class='referral-zip-chip'>+" + (referralZips.length - 8) + " more</span>" : "");
-    }
-
     function getZipCoverageHistoryStatsByClinician(zipCode) {
       const normalizedZip = getNormalizedZip(zipCode);
       const statsByClinicianId = new Map();
@@ -8693,112 +7584,31 @@
       return statsByClinicianId;
     }
 
-    async function getZipCentroid(zipCode) {
-      const normalized = getNormalizedZip(zipCode);
-      if (!normalized) return null;
-      if (appState.zipCentroidCache.has(normalized)) {
-        return appState.zipCentroidCache.get(normalized);
-      }
-      try {
-        const data = await geocodeMapboxQuery(normalized);
-        if (data && data.features && data.features.length > 0) {
-          const feature = data.features[0];
-          const center = feature.center;
-          if (Array.isArray(center) && center.length >= 2) {
-            const result = { lat: center[1], lng: center[0] };
-            appState.zipCentroidCache.set(normalized, result);
-            return result;
-          }
-        }
-      } catch (err) {
-        console.warn("ZIP centroid geocode failed for " + normalized, err);
-      }
-      appState.zipCentroidCache.set(normalized, null);
-      return null;
-    }
-
-    function getZipCoverageCheckResults(zipCode, zipCenter) {
+    function getZipCoverageCheckResults(zipCode) {
       const normalizedZip = getNormalizedZip(zipCode);
       if (!normalizedZip) return [];
 
       const historyStatsByClinicianId = getZipCoverageHistoryStatsByClinician(normalizedZip);
-      const matchedClinicianIds = new Set();
-
-      // Phase 1: TB ZIP + Referral History matches
-      const directMatches = appState.filteredClinicians.map(function(clinician) {
+      return appState.filteredClinicians.map(function(clinician) {
         const matchingZipEntries = getClinicianZipCoverageEntries(clinician).filter(function(entry) {
           return getNormalizedZip(entry.zip_code) === normalizedZip;
         });
+        if (!matchingZipEntries.length) return null;
 
-        const referralZips = getClinicianReferralZips(clinician);
-        const referralZipMatch = referralZips.find(function(entry) {
-          return entry.zip_code === normalizedZip;
-        });
-
-        if (!matchingZipEntries.length && !referralZipMatch) return null;
-
-        matchedClinicianIds.add(clinician.id);
         const profileDraft = getProfileDraftForClinician(clinician);
         const statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
         const historyStats = historyStatsByClinicianId.get(clinician.id) || null;
-        const languages = normalizeProfileLanguageList(profileDraft.languages || []);
-        const rating = normalizeProfileRatingValue(profileDraft.rating);
 
         return {
           clinician: clinician,
           statusInfo: statusInfo,
           zipEntries: matchingZipEntries,
-          referralZipMatch: referralZipMatch || null,
-          matchSource: matchingZipEntries.length ? (referralZipMatch ? "both" : "tb") : "referral",
-          proximityMiles: null,
-          languages: languages,
-          rating: rating,
           historySiteCount: historyStats ? historyStats.siteKeys.size : 0,
           historyServiceCount: historyStats ? historyStats.rowIds.size : 0,
           historyVisitCount: historyStats ? historyStats.totalVisits : 0,
           latestServiceDate: historyStats ? historyStats.latestServiceDate : null
         };
-      }).filter(Boolean);
-
-      // Phase 2: Proximity matches — clinicians whose pin is within X miles of the ZIP centroid
-      var proximityMatches = [];
-      if (zipCenter) {
-        appState.filteredClinicians.forEach(function(clinician) {
-          if (matchedClinicianIds.has(clinician.id)) return;
-          var pin = getClinicianMapCoordinates(clinician);
-          if (!pin || !hasValidCoordinatePair(pin.lat, pin.lng)) return;
-          var distMiles = haversineMiles(zipCenter.lat, zipCenter.lng, pin.lat, pin.lng);
-          if (distMiles > appState.zipCoverageRadiusMiles) return;
-
-          matchedClinicianIds.add(clinician.id);
-          var profileDraft = getProfileDraftForClinician(clinician);
-          var statusInfo = getClinicianSidebarStatusInfo(profileDraft, clinician);
-          var historyStats = historyStatsByClinicianId.get(clinician.id) || null;
-          var languages = normalizeProfileLanguageList(profileDraft.languages || []);
-          var rating = normalizeProfileRatingValue(profileDraft.rating);
-
-          proximityMatches.push({
-            clinician: clinician,
-            statusInfo: statusInfo,
-            zipEntries: [],
-            referralZipMatch: null,
-            matchSource: "proximity",
-            proximityMiles: Math.round(distMiles * 10) / 10,
-            languages: languages,
-            rating: rating,
-            historySiteCount: historyStats ? historyStats.siteKeys.size : 0,
-            historyServiceCount: historyStats ? historyStats.rowIds.size : 0,
-            historyVisitCount: historyStats ? historyStats.totalVisits : 0,
-            latestServiceDate: historyStats ? historyStats.latestServiceDate : null
-          });
-        });
-        proximityMatches.sort(function(a, b) {
-          return a.proximityMiles - b.proximityMiles;
-        });
-      }
-
-      // Combine: direct matches sorted by history weight first, then proximity by distance
-      directMatches.sort(function(left, right) {
+      }).filter(Boolean).sort(function(left, right) {
         if (right.historySiteCount !== left.historySiteCount) {
           return right.historySiteCount - left.historySiteCount;
         }
@@ -8809,145 +7619,72 @@
         }
         return String(left.clinician.name || "").localeCompare(String(right.clinician.name || ""));
       });
-
-      return directMatches.concat(proximityMatches);
     }
 
-    function syncZipCoverageRadiusReadout() {
-      if (elements.zipCoverageRadiusReadout) {
-        elements.zipCoverageRadiusReadout.textContent = appState.zipCoverageRadiusMiles + " mi";
-      }
-    }
-
-    /* Synchronous render — uses cached centroid for proximity. Always instant. */
     function renderZipCoverageCheck() {
       if (!elements.zipCoverageResults || !elements.zipCoverageNote || !elements.zipCoverageSearch) return;
 
-      var normalizedZip = getNormalizedZip(appState.zipCoverageCheckQuery);
+      const normalizedZip = getNormalizedZip(appState.zipCoverageCheckQuery);
       elements.zipCoverageSearch.value = appState.zipCoverageCheckQuery || "";
 
       if (!normalizedZip) {
         elements.zipCoverageResults.innerHTML = "";
-        elements.zipCoverageNote.textContent = "Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage, referral history, and nearby clinicians against the current filters.";
-        if (elements.zipCoverageRadiusControls) elements.zipCoverageRadiusControls.hidden = true;
-        clearZipCoverageMapOverlays();
+        elements.zipCoverageNote.textContent = "Use the toolbar ZIP Coverage Check to compare TherapyBoss ZIP coverage against the current clinician filters and loaded completed-service history.";
         return;
       }
 
-      // Use cached centroid (null if not yet geocoded)
-      var centroid = appState.zipCoverageCentroid;
-      var results = getZipCoverageCheckResults(normalizedZip, centroid);
-
-      // Update circle + marker on map
-      if (centroid) {
-        updateZipCoverageCircle(centroid, appState.zipCoverageRadiusMiles);
-        setZipCoverageCenterMarker(centroid);
-        if (elements.zipCoverageRadiusControls) elements.zipCoverageRadiusControls.hidden = false;
-        syncZipCoverageRadiusReadout();
-      } else {
-        if (elements.zipCoverageRadiusControls) elements.zipCoverageRadiusControls.hidden = true;
-      }
-
-      var visibleResults = results.slice(0, 30);
+      const results = getZipCoverageCheckResults(normalizedZip);
+      const visibleResults = results.slice(0, 20);
+      const historyLoaded = appState.hasLoadedCompletedServices && !appState.completedServiceLoadError;
 
       if (!results.length) {
         elements.zipCoverageResults.innerHTML = "";
-        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage, referral history, or are within " + appState.zipCoverageRadiusMiles + " miles of " + normalizedZip + ".";
+        elements.zipCoverageNote.textContent = "No clinicians in the current filter set have TherapyBoss ZIP coverage for " + normalizedZip + ".";
         return;
       }
 
-      var directCount = results.filter(function(r) { return r.matchSource !== "proximity"; }).length;
-      var proximityCount = results.filter(function(r) { return r.matchSource === "proximity"; }).length;
-
-      var resultsHtml = visibleResults.map(function(result) {
-        var clinician = result.clinician;
-        var statusClassName = String(result.statusInfo.status || "Active").toLowerCase();
-        var ratingStars = result.rating
-          ? "&#9733;".repeat(result.rating) + "<span style='opacity:0.3'>&#9733;</span>".repeat(5 - result.rating)
-          : "No rating";
-        var languageText = result.languages.length
-          ? result.languages.join(", ")
-          : "No languages";
-        var serviceCountText = result.referralZipMatch
-          ? result.referralZipMatch.service_count + " services in " + normalizedZip
-          : "";
-        var proximityText = result.matchSource === "proximity"
-          ? result.proximityMiles + " mi away"
-          : "";
+      const resultsHtml = visibleResults.map(function(result) {
+        const clinician = result.clinician;
+        const statusClassName = String(result.statusInfo.status || "Active").toLowerCase();
+        const memoText = result.zipEntries.map(function(entry) {
+          return normalizeImportTextValue(entry.memo);
+        }).filter(Boolean)[0] || "";
+        const historyBits = historyLoaded
+          ? [
+              result.historySiteCount ? result.historySiteCount + " sites" : "No loaded site history",
+              result.historyServiceCount ? result.historyServiceCount + " services" : "",
+              result.historyVisitCount ? result.historyVisitCount + " visits" : "",
+              result.latestServiceDate ? "Latest " + formatAcceptedDate(result.latestServiceDate) : ""
+            ].filter(Boolean).join(" | ")
+          : "Completed-service history is not loaded yet for this session.";
 
         return [
-          "<button type='button' class='zip-coverage-result" + (result.matchSource === "proximity" ? " zip-coverage-proximity" : "") + "' data-zip-coverage-clinician='" + escapeHtml(clinician.id) + "'>",
+          "<button type='button' class='zip-coverage-result' data-zip-coverage-clinician='" + escapeHtml(clinician.id) + "'>",
           "<div class='zip-coverage-topline'>",
           "<div class='zip-coverage-name'>" + escapeHtml(formatClinicianDisplayName(clinician.name || "Unnamed clinician")) + "</div>",
           "<span class='discipline-pill' style='background:" + getDisciplineColor(clinician.discipline) + ";'>" + escapeHtml(clinician.discipline || "UNK") + "</span>",
           "</div>",
           "<div class='zip-coverage-meta'>",
           "<span class='clinician-status-pill " + escapeHtml(statusClassName) + "'>" + escapeHtml(result.statusInfo.status) + "</span>",
-          "<span class='meta-chip' style='font-size:11px;letter-spacing:-0.5px'>" + ratingStars + "</span>",
-          "<span class='meta-chip'>" + escapeHtml(languageText) + "</span>",
-          "</div>",
-          "<div class='zip-coverage-meta'>",
-          result.matchSource === "tb" || result.matchSource === "both" ? "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>" : "",
-          serviceCountText ? "<span class='meta-chip'>" + escapeHtml(serviceCountText) + "</span>" : "",
-          proximityText ? "<span class='meta-chip zip-proximity-badge'><svg width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z'/><circle cx='12' cy='10' r='3'/></svg> " + escapeHtml(proximityText) + "</span>" : "",
+          "<span class='meta-chip'>TB ZIP " + escapeHtml(normalizedZip) + "</span>",
+          historyLoaded && result.historySiteCount ? "<span class='meta-chip'>" + result.historySiteCount + " service site" + (result.historySiteCount === 1 ? "" : "s") + "</span>" : "",
           "</div>",
           result.statusInfo.detail ? "<div class='zip-coverage-detail'>" + escapeHtml(result.statusInfo.detail) + "</div>" : "",
+          memoText ? "<div class='zip-coverage-detail'>Memo: " + escapeHtml(memoText) + "</div>" : "",
+          "<div class='zip-coverage-detail'>" + escapeHtml(historyBits) + "</div>",
           "</button>"
         ].join("");
       }).join("");
 
       elements.zipCoverageResults.innerHTML = resultsHtml;
-
-      var noteText = "";
-      if (directCount > 0 && proximityCount > 0) {
-        noteText = directCount + " clinicians cover ZIP " + normalizedZip + " (TB ZIP or referral history) + " + proximityCount + " nearby (within " + appState.zipCoverageRadiusMiles + " mi).";
-      } else if (directCount > 0) {
-        noteText = directCount + " clinicians cover ZIP " + normalizedZip + " (via TB ZIP coverage and/or referral history).";
-      } else {
-        noteText = proximityCount + " clinicians nearby ZIP " + normalizedZip + " (within " + appState.zipCoverageRadiusMiles + " mi). No direct ZIP coverage found.";
-      }
-      noteText += " Results respect the current clinician filters.";
+      elements.zipCoverageNote.textContent = results.length + " clinicians cover ZIP " + normalizedZip + ". Results respect the current clinician filters, and completed-service history reflects the loaded year and discipline view.";
       if (results.length > visibleResults.length) {
-        noteText += " Showing the first " + visibleResults.length + " of " + results.length + ".";
+        elements.zipCoverageNote.textContent += " Showing the first " + visibleResults.length + ".";
       }
-      elements.zipCoverageNote.textContent = noteText;
     }
 
-    /* Async wrapper — geocodes the ZIP centroid on first search, then renders. */
-    async function runZipCoverageCheck() {
+    function runZipCoverageCheck() {
       appState.zipCoverageCheckQuery = getNormalizedZip(elements.zipCoverageSearch.value || "");
-      var normalizedZip = appState.zipCoverageCheckQuery;
-
-      if (!normalizedZip) {
-        renderZipCoverageCheck();
-        return;
-      }
-
-      // Geocode the centroid if not already cached
-      if (!appState.zipCentroidCache.has(normalizedZip)) {
-        elements.zipCoverageNote.textContent = "Looking up ZIP " + normalizedZip + "…";
-        var centroid = await getZipCentroid(normalizedZip);
-        appState.zipCoverageCentroid = centroid;
-        if (centroid) {
-          map.flyTo({ center: [centroid.lng, centroid.lat], zoom: Math.max(map.getZoom(), 10), duration: 1200 });
-        }
-      } else {
-        var cached = appState.zipCentroidCache.get(normalizedZip);
-        var isNewCentroid = !appState.zipCoverageCentroid || !cached
-          || appState.zipCoverageCentroid.lat !== cached.lat
-          || appState.zipCoverageCentroid.lng !== cached.lng;
-        appState.zipCoverageCentroid = cached;
-        if (cached && isNewCentroid) {
-          map.flyTo({ center: [cached.lng, cached.lat], zoom: Math.max(map.getZoom(), 10), duration: 1200 });
-        }
-      }
-
-      // Auto-expand the status panel so ZIP results are visible without manual dragging
-      if (normalizedZip && elements.floatingStatusPanel) {
-        var currentH = appState.floatingStatusPanelHeight || floatingStatusPanelDefaultHeight;
-        if (currentH < 420) applyFloatingStatusPanelHeight(420, false);
-      }
-
       renderZipCoverageCheck();
     }
 
@@ -9374,10 +8111,6 @@
     function renderClinicianCompletedServiceHistory() {
       if (!elements.profileCompletedHistory) return;
 
-      // Refresh referral ZIPs whenever history display updates
-      renderProfileReferralZips();
-      renderProfileReferralZipsSnapshot();
-
       if (appState.profileCreateMode) {
         elements.profileCompletedHistory.innerHTML = "<div class='profile-placeholder'>Completed-service history will appear here after this clinician is created and matched to imported TherapyBoss rows.</div>";
         return;
@@ -9719,13 +8452,6 @@
       refreshCompletedServiceIsolationViews();
     }
 
-    function syncPreferredZipsStaleWarning() {
-      if (!elements.preferredZipsStaleWarning) return;
-      var ignoreDate = String(elements.profileIgnoreHistoryBefore.value || "").trim();
-      var hasPreferredZips = String(elements.profileCorePreferredZipsInput.value || "").trim().length > 0;
-      elements.preferredZipsStaleWarning.hidden = !(ignoreDate && hasPreferredZips);
-    }
-
     function syncProfileCoreSummary() {
       const name = String(elements.profileNameInput.value || "").trim();
       const discipline = getNormalizedDiscipline(elements.profileDisciplineSelect.value);
@@ -9741,8 +8467,8 @@
       elements.profilePanelDiscipline.textContent = discipline || "Discipline not set";
       elements.profileAddress.textContent = address || "No address";
       elements.profileZip.textContent = zip || "Not set";
+      elements.profileRadius.textContent = formatRadius(radius);
       elements.profilePreferredZips.textContent = formatPreferredZips(preferredZips);
-      renderProfileReferralZipsSnapshot();
     }
 
     function getClinicianPinModeLabel(value) {
@@ -10571,8 +9297,7 @@
         languages: [],
         restrictedClinicians: [],
         restrictedAgencies: [],
-        notes: "",
-        photoUrl: ""
+        notes: ""
       };
     }
 
@@ -11766,7 +10491,6 @@
         emr_capabilities: normalizedEmrCapabilities,
         restrictions: normalizedRestrictions,
         notes: String(draft.notes || "").trim() || null,
-        photo_url: String(draft.photoUrl || "").trim() || null,
         tags: buildClinicianProfileTagsForSave(
           clinician,
           draft,
@@ -11954,8 +10678,7 @@
         languages: normalizeProfileLanguageList(getProfileLanguagesFromUi()),
         restrictedClinicians: restrictions.clinicians,
         restrictedAgencies: restrictions.agencies,
-        notes: elements.profileNotesInput.value || "",
-        photoUrl: elements.profilePhotoImg.dataset.photoUrl || ""
+        notes: elements.profileNotesInput.value || ""
       };
     }
 
@@ -11995,67 +10718,6 @@
       syncProfileUnsavedBadge(Boolean(draft._dirty));
     }
 
-    /* ── Clinician Profile Photo Helpers ── */
-    function applyProfilePhoto(url) {
-      const img = elements.profilePhotoImg;
-      const placeholder = elements.profilePhotoPlaceholder;
-      img.dataset.photoUrl = url || "";
-      if (url) {
-        img.src = url;
-        img.style.display = "block";
-        placeholder.style.display = "none";
-      } else {
-        img.src = "";
-        img.style.display = "none";
-        placeholder.style.display = "flex";
-      }
-    }
-
-    async function uploadClinicianPhoto(file) {
-      const clinicianId = appState.currentProfileClinicianId;
-      const isCreateMode = appState.profileCreateMode;
-      if (!clinicianId && !isCreateMode) return;
-
-      const maxSize = 2 * 1024 * 1024; // 2 MB
-      if (file.size > maxSize) {
-        window.alert("Photo must be under 2 MB. Please resize and try again.");
-        return;
-      }
-
-      const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
-      const allowedExts = ["jpg", "jpeg", "png", "webp"];
-      if (allowedExts.indexOf(ext) === -1) {
-        window.alert("Only JPG, PNG, and WebP images are supported.");
-        return;
-      }
-
-      const storagePath = isCreateMode
-        ? "temp/new-clinician-photo." + ext
-        : clinicianId + "/photo." + ext;
-
-      try {
-        const { error: uploadError } = await supabaseClient.storage
-          .from("clinician-photos")
-          .upload(storagePath, file, { upsert: true, contentType: file.type });
-
-        if (uploadError) throw uploadError;
-
-        const { data: urlData } = supabaseClient.storage
-          .from("clinician-photos")
-          .getPublicUrl(storagePath);
-
-        const publicUrl = urlData.publicUrl + "?t=" + Date.now();
-        applyProfilePhoto(publicUrl);
-        elements.profilePhotoImg.dataset.photoUrl = publicUrl;
-
-        // Mark draft dirty so the unsaved badge shows
-        persistCurrentProfileDraft(true);
-      } catch (err) {
-        console.error("Photo upload failed:", err);
-        window.alert("Photo upload failed. Make sure the 'clinician-photos' storage bucket exists in Supabase and has public access enabled.");
-      }
-    }
-
     function applyProfileDraft(draft) {
       const safeDraft = Object.assign(getDefaultProfileDraft(), draft || {});
       elements.profileNameInput.value = safeDraft.name || "";
@@ -12093,9 +10755,6 @@
       elements.profileRestrictedAgenciesInput.value = "";
       syncProfileRestrictionAddButtonsState();
       elements.profileNotesInput.value = safeDraft.notes;
-      applyProfilePhoto(safeDraft.photoUrl || "");
-      renderProfileReferralZips();
-      syncPreferredZipsStaleWarning();
       syncProfileModeUi();
       syncProfileWorkCenterUi();
       updateProfileHeaderStatus();
@@ -12413,9 +11072,6 @@
       }
       if (!draft.email && clinician) {
         draft.email = getFirstAvailableFieldValue(clinician, ["email", "email_address"]) || "";
-      }
-      if (!draft.photoUrl && clinician) {
-        draft.photoUrl = clinician.photo_url || "";
       }
       if ((!draft.restrictedClinicians.length && !draft.restrictedAgencies.length) && clinician) {
         draft.restrictedClinicians = normalizeProfileRestrictionList(
@@ -12947,10 +11603,6 @@
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       if (!clinician) return;
 
-      if (appState.currentProfileClinicianId && appState.currentProfileClinicianId !== clinicianId && hasCurrentProfileUnsavedChanges()) {
-        if (!window.confirm("You have unsaved changes on the current profile. Switch clinicians without saving?")) return;
-      }
-
       closeAgencyProfile();
       persistCurrentProfileDraft();
       persistCurrentTerritoryDraft();
@@ -12960,7 +11612,7 @@
         elements.addClinicianMode.classList.remove("active");
       }
       appState.currentProfileClinicianId = clinicianId;
-      applyProfilePhoto("");
+      elements.profilePhotoShell.textContent = "Photo if available";
       resetProfileVersionHistoryUi();
       applyProfileDraft(getProfileDraftForClinician(clinician));
       loadTerritoryDraft(clinicianId);
@@ -12981,7 +11633,7 @@
       persistCurrentTerritoryDraft();
       appState.currentProfileClinicianId = null;
       appState.profileCreateMode = true;
-      applyProfilePhoto("");
+      elements.profilePhotoShell.textContent = "Photo if available";
       resetProfileVersionHistoryUi();
       applyProfileDraft(appState.newClinicianDraft || getDefaultProfileDraft());
       appState.territoryDrawMode = false;
@@ -13286,71 +11938,6 @@
       if (!appState.selectionCenterMarker) return;
       appState.selectionCenterMarker.remove();
       appState.selectionCenterMarker = null;
-    }
-
-    /* ── ZIP Coverage Circle (gold, separate from selection circle) ── */
-    function ensureZipCoverageCircleLayer() {
-      if (!map.getSource(appState.zipCoverageCircleSourceId)) {
-        map.addSource(appState.zipCoverageCircleSourceId, {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] }
-        });
-      }
-      if (!map.getLayer("zip-coverage-circle-fill")) {
-        map.addLayer({
-          id: "zip-coverage-circle-fill",
-          type: "fill",
-          source: appState.zipCoverageCircleSourceId,
-          paint: { "fill-color": "#d4a843", "fill-opacity": 0.10 }
-        });
-      }
-      if (!map.getLayer("zip-coverage-circle-line")) {
-        map.addLayer({
-          id: "zip-coverage-circle-line",
-          type: "line",
-          source: appState.zipCoverageCircleSourceId,
-          paint: { "line-color": "#d4a843", "line-width": 2.5, "line-dasharray": [4, 3] }
-        });
-      }
-    }
-
-    function updateZipCoverageCircle(center, radiusMiles) {
-      ensureZipCoverageCircleLayer();
-      var source = map.getSource(appState.zipCoverageCircleSourceId);
-      if (!source) return;
-      source.setData({
-        type: "FeatureCollection",
-        features: [createCircleGeoJson(center, radiusMiles)]
-      });
-    }
-
-    function clearZipCoverageCircle() {
-      var source = map.getSource(appState.zipCoverageCircleSourceId);
-      if (source) source.setData({ type: "FeatureCollection", features: [] });
-    }
-
-    function setZipCoverageCenterMarker(center) {
-      if (!appState.zipCoverageCenterMarker) {
-        var node = document.createElement("div");
-        node.className = "zip-coverage-center-pin";
-        appState.zipCoverageCenterMarker = new mapboxgl.Marker({ element: node })
-          .setLngLat([center.lng, center.lat])
-          .addTo(map);
-        return;
-      }
-      appState.zipCoverageCenterMarker.setLngLat([center.lng, center.lat]);
-    }
-
-    function clearZipCoverageCenterMarker() {
-      if (!appState.zipCoverageCenterMarker) return;
-      appState.zipCoverageCenterMarker.remove();
-      appState.zipCoverageCenterMarker = null;
-    }
-
-    function clearZipCoverageMapOverlays() {
-      clearZipCoverageCircle();
-      clearZipCoverageCenterMarker();
-      appState.zipCoverageCentroid = null;
     }
 
     function setSearchMarker(lng, lat, label) {
@@ -13834,9 +12421,17 @@
 
     function renderImportMappingGrid() {
       if (!appState.importHeaders.length) {
-        elements.importMappingGrid.innerHTML = "<div class='import-mapping-field'>Upload a CSV or XLSX file to review and map the headers.</div>";
+        elements.importMappingGrid.classList.add("empty");
+        elements.importMappingGrid.innerHTML = [
+          "<div class='import-empty-state'>",
+          "<strong>Upload a file to unlock mapping</strong>",
+          "<span>Once a CSV or XLSX file is loaded, we&apos;ll detect the headers here so you can confirm the field mapping before upload.</span>",
+          "</div>"
+        ].join("");
         return;
       }
+
+      elements.importMappingGrid.classList.remove("empty");
 
       elements.importMappingGrid.innerHTML = getActiveImportFields().map(function(field) {
         const selectedHeader = appState.importFieldMap[field.key] || "";
@@ -16409,26 +15004,6 @@
         runPointSearch();
       });
 
-      /* ── Toolbar View Switch (Clinicians / Completed Services) ── */
-      (function initViewSwitch() {
-        var btnClinicians = document.getElementById("view-switch-clinicians");
-        var btnServices   = document.getElementById("view-switch-services");
-        var clinicianPanel = document.querySelector(".clinician-directory-panel");
-        var servicesPanel  = document.querySelector(".completed-service-directory-panel");
-        if (!btnClinicians || !btnServices) return;
-
-        function activate(btn, panel) {
-          btnClinicians.classList.toggle("active", btn === btnClinicians);
-          btnServices.classList.toggle("active", btn === btnServices);
-          if (panel) {
-            panel.open = true;
-            panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
-          }
-        }
-        btnClinicians.addEventListener("click", function() { activate(btnClinicians, clinicianPanel); });
-        btnServices.addEventListener("click", function()   { activate(btnServices, servicesPanel); });
-      })();
-
       elements.zoomExtentsButton.addEventListener("click", function() {
         fitMapToVisibleClinicians(true);
       });
@@ -16470,31 +15045,6 @@
         if (!clinicianId) return;
         focusClinician(clinicianId, true);
       });
-
-      /* ── ZIP coverage proximity radius +/− ── */
-      function adjustZipCoverageRadius(delta) {
-        var next = Math.max(1, Math.min(50, appState.zipCoverageRadiusMiles + delta));
-        if (next === appState.zipCoverageRadiusMiles) return;
-        appState.zipCoverageRadiusMiles = next;
-        syncZipCoverageRadiusReadout();
-        // Redraw circle instantly
-        if (appState.zipCoverageCentroid) {
-          updateZipCoverageCircle(appState.zipCoverageCentroid, appState.zipCoverageRadiusMiles);
-        }
-        // Re-run the full results (async, will re-query proximity)
-        renderZipCoverageCheck();
-      }
-
-      if (elements.zipCoverageRadiusShrink) {
-        elements.zipCoverageRadiusShrink.addEventListener("click", function() {
-          adjustZipCoverageRadius(-1);
-        });
-      }
-      if (elements.zipCoverageRadiusGrow) {
-        elements.zipCoverageRadiusGrow.addEventListener("click", function() {
-          adjustZipCoverageRadius(1);
-        });
-      }
 
       elements.clinicianSearchInput.addEventListener("input", function() {
         renderClinicianSearchResults(elements.clinicianSearchInput.value);
@@ -16625,9 +15175,6 @@
       });
 
       elements.profileClose.addEventListener("click", function() {
-        if (hasCurrentProfileUnsavedChanges()) {
-          if (!window.confirm("You have unsaved changes. Close without saving?")) return;
-        }
         closeClinicianProfile();
       });
 
@@ -16875,50 +15422,6 @@
         }
       });
 
-      /* ── ZIP Coverage Results resize handle ── */
-      (function initZipCoverageResize() {
-        var handle = document.getElementById("zip-coverage-resize-handle");
-        var resultsEl = document.getElementById("zip-coverage-results");
-        if (!handle || !resultsEl) return;
-
-        var startY = 0;
-        var startHeight = 0;
-        var dragging = false;
-
-        handle.addEventListener("pointerdown", function(e) {
-          if (e.button !== 0) return;
-          e.preventDefault();
-          dragging = true;
-          startY = e.clientY;
-          startHeight = resultsEl.offsetHeight;
-          handle.setPointerCapture(e.pointerId);
-          resultsEl.style.transition = "none";
-        });
-        handle.addEventListener("pointermove", function(e) {
-          if (!dragging) return;
-          var delta = e.clientY - startY;
-          var next = Math.max(120, Math.min(800, startHeight + delta));
-          resultsEl.style.maxHeight = next + "px";
-        });
-        function endDrag() {
-          if (!dragging) return;
-          dragging = false;
-          resultsEl.style.transition = "";
-        }
-        handle.addEventListener("pointerup", endDrag);
-        handle.addEventListener("pointercancel", endDrag);
-        handle.addEventListener("lostpointercapture", endDrag);
-        handle.addEventListener("dblclick", function() {
-          resultsEl.style.maxHeight = "340px";
-        });
-      })();
-
-      elements.profilePhotoInput.addEventListener("change", function() {
-        const file = elements.profilePhotoInput.files[0];
-        if (file) uploadClinicianPhoto(file);
-        elements.profilePhotoInput.value = "";
-      });
-
       elements.profileSaveShell.addEventListener("click", function() {
         saveCurrentClinicianProfile();
       });
@@ -16965,7 +15468,6 @@
           updatePauseUI();
         }
         syncProfileWorkCenterUi();
-        syncPreferredZipsStaleWarning();
         if (config.refreshFilters) {
           applyFilters();
         }
@@ -17396,9 +15898,6 @@
       if (elements.addClinicianMode) {
         elements.addClinicianMode.addEventListener("click", function() {
           if (appState.addClinicianMode && appState.profileCreateMode) {
-            if (hasCurrentProfileUnsavedChanges()) {
-              if (!window.confirm("You have unsaved changes. Close without saving?")) return;
-            }
             closeClinicianProfile();
             return;
           }
