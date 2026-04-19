@@ -1365,9 +1365,9 @@
     #completed-service-list {
       list-style: none;
       margin: 0;
-      padding: 10px 12px 18px;
+      padding: 8px 10px 16px;
       display: grid;
-      gap: 10px;
+      gap: 7px;
     }
 
     .clinician-item {
@@ -1650,78 +1650,95 @@
     .agency-meta-chips {
       display: flex;
       flex-wrap: wrap;
-      gap: 8px;
+      gap: 5px;
+      align-items: center;
+    }
+
+    /* Smaller chips inside service cards */
+    .completed-service-item .meta-chip,
+    .completed-service-item .agency-map-chip {
+      font-size: 11px;
+      padding: 3px 8px;
     }
 
     .completed-service-item {
-      padding: 14px 14px 13px;
+      padding: 10px 12px 9px;
       border: 1px solid #d6e0f1;
-      border-radius: 16px;
+      border-radius: 12px;
       background: #fff;
       cursor: pointer;
       display: grid;
-      gap: 10px;
+      gap: 6px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .completed-service-item:hover {
+      border-color: #aac4e8;
+      box-shadow: 0 2px 8px rgba(36, 99, 235, 0.07);
     }
 
     .completed-service-item.focused {
-      box-shadow: 0 0 0 3px rgba(30, 77, 140, 0.18);
+      box-shadow: 0 0 0 2.5px rgba(30, 77, 140, 0.18);
       border-color: #7cb5db;
     }
 
     .completed-service-topline {
       display: flex;
       justify-content: space-between;
-      gap: 10px;
+      gap: 8px;
       align-items: flex-start;
     }
 
     .completed-service-name {
-      font-size: 15px;
+      font-size: 13px;
       font-weight: 700;
-      line-height: 1.3;
+      line-height: 1.35;
+      color: #154880;
     }
 
     .completed-service-address {
-      font-size: 13px;
+      font-size: 11px;
       color: var(--muted);
-      line-height: 1.45;
+      line-height: 1.4;
     }
 
     .completed-service-groups {
       display: grid;
-      gap: 8px;
+      gap: 5px;
     }
 
     .completed-service-groups.compact {
-      gap: 6px;
+      gap: 4px;
     }
 
     .completed-service-group {
-      display: grid;
-      gap: 4px;
-      padding: 8px 10px;
-      border-radius: 12px;
+      display: flex;
+      align-items: baseline;
+      gap: 7px;
+      padding: 5px 8px;
+      border-radius: 8px;
       background: #f3f7fd;
       border: 1px solid #dae4f3;
       box-shadow: inset 3px 0 0 var(--completed-service-discipline-color, #ced8ec);
     }
 
     .completed-service-groups.compact .completed-service-group {
-      padding: 7px 9px;
+      padding: 5px 8px;
     }
 
     .completed-service-group-title {
       font-size: 10px;
       font-weight: 800;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.07em;
       text-transform: uppercase;
       color: var(--completed-service-discipline-color, var(--muted));
+      flex-shrink: 0;
     }
 
     .completed-service-group-names {
-      font-size: 13px;
+      font-size: 12px;
       color: var(--text);
-      line-height: 1.45;
+      line-height: 1.4;
     }
 
     .completed-service-clinician-link {
@@ -1748,12 +1765,12 @@
 
     .completed-service-groups.compact .completed-service-group-names {
       font-size: 12px;
-      line-height: 1.4;
+      line-height: 1.35;
     }
 
     .completed-service-group-more {
       color: var(--muted);
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 700;
     }
 
