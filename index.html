@@ -1311,6 +1311,194 @@
       text-transform: uppercase;
     }
 
+    /* ── Custom compass rose ── */
+    #compass-rose {
+      position: absolute;
+      bottom: 110px;
+      right: 16px;
+      width: 72px;
+      height: 72px;
+      z-index: 10;
+      cursor: pointer;
+      filter: drop-shadow(0 2px 6px rgba(12,22,50,0.18));
+    }
+    #compass-rose svg {
+      width: 72px;
+      height: 72px;
+      transition: transform 0.15s ease;
+      display: block;
+    }
+    #compass-rose:hover { filter: drop-shadow(0 3px 10px rgba(12,22,50,0.28)); }
+    /* Cardinal labels — fixed, don't rotate */
+    #compass-rose .cr-n,
+    #compass-rose .cr-s,
+    #compass-rose .cr-e,
+    #compass-rose .cr-w {
+      position: absolute;
+      font-size: 9px;
+      font-weight: 800;
+      color: #18274a;
+      font-family: inherit;
+      letter-spacing: 0.04em;
+      line-height: 1;
+      pointer-events: none;
+    }
+    #compass-rose .cr-n { top: 0px;  left: 50%; transform: translateX(-50%); }
+    #compass-rose .cr-s { bottom: 0px; left: 50%; transform: translateX(-50%); }
+    #compass-rose .cr-e { right: 0px; top: 50%; transform: translateY(-50%); }
+    #compass-rose .cr-w { left: 0px;  top: 50%; transform: translateY(-50%); }
+    /* Hide default Mapbox compass */
+    .mapboxgl-ctrl-bottom-right { display: none !important; }
+
+    /* ── AI Assistant Widget ── */
+    #dc-assistant-widget {
+      position: absolute;
+      bottom: 52px;
+      right: 18px;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 10px;
+    }
+    .dc-assistant-toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      background: linear-gradient(135deg, #2463eb 0%, #1a4fc4 100%);
+      color: #fff;
+      border: none;
+      border-radius: 999px;
+      padding: 9px 16px 9px 12px;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 4px 18px rgba(36, 99, 235, 0.38);
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    .dc-assistant-toggle:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(36, 99, 235, 0.48); }
+    .dc-assistant-toggle svg { width: 18px; height: 18px; }
+    .dc-assistant-panel {
+      width: 340px;
+      max-height: 480px;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 8px 40px rgba(12, 22, 50, 0.18);
+      border: 1px solid #d2dcee;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .dc-assistant-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 14px;
+      background: linear-gradient(135deg, #2463eb 0%, #1a4fc4 100%);
+      color: #fff;
+      flex-shrink: 0;
+    }
+    .dc-assistant-header-info { display: flex; align-items: center; gap: 10px; }
+    .dc-assistant-avatar {
+      width: 34px; height: 34px;
+      background: rgba(255,255,255,0.2);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 800; letter-spacing: 0.04em; flex-shrink: 0;
+    }
+    .dc-assistant-title { font-size: 13px; font-weight: 800; }
+    .dc-assistant-subtitle { font-size: 10px; opacity: 0.75; letter-spacing: 0.04em; margin-top: 1px; }
+    .dc-assistant-close, .dc-assistant-minimize {
+      background: rgba(255,255,255,0.15); border: none; color: #fff;
+      width: 26px; height: 26px; border-radius: 50%; cursor: pointer;
+      font-size: 13px; display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s;
+    }
+    .dc-assistant-close:hover, .dc-assistant-minimize:hover { background: rgba(255,255,255,0.28); }
+    .dc-assistant-header-actions { display: flex; align-items: center; gap: 6px; }
+    /* Minimized state — only header visible */
+    .dc-assistant-panel.minimized .dc-assistant-messages,
+    .dc-assistant-panel.minimized .dc-assistant-input-row { display: none; }
+    .dc-assistant-panel.minimized { max-height: none; }
+    /* Draggable cursor on header */
+    .dc-assistant-header { cursor: grab; user-select: none; }
+    .dc-assistant-header:active { cursor: grabbing; }
+    /* Override absolute positioning when dragged */
+    #dc-assistant-widget.dragged { position: fixed; bottom: auto; right: auto; }
+    .dc-assistant-messages {
+      flex: 1; overflow-y: auto; padding: 12px;
+      display: flex; flex-direction: column; gap: 10px; scroll-behavior: smooth;
+    }
+    .dc-assistant-msg { display: flex; }
+    .dc-assistant-msg.user { justify-content: flex-end; }
+    .dc-assistant-msg.assistant { justify-content: flex-start; }
+    .dc-assistant-bubble {
+      max-width: 85%; padding: 9px 12px; border-radius: 12px; font-size: 13px; line-height: 1.5;
+    }
+    .dc-assistant-msg.user .dc-assistant-bubble {
+      background: linear-gradient(135deg, #2463eb 0%, #1a4fc4 100%);
+      color: #fff; border-bottom-right-radius: 4px;
+    }
+    .dc-assistant-msg.assistant .dc-assistant-bubble {
+      background: #f0f4fa; color: #1a2a4a; border-bottom-left-radius: 4px;
+    }
+    .dc-assistant-msg.assistant .dc-assistant-bubble em { color: #2463eb; font-style: normal; font-weight: 600; }
+    .dc-assistant-typing .dc-assistant-bubble { color: #8aa0be; font-style: italic; }
+    .dc-assistant-input-row {
+      display: flex; gap: 8px; padding: 10px 12px;
+      border-top: 1px solid #e8eef8; flex-shrink: 0; align-items: flex-end;
+    }
+    .dc-assistant-input {
+      flex: 1; border: 1px solid #d2dcee; border-radius: 10px;
+      padding: 8px 10px; font-size: 13px; font-family: inherit;
+      resize: none; max-height: 80px; overflow-y: auto; outline: none;
+      transition: border-color 0.15s; line-height: 1.4;
+    }
+    .dc-assistant-input:focus { border-color: #2463eb; }
+    .dc-assistant-send {
+      background: linear-gradient(135deg, #2463eb 0%, #1a4fc4 100%);
+      border: none; color: #fff; width: 34px; height: 34px; border-radius: 10px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: opacity 0.15s;
+    }
+    .dc-assistant-send:hover { opacity: 0.88; }
+    .dc-assistant-send svg { width: 15px; height: 15px; }
+    /* ── Clinician card rendering inside bubbles ── */
+    .dc-card {
+      background: #fff;
+      border: 1px solid #dce6f5;
+      border-radius: 10px;
+      padding: 9px 11px 8px;
+      margin: 5px 0;
+      box-shadow: 0 1px 4px rgba(12,22,50,0.07);
+    }
+    .dc-card-header {
+      font-size: 12.5px;
+      color: #1a2a4a;
+      line-height: 1.5;
+    }
+    .dc-card-name {
+      font-weight: 800;
+      color: #1e4d8c;
+      font-size: 13px;
+    }
+    .dc-card-stars { color: #c47a1a; font-weight: 700; }
+    .dc-card-note {
+      font-size: 11.5px;
+      color: #526480;
+      margin-top: 4px;
+      padding-left: 10px;
+      border-left: 2px solid #dce6f5;
+    }
+    .dc-bubble-p {
+      margin: 4px 0;
+      font-size: 13px;
+      line-height: 1.5;
+      color: #1a2a4a;
+    }
+    .dc-bubble-p:first-child { margin-top: 0; }
+    .dc-bubble-p:last-child  { margin-bottom: 0; }
+
     /* ── ZIP revolving ring text ── */
     #zip-text-overlay {
       position: absolute;
@@ -4500,7 +4688,7 @@
 
               <div class="field">
                 <label for="zip-filter">ZIP code</label>
-                <input id="zip-filter" type="text" placeholder="Filter by ZIP">
+                <input id="zip-filter" type="text" placeholder="Filter by ZIP" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
               </div>
 
               <div class="field">
@@ -4671,7 +4859,7 @@
 
           <!-- ── Cell 2: Point Search ── -->
           <div class="toolbar-cell toolbar-cell-grow">
-            <input id="point-search" class="toolbar-input" type="text" placeholder="Address or ZIP" aria-label="Search address or ZIP">
+            <input id="point-search" class="toolbar-input" type="search" placeholder="Address or ZIP" aria-label="Search address or ZIP" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
             <button id="run-point-search" class="btn-primary" type="button">Find</button>
           </div>
 
@@ -4766,7 +4954,7 @@
           <div class="zip-coverage-shell">
             <div class="radius-coverage-title"><span class="section-icon">🗂</span> ZIP Coverage Results</div>
             <div class="zip-panel-search-row">
-              <input id="zip-panel-search" class="toolbar-input" type="text" placeholder="Enter ZIP" maxlength="10" aria-label="Enter patient ZIP">
+              <input id="zip-panel-search" class="toolbar-input" type="text" placeholder="Enter ZIP" maxlength="10" aria-label="Enter patient ZIP" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
               <button id="run-zip-panel-check" class="btn-secondary" type="button">Check</button>
               <button id="clear-zip-panel-check" class="btn-secondary zip-panel-clear-btn" type="button" title="Clear ZIP coverage" style="display:none"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Clear</span></button>
             </div>
@@ -4792,6 +4980,40 @@
         </div>
         <div id="floating-status-resize-handle" class="floating-status-resize-handle" role="separator" aria-label="Resize status panel" aria-orientation="horizontal" tabindex="0"></div>
       </div>
+      <!-- ── AI Assistant Widget ── -->
+      <div id="dc-assistant-widget">
+        <button id="dc-assistant-toggle" class="dc-assistant-toggle" title="DependableCare AI Assistant">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          <span class="dc-assistant-toggle-label">AI Assistant</span>
+        </button>
+        <div id="dc-assistant-panel" class="dc-assistant-panel" hidden>
+          <div class="dc-assistant-header">
+            <div class="dc-assistant-header-info">
+              <div class="dc-assistant-avatar">DC</div>
+              <div>
+                <div class="dc-assistant-title">DependableCare Assistant</div>
+                <div class="dc-assistant-subtitle">Staffing · Coverage · Placement</div>
+              </div>
+            </div>
+            <div class="dc-assistant-header-actions">
+              <button id="dc-assistant-minimize" class="dc-assistant-minimize" title="Minimize">—</button>
+              <button id="dc-assistant-close" class="dc-assistant-close" title="Close">✕</button>
+            </div>
+          </div>
+          <div id="dc-assistant-messages" class="dc-assistant-messages">
+            <div class="dc-assistant-msg assistant">
+              <div class="dc-assistant-bubble">Hi! I can help you find clinicians, check coverage, and review placement options. Try asking: <em>"Who are the top rated PTs near Skokie?"</em></div>
+            </div>
+          </div>
+          <div class="dc-assistant-input-row">
+            <textarea id="dc-assistant-input" class="dc-assistant-input" placeholder="Ask about clinicians, coverage, or placement…" rows="1"></textarea>
+            <button id="dc-assistant-send" class="dc-assistant-send" title="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div class="map-overlay">
         <p id="map-instructions">Search any address or ZIP to place a location pin — Radius Mode will activate automatically at the minimum radius so you can see nearby clinicians right away. Click anywhere on the map to move the radius center, then use − and + to refine the distance.</p>
       </div>
@@ -6034,6 +6256,26 @@
       agencyCenterOnMap: document.getElementById("agency-center-on-map")
     };
 
+    // ── Force-clear tool inputs — Chrome autofills AFTER JS runs, so we clear with a delay ──
+    (function() {
+      var toolInputIds = ["point-search", "zip-filter", "zip-panel-search", "clinician-search"];
+      function clearToolInputs() {
+        toolInputIds.forEach(function(id) {
+          var el = document.getElementById(id);
+          if (el && !el.dataset.userTyped) el.value = "";
+        });
+      }
+      // Clear immediately, then again at 100ms and 500ms to catch Chrome's delayed autofill
+      clearToolInputs();
+      setTimeout(clearToolInputs, 100);
+      setTimeout(clearToolInputs, 500);
+      // Mark as user-typed on input so we never clear something they started typing
+      toolInputIds.forEach(function(id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener("input", function() { el.dataset.userTyped = "1"; });
+      });
+    })();
+
     const appState = {
       clinicians: [],
       filteredClinicians: [],
@@ -6169,6 +6411,52 @@
       maxPitch: 0,
       bearingSnap: 7
     });
+
+    // ── Custom compass rose ──
+    (function() {
+      var rose = document.createElement("div");
+      rose.id = "compass-rose";
+      rose.innerHTML = `
+        <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
+          <!-- outer ring -->
+          <circle cx="60" cy="60" r="56" fill="rgba(255,255,255,0.92)" stroke="#c8d5e8" stroke-width="1.5"/>
+          <circle cx="60" cy="60" r="49" fill="none" stroke="#c8d5e8" stroke-width="0.8" stroke-dasharray="3,4"/>
+          <!-- cardinal points — filled dark for N/S, outline for E/W -->
+          <!-- N -->
+          <polygon points="60,8 66,52 60,58 54,52" fill="#18274a"/>
+          <!-- S -->
+          <polygon points="60,112 66,68 60,62 54,68" fill="#c8d5e8" stroke="#18274a" stroke-width="0.8"/>
+          <!-- E -->
+          <polygon points="112,60 68,54 62,60 68,66" fill="#c8d5e8" stroke="#18274a" stroke-width="0.8"/>
+          <!-- W -->
+          <polygon points="8,60 52,54 58,60 52,66" fill="#c8d5e8" stroke="#18274a" stroke-width="0.8"/>
+          <!-- intercardinal short ticks -->
+          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(45,60,60)"/>
+          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(135,60,60)"/>
+          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(225,60,60)"/>
+          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(315,60,60)"/>
+          <!-- center dot -->
+          <circle cx="60" cy="60" r="4" fill="#18274a"/>
+          <circle cx="60" cy="60" r="2" fill="#fff"/>
+          <!-- labels — these stay fixed (not inside the rotating group) -->
+        </svg>
+        <span class="cr-n">N</span>
+        <span class="cr-s">S</span>
+        <span class="cr-e">E</span>
+        <span class="cr-w">W</span>`;
+      document.getElementById("map").appendChild(rose);
+
+      // Rotate the SVG (not the labels) with map bearing
+      map.on("rotate", function() {
+        var bearing = map.getBearing();
+        rose.querySelector("svg").style.transform = "rotate(" + bearing + "deg)";
+      });
+
+      // Click to snap north
+      rose.addEventListener("click", function() {
+        map.easeTo({ bearing: 0, duration: 400 });
+      });
+    })();
 
     // Ensure Mapbox picks up the correct container size after flex layout settles
     window.requestAnimationFrame(function() { map.resize(); });
@@ -17163,6 +17451,337 @@
         if (!clinicianId) return;
         focusClinician(clinicianId, true);
       });
+
+      /* ── AI Assistant Widget ── */
+      (function() {
+        var EDGE_FN_URL = "https://jpemlcuxjvynlbeygukb.supabase.co/functions/v1/dcs-assistant-";
+        var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+        var conversationHistory = [];
+        var isOpen = false;
+
+        var toggleBtn   = document.getElementById("dc-assistant-toggle");
+        var panel       = document.getElementById("dc-assistant-panel");
+        var closeBtn    = document.getElementById("dc-assistant-close");
+        var minimizeBtn = document.getElementById("dc-assistant-minimize");
+        var header      = panel.querySelector(".dc-assistant-header");
+        var widget      = document.getElementById("dc-assistant-widget");
+        var input       = document.getElementById("dc-assistant-input");
+        var sendBtn     = document.getElementById("dc-assistant-send");
+        var msgList     = document.getElementById("dc-assistant-messages");
+
+        function buildContext() {
+          var lines = [];
+          // Always use the FULL roster — filters are for the map display only, not the AI
+          var allClinicians = appState.clinicians || appState.filteredClinicians || [];
+          lines.push("Total visible clinicians: " + allClinicians.length);
+
+          // Discipline + status breakdown — always full roster
+          var discCounts = {};
+          var statusCounts = { Active: 0, Paused: 0, Inactive: 0, Other: 0 };
+          allClinicians.forEach(function(c) {
+            discCounts[c.discipline] = (discCounts[c.discipline] || 0) + 1;
+            var draft = getProfileDraftForClinician ? getProfileDraftForClinician(c) : {};
+            var si = getClinicianSidebarStatusInfo ? getClinicianSidebarStatusInfo(draft, c) : { status: "Active" };
+            var s = (si.status || "Active");
+            if (s === "Active") statusCounts.Active++;
+            else if (s === "Paused") statusCounts.Paused++;
+            else if (s === "Inactive" || s === "Terminated") statusCounts.Inactive++;
+            else statusCounts.Other++;
+          });
+          var discParts = Object.keys(discCounts).map(function(d) { return discCounts[d] + " " + d; });
+          lines.push("Total clinicians: " + allClinicians.length);
+          lines.push("By discipline: " + discParts.join(", "));
+          lines.push("By status: " + statusCounts.Active + " Active, " + statusCounts.Paused + " Paused, " + statusCounts.Inactive + " Inactive/Terminated" + (statusCounts.Other > 0 ? ", " + statusCounts.Other + " Other" : ""));
+
+          // Note active map filters (for coordinator context only — AI should NOT limit answers to these)
+          var activeFilters = [];
+          if (appState.disciplineFilters && appState.disciplineFilters.size) {
+            activeFilters.push("discipline=" + Array.from(appState.disciplineFilters).join("/"));
+          }
+          if (appState.statusFilter) activeFilters.push("status=" + appState.statusFilter);
+          if (appState.ratingMinFilter) activeFilters.push("min rating=" + appState.ratingMinFilter + "★");
+          if (activeFilters.length) {
+            lines.push("NOTE: Map display filters are active (" + activeFilters.join(", ") + ") — these affect the MAP ONLY. The AI roster above includes ALL clinicians regardless of filters.");
+          }
+
+          // ZIP coverage
+          if (appState.zipCoverageCheckQuery) {
+            lines.push("ZIP coverage check active: " + appState.zipCoverageCheckQuery + " (" + appState.zipCoverageRadiusMiles + " mi proximity radius)");
+          }
+
+          // Radius mode
+          if (appState.radiusMode && appState.selectionCenter) {
+            lines.push("Radius mode active: " + formatRadiusMilesLabel(appState.selectedRadiusMiles) + " radius centered at (" + appState.selectionCenter.lat.toFixed(4) + ", " + appState.selectionCenter.lng.toFixed(4) + ")");
+            var radiusSites = getCompletedServiceSitesInRadius ? getCompletedServiceSitesInRadius() : [];
+            if (radiusSites.length) lines.push("Completed-service sites in radius: " + radiusSites.length);
+          }
+
+          // Selected clinicians
+          if (appState.selectedIds && appState.selectedIds.size) {
+            lines.push("Selected clinicians: " + appState.selectedIds.size);
+          }
+
+          // Full clinician roster — active/paused first, then inactive section
+          var activeClinicians = allClinicians.filter(function(c) {
+            var draft = getProfileDraftForClinician ? getProfileDraftForClinician(c) : {};
+            var si = getClinicianSidebarStatusInfo ? getClinicianSidebarStatusInfo(draft, c) : { status: "Active" };
+            var s = (si.status || "Active").toLowerCase();
+            return s !== "inactive" && s !== "terminated";
+          });
+          var inactiveClinicians = allClinicians.filter(function(c) {
+            var draft = getProfileDraftForClinician ? getProfileDraftForClinician(c) : {};
+            var si = getClinicianSidebarStatusInfo ? getClinicianSidebarStatusInfo(draft, c) : { status: "Active" };
+            var s = (si.status || "Active").toLowerCase();
+            return s === "inactive" || s === "terminated";
+          });
+
+          function buildClinicianLine(c) {
+            var draft = getProfileDraftForClinician ? getProfileDraftForClinician(c) : {};
+            var rating = normalizeProfileRatingValue ? normalizeProfileRatingValue(draft.rating) : null;
+            var statusInfo = getClinicianSidebarStatusInfo ? getClinicianSidebarStatusInfo(draft, c) : { status: "Active", detail: "" };
+            var parts = [
+              c.name,
+              "(" + (draft.discipline || c.discipline) + ")",
+              rating ? "★" + rating : "unrated",
+              statusInfo.status || "Active"
+            ];
+            if (c.workCity || c.city) parts.push("City: " + (c.workCity || c.city || ""));
+            if (draft.zip || c.workZip || c.zip) parts.push("Home ZIP: " + (draft.zip || c.workZip || c.zip || ""));
+            // Summarize preferred ZIPs — just show first 4 and count, not entire list
+            if (draft.preferredZips) {
+              var zipStr = String(draft.preferredZips);
+              var zipArr = zipStr.split(/[\s,;]+/).filter(function(z) { return /^\d{5}$/.test(z.trim()); });
+              if (zipArr.length > 4) {
+                parts.push("Preferred ZIPs: " + zipArr.slice(0, 4).join(", ") + " (+" + (zipArr.length - 4) + " more)");
+              } else if (zipArr.length > 0) {
+                parts.push("Preferred ZIPs: " + zipArr.join(", "));
+              }
+            }
+            if (draft.radius) parts.push("Service radius: " + draft.radius + " mi");
+            if (draft.languages && draft.languages.length) parts.push("Languages: " + draft.languages.join(", "));
+            // Pause detail — include dates so AI knows temporary vs indefinite
+            if (statusInfo.status === "Paused" && statusInfo.detail) {
+              parts.push("Pause detail: " + statusInfo.detail);
+            }
+            // EMR capabilities — always include so AI can answer questions like "does X use Kinnser?"
+            var emrCaps = draft.emrCapabilities || {};
+            var emrList = ["TherapyBoss"]; // always assumed
+            if (emrCaps.strata)   emrList.push("Strata");
+            if (emrCaps.axxess)   emrList.push("Axxess");
+            if (emrCaps.kinnser)  emrList.push("Kinnser");
+            parts.push("EMR: " + emrList.join(", "));
+            if (draft.notes) parts.push("Notes: " + String(draft.notes).substring(0, 120));
+            // Agency restrictions — list actual names so AI can cross-check referral source
+            if (draft.restrictedAgencies && draft.restrictedAgencies.length) {
+              var agencyNames = draft.restrictedAgencies.map(function(a) {
+                return typeof a === "string" ? a : (a.name || a.label || JSON.stringify(a));
+              }).join(", ");
+              parts.push("Restricted agencies: " + agencyNames);
+            }
+            return parts.join(" | ");
+          }
+
+          lines.push("\n--- ACTIVE / PAUSED CLINICIAN ROSTER ---");
+          activeClinicians.forEach(function(c) { lines.push(buildClinicianLine(c)); });
+
+          if (inactiveClinicians.length > 0) {
+            lines.push("\n--- INACTIVE / TERMINATED CLINICIANS (not currently available, but have visit history) ---");
+            inactiveClinicians.forEach(function(c) { lines.push(buildClinicianLine(c)); });
+          }
+
+          // Completed service history
+          if (appState.completedServiceSites && appState.completedServiceSites.length) {
+            lines.push("\n--- COMPLETED SERVICE SITES (sample top 30) ---");
+            var sites = appState.completedServiceSites.slice(0, 30);
+            sites.forEach(function(site) {
+              var clinNames = (site.disciplineGroups || []).flatMap(function(g) {
+                return (g.entries || []).map(function(e) { return e.name + " (" + g.discipline + ")"; });
+              }).join(", ");
+              lines.push(
+                (site.fullAddress || "Unknown address") +
+                " | " + (site.totalServiceVisits || 0) + " visits" +
+                " | " + (site.uniqueClinicianCount || 0) + " clinicians" +
+                (site.latestServiceDate ? " | Latest: " + site.latestServiceDate : "") +
+                (clinNames ? " | Clinicians: " + clinNames : "")
+              );
+            });
+          }
+
+          return lines.join("\n");
+        }
+
+        function renderBubble(text) {
+          // Split into lines and build styled HTML
+          var lines = text.split("\n");
+          var html = "";
+          var inCard = false;
+
+          lines.forEach(function(line) {
+            var trimmed = line.trim();
+            if (!trimmed) {
+              if (inCard) { html += "</div>"; inCard = false; }
+              return;
+            }
+
+            // Clinician card header: **Name** — ... (bold name line)
+            if (/^\*\*[^*]+\*\*\s*[—–-]/.test(trimmed)) {
+              if (inCard) html += "</div>";
+              inCard = true;
+              var cardHtml = trimmed
+                .replace(/^\*\*([^*]+)\*\*/, "<span class='dc-card-name'>$1</span>")
+                .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+                .replace(/★(\d)/g, "<span class='dc-card-stars'>★$1</span>");
+              html += "<div class='dc-card'><div class='dc-card-header'>" + cardHtml + "</div>";
+              return;
+            }
+
+            // Sub-line: ↳ note/restriction
+            if (/^[↳➤>]/.test(trimmed)) {
+              var noteHtml = trimmed.replace(/^[↳➤>\s]+/, "")
+                .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+              html += "<div class='dc-card-note'>" + noteHtml + "</div>";
+              return;
+            }
+
+            // Close open card before a plain paragraph
+            if (inCard) { html += "</div>"; inCard = false; }
+
+            // Inline bold + stars in regular lines
+            var lineHtml = trimmed
+              .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+              .replace(/★(\d)/g, "<span class='dc-card-stars'>★$1</span>");
+            html += "<p class='dc-bubble-p'>" + lineHtml + "</p>";
+          });
+
+          if (inCard) html += "</div>";
+          return html;
+        }
+
+        function appendMsg(role, text) {
+          var div = document.createElement("div");
+          div.className = "dc-assistant-msg " + role;
+          var bubble = document.createElement("div");
+          bubble.className = "dc-assistant-bubble";
+          if (role === "assistant") {
+            bubble.innerHTML = renderBubble(text);
+          } else {
+            bubble.textContent = text;
+          }
+          div.appendChild(bubble);
+          msgList.appendChild(div);
+          msgList.scrollTop = msgList.scrollHeight;
+          return div;
+        }
+
+        function appendTyping() {
+          var div = document.createElement("div");
+          div.className = "dc-assistant-msg assistant dc-assistant-typing";
+          var bubble = document.createElement("div");
+          bubble.className = "dc-assistant-bubble";
+          bubble.textContent = "Thinking…";
+          div.appendChild(bubble);
+          msgList.appendChild(div);
+          msgList.scrollTop = msgList.scrollHeight;
+          return div;
+        }
+
+        async function sendMessage() {
+          var text = (input.value || "").trim();
+          if (!text) return;
+          input.value = "";
+          input.style.height = "auto";
+
+          appendMsg("user", text);
+          conversationHistory.push({ role: "user", content: text });
+
+          var typing = appendTyping();
+          sendBtn.disabled = true;
+
+          try {
+            var res = await fetch(EDGE_FN_URL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + SUPABASE_ANON_KEY
+              },
+              body: JSON.stringify({
+                messages: conversationHistory,
+                context: buildContext(),
+                clinicianNames: (appState.clinicians || appState.filteredClinicians || []).map(function(c) { return c.name; })
+              })
+            });
+            var data = await res.json();
+            console.log("[DC Assistant] response:", res.status, data);
+            var reply = data.reply
+              || (data.error ? "Error: " + JSON.stringify(data.error) : null)
+              || "No response received (status " + res.status + ").";
+            typing.remove();
+            appendMsg("assistant", reply);
+            conversationHistory.push({ role: "assistant", content: reply });
+          } catch (err) {
+            typing.remove();
+            appendMsg("assistant", "Connection error — please try again.");
+          }
+
+          sendBtn.disabled = false;
+        }
+
+        toggleBtn.addEventListener("click", function() {
+          isOpen = !isOpen;
+          panel.hidden = !isOpen;
+          panel.classList.remove("minimized");
+          if (isOpen) { input.focus(); msgList.scrollTop = msgList.scrollHeight; }
+        });
+
+        closeBtn.addEventListener("click", function() {
+          isOpen = false;
+          panel.hidden = true;
+          panel.classList.remove("minimized");
+        });
+
+        minimizeBtn.addEventListener("click", function(e) {
+          e.stopPropagation();
+          panel.classList.toggle("minimized");
+        });
+
+        // ── Drag to reposition ──
+        (function() {
+          var dragging = false, startX, startY, origLeft, origTop;
+          header.addEventListener("mousedown", function(e) {
+            if (e.target === closeBtn || e.target === minimizeBtn) return;
+            dragging = true;
+            var rect = widget.getBoundingClientRect();
+            startX = e.clientX; startY = e.clientY;
+            origLeft = rect.left; origTop = rect.top;
+            widget.classList.add("dragged");
+            widget.style.left = origLeft + "px";
+            widget.style.top  = origTop  + "px";
+            e.preventDefault();
+          });
+          document.addEventListener("mousemove", function(e) {
+            if (!dragging) return;
+            var dx = e.clientX - startX, dy = e.clientY - startY;
+            widget.style.left = (origLeft + dx) + "px";
+            widget.style.top  = (origTop  + dy) + "px";
+          });
+          document.addEventListener("mouseup", function() { dragging = false; });
+        })();
+
+        sendBtn.addEventListener("click", sendMessage);
+
+        input.addEventListener("keydown", function(e) {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+          }
+        });
+
+        // Auto-grow textarea
+        input.addEventListener("input", function() {
+          input.style.height = "auto";
+          input.style.height = Math.min(input.scrollHeight, 80) + "px";
+        });
+      })();
 
       /* ── Page zoom nudge control ── */
       (function() {
