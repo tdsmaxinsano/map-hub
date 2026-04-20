@@ -317,10 +317,11 @@
       border-color: var(--danger);
     }
 
-    /* ── Read-only mode ── */
-    body.readonly-mode .edit-only {
-      display: none !important;
-    }
+    /* ── Role-based visibility ── */
+    body.readonly-mode .edit-only      { display: none !important; }
+    body.readonly-mode .admin-only     { display: none !important; }
+    body.editor-mode   .admin-only     { display: none !important; }
+    /* editor-mode: edit-only elements ARE visible, admin-only are not */
 
     /* ── User Management Modal ── */
     .um-overlay {
@@ -359,8 +360,15 @@
       display: inline-block; padding: 2px 8px; border-radius: 20px;
       font-size: 10px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase;
     }
-    .um-badge.admin { background: #dbeafe; color: #1e4d8c; }
+    .um-badge.admin    { background: #dbeafe; color: #1e4d8c; }
+    .um-badge.editor   { background: #d1fae5; color: #065f46; }
     .um-badge.readonly { background: #f0f4fa; color: var(--muted); }
+    .um-role-select {
+      border: 1px solid var(--panel-border); border-radius: 6px;
+      padding: 4px 8px; font-size: 12px; color: var(--text);
+      background: #fff; cursor: pointer;
+    }
+    .um-role-select:focus { outline: none; border-color: var(--accent); }
     .um-action-btn {
       padding: 4px 10px; border-radius: 7px; font-size: 11px; font-weight: 700;
       cursor: pointer; border: 1px solid; transition: all 0.15s;
@@ -4891,7 +4899,7 @@
               <div class="menu-panel">
                 <button id="toolbar-add-clinician" class="menu-item edit-only" type="button">Add Clinician</button>
                 <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
-                <button id="toolbar-bulk-import" class="menu-item edit-only" type="button">Bulk Import</button>
+                <button id="toolbar-bulk-import" class="menu-item edit-only admin-only" type="button">Bulk Import</button>
                 <button id="toolbar-clear-map-search" class="menu-item" type="button">Clear Search Pin</button>
               </div>
             </div>
@@ -4925,7 +4933,7 @@
 
           <!-- ── User chip + logout ── -->
           <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
-            <button type="button" class="um-manage-btn edit-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
+            <button type="button" class="um-manage-btn admin-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
             <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
               <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
               <div style="display:flex;flex-direction:column;line-height:1.2">
@@ -4946,6 +4954,7 @@
           <span class="zoom-label" id="zoom-label">100%</span>
           <button class="zoom-nudge" id="zoom-in" title="Zoom in (Ctrl + scroll)">+</button>
           <span class="zoom-rev">Rev 120</span>
+          <button id="tour-launch-btn" class="zoom-nudge tour-launch-btn" title="Feature tour">?</button>
         </div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Coverage</div>
@@ -5721,17 +5730,17 @@
 
     /* ── Apply session to app ── */
     function applyUserToToolbar(user, role) {
-      var chip     = document.getElementById("toolbar-user-chip");
-      var avatar   = document.getElementById("toolbar-user-avatar");
-      var emailEl  = document.getElementById("toolbar-user-email");
-      var roleEl   = document.getElementById("toolbar-user-role");
+      var chip      = document.getElementById("toolbar-user-chip");
+      var avatar    = document.getElementById("toolbar-user-avatar");
+      var emailEl   = document.getElementById("toolbar-user-email");
+      var roleEl    = document.getElementById("toolbar-user-role");
       var logoutBtn = document.getElementById("toolbar-logout");
       if (!chip) return;
       if (user) {
-        avatar.textContent     = getAuthInitials(user.email);
-        emailEl.textContent    = user.email;
-        roleEl.textContent     = role === "admin" ? "Admin" : "View Only";
-        chip.style.display     = "inline-flex";
+        avatar.textContent      = getAuthInitials(user.email);
+        emailEl.textContent     = user.email;
+        roleEl.textContent      = role === "admin" ? "Admin" : role === "editor" ? "Editor" : "View Only";
+        chip.style.display      = "inline-flex";
         logoutBtn.style.display = "";
         umUpdateManageBtn(role);
       } else {
@@ -5742,7 +5751,20 @@
     }
 
     function applyReadOnlyMode(isReadOnly) {
-      document.body.classList.toggle("readonly-mode", isReadOnly);
+      // Legacy call — redirect to full role apply
+      applyRoleMode(isReadOnly ? "readonly" : appUserRole);
+    }
+
+    function applyRoleMode(role) {
+      // Clear all mode classes first
+      document.body.classList.remove("readonly-mode", "editor-mode", "admin-mode");
+      if (role === "admin") {
+        document.body.classList.add("admin-mode");
+      } else if (role === "editor") {
+        document.body.classList.add("editor-mode");
+      } else {
+        document.body.classList.add("readonly-mode");
+      }
     }
 
     function showToast(message, type, duration) {
@@ -5782,7 +5804,7 @@
         await withTimeout(ensureUserRoleExists(session.user.id, "readonly", session.user.email), 4000, null);
         appUserRole = await withTimeout(fetchUserRole(session.user.id), 4000, "readonly");
         applyUserToToolbar(session.user, appUserRole);
-        applyReadOnlyMode(appUserRole !== "admin");
+        applyRoleMode(appUserRole);
       } catch (e) {
         console.warn("handleAuthSession error (non-fatal):", e);
         appUserRole = "readonly";
@@ -5790,6 +5812,12 @@
         applyReadOnlyMode(true);
       } finally {
         if (authOverlay) authOverlay.style.display = "none";
+        // Launch tour on first login only
+        try {
+          if (!localStorage.getItem("dcs_tour_done") && typeof startTour === "function") {
+            setTimeout(startTour, 800);
+          }
+        } catch(e) {}
       }
     }
 
@@ -5861,20 +5889,26 @@
           content.innerHTML = '<div class="um-empty">No users found.</div>';
           return;
         }
-        var html = '<table class="um-table"><thead><tr><th>Email</th><th>Role</th><th>Joined</th><th>Action</th></tr></thead><tbody>';
+        var html = '<table class="um-table"><thead><tr><th>Email</th><th>Role</th><th>Joined</th><th>Change Role</th></tr></thead><tbody>';
         rows.forEach(function(row) {
-          var isAdmin = row.role === "admin";
+          var role   = row.role || "readonly";
           var isSelf = appCurrentUser && row.user_id === appCurrentUser.id;
-          var email = row.email || row.user_id.substring(0, 8) + "…";
+          var email  = row.email || row.user_id.substring(0, 8) + "…";
           var joined = row.created_at ? new Date(row.created_at).toLocaleDateString() : "—";
-          var badge = isAdmin
-            ? '<span class="um-badge admin">Admin</span>'
-            : '<span class="um-badge readonly">View Only</span>';
-          var actionBtn = isSelf
-            ? '<span style="font-size:11px;color:var(--muted)">You</span>'
-            : isAdmin
-              ? '<button class="um-action-btn demote" onclick="umChangeRole(\'' + row.user_id + '\', \'readonly\')">Demote</button>'
-              : '<button class="um-action-btn promote" onclick="umChangeRole(\'' + row.user_id + '\', \'admin\')">Make Admin</button>';
+          var badgeClass = role === "admin" ? "admin" : role === "editor" ? "editor" : "readonly";
+          var badgeLabel = role === "admin" ? "Admin" : role === "editor" ? "Editor" : "View Only";
+          var badge = '<span class="um-badge ' + badgeClass + '">' + badgeLabel + '</span>';
+          var actionBtn;
+          if (isSelf) {
+            actionBtn = '<span style="font-size:11px;color:var(--muted)">You</span>';
+          } else {
+            actionBtn =
+              '<select class="um-role-select" onchange="umChangeRole(\'' + row.user_id + '\', this.value); this.blur();">' +
+              '<option value="readonly"' + (role === "readonly" ? " selected" : "") + '>View Only</option>' +
+              '<option value="editor"'  + (role === "editor"   ? " selected" : "") + '>Editor</option>' +
+              '<option value="admin"'   + (role === "admin"    ? " selected" : "") + '>Admin</option>' +
+              '</select>';
+          }
           html += '<tr><td style="font-size:12px;word-break:break-all;">' + email + '</td><td>' + badge + '</td><td style="font-size:11px;color:var(--muted);">' + joined + '</td><td>' + actionBtn + '</td></tr>';
         });
         html += '</tbody></table>';
@@ -5902,6 +5936,18 @@
       if (!btn) return;
       btn.style.display = role === "admin" ? "" : "none";
     }
+
+    window.umChangeRole = async function(userId, newRole) {
+      try {
+        var result = await supabaseClient.from("user_roles").update({ role: newRole }).eq("user_id", userId);
+        if (result.error) throw result.error;
+        await umLoadUsers();
+        showToast("Role updated to " + newRole, "success");
+      } catch (e) {
+        console.error("umChangeRole error:", e);
+        showToast("Could not update role: " + (e.message || e), "error");
+      }
+    };
 
     let completedServiceLoadTimerHandle = null;
 
@@ -18932,6 +18978,265 @@
       syncMapInstructions();
       updateSummary();
     });
+  </script>
+
+  <!-- ── Feature Tour ── -->
+  <div id="tour-overlay" style="display:none">
+    <div id="tour-backdrop"></div>
+    <div id="tour-spotlight"></div>
+    <div id="tour-card">
+      <div id="tour-card-step"></div>
+      <div id="tour-card-title"></div>
+      <div id="tour-card-body"></div>
+      <div id="tour-card-footer">
+        <button id="tour-skip">Skip tour</button>
+        <div id="tour-nav">
+          <button id="tour-prev">← Back</button>
+          <button id="tour-next">Next →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <style>
+    #tour-backdrop {
+      position: fixed; inset: 0; z-index: 99990;
+      background: rgba(10, 20, 45, 0.38);
+      pointer-events: all;
+    }
+    #tour-spotlight {
+      position: fixed; z-index: 99991;
+      border-radius: 10px;
+      box-shadow: 0 0 0 4px rgba(36,99,235,0.7), 0 0 0 9999px rgba(10,20,45,0.38);
+      pointer-events: none;
+      transition: all 0.35s cubic-bezier(.4,0,.2,1);
+    }
+    #tour-card {
+      position: fixed; z-index: 99992;
+      background: #fff;
+      border-radius: 16px;
+      box-shadow: 0 12px 48px rgba(10,20,45,0.28);
+      padding: 22px 24px 18px;
+      width: 320px;
+      transition: top 0.35s cubic-bezier(.4,0,.2,1), left 0.35s cubic-bezier(.4,0,.2,1);
+    }
+    #tour-card-step {
+      font-size: 11px; font-weight: 700; color: #2463eb;
+      letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 6px;
+    }
+    #tour-card-title {
+      font-size: 16px; font-weight: 800; color: #18274a; margin-bottom: 8px; line-height: 1.3;
+    }
+    #tour-card-body {
+      font-size: 13.5px; color: #3a4f6e; line-height: 1.6; margin-bottom: 18px;
+    }
+    #tour-card-footer {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    #tour-skip {
+      background: none; border: none; color: #8aa0be; font-size: 12px;
+      cursor: pointer; padding: 0;
+    }
+    #tour-skip:hover { color: #526480; }
+    #tour-nav { display: flex; gap: 8px; }
+    #tour-prev, #tour-next {
+      border: none; border-radius: 8px; padding: 7px 16px;
+      font-size: 13px; font-weight: 700; cursor: pointer; transition: opacity 0.15s;
+    }
+    #tour-prev { background: #edf1f8; color: #526480; }
+    #tour-prev:hover { background: #d8e2f0; }
+    #tour-next { background: linear-gradient(135deg,#2463eb,#1a4fc4); color: #fff; }
+    #tour-next:hover { opacity: 0.9; }
+    #tour-prev[disabled] { opacity: 0.3; pointer-events: none; }
+    .tour-launch-btn {
+      background: linear-gradient(135deg,#2463eb,#1a4fc4) !important;
+      color: #fff !important; font-weight: 800 !important;
+      border-radius: 50% !important; width: 20px !important; height: 20px !important;
+      font-size: 11px !important; padding: 0 !important;
+    }
+  </style>
+
+  <script>
+  (function() {
+    var STEPS = [
+      {
+        title: "Welcome to DependableCare Portal 👋",
+        body: "This quick tour covers all the key features — finding clinicians, checking coverage, using the AI assistant, and more. Takes about 60 seconds.",
+        target: null,
+        position: "center"
+      },
+      {
+        title: "Discipline Filters",
+        body: "Toggle PT, PTA, OT, or OTA to filter the map and list to only those disciplines. Active filters glow blue — click again to deactivate.",
+        target: ".discipline-toggles, [data-discipline-toggle]",
+        targetSelector: function() { return document.querySelector(".filter-chip-grid") || document.querySelector("[data-discipline-toggle]"); },
+        position: "right"
+      },
+      {
+        title: "Status & EMR Filters",
+        body: "Filter by Active, Paused, or Inactive status. You can also filter by EMR system — Strata, Axxess, or Kinnser — to find clinicians who work with a specific platform.",
+        targetSelector: function() { return document.querySelector("[data-status-filter-toggle]"); },
+        position: "right"
+      },
+      {
+        title: "ZIP Coverage Check",
+        body: "Enter a patient's ZIP code and hit Check. The map zooms to that area and shows every clinician within your chosen proximity radius — ranked by how many prior visits they've had there.",
+        targetSelector: function() { return document.getElementById("zip-panel-search"); },
+        position: "right"
+      },
+      {
+        title: "Radius Mode",
+        body: "Click the Radius button, then click anywhere on the map to drop a center point. Use − and + to expand or shrink the radius. The panel below shows every completed-service site and clinician that falls inside.",
+        targetSelector: function() { return document.getElementById("radius-mode-toggle") || document.querySelector(".radius-panel-mode-btn"); },
+        position: "right"
+      },
+      {
+        title: "Completed Service History",
+        body: "The map shows purple markers where visits have been completed. Click any marker to see which clinicians worked there, how many visits, and the latest service date — great for verifying territory coverage.",
+        targetSelector: function() { return document.getElementById("show-completed-services-toggle"); },
+        position: "right"
+      },
+      {
+        title: "AI Assistant 🤖",
+        body: "Click AI Assistant to open the chat. Ask things like \"Who are the top rated PTs near Skokie?\" or \"Does Charles Buscano cover Cicero?\" — it pulls live data from your roster and visit history to answer.",
+        targetSelector: function() { return document.getElementById("dc-assistant-toggle"); },
+        position: "left"
+      },
+      {
+        title: "Clinician Profiles",
+        body: "Click any clinician name in the list to open their full profile — status, pause dates, preferred ZIPs, EMR systems, agency restrictions, languages, and notes. You can edit and save changes directly from here.",
+        targetSelector: function() { return document.querySelector(".clinician-card, .clinician-entry"); },
+        position: "right"
+      },
+      {
+        title: "Map Style & Fit",
+        body: "Use the style picker to switch between Mapbox Light, Dark, Satellite, and Streets. Hit Fit to zoom the map to show all visible clinicians at once.",
+        targetSelector: function() { return document.getElementById("map-style-select") || document.querySelector(".map-style-select"); },
+        position: "below"
+      },
+      {
+        title: "You're all set! ✅",
+        body: "Hit the <strong>?</strong> button in the bottom toolbar any time to replay this tour. If you have questions or run into issues, reach out to your portal admin.",
+        target: null,
+        position: "center"
+      }
+    ];
+
+    var currentStep = 0;
+    var overlay  = document.getElementById("tour-overlay");
+    var backdrop = document.getElementById("tour-backdrop");
+    var spotlight= document.getElementById("tour-spotlight");
+    var card     = document.getElementById("tour-card");
+    var stepEl   = document.getElementById("tour-card-step");
+    var titleEl  = document.getElementById("tour-card-title");
+    var bodyEl   = document.getElementById("tour-card-body");
+    var prevBtn  = document.getElementById("tour-prev");
+    var nextBtn  = document.getElementById("tour-next");
+    var skipBtn  = document.getElementById("tour-skip");
+    var launchBtn= document.getElementById("tour-launch-btn");
+
+    function getTarget(step) {
+      if (step.targetSelector) {
+        try { return step.targetSelector(); } catch(e) { return null; }
+      }
+      return null;
+    }
+
+    function positionSpotlight(el) {
+      if (!el) { spotlight.style.display = "none"; return; }
+      var r = el.getBoundingClientRect();
+      var pad = 8;
+      spotlight.style.display = "block";
+      spotlight.style.left   = (r.left   - pad) + "px";
+      spotlight.style.top    = (r.top    - pad) + "px";
+      spotlight.style.width  = (r.width  + pad * 2) + "px";
+      spotlight.style.height = (r.height + pad * 2) + "px";
+    }
+
+    function positionCard(el, position) {
+      var vw = window.innerWidth, vh = window.innerHeight;
+      var cw = 320, ch = 200; // approx card size
+      var margin = 18;
+
+      if (!el || position === "center") {
+        card.style.left = ((vw - cw) / 2) + "px";
+        card.style.top  = ((vh - ch) / 2) + "px";
+        return;
+      }
+
+      var r = el.getBoundingClientRect();
+
+      if (position === "right") {
+        var left = r.right + margin;
+        var top  = Math.max(margin, Math.min(r.top, vh - ch - margin));
+        if (left + cw > vw - margin) left = r.left - cw - margin;
+        card.style.left = left + "px";
+        card.style.top  = top  + "px";
+      } else if (position === "left") {
+        var left = r.left - cw - margin;
+        if (left < margin) left = r.right + margin;
+        card.style.left = Math.max(margin, left) + "px";
+        card.style.top  = Math.max(margin, Math.min(r.top, vh - ch - margin)) + "px";
+      } else if (position === "below") {
+        card.style.left = Math.max(margin, Math.min(r.left, vw - cw - margin)) + "px";
+        var top = r.bottom + margin;
+        if (top + ch > vh - margin) top = r.top - ch - margin;
+        card.style.top = Math.max(margin, top) + "px";
+      }
+    }
+
+    function showStep(index) {
+      var step = STEPS[index];
+      var target = getTarget(step);
+
+      stepEl.textContent = "Step " + (index + 1) + " of " + STEPS.length;
+      titleEl.textContent = step.title;
+      bodyEl.innerHTML = step.body;
+      prevBtn.disabled = index === 0;
+      nextBtn.textContent = index === STEPS.length - 1 ? "Finish ✓" : "Next →";
+
+      positionSpotlight(target);
+      positionCard(target, step.position || "right");
+
+      // Scroll target into view if needed
+      if (target) {
+        try { target.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch(e) {}
+      }
+    }
+
+    function startTour() {
+      currentStep = 0;
+      overlay.style.display = "block";
+      showStep(0);
+    }
+    window.startTour = startTour; // expose so handleAuthSession can call it
+
+    function endTour() {
+      overlay.style.display = "none";
+      spotlight.style.display = "none";
+      try { localStorage.setItem("dcs_tour_done", "1"); } catch(e) {}
+    }
+
+    nextBtn.addEventListener("click", function() {
+      if (currentStep < STEPS.length - 1) {
+        currentStep++;
+        showStep(currentStep);
+      } else {
+        endTour();
+      }
+    });
+
+    prevBtn.addEventListener("click", function() {
+      if (currentStep > 0) { currentStep--; showStep(currentStep); }
+    });
+
+    skipBtn.addEventListener("click", endTour);
+    backdrop.addEventListener("click", function() {}); // block map clicks during tour
+
+    if (launchBtn) launchBtn.addEventListener("click", startTour);
+
+    // Tour auto-launch is triggered from handleAuthSession after successful login
+  })();
   </script>
 </body>
 </html>
