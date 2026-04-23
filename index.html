@@ -5807,9 +5807,17 @@
         applyRoleMode(appUserRole);
       } catch (e) {
         console.warn("handleAuthSession error (non-fatal):", e);
-        appUserRole = "readonly";
-        applyUserToToolbar(session.user, "readonly");
-        applyReadOnlyMode(true);
+        // Only fall back to readonly if we don't already have a known role.
+        // This prevents a transient network error from permanently demoting an admin.
+        if (!appUserRole || appUserRole === "readonly") {
+          appUserRole = "readonly";
+          applyUserToToolbar(session.user, "readonly");
+          applyReadOnlyMode(true);
+        } else {
+          // Keep existing role — the refresh failed but the user is still who they were.
+          applyUserToToolbar(session.user, appUserRole);
+          applyRoleMode(appUserRole);
+        }
       } finally {
         if (authOverlay) authOverlay.style.display = "none";
         // Launch tour on first login only
@@ -5839,8 +5847,14 @@
         if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("setpassword"); }
         return;
       }
-      if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED" || event === "INITIAL_SESSION") {
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
         await handleAuthSession(session);
+      }
+      if (event === "TOKEN_REFRESHED") {
+        // Token silently refreshed — just update the user reference, do NOT re-fetch the role.
+        // Re-running handleAuthSession here can race against the 4s timeout and falsely demote
+        // the user to read-only (especially when a second tab triggers the refresh).
+        if (session && session.user) { appCurrentUser = session.user; }
       }
       if (event === "SIGNED_OUT") {
         await handleAuthSession(null);
