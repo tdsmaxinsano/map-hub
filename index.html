@@ -3961,6 +3961,102 @@
       align-items: center;
     }
 
+    /* ── Field Intelligence badges ── */
+    .field-intel-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .field-intel-badge.green  { background: #e6f4ed; color: #1a6b3a; }
+    .field-intel-badge.amber  { background: #fff4e0; color: #9a5a00; }
+    .field-intel-badge.red    { background: #fff0ef; color: #952d24; }
+    .field-intel-badge.gray   { background: #f1f3f7; color: #526480; }
+    .field-intel-badge.blue   { background: #edf3ff; color: #1e4d8c; }
+
+    .agency-rel-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 600;
+      background: #edf3ff;
+      color: #1e4d8c;
+      border: 1px solid #c8d5e8;
+    }
+
+    .agency-rel-chip .chip-count {
+      font-weight: 400;
+      color: #526480;
+      font-size: 11px;
+    }
+
+    .restriction-search-wrap {
+      position: relative;
+    }
+
+    .restriction-search-dropdown {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: #fff;
+      border: 1px solid #c8d5e8;
+      border-radius: 12px;
+      box-shadow: 0 12px 32px rgba(10,18,42,0.13);
+      z-index: 200;
+      overflow: hidden;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .restriction-search-dropdown.open {
+      display: block;
+    }
+
+    .restriction-search-option {
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+      padding: 8px 12px;
+      cursor: pointer;
+      border-bottom: 1px solid #eef2f8;
+      transition: background 0.1s;
+    }
+
+    .restriction-search-option:last-child {
+      border-bottom: none;
+    }
+
+    .restriction-search-option:hover,
+    .restriction-search-option.active {
+      background: #f0f5ff;
+    }
+
+    .restriction-search-option-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .restriction-search-option-meta {
+      font-size: 11.5px;
+      color: var(--muted);
+    }
+
+    .restriction-search-empty {
+      padding: 10px 12px;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+
     .toggle-row {
       display: flex;
       align-items: center;
@@ -4948,7 +5044,20 @@
       </div>
 
       <div class="map-stage">
-      <div id="map"></div>
+      <div id="map">
+        <!-- ── Lens / ZIP alignment pill — bottom-left of map canvas ── -->
+        <div id="align-bar" style="display:none; position:absolute; top:12px; right:12px; z-index:10; background:#1E3A5F; color:#fff; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.28); padding:8px 12px; min-width:0; max-width:280px;">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+            <span style="font-size:10px; font-weight:800; letter-spacing:0.8px; text-transform:uppercase; opacity:0.55;">Lens · ZIP Align</span>
+            <button id="align-bar-close" type="button" title="Dismiss" style="background:none; border:none; color:rgba(255,255,255,0.5); font-size:16px; line-height:1; cursor:pointer; padding:0 0 0 8px;">×</button>
+          </div>
+          <div id="align-bar-dist" style="font-size:12px; font-weight:700; margin-bottom:8px; line-height:1.3;"></div>
+          <div style="display:flex; gap:6px;">
+            <button id="align-snap-lens" type="button" style="flex:1; font-size:11px; font-weight:700; padding:5px 8px; background:rgba(255,255,255,0.13); border:1px solid rgba(255,255,255,0.22); color:#fff; border-radius:7px; cursor:pointer; white-space:nowrap;">📍 Lens → ZIP</button>
+            <button id="align-snap-zip"  type="button" style="flex:1; font-size:11px; font-weight:700; padding:5px 8px; background:rgba(255,255,255,0.13); border:1px solid rgba(255,255,255,0.22); color:#fff; border-radius:7px; cursor:pointer; white-space:nowrap;">🔵 ZIP → Lens</button>
+          </div>
+        </div>
+      </div>
         <div class="version-indicator" id="version-indicator">
           <button class="zoom-nudge" id="zoom-out" title="Zoom out (Ctrl + scroll)">−</button>
           <span class="zoom-label" id="zoom-label">100%</span>
@@ -4979,10 +5088,11 @@
           <div id="zip-coverage-resize-handle" class="zip-coverage-resize-handle" role="separator" aria-label="Resize ZIP coverage results" tabindex="0"></div>
           <!-- ── Radius step controls — live in panel, same IDs as before ── -->
           <div id="radius-panel-controls" class="radius-panel-controls" hidden>
-            <button id="radius-mode-toggle" class="btn-secondary radius-panel-mode-btn" type="button" title="Toggle radius selection mode"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Radius</span></button>
-            <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink radius">−</button>
-            <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
-            <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow radius">+</button>
+            <button id="radius-mode-toggle" class="btn-secondary radius-panel-mode-btn" type="button" title="Toggle lens selection mode"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Lens</span></button>
+            <button id="radius-shrink" type="button" class="btn-secondary radius-step-button" aria-label="Shrink lens">−</button>
+            <div id="radius-value" class="radius-readout" role="spinbutton" tabindex="0" aria-label="Selected lens radius" aria-valuemin="1" aria-valuemax="25" aria-valuenow="1">1 mile</div>
+            <button id="radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow lens">+</button>
+            <span id="lens-zip-warning" style="display:none; font-size:11px; font-weight:700; color:#7B5800; background:#FFF3CD; border:1px solid #d4a843; border-radius:5px; padding:3px 8px; white-space:nowrap;">⚠ Outside ZIP area</span>
             <button id="clear-selection" class="btn-secondary radius-panel-clear-btn" type="button" title="Clear current selection"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>Clear</span></button>
           </div>
           <div id="radius-coverage-shell" class="radius-coverage-shell" hidden></div>
@@ -5024,7 +5134,7 @@
       </div>
 
       <div class="map-overlay">
-        <p id="map-instructions">Search any address or ZIP to place a location pin — Radius Mode will activate automatically at the minimum radius so you can see nearby clinicians right away. Click anywhere on the map to move the radius center, then use − and + to refine the distance.</p>
+        <p id="map-instructions">Search any address or ZIP to place a location pin — Lens will activate automatically at the minimum size so you can see nearby clinicians right away. Click anywhere on the map to move the lens, then use − and + to refine the distance.</p>
       </div>
       <aside id="therapyboss-dock" class="therapyboss-dock" aria-hidden="true">
         <div class="therapyboss-header">
@@ -5327,17 +5437,23 @@
                   <div class="restriction-group">
                     <div class="restriction-title">Clinicians</div>
                     <div id="profile-restricted-clinicians-list" class="profile-restriction-list" aria-live="polite"></div>
-                    <div class="profile-restriction-add-row">
-                      <input id="profile-restricted-clinicians-input" type="text" placeholder="Add clinician restriction">
-                      <button id="profile-restricted-clinicians-add" type="button" class="btn-secondary">Add</button>
+                    <div class="restriction-search-wrap">
+                      <div class="profile-restriction-add-row">
+                        <input id="profile-restricted-clinicians-input" type="text" placeholder="Search clinician name…" autocomplete="off">
+                        <button id="profile-restricted-clinicians-add" type="button" class="btn-secondary">Add</button>
+                      </div>
+                      <div id="profile-restricted-clinicians-results" class="restriction-search-dropdown" role="listbox"></div>
                     </div>
                   </div>
                   <div class="restriction-group">
                     <div class="restriction-title">Agencies</div>
                     <div id="profile-restricted-agencies-list" class="profile-restriction-list" aria-live="polite"></div>
-                    <div class="profile-restriction-add-row">
-                      <input id="profile-restricted-agencies-input" type="text" placeholder="Add agency restriction">
-                      <button id="profile-restricted-agencies-add" type="button" class="btn-secondary">Add</button>
+                    <div class="restriction-search-wrap">
+                      <div class="profile-restriction-add-row">
+                        <input id="profile-restricted-agencies-input" type="text" placeholder="Search agency name…" autocomplete="off">
+                        <button id="profile-restricted-agencies-add" type="button" class="btn-secondary">Add</button>
+                      </div>
+                      <div id="profile-restricted-agencies-results" class="restriction-search-dropdown" role="listbox"></div>
                     </div>
                   </div>
                 </div>
@@ -5375,6 +5491,24 @@
               </div>
             </div>
             <div class="helper-text">ZIP coverage is synced from TherapyBoss. Enter or update clinician ZIPs there first, then run the ZIP Coverage import here.</div>
+          </section>
+
+          <section class="profile-card" id="profile-field-intel-card">
+            <h3 class="profile-card-title">Field Intelligence</h3>
+            <div class="profile-grid" id="profile-field-intel-grid">
+              <div class="profile-kv">
+                <div class="profile-kv-label">Last Active</div>
+                <div id="profile-last-active" class="profile-kv-value">—</div>
+              </div>
+              <div class="profile-kv">
+                <div class="profile-kv-label">Travel Range</div>
+                <div id="profile-travel-range" class="profile-kv-value">—</div>
+              </div>
+              <div class="profile-kv full">
+                <div class="profile-kv-label">Agency History</div>
+                <div id="profile-agency-relationships" class="profile-kv-value" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;">—</div>
+              </div>
+            </div>
           </section>
 
           <section class="profile-card">
@@ -5536,6 +5670,42 @@
               <button id="agency-save-draft" type="button" class="btn-primary edit-only">Save Local Draft</button>
               <button id="agency-center-on-map" type="button" class="btn-secondary">Center on Map</button>
             </div>
+          </section>
+
+          <section class="profile-card" id="agency-restrictions-card">
+            <h3 class="profile-card-title" style="display:flex;align-items:center;gap:8px;">
+              Clinician Restrictions
+              <span id="agency-restrictions-badge" style="display:none;background:#bf3f34;color:#fff;border-radius:999px;font-size:11px;font-weight:700;padding:2px 8px;"></span>
+            </h3>
+            <div id="agency-restrictions-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;"></div>
+            <div id="agency-restrictions-note" style="margin-top:8px;font-size:11.5px;color:var(--muted);"></div>
+          </section>
+
+          <section class="profile-card" id="agency-footprint-card">
+            <h3 class="profile-card-title">Coverage Footprint</h3>
+            <div id="agency-footprint-loading" style="color:var(--muted);font-size:13px;padding:6px 0;">Load completed services to view footprint data.</div>
+            <div id="agency-footprint-content" style="display:none">
+              <div class="profile-grid">
+                <div class="profile-kv">
+                  <div class="profile-kv-label">Service Sites</div>
+                  <div id="agency-footprint-sites" class="profile-kv-value">—</div>
+                </div>
+                <div class="profile-kv">
+                  <div class="profile-kv-label">Total Visits</div>
+                  <div id="agency-footprint-visits" class="profile-kv-value">—</div>
+                </div>
+                <div class="profile-kv">
+                  <div class="profile-kv-label">Clinicians Used</div>
+                  <div id="agency-footprint-clinician-count" class="profile-kv-value">—</div>
+                </div>
+              </div>
+              <div id="agency-footprint-roster" style="margin:10px 0;max-height:180px;overflow-y:auto;border:1px solid var(--panel-border);border-radius:8px;font-size:12.5px;"></div>
+              <div class="button-row" style="margin-top:10px;">
+                <button id="agency-isolate-visits" type="button" class="btn-secondary">Isolate Visits</button>
+                <button id="agency-isolate-clinicians" type="button" class="btn-secondary">Isolate Clinicians</button>
+              </div>
+            </div>
+            <div id="agency-footprint-empty" style="display:none;color:var(--muted);font-size:13px;padding:6px 0;">No completed service records linked to this agency.</div>
           </section>
         </div>
       </aside>
@@ -6272,10 +6442,16 @@
       profileRestrictedCliniciansList: document.getElementById("profile-restricted-clinicians-list"),
       profileRestrictedCliniciansInput: document.getElementById("profile-restricted-clinicians-input"),
       profileRestrictedCliniciansAdd: document.getElementById("profile-restricted-clinicians-add"),
+      profileRestrictedCliniciansResults: document.getElementById("profile-restricted-clinicians-results"),
       profileRestrictedAgenciesList: document.getElementById("profile-restricted-agencies-list"),
       profileRestrictedAgenciesInput: document.getElementById("profile-restricted-agencies-input"),
       profileRestrictedAgenciesAdd: document.getElementById("profile-restricted-agencies-add"),
+      profileRestrictedAgenciesResults: document.getElementById("profile-restricted-agencies-results"),
       profileNotesInput: document.getElementById("profile-notes-input"),
+      profileFieldIntelCard: document.getElementById("profile-field-intel-card"),
+      profileLastActive: document.getElementById("profile-last-active"),
+      profileTravelRange: document.getElementById("profile-travel-range"),
+      profileAgencyRelationships: document.getElementById("profile-agency-relationships"),
       profileCompletedHistory: document.getElementById("profile-completed-history"),
       profileSaveShell: document.getElementById("profile-save-shell"),
       profileOpenHistory: document.getElementById("profile-open-history"),
@@ -6313,7 +6489,19 @@
       agencySnapshotVisibility: document.getElementById("agency-snapshot-visibility"),
       agencyMapStatus: document.getElementById("agency-map-status"),
       agencySaveDraft: document.getElementById("agency-save-draft"),
-      agencyCenterOnMap: document.getElementById("agency-center-on-map")
+      agencyCenterOnMap: document.getElementById("agency-center-on-map"),
+      agencyRestrictionsBadge: document.getElementById("agency-restrictions-badge"),
+      agencyRestrictionsList: document.getElementById("agency-restrictions-list"),
+      agencyRestrictionsNote: document.getElementById("agency-restrictions-note"),
+      agencyFootprintLoading: document.getElementById("agency-footprint-loading"),
+      agencyFootprintContent: document.getElementById("agency-footprint-content"),
+      agencyFootprintEmpty: document.getElementById("agency-footprint-empty"),
+      agencyFootprintSites: document.getElementById("agency-footprint-sites"),
+      agencyFootprintVisits: document.getElementById("agency-footprint-visits"),
+      agencyFootprintClinicianCount: document.getElementById("agency-footprint-clinician-count"),
+      agencyFootprintRoster: document.getElementById("agency-footprint-roster"),
+      agencyIsolateVisits: document.getElementById("agency-isolate-visits"),
+      agencyIsolateClinicians: document.getElementById("agency-isolate-clinicians")
     };
 
     // ── Force-clear tool inputs — Chrome autofills AFTER JS runs, so we clear with a delay ──
@@ -6459,7 +6647,12 @@
       clinicianCompletedServiceHistoryByClinicianId: new Map(),
       clinicianCompletedServiceHistoryLoadingIds: new Set(),
       clinicianCompletedServiceHistoryErrorByClinicianId: new Map(),
-      didBindEvents: false
+      didBindEvents: false,
+      isolatedAgencyId: null,
+      isolatedAgencyVisitsActive: false,
+      isolatedAgencyClinicianActive: false,
+      agencyFootprintSiteKeys: null,
+      agencyFootprintClinicianIds: null
     };
 
     const map = new mapboxgl.Map({
@@ -7355,6 +7548,8 @@
       elements.agencyProfilePanel.setAttribute("aria-hidden", "false");
       renderAgencySidebar();
       syncAgencyMapDisplay();
+      renderAgencyRestrictions(agencyId);
+      renderAgencyFootprint(agencyId);
     }
 
     function closeAgencyProfile(persistDraft) {
@@ -7362,10 +7557,252 @@
         persistCurrentAgencyDraft();
       }
 
+      clearAgencyIsolation();
       appState.currentAgencyId = null;
       elements.agencyProfilePanel.classList.remove("open");
       elements.agencyProfilePanel.setAttribute("aria-hidden", "true");
       renderAgencySidebar();
+    }
+
+    // ── HH Agency Coverage Footprint ──
+
+    function normalizeAgencyNameForMatch(name) {
+      return String(name || "").toLowerCase().trim();
+    }
+
+    function renderAgencyRestrictions(agencyId) {
+      if (!elements.agencyRestrictionsList) return;
+      const agency = getAgencyById(agencyId);
+      if (!agency) return;
+      const draft = getAgencyDraftForRecord(agency);
+      const agencyName = normalizeRestrictionName(draft.name || "");
+      if (!agencyName) {
+        elements.agencyRestrictionsList.innerHTML = "<span style='color:var(--muted);font-size:13px;'>Save an agency name first.</span>";
+        elements.agencyRestrictionsBadge.style.display = "none";
+        elements.agencyRestrictionsNote.textContent = "";
+        return;
+      }
+
+      // Scan all clinicians for those restricted from this agency
+      const restricted = appState.clinicians.filter(function(clinician) {
+        const clinicianDraft = getProfileDraftForClinician(clinician);
+        const agencies = normalizeProfileRestrictionList(clinicianDraft.restrictedAgencies);
+        return agencies.some(function(name) {
+          return normalizeRestrictionName(name).toLowerCase() === agencyName.toLowerCase();
+        });
+      });
+
+      elements.agencyRestrictionsList.innerHTML = "";
+
+      if (!restricted.length) {
+        elements.agencyRestrictionsBadge.style.display = "none";
+        const empty = document.createElement("span");
+        empty.style.cssText = "color:var(--muted);font-size:13px;";
+        empty.textContent = "No clinicians restricted from this agency.";
+        elements.agencyRestrictionsList.appendChild(empty);
+        elements.agencyRestrictionsNote.textContent = "";
+        return;
+      }
+
+      // Show count badge
+      elements.agencyRestrictionsBadge.textContent = restricted.length;
+      elements.agencyRestrictionsBadge.style.display = "";
+
+      // Render restriction chips — red-tinted, read-only
+      restricted.forEach(function(clinician) {
+        const chip = document.createElement("button");
+        chip.type = "button";
+        chip.title = "Open " + (clinician.name || "clinician") + "'s profile";
+        chip.style.cssText = [
+          "display:inline-flex;align-items:center;gap:6px;",
+          "border:1px solid #e8b4b0;border-radius:12px;",
+          "background:#fff5f5;color:#952d24;",
+          "padding:6px 10px 6px 10px;font-size:12.5px;font-weight:600;",
+          "cursor:pointer;transition:background 0.15s;"
+        ].join("");
+        chip.innerHTML = [
+          "<svg width='12' height='12' viewBox='0 0 16 16' fill='none' aria-hidden='true'>",
+          "<path d='M8 1.5a6.5 6.5 0 100 13 6.5 6.5 0 000-13zM0 8a8 8 0 1116 0A8 8 0 010 8z' fill='currentColor'/>",
+          "<path d='M7.25 4.25h1.5v5h-1.5v-5zm0 6.5h1.5v1.5h-1.5v-1.5z' fill='currentColor'/>",
+          "</svg>",
+          "<span>" + escapeHtml(clinician.name || "Unnamed") + "</span>",
+          "<span style='font-weight:400;opacity:0.75;font-size:11px;'>" + escapeHtml(clinician.discipline || "") + "</span>"
+        ].join("");
+
+        chip.addEventListener("mouseenter", function() { chip.style.background = "#ffe8e8"; });
+        chip.addEventListener("mouseleave", function() { chip.style.background = "#fff5f5"; });
+        chip.addEventListener("click", function() {
+          openClinicianProfile(clinician.id);
+        });
+        elements.agencyRestrictionsList.appendChild(chip);
+      });
+
+      elements.agencyRestrictionsNote.textContent = "Tap a name to open their profile. Restrictions are edited from the clinician side.";
+    }
+
+    function getAgencyMatchingSites(agencyName) {
+      if (!agencyName || !appState.hasLoadedCompletedServices) return [];
+      const normalizedName = normalizeAgencyNameForMatch(agencyName);
+      return appState.completedServiceSites.filter(function(site) {
+        return (site.rows || []).some(function(row) {
+          return normalizeAgencyNameForMatch(row.primary_payer) === normalizedName;
+        });
+      });
+    }
+
+    function renderAgencyFootprint(agencyId) {
+      if (!elements.agencyFootprintLoading) return;
+      const agency = getAgencyById(agencyId);
+      if (!agency) return;
+      const draft = getAgencyDraftForRecord(agency);
+      const agencyName = draft.name;
+
+      syncAgencyIsolateButtons();
+
+      if (!appState.hasLoadedCompletedServices) {
+        elements.agencyFootprintLoading.style.display = "";
+        elements.agencyFootprintContent.style.display = "none";
+        elements.agencyFootprintEmpty.style.display = "none";
+        return;
+      }
+
+      elements.agencyFootprintLoading.style.display = "none";
+      const matchingSites = getAgencyMatchingSites(agencyName);
+
+      if (!matchingSites.length) {
+        elements.agencyFootprintContent.style.display = "none";
+        elements.agencyFootprintEmpty.style.display = "";
+        appState.agencyFootprintSiteKeys = null;
+        appState.agencyFootprintClinicianIds = null;
+        return;
+      }
+
+      elements.agencyFootprintEmpty.style.display = "none";
+      elements.agencyFootprintContent.style.display = "";
+
+      // Build site key set for isolation
+      appState.agencyFootprintSiteKeys = new Set(matchingSites.map(function(site) { return site.key; }));
+
+      // Count visits from this agency only
+      const normalizedName = normalizeAgencyNameForMatch(agencyName);
+      let totalVisits = 0;
+      matchingSites.forEach(function(site) {
+        (site.rows || []).forEach(function(row) {
+          if (normalizeAgencyNameForMatch(row.primary_payer) === normalizedName) {
+            totalVisits += Number(row.service_visits || 0) || 0;
+          }
+        });
+      });
+
+      // Build clinician roster: keyed by clinician id or name, value = {id, name, count}
+      const clinicianMap = new Map();
+      const clinicianIdsSet = new Set();
+
+      matchingSites.forEach(function(site) {
+        const agencyRowIds = new Set(
+          (site.rows || [])
+            .filter(function(row) { return normalizeAgencyNameForMatch(row.primary_payer) === normalizedName; })
+            .map(function(row) { return row.id; })
+        );
+        (site.assignments || []).forEach(function(assignment) {
+          if (!agencyRowIds.has(assignment.service_row_id)) return;
+          const clinicianId = String(assignment.matched_clinician_id || "").trim();
+          const clinicianName = formatClinicianDisplayName(
+            assignment.matched_clinician_name || assignment.parsed_clinician_name || assignment.clinician_name_raw || ""
+          );
+          if (!clinicianName) return;
+          const key = clinicianId || clinicianName;
+          const existing = clinicianMap.get(key) || { id: clinicianId, name: clinicianName, count: 0 };
+          existing.count += 1;
+          clinicianMap.set(key, existing);
+          if (clinicianId) clinicianIdsSet.add(clinicianId);
+        });
+      });
+
+      appState.agencyFootprintClinicianIds = clinicianIdsSet.size > 0 ? clinicianIdsSet : null;
+
+      const roster = Array.from(clinicianMap.values()).sort(function(a, b) {
+        return b.count - a.count || String(a.name).localeCompare(String(b.name));
+      });
+
+      elements.agencyFootprintSites.textContent = matchingSites.length.toLocaleString();
+      elements.agencyFootprintVisits.textContent = totalVisits > 0 ? totalVisits.toLocaleString() : matchingSites.length.toLocaleString() + " ep.";
+      elements.agencyFootprintClinicianCount.textContent = roster.length.toLocaleString();
+
+      if (roster.length) {
+        elements.agencyFootprintRoster.innerHTML = roster.map(function(entry) {
+          return [
+            "<div style='display:flex;align-items:center;justify-content:space-between;padding:5px 10px;border-bottom:1px solid var(--panel-border);'>",
+            "<span style='color:var(--text);font-weight:500;'>" + escapeHtml(entry.name) + "</span>",
+            "<span style='color:var(--muted);font-size:11.5px;'>" + entry.count + " assignment" + (entry.count !== 1 ? "s" : "") + "</span>",
+            "</div>"
+          ].join("");
+        }).join("");
+      } else {
+        elements.agencyFootprintRoster.innerHTML = "<div style='padding:8px 10px;color:var(--muted);'>No clinician assignments found.</div>";
+      }
+    }
+
+    function syncAgencyIsolateButtons() {
+      if (!elements.agencyIsolateVisits || !elements.agencyIsolateClinicians) return;
+      const agencyId = appState.currentAgencyId;
+      const visitsActive = Boolean(agencyId && appState.isolatedAgencyVisitsActive && appState.isolatedAgencyId === agencyId);
+      const clinicianActive = Boolean(agencyId && appState.isolatedAgencyClinicianActive && appState.isolatedAgencyId === agencyId);
+      elements.agencyIsolateVisits.classList.toggle("active", visitsActive);
+      elements.agencyIsolateVisits.textContent = visitsActive ? "Clear Isolated Visits" : "Isolate Visits";
+      elements.agencyIsolateClinicians.classList.toggle("active", clinicianActive);
+      elements.agencyIsolateClinicians.textContent = clinicianActive ? "Clear Isolated Clinicians" : "Isolate Clinicians";
+    }
+
+    function toggleAgencyVisitIsolation(agencyId) {
+      if (appState.isolatedAgencyId === agencyId && appState.isolatedAgencyVisitsActive) {
+        appState.isolatedAgencyVisitsActive = false;
+        if (!appState.isolatedAgencyClinicianActive) appState.isolatedAgencyId = null;
+      } else {
+        appState.isolatedAgencyId = agencyId;
+        appState.isolatedAgencyVisitsActive = true;
+        if (!appState.showCompletedServices) {
+          appState.showCompletedServices = true;
+          syncCompletedServiceVisibilityToggle();
+        }
+      }
+      syncAgencyIsolateButtons();
+      rebuildCompletedServiceVisibleSiteCaches();
+      renderCompletedServiceMarkers();
+      renderCompletedServiceSidebar();
+      updateSummary();
+    }
+
+    function toggleAgencyClinicianIsolation(agencyId) {
+      if (appState.isolatedAgencyId === agencyId && appState.isolatedAgencyClinicianActive) {
+        appState.isolatedAgencyClinicianActive = false;
+        if (!appState.isolatedAgencyVisitsActive) appState.isolatedAgencyId = null;
+      } else {
+        appState.isolatedAgencyId = agencyId;
+        appState.isolatedAgencyClinicianActive = true;
+        if (!appState.showClinicians) {
+          appState.showClinicians = true;
+          syncClinicianVisibilityToggle();
+        }
+      }
+      syncAgencyIsolateButtons();
+      applyFilters();
+    }
+
+    function clearAgencyIsolation() {
+      const wasActive = appState.isolatedAgencyVisitsActive || appState.isolatedAgencyClinicianActive;
+      appState.isolatedAgencyId = null;
+      appState.isolatedAgencyVisitsActive = false;
+      appState.isolatedAgencyClinicianActive = false;
+      appState.agencyFootprintSiteKeys = null;
+      appState.agencyFootprintClinicianIds = null;
+      if (wasActive) {
+        applyFilters();
+        rebuildCompletedServiceVisibleSiteCaches();
+        renderCompletedServiceMarkers();
+        renderCompletedServiceSidebar();
+        updateSummary();
+      }
     }
 
     async function centerAgencyOnMap(agencyId) {
@@ -7664,7 +8101,7 @@
       for (const rowIdChunk of chunkArray(normalizedRowIds, completedServiceAssignmentFetchChunkSize)) {
         const response = await supabaseClient
           .from("therapy_boss_completed_service_import_rows")
-          .select("id, batch_id, row_number, referral_external_id, patient_external_id, patient_name, full_address, street, city, state, zip_code, patient_lat, patient_lng, service, start_of_episode, referral_date, ended_date, last_visit_date, service_visits, clinician_names_raw")
+          .select("id, batch_id, row_number, referral_external_id, patient_external_id, patient_name, full_address, street, city, state, zip_code, patient_lat, patient_lng, service, start_of_episode, referral_date, ended_date, last_visit_date, service_visits, clinician_names_raw, primary_payer")
           .in("id", rowIdChunk);
 
         if (response.error) {
@@ -7710,7 +8147,7 @@
       const rowResponse = await fetchAllSupabaseRows(function(from, to) {
         return supabaseClient
           .from("therapy_boss_completed_service_import_rows")
-          .select("id, batch_id, row_number, referral_external_id, patient_external_id, patient_name, full_address, street, city, state, zip_code, patient_lat, patient_lng, service, start_of_episode, referral_date, ended_date, last_visit_date, service_visits, clinician_names_raw")
+          .select("id, batch_id, row_number, referral_external_id, patient_external_id, patient_name, full_address, street, city, state, zip_code, patient_lat, patient_lng, service, start_of_episode, referral_date, ended_date, last_visit_date, service_visits, clinician_names_raw, primary_payer")
           .or(searchPatterns.map(function(pattern) {
             return "clinician_names_raw.ilike." + pattern;
           }).join(","))
@@ -8385,7 +8822,9 @@
 
     function renderCompletedServiceMarkers() {
       ensureCompletedServiceLayers();
-      if (!appState.showCompletedServices) {
+      // Lens spotlight: show service sites inside the lens even when toggle is off
+      const lensSpotlight = !!appState.selectionCenter && appState.hasLoadedCompletedServices;
+      if (!appState.showCompletedServices && !lensSpotlight) {
         clearCompletedServiceMarkers();
         return;
       }
@@ -8904,6 +9343,7 @@
         renderRadiusCoverage();
         renderClinicianCompletedServiceHistory();
         renderProfileReferralZips();
+        if (appState.currentAgencyId) renderAgencyFootprint(appState.currentAgencyId);
         if (appState.clinicianPinMode === "work") {
           refreshClinicianCoordinateDependentViews();
         }
@@ -8938,6 +9378,11 @@
     }
 
     function getCompletedServiceSiteView(site) {
+      // Agency visit isolation: only show sites belonging to the isolated agency
+      if (appState.isolatedAgencyVisitsActive && appState.agencyFootprintSiteKeys) {
+        if (!appState.agencyFootprintSiteKeys.has(site.key)) return null;
+      }
+
       const hasYearFilter = appState.completedServiceYearFilters.size > 0;
       const hasDisciplineFilter = appState.disciplineFilters.size > 0;
       const isolatedCompletedServiceClinicianId = String(appState.isolatedCompletedServiceClinicianId || "").trim();
@@ -9264,9 +9709,9 @@
 
       if (appState.radiusMode && !appState.selectionCenter) {
         elements.radiusCoverageShell.innerHTML = [
-          "<div class='radius-coverage-title'><span class='section-icon'>📍</span> Radius — Completed-Service Coverage</div>",
-          "<div class='section-hint'>Shows clinicians physically near a location. Click anywhere on the map to drop the radius center, then use − and + to adjust the distance.</div>",
-          "<div class='radius-coverage-note'>Click the map to drop the radius, then use - and + to grow or shrink the same coverage area.</div>"
+          "<div class='radius-coverage-title'><span class='section-icon'>📍</span> Lens — Completed-Service Coverage</div>",
+          "<div class='section-hint'>Shows clinicians physically near a location. Click anywhere on the map to drop the lens, then use − and + to adjust the distance.</div>",
+          "<div class='radius-coverage-note'>Click the map to drop the lens, then use − and + to grow or shrink the coverage area.</div>"
         ].join("");
         return;
       }
@@ -10246,6 +10691,140 @@
       }
     }
 
+    // ══════════════════════════════════════════════════
+    //  FIELD INTELLIGENCE
+    // ══════════════════════════════════════════════════
+
+    function renderFieldIntelLastActive(history) {
+      if (!elements.profileLastActive) return;
+      if (!history || !history.latestServiceDate) {
+        elements.profileLastActive.innerHTML = "<span class='field-intel-badge gray'>No history</span>";
+        return;
+      }
+      const last = new Date(history.latestServiceDate);
+      const now  = new Date();
+      const days = Math.floor((now - last) / 86400000);
+      const label = formatAcceptedDate(history.latestServiceDate);
+
+      var tier, icon;
+      if (days < 30) {
+        tier = "green"; icon = "●";
+      } else if (days < 60) {
+        tier = "amber"; icon = "⚠";
+      } else {
+        tier = "red";   icon = "⚠";
+      }
+
+      const daysLabel = days === 0 ? "today"
+        : days === 1 ? "yesterday"
+        : days + " days ago";
+
+      elements.profileLastActive.innerHTML =
+        "<span class='field-intel-badge " + tier + "'>" + icon + " " + escapeHtml(daysLabel) + "</span>" +
+        "<span style='font-size:11.5px;color:var(--muted);margin-left:6px;'>" + escapeHtml(label) + "</span>";
+    }
+
+    function renderFieldIntelAgencyRelationships(history) {
+      if (!elements.profileAgencyRelationships) return;
+      if (!history || !history.sites || !history.sites.length) {
+        elements.profileAgencyRelationships.innerHTML = "<span style='color:var(--muted);font-size:13px;'>No visit history yet.</span>";
+        return;
+      }
+
+      // Build payer → episode count map
+      const payerCounts = new Map();
+      history.sites.forEach(function(site) {
+        (site.rows || []).forEach(function(row) {
+          const payer = normalizeRestrictionName(row.primary_payer || "").trim();
+          if (!payer) return;
+          payerCounts.set(payer, (payerCounts.get(payer) || 0) + 1);
+        });
+      });
+
+      if (!payerCounts.size) {
+        elements.profileAgencyRelationships.innerHTML = "<span style='color:var(--muted);font-size:13px;'>No payer data on record.</span>";
+        return;
+      }
+
+      const sorted = Array.from(payerCounts.entries())
+        .sort(function(a, b) { return b[1] - a[1]; })
+        .slice(0, 10);
+
+      elements.profileAgencyRelationships.innerHTML = sorted.map(function(entry) {
+        const name  = entry[0];
+        const count = entry[1];
+        return "<span class='agency-rel-chip'>" +
+          escapeHtml(name) +
+          " <span class='chip-count'>×" + count + "</span>" +
+          "</span>";
+      }).join("");
+    }
+
+    async function renderFieldIntelTravelRange(clinicianId, history) {
+      if (!elements.profileTravelRange) return;
+      if (!history || !history.sites || !history.sites.length) {
+        elements.profileTravelRange.innerHTML = "<span class='field-intel-badge gray'>No sites</span>";
+        return;
+      }
+
+      elements.profileTravelRange.innerHTML = "<span style='color:var(--muted);font-size:12px;'>Computing…</span>";
+
+      const clinician = appState.clinicians.find(function(c) { return c.id === clinicianId; });
+      const draft = clinician ? getProfileDraftForClinician(clinician) : null;
+      const homeZip = draft && draft.zip ? draft.zip : (clinician ? clinician.zip : "");
+
+      var origin = null;
+      if (homeZip) {
+        origin = await getZipCentroid(homeZip);
+      }
+
+      // Fall back to work center if no home ZIP centroid
+      if (!origin && draft && draft.workCenterLat && draft.workCenterLng) {
+        origin = { lat: parseFloat(draft.workCenterLat), lng: parseFloat(draft.workCenterLng) };
+      }
+
+      if (!origin) {
+        elements.profileTravelRange.innerHTML = "<span class='field-intel-badge gray'>No home ZIP</span>";
+        return;
+      }
+
+      // Only use sites with valid coordinates
+      const distances = history.sites
+        .filter(function(site) { return typeof site.lat === "number" && typeof site.lng === "number"; })
+        .map(function(site) { return haversineMiles(origin.lat, origin.lng, site.lat, site.lng); })
+        .sort(function(a, b) { return a - b; });
+
+      if (!distances.length) {
+        elements.profileTravelRange.innerHTML = "<span class='field-intel-badge gray'>No mapped sites</span>";
+        return;
+      }
+
+      // Guard: only run if this clinician is still open
+      if (appState.currentProfileClinicianId !== clinicianId) return;
+
+      const min = distances[0];
+      const max = distances[distances.length - 1];
+      const p25 = distances[Math.floor(distances.length * 0.25)];
+      const p75 = distances[Math.floor(distances.length * 0.75)];
+      const fmt = function(n) { return n < 10 ? n.toFixed(1) : Math.round(n).toString(); };
+
+      elements.profileTravelRange.innerHTML =
+        "<span class='field-intel-badge blue'>Typical " + fmt(p25) + "–" + fmt(p75) + " mi</span>" +
+        "<span style='font-size:11.5px;color:var(--muted);margin-left:6px;'>max " + fmt(max) + " mi · " + distances.length + " sites</span>";
+    }
+
+    function renderClinicianFieldIntel(clinicianId) {
+      if (!elements.profileFieldIntelCard) return;
+
+      const history = clinicianId
+        ? (appState.clinicianCompletedServiceHistoryByClinicianId.get(String(clinicianId).trim()) || null)
+        : null;
+
+      renderFieldIntelLastActive(history);
+      renderFieldIntelAgencyRelationships(history);
+      renderFieldIntelTravelRange(clinicianId, history); // async — updates when ready
+    }
+
     function renderClinicianCompletedServiceHistory() {
       if (!elements.profileCompletedHistory) return;
 
@@ -10332,6 +10911,9 @@
         "</div>",
         footerNote
       ].join("");
+
+      // Update Field Intelligence whenever history renders with real data
+      renderClinicianFieldIntel(clinicianId);
     }
 
     function setProfileVersionHistoryExpanded(expanded) {
@@ -11068,7 +11650,7 @@
     }
 
     function getDefaultMapInstruction() {
-      return "Search any address or ZIP to place a location pin — Radius Mode will activate automatically at the minimum radius so you can see nearby clinicians right away. Click anywhere on the map to move the radius center, then use \u2212 and + to refine the distance.";
+      return "Search any address or ZIP to place a location pin — Lens will activate automatically at the minimum size so you can see nearby clinicians right away. Click anywhere on the map to move the lens, then use \u2212 and + to refine the distance.";
     }
 
     function isProfilePanelResizable() {
@@ -11413,7 +11995,7 @@
       }
 
       if (appState.radiusMode) {
-        elements.mapInstructions.textContent = "Radius Mode is active. Click the map to select clinicians and completed-service coverage within " + formatRadiusMilesLabel(appState.selectedRadiusMiles) + " of that point, then use - and + to refine the same area.";
+        elements.mapInstructions.textContent = "Lens is active. Click the map to select clinicians and completed-service coverage within " + formatRadiusMilesLabel(appState.selectedRadiusMiles) + " of that point, then use − and + to refine the same area.";
         return;
       }
 
@@ -12737,7 +13319,158 @@
       remove.innerHTML = "&times;";
 
       chip.append(label, remove);
+
+      // For agency restrictions: if the agency is loaded, add a "View" link button
+      if (type === "agencies") {
+        const normalizedInput = normalizeRestrictionName(name).toLowerCase();
+        const matchedAgency = appState.agencies.find(function(agency) {
+          const agencyDraft = getAgencyDraftForRecord(agency);
+          return normalizeRestrictionName(agencyDraft.name || "").toLowerCase() === normalizedInput;
+        });
+        if (matchedAgency) {
+          const viewBtn = document.createElement("button");
+          viewBtn.type = "button";
+          viewBtn.className = "profile-restriction-remove";
+          viewBtn.title = "Open agency profile";
+          viewBtn.setAttribute("aria-label", "Open " + name + " agency profile");
+          viewBtn.style.cssText = "background:rgba(30,77,140,0.18);font-size:10px;letter-spacing:0.02em;width:auto;padding:0 6px;border-radius:8px;";
+          viewBtn.textContent = "View →";
+          viewBtn.addEventListener("click", function(event) {
+            event.stopPropagation();
+            openAgencyProfile(matchedAgency.id);
+          });
+          chip.appendChild(viewBtn);
+        }
+      }
+
       return chip;
+    }
+
+    // ── Restriction typeahead search ──
+
+    var restrictionSearchState = {
+      clinicians: { activeIndex: -1, matches: [] },
+      agencies:   { activeIndex: -1, matches: [] }
+    };
+
+    function getRestrictionDropdownEl(type) {
+      return type === "agencies"
+        ? elements.profileRestrictedAgenciesResults
+        : elements.profileRestrictedCliniciansResults;
+    }
+
+    function getRestrictionInputEl(type) {
+      return type === "agencies"
+        ? elements.profileRestrictedAgenciesInput
+        : elements.profileRestrictedCliniciansInput;
+    }
+
+    function normalizeRestrictionSearchQuery(value) {
+      return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+    }
+
+    function getRestrictionSearchMatches(type, query) {
+      const q = normalizeRestrictionSearchQuery(query);
+      if (!q) return [];
+
+      if (type === "agencies") {
+        return appState.agencies
+          .map(function(agency) {
+            const draft = getAgencyDraftForRecord(agency);
+            const name = normalizeRestrictionName(draft.name || "");
+            if (!name) return null;
+            const lower = name.toLowerCase();
+            const score = lower === q ? 1000 : lower.startsWith(q) ? 800 : lower.includes(q) ? 500 : 0;
+            return score > 0 ? { id: agency.id, name: name, meta: draft.type || "Home Health Agency", score: score } : null;
+          })
+          .filter(Boolean)
+          .sort(function(a, b) { return b.score - a.score || a.name.localeCompare(b.name); })
+          .slice(0, 8);
+      }
+
+      // clinicians
+      return appState.clinicians
+        .map(function(clinician) {
+          const name = normalizeRestrictionName(clinician.name || "");
+          if (!name) return null;
+          const lower = name.toLowerCase();
+          const score = lower === q ? 1000 : lower.startsWith(q) ? 800 : lower.includes(q) ? 500 : 0;
+          const meta = [clinician.discipline, clinician.zip ? "ZIP " + clinician.zip : ""].filter(Boolean).join(" • ");
+          return score > 0 ? { id: clinician.id, name: name, meta: meta, score: score } : null;
+        })
+        .filter(Boolean)
+        .sort(function(a, b) { return b.score - a.score || a.name.localeCompare(b.name); })
+        .slice(0, 8);
+    }
+
+    function clearRestrictionDropdown(type) {
+      const el = getRestrictionDropdownEl(type);
+      if (!el) return;
+      el.innerHTML = "";
+      el.classList.remove("open");
+      restrictionSearchState[type].activeIndex = -1;
+      restrictionSearchState[type].matches = [];
+    }
+
+    function setRestrictionDropdownActiveIndex(type, index) {
+      const state = restrictionSearchState[type];
+      const el = getRestrictionDropdownEl(type);
+      if (!el) return;
+      const items = Array.from(el.querySelectorAll(".restriction-search-option"));
+      state.activeIndex = Math.max(-1, Math.min(index, items.length - 1));
+      items.forEach(function(item, i) {
+        item.classList.toggle("active", i === state.activeIndex);
+      });
+    }
+
+    function renderRestrictionDropdown(type, query) {
+      const el = getRestrictionDropdownEl(type);
+      if (!el) return;
+
+      const q = normalizeRestrictionSearchQuery(query);
+      if (!q) { clearRestrictionDropdown(type); return; }
+
+      const matches = getRestrictionSearchMatches(type, q);
+      restrictionSearchState[type].matches = matches;
+      restrictionSearchState[type].activeIndex = -1;
+      el.innerHTML = "";
+
+      if (!matches.length) {
+        el.classList.add("open");
+        const empty = document.createElement("div");
+        empty.className = "restriction-search-empty";
+        empty.textContent = "No matches — press Add or Enter to save as typed.";
+        el.appendChild(empty);
+        return;
+      }
+
+      el.classList.add("open");
+      matches.forEach(function(match, idx) {
+        const option = document.createElement("button");
+        option.type = "button";
+        option.className = "restriction-search-option";
+        option.setAttribute("role", "option");
+        option.innerHTML = [
+          "<span class='restriction-search-option-name'>" + escapeHtml(match.name) + "</span>",
+          match.meta ? "<span class='restriction-search-option-meta'>" + escapeHtml(match.meta) + "</span>" : ""
+        ].join("");
+        option.addEventListener("mousedown", function(event) {
+          // mousedown fires before blur — prevent blur from closing dropdown first
+          event.preventDefault();
+          selectRestrictionMatch(type, match.name);
+        });
+        el.appendChild(option);
+      });
+    }
+
+    function selectRestrictionMatch(type, name) {
+      const canonicalName = normalizeRestrictionName(name);
+      if (!canonicalName) return;
+      addProfileRestriction(type, canonicalName);
+      getRestrictionInputEl(type).value = "";
+      clearRestrictionDropdown(type);
+      syncProfileRestrictionAddButtonsState();
+      handleProfileDraftChange();
     }
 
     function syncProfileRestrictionAddButtonsState() {
@@ -12985,6 +13718,7 @@
       updateProfileHeaderStatus();
       updatePauseUI();
       renderClinicianCompletedServiceHistory();
+      renderClinicianFieldIntel(appState.currentProfileClinicianId || null);
       syncProfileUnsavedBadge(Boolean(safeDraft._dirty));
     }
 
@@ -13498,10 +14232,13 @@
       }
 
       const isSelected = appState.selectedIds.has(clinicianId);
-      const isFocused = appState.focusedId === clinicianId;
-      const isVisible = appState.showClinicians && appState.filteredClinicians.some(function(item) {
+      const isFocused  = appState.focusedId === clinicianId;
+      // Lens spotlight: show pin inside lens even when "Show Clinicians" is off
+      const spotlightIds = appState.lensSpotlightIds || new Set();
+      const insideLens   = !!appState.selectionCenter && spotlightIds.has(clinicianId);
+      const isVisible    = insideLens || (appState.showClinicians && appState.filteredClinicians.some(function(item) {
         return item.id === clinicianId;
-      });
+      }));
 
       if (clinician) {
         markerEntry.popup.setHTML(getPopupHtml(clinician));
@@ -13698,6 +14435,16 @@
         return;
       }
 
+      if (appState.isolatedAgencyVisitsActive || appState.isolatedAgencyClinicianActive) {
+        const isolatedAgency = appState.currentAgencyId ? getAgencyById(appState.isolatedAgencyId) : null;
+        const agencyLabel = isolatedAgency ? (getAgencyDraftForRecord(isolatedAgency).name || "this agency") : "agency";
+        const parts = [];
+        if (appState.isolatedAgencyVisitsActive) parts.push("visits");
+        if (appState.isolatedAgencyClinicianActive) parts.push("clinicians");
+        elements.selectionMessage.textContent = "Agency isolation active — showing " + parts.join(" & ") + " for " + agencyLabel + ".";
+        return;
+      }
+
       if (appState.isolatedClinicianId) {
         const isolatedClinician = appState.clinicians.find(function(clinician) {
           return clinician.id === appState.isolatedClinicianId;
@@ -13791,7 +14538,9 @@
         const zipMatch = !zipFilter || String(clinician.zip || "").toLowerCase().includes(zipFilter);
         const isolationMatch = !appState.isolatedClinicianId || clinician.id === appState.isolatedClinicianId;
         const ratingMatch = !appState.ratingMinFilter || (clinicianRating !== null && clinicianRating >= appState.ratingMinFilter);
-        return disciplineMatch && statusMatch && emrMatch && languageMatch && zipMatch && isolationMatch && ratingMatch;
+        const agencyClinicianMatch = !appState.isolatedAgencyClinicianActive || !appState.agencyFootprintClinicianIds
+          || appState.agencyFootprintClinicianIds.has(String(clinician.id || "").trim());
+        return disciplineMatch && statusMatch && emrMatch && languageMatch && zipMatch && isolationMatch && ratingMatch && agencyClinicianMatch;
       });
 
       rebuildCompletedServiceVisibleSiteCaches();
@@ -13927,6 +14676,7 @@
       elements.profilePanel.classList.remove("open");
       elements.profilePanel.setAttribute("aria-hidden", "true");
       syncProfileUnsavedBadge(false);
+      syncAlignmentBar(); // re-show align bar now that profile is closed
 
       // Clear any active isolation — both clinician and visit isolation must reset
       // when the profile shell closes, otherwise the map stays isolated with no way
@@ -14091,6 +14841,9 @@
         renderRadiusCoverage();
         updateSummary();
       }
+      syncLensWarning();
+      syncAlignmentBar();
+      updateLensTextOverlay();
     }
 
     function haversineMiles(lat1, lng1, lat2, lng2) {
@@ -14232,6 +14985,8 @@
         features: [createCircleGeoJson(center, radiusMiles)]
       });
       updateZipTextOverlay();
+      syncAlignmentBar();
+      syncLensWarning();
     }
 
     function clearZipCoverageCircle() {
@@ -14262,6 +15017,7 @@
       clearZipCoverageCenterMarker();
       clearZipTextOverlay();
       appState.zipCoverageCentroid = null;
+      syncAlignmentBar(); // hide bar when ZIP is cleared
     }
 
     /* ── ZIP revolving ring text ── */
@@ -14350,6 +15106,88 @@
     function clearZipTextOverlay() {
       stopZipTextRotation();
       if (appState.zipTextOverlay) appState.zipTextOverlay.svg.style.display = "none";
+    }
+
+    /* ── Lens two-arc static label ── */
+    function initLensTextOverlay() {
+      var mapEl = document.getElementById('map');
+      if (!mapEl || appState.lensTextOverlay) return;
+      var ns = 'http://www.w3.org/2000/svg';
+      var svg = document.createElementNS(ns, 'svg');
+      svg.id  = 'lens-text-overlay';
+      svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;display:none;overflow:visible;';
+
+      var defs    = document.createElementNS(ns, 'defs');
+      var topPath = document.createElementNS(ns, 'path'); topPath.id = 'lens-top-path';
+      var botPath = document.createElementNS(ns, 'path'); botPath.id = 'lens-bot-path';
+      defs.appendChild(topPath); defs.appendChild(botPath);
+      svg.appendChild(defs);
+
+      function makeTextArc(pathId, textId, tpId) {
+        var t  = document.createElementNS(ns, 'text');
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('font-size', '11');
+        t.setAttribute('font-weight', '700');
+        t.setAttribute('font-family', 'Segoe UI, Arial, sans-serif');
+        t.setAttribute('letter-spacing', '0.8');
+        t.id = textId;
+        var tp = document.createElementNS(ns, 'textPath');
+        tp.setAttribute('href', '#' + pathId);
+        tp.setAttribute('startOffset', '50%');
+        tp.id = tpId;
+        t.appendChild(tp);
+        svg.appendChild(t);
+        return { text: t, tp: tp };
+      }
+
+      var top = makeTextArc('lens-top-path', 'lens-top-text', 'lens-top-tp');
+      var bot = makeTextArc('lens-bot-path', 'lens-bot-text', 'lens-bot-tp');
+
+      mapEl.appendChild(svg);
+      appState.lensTextOverlay = { svg, topPath, botPath, topTp: top.tp, botTp: bot.tp, topText: top.text, botText: bot.text };
+    }
+
+    function updateLensTextOverlay() {
+      if (!appState.selectionCenter) { clearLensTextOverlay(); return; }
+      initLensTextOverlay();
+      var o = appState.lensTextOverlay;
+      if (!o) return;
+
+      var c         = appState.selectionCenter;
+      var centerPx  = map.project([c.lng, c.lat]);
+      var northPx   = map.project([c.lng, c.lat + appState.selectedRadiusMiles / 69.0]);
+      var radiusPx  = Math.abs(northPx.y - centerPx.y);
+
+      if (radiusPx < 30) { o.svg.style.display = 'none'; return; }
+      o.svg.style.display = '';
+
+      var cx = centerPx.x, cy = centerPx.y, r = radiusPx + 16;
+
+      // Top arc: (cx-r, cy) → clockwise over top → (cx+r, cy)
+      o.topPath.setAttribute('d',
+        'M ' + (cx - r) + ',' + cy + ' A ' + r + ',' + r + ' 0 0,1 ' + (cx + r) + ',' + cy);
+
+      // Bottom arc: (cx-r, cy) → counterclockwise through bottom → (cx+r, cy)
+      o.botPath.setAttribute('d',
+        'M ' + (cx - r) + ',' + cy + ' A ' + r + ',' + r + ' 0 0,0 ' + (cx + r) + ',' + cy);
+
+      // Color matches lens ring (blue normal, orange when outside ZIP)
+      var isWarn = (appState._lensZipState === 'partial' || appState._lensZipState === 'outside');
+      var color  = isWarn ? '#E07B39' : '#1e4d8c';
+      o.topText.setAttribute('fill', color);
+      o.botText.setAttribute('fill', color);
+
+      // Top label: "◎  LENS  •  X miles"
+      var milesLabel = formatRadiusMilesLabel(appState.selectedRadiusMiles);
+      o.topTp.textContent = '\u25ce  LENS  \u2022  ' + milesLabel;
+
+      // Bottom label: clinician count
+      var count = appState.selectedIds ? appState.selectedIds.size : 0;
+      o.botTp.textContent = count === 0 ? 'no clinicians selected' : count + ' clinician' + (count === 1 ? '' : 's');
+    }
+
+    function clearLensTextOverlay() {
+      if (appState.lensTextOverlay) appState.lensTextOverlay.svg.style.display = 'none';
     }
 
     function setSearchMarker(lng, lat, label) {
@@ -16732,21 +17570,158 @@
       updateSummary();
     }
 
+    // ── Lens / ZIP boundary warning ────────────────────────────
+    // Returns 'none' | 'partial' | 'outside'
+    function getLensZipState(center, radiusMiles) {
+      var zipCentroid = appState.zipCoverageCentroid;
+      if (!zipCentroid || !center) return 'none';
+      var dist = haversineMiles(center.lat, center.lng, zipCentroid.lat, zipCentroid.lng);
+      var zipR  = appState.zipCoverageRadiusMiles || 5;
+      if (dist > zipR) return 'outside';          // center left the zip circle
+      if (dist + radiusMiles > zipR) return 'partial'; // edge crosses zip boundary
+      return 'none';
+    }
+
+    function applyLensZipWarning(state, zipCode) {
+      appState._lensZipState = state; // stored so lens label can match color
+      // Lens warning uses ORANGE (#E07B39) — deliberately distinct from:
+      //   blue  (#1e4d8c) = lens inside ZIP
+      //   gold  (#d4a843) = ZIP boundary circle (never changes color)
+      var isWarn = (state === 'partial' || state === 'outside');
+      if (map.getLayer('selection-circle-fill')) {
+        map.setPaintProperty('selection-circle-fill', 'fill-color',   isWarn ? '#E07B39' : '#1e4d8c');
+        map.setPaintProperty('selection-circle-fill', 'fill-opacity',  isWarn ? 0.14     : 0.12);
+      }
+      if (map.getLayer('selection-circle-line')) {
+        map.setPaintProperty('selection-circle-line', 'line-color',  isWarn ? '#E07B39' : '#1e4d8c');
+        map.setPaintProperty('selection-circle-line', 'line-width',  isWarn ? 2.5       : 2);
+      }
+      // Warning badge
+      var badge = document.getElementById('lens-zip-warning');
+      if (!badge) return;
+      if (state === 'outside') {
+        badge.textContent = '⚠ Outside ZIP ' + (zipCode || 'area');
+        badge.style.display = 'inline-block';
+      } else if (state === 'partial') {
+        badge.textContent = '⚠ Lens edge outside ZIP ' + (zipCode || 'area');
+        badge.style.display = 'inline-block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+
+    function syncLensWarning() {
+      if (!appState.selectionCenter) {
+        applyLensZipWarning('none', '');
+        return;
+      }
+      var state   = getLensZipState(appState.selectionCenter, appState.selectedRadiusMiles);
+      var zipCode = appState.zipCoverageCheckQuery || '';
+      applyLensZipWarning(state, zipCode);
+    }
+
+    // ── Persistent alignment bar ─────────────────────────────
+    function syncAlignmentBar() {
+      var bar  = document.getElementById('align-bar');
+      var dist = document.getElementById('align-bar-dist');
+      if (!bar) return;
+
+      var hasZip     = !!appState.zipCoverageCentroid;
+      var hasLens    = !!appState.selectionCenter;
+      var profileOpen = elements.profilePanel && elements.profilePanel.classList.contains('open');
+
+      if (!hasZip || !hasLens || appState._alignBarDismissed || profileOpen) {
+        bar.style.display = 'none';
+        return;
+      }
+
+      bar.style.display = 'block';
+      var miles = haversineMiles(
+        appState.selectionCenter.lat, appState.selectionCenter.lng,
+        appState.zipCoverageCentroid.lat, appState.zipCoverageCentroid.lng
+      );
+      var zipCode = appState.zipCoverageCheckQuery || 'ZIP';
+      if (miles < 0.1) {
+        dist.textContent = '✓ Lens & ZIP ' + zipCode + ' are aligned';
+      } else {
+        dist.textContent = 'Lens is ' + miles.toFixed(1) + ' mi from ZIP ' + zipCode;
+      }
+    }
+
+    function snapLensToZip() {
+      if (!appState.zipCoverageCentroid) return;
+      var c = appState.zipCoverageCentroid;
+      selectCliniciansByRadius({ lat: c.lat, lng: c.lng }, appState.selectedRadiusMiles);
+      map.flyTo({ center: [c.lng, c.lat], zoom: Math.max(map.getZoom(), 12), speed: 1, essential: true });
+    }
+
+    async function snapZipToLens() {
+      if (!appState.selectionCenter) return;
+      var c = appState.selectionCenter;
+      // Reverse-geocode lens center to find its ZIP
+      try {
+        var endpoint = 'https://api.mapbox.com/geocoding/v5/mapbox.places/'
+          + c.lng.toFixed(6) + ',' + c.lat.toFixed(6)
+          + '.json?types=postcode&access_token=' + encodeURIComponent(mapboxgl.accessToken)
+          + '&limit=1&country=US';
+        var res  = await fetch(endpoint);
+        var json = await res.json();
+        var zip  = json.features && json.features[0] && json.features[0].text;
+        if (zip && elements.zipCoverageSearch) {
+          elements.zipCoverageSearch.value = zip;
+          appState.zipCoverageCheckQuery   = zip;
+          await runZipCoverageCheck();
+        } else {
+          showToast('No ZIP code found at this location.', 'warning');
+        }
+      } catch (e) {
+        showToast('Could not look up ZIP at lens position.', 'error');
+      }
+    }
+
+    // Wire up alignment bar buttons (once DOM is ready)
+    document.addEventListener('DOMContentLoaded', function() {
+      var btnSnapLens = document.getElementById('align-snap-lens');
+      var btnSnapZip  = document.getElementById('align-snap-zip');
+      var btnClose    = document.getElementById('align-bar-close');
+      if (btnSnapLens) btnSnapLens.addEventListener('click', snapLensToZip);
+      if (btnSnapZip)  btnSnapZip.addEventListener('click', snapZipToLens);
+      if (btnClose) btnClose.addEventListener('click', function() {
+        appState._alignBarDismissed = true;
+        document.getElementById('align-bar').style.display = 'none';
+      });
+    });
+
+    // Reset dismissed state when lens moves to a new position so bar can reappear
+    function resetAlignBarDismissed() { appState._alignBarDismissed = false; }
+
     function selectCliniciansByRadius(center, radiusMiles) {
       appState.selectionCenter = center;
       setSelectionCenterMarker(center);
       updateSelectionCircle(center, radiusMiles);
+      syncLensWarning();
+      syncAlignmentBar();
+      updateLensTextOverlay();
 
+      // selectedIds: filtered clinicians only (for sidebar, count, etc.)
       const visibleClinicians = appState.filteredClinicians.filter(hasCoordinates);
       const selectedIds = visibleClinicians.filter(function(clinician) {
         const pinCoordinates = getClinicianMapCoordinates(clinician);
         if (!pinCoordinates) return false;
         return haversineMiles(center.lat, center.lng, pinCoordinates.lat, pinCoordinates.lng) <= radiusMiles;
-      }).map(function(clinician) {
-        return clinician.id;
-      });
+      }).map(function(clinician) { return clinician.id; });
 
       appState.selectedIds = new Set(selectedIds);
+
+      // lensSpotlightIds: filtered clinicians inside lens (respects all active filters,
+      // used for spotlight pins + labels when "Show Clinicians" toggle is off)
+      appState.lensSpotlightIds = new Set(
+        appState.filteredClinicians.filter(function(clinician) {
+          const pin = getClinicianMapCoordinates(clinician);
+          if (!pin) return false;
+          return haversineMiles(center.lat, center.lng, pin.lat, pin.lng) <= radiusMiles;
+        }).map(function(c) { return c.id; })
+      );
       ensureCompletedServicesLoadedForRadius();
       syncAllMarkerVisuals();
       updateSelectionLabels();
@@ -16757,14 +17732,22 @@
     }
 
     function updateSelectionLabels() {
-      if (!appState.showClinicians) {
+      // Show labels if clinicians toggle is on OR lens is active (spotlight mode)
+      if (!appState.showClinicians && !appState.selectionCenter) {
         clearSelectionLabels();
         return;
       }
 
-      const selectedVisibleClinicians = appState.filteredClinicians.filter(function(clinician) {
-        return appState.selectedIds.has(clinician.id) && hasCoordinates(clinician);
-      });
+      // In spotlight mode (toggle off, lens active) label ALL clinicians inside lens.
+      // In normal mode label only the filtered+selected ones.
+      const spotlightIds = appState.lensSpotlightIds || new Set();
+      const labelPool    = (!appState.showClinicians && appState.selectionCenter)
+        ? appState.clinicians.filter(function(c) { return spotlightIds.has(c.id) && hasCoordinates(c); })
+        : appState.filteredClinicians.filter(function(clinician) {
+            return appState.selectedIds.has(clinician.id) && hasCoordinates(clinician);
+          });
+
+      const selectedVisibleClinicians = labelPool;
 
       const selectedVisibleIds = new Set(selectedVisibleClinicians.map(function(clinician) {
         return clinician.id;
@@ -16811,6 +17794,11 @@
       clearSelectionCircle();
       clearSelectionLabels();
       clearCompletedServiceRadiusLabels();
+      appState.lensSpotlightIds = new Set(); // clear spotlight set
+      applyLensZipWarning('none', '');       // reset lens color + hide badge
+      syncAlignmentBar();                    // hide alignment bar
+      clearLensTextOverlay();                // hide lens label
+      renderCompletedServiceMarkers();       // re-hide service sites if toggle is off
       if (!keepRadiusMode) setRadiusMode(false);
       syncAllMarkerVisuals();
       renderSidebar();
@@ -16937,12 +17925,11 @@
       const lat = Number(feature.center[1]);
       setSearchMarker(lng, lat, feature.place_name || query);
 
-      // Auto-enable Radius Mode snapped to the search result (one-time init only —
-      // the user can click elsewhere on the map to move the radius center independently).
+      // Auto-enable lens snapped to search result
       setRadiusMode(true);
-      appState.selectedRadiusMiles = radiusMinimumMiles;
+      appState.selectedRadiusMiles = appState.selectedRadiusMiles || radiusMinimumMiles;
       syncRadiusControls();
-      selectCliniciansByRadius(appState.lastPointSearchResult, radiusMinimumMiles);
+      selectCliniciansByRadius(appState.lastPointSearchResult, appState.selectedRadiusMiles);
 
       map.flyTo({
         center: [lng, lat],
@@ -18054,6 +19041,14 @@
         closeAgencyProfile();
       });
 
+      elements.agencyIsolateVisits.addEventListener("click", function() {
+        if (appState.currentAgencyId) toggleAgencyVisitIsolation(appState.currentAgencyId);
+      });
+
+      elements.agencyIsolateClinicians.addEventListener("click", function() {
+        if (appState.currentAgencyId) toggleAgencyClinicianIsolation(appState.currentAgencyId);
+      });
+
       elements.therapyBossToggle.addEventListener("click", function() {
         if (appState.therapyBossDockOpen) {
           setTherapyBossDockOpen(false);
@@ -18520,47 +19515,54 @@
         }
         handleProfileDraftChange();
       });
-      elements.profileRestrictedCliniciansInput.addEventListener("input", function() {
-        syncProfileRestrictionAddButtonsState();
-      });
-      elements.profileRestrictedAgenciesInput.addEventListener("input", function() {
-        syncProfileRestrictionAddButtonsState();
-      });
-      elements.profileRestrictedCliniciansInput.addEventListener("keydown", function(event) {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        const nextName = normalizeRestrictionName(elements.profileRestrictedCliniciansInput.value);
-        if (!nextName) return;
-        addProfileRestriction("clinicians", nextName);
-        elements.profileRestrictedCliniciansInput.value = "";
-        syncProfileRestrictionAddButtonsState();
-        handleProfileDraftChange();
-      });
-      elements.profileRestrictedAgenciesInput.addEventListener("keydown", function(event) {
-        if (event.key !== "Enter") return;
-        event.preventDefault();
-        const nextName = normalizeRestrictionName(elements.profileRestrictedAgenciesInput.value);
-        if (!nextName) return;
-        addProfileRestriction("agencies", nextName);
-        elements.profileRestrictedAgenciesInput.value = "";
-        syncProfileRestrictionAddButtonsState();
-        handleProfileDraftChange();
-      });
-      elements.profileRestrictedCliniciansAdd.addEventListener("click", function() {
-        const nextName = normalizeRestrictionName(elements.profileRestrictedCliniciansInput.value);
-        if (!nextName) return;
-        addProfileRestriction("clinicians", nextName);
-        elements.profileRestrictedCliniciansInput.value = "";
-        syncProfileRestrictionAddButtonsState();
-        handleProfileDraftChange();
-      });
-      elements.profileRestrictedAgenciesAdd.addEventListener("click", function() {
-        const nextName = normalizeRestrictionName(elements.profileRestrictedAgenciesInput.value);
-        if (!nextName) return;
-        addProfileRestriction("agencies", nextName);
-        elements.profileRestrictedAgenciesInput.value = "";
-        syncProfileRestrictionAddButtonsState();
-        handleProfileDraftChange();
+      ["clinicians", "agencies"].forEach(function(type) {
+        const inputEl = getRestrictionInputEl(type);
+        const addEl   = type === "agencies" ? elements.profileRestrictedAgenciesAdd : elements.profileRestrictedCliniciansAdd;
+        const state   = restrictionSearchState[type];
+
+        inputEl.addEventListener("input", function() {
+          renderRestrictionDropdown(type, inputEl.value);
+          syncProfileRestrictionAddButtonsState();
+        });
+
+        inputEl.addEventListener("keydown", function(event) {
+          const dropdown = getRestrictionDropdownEl(type);
+          const isOpen   = dropdown && dropdown.classList.contains("open");
+          const items    = isOpen ? Array.from(dropdown.querySelectorAll(".restriction-search-option")) : [];
+
+          if (event.key === "ArrowDown") {
+            event.preventDefault();
+            setRestrictionDropdownActiveIndex(type, state.activeIndex + 1);
+          } else if (event.key === "ArrowUp") {
+            event.preventDefault();
+            setRestrictionDropdownActiveIndex(type, state.activeIndex - 1);
+          } else if (event.key === "Escape") {
+            clearRestrictionDropdown(type);
+          } else if (event.key === "Enter") {
+            event.preventDefault();
+            // If an item is highlighted, select it; otherwise fall back to raw text
+            if (isOpen && state.activeIndex >= 0 && state.matches[state.activeIndex]) {
+              selectRestrictionMatch(type, state.matches[state.activeIndex].name);
+            } else {
+              const raw = normalizeRestrictionName(inputEl.value);
+              if (raw) selectRestrictionMatch(type, raw);
+            }
+          }
+        });
+
+        inputEl.addEventListener("blur", function() {
+          // Small delay so mousedown on an option can fire before blur closes dropdown
+          setTimeout(function() { clearRestrictionDropdown(type); }, 150);
+        });
+
+        addEl.addEventListener("click", function() {
+          const raw = normalizeRestrictionName(inputEl.value);
+          if (!raw) return;
+          // If there's an exact match at the top of results, use canonical name; else use raw
+          const top = state.matches[0];
+          const canonical = (top && top.name.toLowerCase() === raw.toLowerCase()) ? top.name : raw;
+          selectRestrictionMatch(type, canonical);
+        });
       });
       elements.profileRestrictedCliniciansList.addEventListener("click", function(event) {
         const target = event.target;
@@ -18957,6 +19959,7 @@
 
     map.on("move", function() {
       if (appState.zipCoverageCentroid) updateZipTextRingPath();
+      if (appState.selectionCenter)     updateLensTextOverlay();
     });
 
     map.on("style.load", async function() {
@@ -19099,8 +20102,8 @@
         position: "right"
       },
       {
-        title: "Radius Mode",
-        body: "Click the Radius button, then click anywhere on the map to drop a center point. Use − and + to expand or shrink the radius. The panel below shows every completed-service site and clinician that falls inside.",
+        title: "Lens",
+        body: "Click the Lens button, then click anywhere on the map to drop a center point. Use − and + to expand or shrink the lens. The panel below shows every completed-service site and clinician that falls inside. If a ZIP boundary is active, the lens turns amber when it roams outside it.",
         targetSelector: function() { return document.getElementById("radius-mode-toggle") || document.querySelector(".radius-panel-mode-btn"); },
         position: "right"
       },
