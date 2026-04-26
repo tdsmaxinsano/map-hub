@@ -3118,6 +3118,59 @@
       color: #6d4400;
     }
 
+    .profile-dnr-row {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 8px 12px;
+      background: linear-gradient(180deg, #fff5f5 0%, #fdecea 100%);
+      border: 1px solid #f5c0bb;
+      border-radius: 8px;
+      margin-top: 4px;
+    }
+
+    .profile-dnr-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      color: #7a1a14;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .profile-dnr-label input[type="checkbox"] {
+      width: 15px;
+      height: 15px;
+      accent-color: #bf3f34;
+      cursor: pointer;
+    }
+
+    .profile-dnr-note {
+      font-size: 11px;
+      color: #9a3a30;
+      padding-left: 23px;
+    }
+
+    .dnr-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      font-size: 10px;
+      font-weight: 800;
+      color: #bf3f34;
+      background: #fdecea;
+      border: 1px solid #e07268;
+      border-radius: 999px;
+      padding: 2px 7px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+
     .profile-unsaved-badge {
       display: none;
       align-items: center;
@@ -5344,6 +5397,13 @@
                   <button type="button" class="status-segment" data-profile-status="Inactive" aria-pressed="false">Inactive</button>
                 </div>
               </div>
+              <div id="profile-dnr-row" class="profile-dnr-row full" style="display:none">
+                <label class="profile-dnr-label">
+                  <input type="checkbox" id="profile-do-not-rehire">
+                  <span class="profile-dnr-text">Do Not Rehire</span>
+                </label>
+                <div class="profile-dnr-note">This clinician will not be considered for future placements.</div>
+              </div>
               <div id="profile-status-history" class="profile-status-history full">
                 <div class="status-history-title">Status Log</div>
                 <div class="status-history-empty">No activation or inactivation changes logged yet.</div>
@@ -6431,6 +6491,8 @@
       profilePhoneInput: document.getElementById("profile-phone-input"),
       profileEmailInput: document.getElementById("profile-email-input"),
       profileTherapyBossUnavailableToggle: document.getElementById("profile-therapyboss-unavailable"),
+      profileDoNotRehireToggle: document.getElementById("profile-do-not-rehire"),
+      profileDnrRow: document.getElementById("profile-dnr-row"),
       profileEmrList: document.getElementById("profile-emr-list"),
       profileEmrSelect: document.getElementById("profile-emr-select"),
       profileEmrAdd: document.getElementById("profile-emr-add"),
@@ -7025,6 +7087,7 @@
         therapy_boss_unavailable: typeof profileRow.therapy_boss_unavailable === "boolean"
           ? profileRow.therapy_boss_unavailable
           : getProfileTherapyBossUnavailableFromClinician(record),
+        do_not_rehire: typeof profileRow.do_not_rehire === "boolean" ? profileRow.do_not_rehire : false,
         emr_capabilities: profileRow.emr_capabilities || record.emr_capabilities || null,
         restrictions: profileRow.restrictions || record.restrictions || null,
         profile_tags: profileTags
@@ -12033,6 +12096,7 @@
         phone: "",
         email: "",
         therapyBossUnavailable: false,
+        doNotRehire: false,
         emrCapabilities: getDefaultProfileEmrCapabilities(),
         languages: [],
         restrictedClinicians: [],
@@ -12335,10 +12399,12 @@
         noteParts.push("Start date auto from full visit history");
       }
 
-      elements.profileHeaderStatus.textContent = status;
+      const isDnr = status === "Inactive" && Boolean(elements.profileDoNotRehireToggle && elements.profileDoNotRehireToggle.checked);
+      elements.profileHeaderStatus.innerHTML = escapeHtml(status) + (isDnr ? "<span class='dnr-indicator'>&#9940; DNR</span>" : "");
       elements.profileHeaderStatus.classList.toggle("active", status === "Active");
       elements.profileHeaderStatus.classList.toggle("paused", status === "Paused");
       elements.profileHeaderStatus.classList.toggle("inactive", status === "Inactive");
+      if (elements.profileDnrRow) elements.profileDnrRow.style.display = status === "Inactive" ? "" : "none";
       elements.profileHeaderNewBadge.classList.toggle("visible", newInfo.isNew);
       elements.profileHeaderNote.textContent = noteParts.join(" • ");
       elements.profileHeaderNote.classList.toggle("visible", Boolean(noteParts.length));
@@ -12851,6 +12917,7 @@
       nextTags.active = normalizedStatus !== "Inactive";
       nextTags.statusHistory = normalizeStatusHistoryEntries(draft.statusHistory);
       nextTags.therapyBossUnavailable = Boolean(draft.therapyBossUnavailable);
+      nextTags.doNotRehire = Boolean(draft.doNotRehire);
       nextTags.emrCapabilities = emrCapabilities;
       nextTags.restrictions = restrictions;
 
@@ -13229,6 +13296,7 @@
         pause_start_date: draft.pauseStart || null,
         pause_end_date: draft.pauseEnd || null,
         therapy_boss_unavailable: Boolean(draft.therapyBossUnavailable),
+        do_not_rehire: Boolean(draft.doNotRehire),
         emr_capabilities: normalizedEmrCapabilities,
         restrictions: normalizedRestrictions,
         notes: String(draft.notes || "").trim() || null,
@@ -13567,6 +13635,7 @@
         phone: elements.profilePhoneInput.value || "",
         email: elements.profileEmailInput.value || "",
         therapyBossUnavailable: Boolean(elements.profileTherapyBossUnavailableToggle.checked),
+        doNotRehire: Boolean(elements.profileDoNotRehireToggle.checked),
         emrCapabilities: getProfileEmrCapabilitiesFromUi(),
         languages: normalizeProfileLanguageList(getProfileLanguagesFromUi()),
         restrictedClinicians: restrictions.clinicians,
@@ -13700,6 +13769,8 @@
       elements.profilePhoneInput.value = safeDraft.phone;
       elements.profileEmailInput.value = safeDraft.email;
       elements.profileTherapyBossUnavailableToggle.checked = Boolean(safeDraft.therapyBossUnavailable);
+      elements.profileDoNotRehireToggle.checked = Boolean(safeDraft.doNotRehire);
+      elements.profileDnrRow.style.display = safeDraft.status === "Inactive" ? "" : "none";
       syncProfileEmrButtons(safeDraft.emrCapabilities);
       syncProfileLanguages(safeDraft.languages);
       syncProfileRestrictions({
@@ -13926,6 +13997,7 @@
       const draft = Object.assign(getDefaultProfileDraft(), hasDirtySavedDraft ? savedDraft : {});
       const hasSavedEmrDraft = Boolean(hasDirtySavedDraft && savedDraft && savedDraft.emrCapabilities && typeof savedDraft.emrCapabilities === "object");
       const hasSavedTherapyBossUnavailableDraft = Boolean(hasDirtySavedDraft && savedDraft && Object.prototype.hasOwnProperty.call(savedDraft, "therapyBossUnavailable"));
+      const hasSavedDoNotRehireDraft = Boolean(hasDirtySavedDraft && savedDraft && Object.prototype.hasOwnProperty.call(savedDraft, "doNotRehire"));
       if (!draft.name && clinician) {
         draft.name = clinician.name || "";
       }
@@ -14012,6 +14084,9 @@
       }
       if (!hasSavedTherapyBossUnavailableDraft && clinician) {
         draft.therapyBossUnavailable = getProfileTherapyBossUnavailableFromClinician(clinician);
+      }
+      if (!hasSavedDoNotRehireDraft) {
+        draft.doNotRehire = Boolean(clinician && clinician.do_not_rehire);
       }
       if (draft.therapyBossUnavailable) {
         draft.emrCapabilities = Object.assign(getDefaultProfileEmrCapabilities(), draft.emrCapabilities || {}, {
@@ -18617,6 +18692,7 @@
             if (emrCaps.axxess)   emrList.push("Axxess");
             if (emrCaps.kinnser)  emrList.push("Kinnser");
             parts.push("EMR: " + emrList.join(", "));
+            if (draft.doNotRehire) parts.push("do_not_rehire: true [DO NOT REHIRE — exclude from all placement recommendations]");
             if (draft.notes) parts.push("Notes: " + String(draft.notes).substring(0, 120));
             // Agency restrictions — list actual names so AI can cross-check referral source
             if (draft.restrictedAgencies && draft.restrictedAgencies.length) {
@@ -19462,6 +19538,10 @@
       elements.profilePhoneInput.addEventListener("input", handleProfileDraftChange);
       elements.profileEmailInput.addEventListener("input", handleProfileDraftChange);
       elements.profileTherapyBossUnavailableToggle.addEventListener("change", handleProfileDraftChange);
+      elements.profileDoNotRehireToggle.addEventListener("change", function() {
+        updateProfileHeaderStatus();
+        handleProfileDraftChange();
+      });
       elements.profileEmrSelect.addEventListener("change", function() {
         syncProfileEmrAddButtonState();
       });
