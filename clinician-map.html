@@ -6022,6 +6022,13 @@
     }
 
     async function handleAuthSession(session) {
+      // Block auto-login while in password recovery flow
+      if (inPasswordRecovery) {
+        console.log("[Auth] handleAuthSession blocked — waiting for user to set new password");
+        var authOverlay = document.getElementById("auth-overlay");
+        if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("setpassword"); }
+        return;
+      }
       var authOverlay = document.getElementById("auth-overlay");
       if (!session || !session.user) {
         appCurrentUser = null; appUserRole = "readonly";
@@ -6071,7 +6078,10 @@
     });
 
     /* ── Auth state listener (handles token refresh, tab focus, etc.) ── */
-    var inPasswordRecovery = window.location.hash.includes("type=recovery");
+    // Detect recovery link via hash (implicit flow) OR query param (PKCE flow)
+    var inPasswordRecovery = window.location.hash.includes("type=recovery") ||
+                             window.location.search.includes("type=recovery") ||
+                             window.location.search.includes("code=");
     supabaseClient.auth.onAuthStateChange(async function(event, session) {
       console.log("[Auth] event:", event, "| recovery flag:", inPasswordRecovery, "| session:", session ? session.user.email : "null");
       if (event === "PASSWORD_RECOVERY") {
