@@ -5936,7 +5936,8 @@
       var result = await supabaseClient.auth.updateUser({ password: p1 });
       btn.disabled = false; btn.textContent = "Set password & sign in";
       if (result.error) { authSetError("auth-setpassword-error", result.error.message || "Could not set password."); return; }
-      // Session is already active after password update
+      // Clear recovery flag so SIGNED_IN event is no longer suppressed, then launch app
+      inPasswordRecovery = false;
       var sessionResult = await supabaseClient.auth.getSession();
       await handleAuthSession(sessionResult.data && sessionResult.data.session ? sessionResult.data.session : null);
     }
@@ -6070,11 +6071,19 @@
     });
 
     /* ── Auth state listener (handles token refresh, tab focus, etc.) ── */
+    var inPasswordRecovery = false;
     supabaseClient.auth.onAuthStateChange(async function(event, session) {
       console.log("[Auth] event:", event, "| session:", session ? session.user.email : "null");
       if (event === "PASSWORD_RECOVERY") {
+        inPasswordRecovery = true;
         var authOverlay = document.getElementById("auth-overlay");
         if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("setpassword"); }
+        return;
+      }
+      if (inPasswordRecovery) {
+        // Supabase fires SIGNED_IN immediately after PASSWORD_RECOVERY — ignore it.
+        // The flag is cleared only after the user successfully sets a new password.
+        console.log("[Auth] Suppressing", event, "during password recovery flow");
         return;
       }
       if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
