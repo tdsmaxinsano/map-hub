@@ -6113,22 +6113,17 @@
       }
     });
 
-    /* ── On page load: check for existing session or reset/invite token in URL ── */
-    (async function initAuth() {
-      // If URL has error hash (e.g. expired OTP), show signin with a friendly message
-      var hash = window.location.hash || "";
+    /* ── On page load: only handle URL error cases. Session is driven entirely
+       by onAuthStateChange (INITIAL_SESSION / SIGNED_IN). Never call getSession()
+       here — it races against PASSWORD_RECOVERY and logs the user in too early. ── */
+    (function initAuth() {
+      var hash = window.location.hash || PAGE_INITIAL_HASH || "";
       if (hash.includes("error=access_denied") || hash.includes("otp_expired")) {
         history.replaceState(null, "", window.location.pathname);
         var authOverlay = document.getElementById("auth-overlay");
         if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("forgot"); }
         authSetError("auth-forgot-error", "That link expired. Enter your email below to get a fresh one.");
-        return;
       }
-      // If this is a password recovery link, let onAuthStateChange handle it.
-      // Use the pre-captured hash since Supabase clears window.location.hash on init.
-      if (PAGE_INITIAL_HASH.includes("type=recovery") || PAGE_INITIAL_SEARCH.includes("type=recovery")) return;
-      var result = await supabaseClient.auth.getSession();
-      await handleAuthSession(result.data && result.data.session ? result.data.session : null);
     })();
     /* ═══════════════════════════════════════════════════════
        USER MANAGEMENT PANEL
