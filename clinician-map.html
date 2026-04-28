@@ -5917,7 +5917,7 @@
       authSetError("auth-forgot-error", "");
       authSetSuccess("auth-forgot-success", "");
       btn.disabled = true; btn.textContent = "Sending…";
-      var redirectUrl = window.location.origin + window.location.pathname;
+      var redirectUrl = "https://www.dependablecareportal.com/clinician-map.html";
       var result = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
       btn.disabled = false; btn.textContent = "Send reset link";
       if (result.error) { authSetError("auth-forgot-error", result.error.message || "Could not send reset email."); return; }
