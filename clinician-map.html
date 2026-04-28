@@ -5794,6 +5794,9 @@
     mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
     const supabaseUrl = "https://jpemlcuxjvynlbeygukb.supabase.co";
     const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+    // Capture URL BEFORE Supabase client initializes — createClient clears the hash immediately
+    var PAGE_INITIAL_HASH   = window.location.hash;
+    var PAGE_INITIAL_SEARCH = window.location.search;
     // Cookie-based storage — survives refresh, not blocked by tracking prevention
     const cookieAuthStorage = {
       getItem: function(key) {
@@ -6078,10 +6081,9 @@
     });
 
     /* ── Auth state listener (handles token refresh, tab focus, etc.) ── */
-    // Detect recovery link via hash (implicit flow) OR query param (PKCE flow)
-    var inPasswordRecovery = window.location.hash.includes("type=recovery") ||
-                             window.location.search.includes("type=recovery") ||
-                             window.location.search.includes("code=");
+    // Detect recovery link using the hash/search captured BEFORE Supabase cleared them
+    var inPasswordRecovery = PAGE_INITIAL_HASH.includes("type=recovery") ||
+                             PAGE_INITIAL_SEARCH.includes("type=recovery");
     supabaseClient.auth.onAuthStateChange(async function(event, session) {
       console.log("[Auth] event:", event, "| recovery flag:", inPasswordRecovery, "| session:", session ? session.user.email : "null");
       if (event === "PASSWORD_RECOVERY") {
@@ -6123,9 +6125,8 @@
         return;
       }
       // If this is a password recovery link, let onAuthStateChange handle it.
-      // Calling getSession() here would launch the app before the PASSWORD_RECOVERY
-      // event fires, burying the set-password form behind the app shell.
-      if (hash.includes("type=recovery")) return;
+      // Use the pre-captured hash since Supabase clears window.location.hash on init.
+      if (PAGE_INITIAL_HASH.includes("type=recovery") || PAGE_INITIAL_SEARCH.includes("type=recovery")) return;
       var result = await supabaseClient.auth.getSession();
       await handleAuthSession(result.data && result.data.session ? result.data.session : null);
     })();
