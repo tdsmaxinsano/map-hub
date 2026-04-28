@@ -1,0 +1,1565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DCS Compliance Tracker</title>
+  <script src="./supabase.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:       #1E3A5F;
+      --blue-mid:   #2C5282;
+      --blue-light: #E8F0F8;
+      --gold:       #C8960C;
+      --gold-light: #FFF8E1;
+      --green:      #1B5E20;
+      --green-bg:   #E8F5E9;
+      --red:        #C62828;
+      --red-bg:     #FFEBEE;
+      --orange:     #E65100;
+      --orange-bg:  #FFF3E0;
+      --gray:       #666;
+      --border:     #D0D8E4;
+      --white:      #FFFFFF;
+      --bg:         #F0F4F8;
+      /* Status palette matching Google Sheet */
+      --s-done-bg:      #1B5E20; --s-done-text:     #fff;
+      --s-inprog-bg:    #F9A825; --s-inprog-text:   #4E2D00;
+      --s-notstart-bg:  #e0e0e0; --s-notstart-text: #444;
+      --s-mv-bg:        #4E342E; --s-mv-text:       #fff;
+      --s-hospital-bg:  #fce4ec; --s-hospital-text: #880E4F;
+    }
+
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: var(--bg); color: #222; }
+
+    /* ── LOGIN ── */
+    #login-screen {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh;
+      background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+    }
+    .login-card { background: var(--white); border-radius: 16px; padding: 40px 36px; width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+    .login-logo { text-align: center; margin-bottom: 28px; }
+    .login-logo h1 { font-size: 22px; color: var(--blue); font-weight: 800; }
+    .login-logo p  { font-size: 13px; color: var(--gold); font-weight: 600; margin-top: 4px; }
+    .login-card label { display: block; font-size: 12px; font-weight: 700; color: var(--blue); margin-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px; }
+    .login-card input { width: 100%; padding: 10px 14px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 14px; outline: none; margin-bottom: 16px; transition: border-color 0.2s; }
+    .login-card input:focus { border-color: var(--blue); }
+    .btn-primary { width: 100%; padding: 12px; background: var(--blue); color: var(--white); border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; transition: background 0.2s; }
+    .btn-primary:hover { background: var(--blue-mid); }
+    .login-error { color: var(--red); font-size: 13px; text-align: center; margin-top: 10px; min-height: 18px; }
+
+    /* ── APP SHELL ── */
+    #app { display: none; height: 100vh; overflow: hidden; flex-direction: column; }
+
+    header {
+      background: var(--blue); color: var(--white);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 24px; height: 56px; box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .header-brand { display: flex; align-items: center; gap: 10px; }
+    .header-brand span.tag { font-size: 10px; background: var(--gold); color: var(--blue); font-weight: 800; padding: 2px 8px; border-radius: 20px; text-transform: uppercase; }
+    header h1 { font-size: 17px; font-weight: 800; }
+    .header-right { display: flex; align-items: center; gap: 10px; }
+    .header-user { font-size: 13px; opacity: 0.8; }
+    .btn-hdr {
+      display: flex; align-items: center; gap: 5px;
+      border: none; padding: 7px 14px; border-radius: 8px;
+      font-size: 12px; font-weight: 800; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-hdr-gold  { background: var(--gold); color: var(--blue); }
+    .btn-hdr-gold:hover { background: #daa80d; }
+    .btn-hdr-ghost { background: rgba(255,255,255,0.15); color: var(--white); }
+    .btn-hdr-ghost:hover { background: rgba(255,255,255,0.25); }
+
+    /* ── TOOLBAR ── */
+    .toolbar {
+      background: var(--white); border-bottom: 1px solid var(--border);
+      padding: 10px 24px; display: flex; align-items: center; gap: 10px;
+      flex-wrap: wrap; position: sticky; top: 56px; z-index: 90;
+    }
+    .toolbar select, .toolbar input[type=text] {
+      padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 13px; color: #222; outline: none; background: var(--white); transition: border-color 0.15s;
+    }
+    .toolbar select:focus, .toolbar input[type=text]:focus { border-color: var(--blue); }
+    .filter-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 5px 12px; border-radius: 20px; border: 1.5px solid var(--border);
+      font-size: 12px; font-weight: 700; cursor: pointer; background: var(--white);
+      color: var(--gray); transition: all 0.15s; white-space: nowrap;
+    }
+    .filter-chip.on { border-color: var(--red); background: var(--red-bg); color: var(--red); }
+    .stat-bar { margin-left: auto; display: flex; gap: 14px; align-items: center; font-size: 12px; }
+    .stat-item { display: flex; align-items: center; gap: 5px; color: var(--gray); font-weight: 600; }
+    .stat-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    /* ── MAIN ── */
+    .main-content { flex: 1; padding: 18px 24px; overflow: hidden; display: flex; flex-direction: column; min-height: 0; }
+
+    /* Import batch bar */
+    .import-bar {
+      background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 16px; margin-bottom: 14px;
+      display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .import-bar-label { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; white-space: nowrap; }
+    .import-batch {
+      display: flex; align-items: center; gap: 6px; padding: 4px 12px;
+      border-radius: 20px; border: 1.5px solid var(--border);
+      font-size: 12px; cursor: pointer; transition: all 0.15s; white-space: nowrap;
+    }
+    .import-batch.active { border-color: var(--blue); background: var(--blue-light); color: var(--blue); font-weight: 700; }
+    .import-batch .cnt { font-size: 10px; background: rgba(0,0,0,0.08); border-radius: 10px; padding: 1px 6px; }
+    .import-batch-manual { border-style: dashed; }
+    .import-batch-manual.active { border-color: var(--gold); background: var(--gold-light); color: #7B5800; }
+
+    /* Table */
+    .table-wrap { background: var(--white); border-radius: 12px; border: 1px solid var(--border); overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.05); flex: 1; display: flex; flex-direction: column; min-height: 0; }
+    .ct { overflow: auto; flex: 1; min-height: 0; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    thead th {
+      background: var(--blue-light); color: var(--blue); font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 10px 12px; text-align: left; white-space: nowrap;
+      border-bottom: 2px solid var(--border); cursor: pointer; user-select: none;
+      position: sticky; top: 0; z-index: 10;
+    }
+    thead th:hover { background: #d5e3f4; }
+    thead th .sa { opacity: 0.4; margin-left: 3px; font-size: 10px; }
+    thead th.sorted .sa { opacity: 1; }
+    tbody tr { border-bottom: 1px solid #edf1f7; transition: background 0.1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover { background: #f7f9fc; }
+    tbody tr.row-hot { background: #fff5f5; }
+    tbody tr.row-hot:hover { background: #ffeeee; }
+    tbody tr.row-done { opacity: 0.5; }
+    tbody td { padding: 9px 12px; vertical-align: top; }
+
+    /* Status badge — clickable */
+    .status-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-size: 10px; font-weight: 800; border-radius: 20px;
+      padding: 4px 10px; letter-spacing: 0.03em; white-space: nowrap;
+      cursor: pointer; border: none; font-family: inherit;
+      transition: opacity 0.15s;
+    }
+    .status-badge:hover { opacity: 0.85; }
+    .s-not-started  { background: var(--s-notstart-bg); color: var(--s-notstart-text); }
+    .s-in-progress  { background: var(--s-inprog-bg);   color: var(--s-inprog-text); }
+    .s-done         { background: var(--s-done-bg);      color: var(--s-done-text); }
+    .s-missed-visit { background: var(--s-mv-bg);        color: var(--s-mv-text); }
+    .s-hospital     { background: var(--s-hospital-bg);  color: var(--s-hospital-text); }
+
+    /* HOT flag */
+    .hot-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 9px; font-weight: 800; border-radius: 20px;
+      padding: 2px 7px; background: var(--red-bg); color: var(--red);
+      border: 1px solid #f5c0bb; letter-spacing: 0.05em; margin-top: 4px;
+    }
+
+    /* Status dropdown popup */
+    .status-picker-wrap { position: relative; display: inline-block; }
+    .status-picker {
+      position: absolute; top: calc(100% + 4px); left: 0; z-index: 200;
+      background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 4px; min-width: 150px;
+    }
+    .status-picker button {
+      display: block; width: 100%; text-align: left;
+      padding: 6px 10px; border: none; background: none; cursor: pointer;
+      border-radius: 6px; font-size: 12px; font-weight: 700; margin-bottom: 2px;
+      font-family: inherit; transition: background 0.1s;
+    }
+    .status-picker button:last-child { margin-bottom: 0; }
+    .status-picker button:hover { background: var(--bg); }
+
+    /* Count chips */
+    .counts { display: flex; gap: 3px; flex-wrap: wrap; }
+    .cnt-chip {
+      display: inline-flex; align-items: center; gap: 2px;
+      font-size: 11px; font-weight: 700; border-radius: 6px;
+      padding: 2px 6px; border: 1px solid transparent;
+    }
+    .cnt-label { font-size: 9px; font-weight: 600; opacity: 0.6; }
+    .cnt-normal { background: #f0f4f8; color: #445; border-color: #d0d8e4; }
+    .cnt-warn   { background: var(--orange-bg); color: var(--orange); border-color: #ffcc80; }
+    .cnt-alert  { background: var(--red-bg); color: var(--red); border-color: #ef9a9a; }
+
+    /* Patient + description */
+    .patient-name { font-weight: 700; color: #18274a; }
+    .task-desc { font-size: 11px; color: var(--gray); margin-top: 2px; font-style: italic; }
+    .episode-text { font-size: 11px; color: var(--gray); margin-top: 1px; }
+
+    /* Per-clinician sub-rows */
+    .clinician-rows { display: flex; flex-direction: column; gap: 0; min-width: 260px; }
+    .clinician-sub-row {
+      display: flex; align-items: center; gap: 7px;
+      padding: 5px 0; border-bottom: 1px dashed #e8edf5;
+    }
+    .clinician-sub-row:last-child { border-bottom: none; }
+    .clinician-sub-name {
+      font-size: 12px; font-weight: 700; color: var(--blue);
+      min-width: 120px; max-width: 150px; white-space: nowrap;
+      overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
+    }
+    .clinician-sub-name.is-done { color: var(--green); text-decoration: line-through; opacity: 0.65; }
+    .clinician-sub-note {
+      font-size: 11px; padding: 3px 8px; border: 1px solid var(--border);
+      border-radius: 6px; flex: 1; min-width: 80px; outline: none;
+      background: #fafbfd; transition: border-color 0.15s;
+    }
+    .clinician-sub-note:focus { border-color: var(--blue); background: var(--white); }
+    .clinician-sub-note.has-note { border-color: var(--gold); background: var(--gold-light); }
+    .btn-c-done {
+      font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 6px;
+      border: 1.5px solid; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+      transition: all 0.15s; font-family: inherit;
+    }
+    .btn-c-done.open { border-color: var(--green); color: var(--green); background: var(--white); }
+    .btn-c-done.open:hover { background: var(--green-bg); }
+    .btn-c-done.done { border-color: var(--green); color: var(--white); background: var(--s-done-bg); }
+    .clinician-empty { font-size: 11px; color: #aaa; font-style: italic; }
+
+    /* Action column */
+    .td-actions { vertical-align: top; }
+    .btn-action {
+      font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;
+      border: 1.5px solid; cursor: pointer; transition: all 0.15s; font-family: inherit;
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .btn-hot  { border-color: var(--red); color: var(--red); background: var(--white); }
+    .btn-hot:hover, .btn-hot.on { background: var(--red); color: var(--white); }
+    .btn-all-done { border-color: var(--s-done-bg); color: var(--s-done-bg); background: var(--white); margin-top: 6px; display: block; width: 100%; justify-content: center; }
+    .btn-all-done:hover { background: var(--green-bg); }
+    .resolved-info { font-size: 10px; color: var(--green); margin-top: 4px; }
+
+    /* Hint */
+    .issue-hint { font-size: 10px; color: var(--orange); margin-top: 3px; }
+
+    /* Empty state */
+    .empty-state { text-align: center; padding: 60px 24px; color: var(--gray); }
+    .empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .empty-state h3 { font-size: 16px; color: #444; margin-bottom: 8px; }
+    .empty-state p { font-size: 13px; }
+    .loading-row td { text-align: center; padding: 40px; color: var(--gray); font-size: 14px; }
+
+    /* ── MODALS ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+      display: flex; align-items: center; justify-content: center; z-index: 9999;
+    }
+    .modal-box {
+      background: var(--white); border-radius: 16px; padding: 30px 28px;
+      width: 540px; max-width: 95vw; box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+      max-height: 90vh; overflow-y: auto;
+    }
+    .modal-title { font-size: 17px; font-weight: 800; color: var(--blue); margin-bottom: 6px; }
+    .modal-sub   { font-size: 13px; color: var(--gray); margin-bottom: 20px; }
+    .form-row { margin-bottom: 14px; }
+    .form-row label { display: block; font-size: 11px; font-weight: 700; color: var(--blue); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+    .form-row input, .form-row select, .form-row textarea {
+      width: 100%; padding: 9px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 13px; outline: none; font-family: inherit; transition: border-color 0.15s;
+    }
+    .form-row input:focus, .form-row select:focus, .form-row textarea:focus { border-color: var(--blue); }
+    .form-row textarea { resize: vertical; min-height: 70px; }
+    .form-row .hint { font-size: 11px; color: var(--gray); margin-top: 4px; }
+    .form-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .btn-cancel { padding: 9px 20px; border: 1.5px solid var(--border); background: var(--white); border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+    .btn-cancel:hover { background: var(--bg); }
+    .btn-confirm { padding: 9px 22px; background: var(--blue); color: var(--white); border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+    .btn-confirm:hover { background: var(--blue-mid); }
+    .btn-confirm:disabled { background: #aaa; cursor: not-allowed; }
+
+    /* Import preview */
+    .import-preview { background: var(--bg); border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; font-size: 13px; border: 1px solid var(--border); }
+    .ipr { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #e8edf5; }
+    .ipr:last-child { border-bottom: none; }
+    .ipr-l { color: var(--gray); }
+    .ipr-v { font-weight: 700; }
+    .import-hot-list { background: var(--red-bg); border: 1px solid #f5c0bb; border-radius: 8px; padding: 10px 14px; margin-bottom: 14px; font-size: 12px; color: var(--red); }
+    .import-hot-list strong { display: block; font-size: 13px; margin-bottom: 6px; }
+
+    /* ── IMPORT CHANGE REVIEW ── */
+    .changes-header { font-size: 12px; font-weight: 700; color: var(--blue); margin-bottom: 8px; }
+    .changes-list { display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; margin-bottom: 14px; }
+    .change-row { display: flex; align-items: flex-start; gap: 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: background 0.1s; }
+    .change-row:hover { background: var(--bg); }
+    .change-row input[type=checkbox] { margin-top: 3px; flex-shrink: 0; accent-color: var(--blue); width: 15px; height: 15px; }
+    .change-info { flex: 1; min-width: 0; }
+    .change-patient { font-size: 12px; font-weight: 700; color: #18274a; }
+    .change-agency  { font-weight: 400; color: var(--gray); }
+    .change-counts  { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 5px; }
+    .chg-chip { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; border-radius: 6px; padding: 2px 7px; border: 1px solid transparent; }
+    .chg-label { font-size: 9px; font-weight: 600; opacity: 0.6; margin-right: 1px; }
+    .chg-same    { background: #f0f4f8; color: #888; border-color: #d8e0ea; }
+    .chg-changed { background: var(--blue-light); color: var(--blue); border-color: #b8d0e8; }
+    .chg-good    { background: var(--green-bg); color: var(--green); border-color: #a5d6a7; }
+    .chg-alert   { background: var(--red-bg); color: var(--red); border-color: #ef9a9a; }
+
+    /* ── AGE CHIPS ── */
+    .age-chip { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; margin-top: 4px; display: inline-block; white-space: nowrap; }
+    .age-fresh  { background: #f0f4f8; color: #888; }
+    .age-warn   { background: var(--orange-bg); color: var(--orange); border: 1px solid #ffcc80; }
+    .age-alert  { background: var(--red-bg); color: var(--red); border: 1px solid #ef9a9a; }
+
+    /* Overdue badge */
+    .overdue-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 9px; font-weight: 800; border-radius: 20px; padding: 2px 7px; background: var(--orange-bg); color: var(--orange); border: 1px solid #ffcc80; letter-spacing: 0.05em; margin-top: 4px; }
+
+    /* Overdue row tint */
+    tbody tr.row-overdue { background: #fffaf5; }
+    tbody tr.row-overdue:hover { background: #fff5ea; }
+
+    /* Deadline banner */
+    .deadline-banner { border-radius: 10px; padding: 11px 16px; margin-bottom: 14px; display: flex; align-items: center; gap: 12px; font-size: 13px; font-weight: 700; flex-shrink: 0; }
+    .deadline-banner.fri { background: var(--orange-bg); color: var(--orange); border: 1px solid #ffcc80; }
+    .deadline-banner.sat { background: var(--red-bg); color: var(--red); border: 1px solid #ef9a9a; }
+    .deadline-banner .dl-icon { font-size: 20px; }
+    .deadline-banner .dl-sub  { font-weight: 400; font-size: 12px; opacity: 0.85; margin-top: 1px; }
+
+    /* ── VIEW TABS ── */
+    .view-tabs { display: flex; gap: 4px; }
+    .view-tab {
+      padding: 6px 16px; border-radius: 20px; border: none; font-size: 12px;
+      font-weight: 700; cursor: pointer; font-family: inherit;
+      background: rgba(255,255,255,0.15); color: rgba(255,255,255,0.7);
+      transition: all 0.15s;
+    }
+    .view-tab:hover  { background: rgba(255,255,255,0.25); color: #fff; }
+    .view-tab.active { background: var(--white); color: var(--blue); }
+
+    /* ── LOG VIEW ── */
+    #log-view { padding: 18px 24px; gap: 14px; overflow: hidden; }
+    .log-toolbar {
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+      background: var(--white); border: 1px solid var(--border); border-radius: 10px;
+      padding: 10px 16px;
+    }
+    .log-toolbar input { flex: 1; max-width: 320px; padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 8px; font-size: 13px; outline: none; transition: border-color 0.15s; }
+    .log-toolbar input:focus { border-color: var(--blue); }
+    .log-count-label { font-size: 12px; color: var(--gray); font-weight: 600; margin-left: auto; }
+    .log-resolved-by { font-size: 11px; color: var(--gray); }
+    .btn-reopen {
+      font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 6px;
+      border: 1.5px solid var(--border); background: var(--white); color: var(--gray);
+      cursor: pointer; font-family: inherit; transition: all 0.15s; white-space: nowrap;
+    }
+    .btn-reopen:hover { border-color: var(--orange); color: var(--orange); }
+    .btn-reopen.confirming { background: var(--red); color: #fff; border-color: var(--red); }
+
+    /* ── TOAST ── */
+    #toast { position: fixed; bottom: 24px; right: 24px; z-index: 99999; }
+    .toast-msg {
+      padding: 12px 20px; border-radius: 10px; color: var(--white);
+      font-size: 13px; font-weight: 600; box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+      animation: toastIn 0.25s ease;
+    }
+    .toast-msg.success { background: var(--blue); }
+    .toast-msg.error   { background: var(--red); }
+    .toast-msg.info    { background: #555; }
+    @keyframes toastIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+
+<!-- ══════ LOGIN ══════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <h1>DependableCare</h1>
+      <p>Compliance Tracker</p>
+    </div>
+    <form onsubmit="doLogin(event)">
+      <label>Email</label>
+      <input id="l-email" type="email" placeholder="you@email.com" autocomplete="email" required />
+      <label>Password</label>
+      <input id="l-pass" type="password" placeholder="••••••••" autocomplete="current-password" required />
+      <button class="btn-primary" type="submit" id="login-btn">Sign In</button>
+      <div class="login-error" id="login-error"></div>
+    </form>
+  </div>
+</div>
+
+<!-- ══════ APP ══════ -->
+<div id="app" style="display:none;flex-direction:column;">
+
+  <header>
+    <div class="header-brand">
+      <h1>DCS Compliance</h1>
+      <span class="tag">Tracker</span>
+    </div>
+    <div class="view-tabs">
+      <button class="view-tab active" id="tab-active" onclick="switchView('active')">Active Queue</button>
+      <button class="view-tab" id="tab-log" onclick="switchView('log')">📜 Resolved Log</button>
+    </div>
+    <div class="header-right">
+      <button class="btn-hdr btn-hdr-ghost" onclick="openAddModal()">+ Add Item</button>
+      <button class="btn-hdr btn-hdr-gold"  onclick="openImportPicker()">↑ Import TB</button>
+      <span class="header-user" id="hdr-user"></span>
+      <button class="btn-hdr btn-hdr-ghost" onclick="doLogout()">Sign Out</button>
+    </div>
+  </header>
+
+  <div id="active-view" style="display:flex;flex-direction:column;flex:1;min-height:0;">
+  <div class="toolbar">
+    <input type="text" id="filter-agency" placeholder="🔍 Agency..." oninput="applyFilters()" list="agency-filter-list" style="width:150px;" />
+    <datalist id="agency-filter-list"></datalist>
+    <select id="filter-service" onchange="applyFilters()"><option value="">All Services</option></select>
+    <select id="filter-status"  onchange="applyFilters()">
+      <option value="">All Statuses</option>
+      <option>Not Started</option>
+      <option>In Progress</option>
+      <option>Missed Visit</option>
+      <option>Hospital / Hold</option>
+    </select>
+    <input type="text" id="filter-clinician" placeholder="🔍 Clinician…" oninput="applyFilters()" style="width:140px;" />
+    <button class="filter-chip" id="chip-hot" onclick="toggleChip('hot')">🔴 HOT Only</button>
+    <div class="stat-bar">
+      <span class="stat-item"><span class="stat-dot" style="background:var(--s-mv-bg)"></span><span id="stat-mv">0</span> MV</span>
+      <span class="stat-item"><span class="stat-dot" style="background:var(--s-inprog-bg)"></span><span id="stat-ip">0</span> In Progress</span>
+      <span class="stat-item"><span class="stat-dot" style="background:var(--red)"></span><span id="stat-hot">0</span> HOT</span>
+      <span class="stat-item" onclick="switchView('log')" style="cursor:pointer;" title="View resolved log"><span class="stat-dot" style="background:var(--s-done-bg)"></span><span id="stat-done">0</span> Resolved</span>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <div id="deadline-banner" class="deadline-banner" style="display:none;">
+      <div class="dl-icon">⏰</div>
+      <div>
+        <div id="deadline-msg">Saturday deadline approaching</div>
+        <div class="dl-sub">All notes must be synced into TherapyBoss by end of day Saturday.</div>
+      </div>
+    </div>
+    <div class="import-bar" id="import-bar">
+      <span class="import-bar-label">Week</span>
+      <div id="import-batches" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"></div>
+    </div>
+    <div class="table-wrap">
+      <div class="ct">
+        <table id="comp-table">
+          <thead>
+            <tr>
+              <th onclick="sortBy('status')" data-col="status">Status <span class="sa">▲</span></th>
+              <th onclick="sortBy('patient_name')" data-col="patient_name">Patient / Task <span class="sa">▲</span></th>
+              <th onclick="sortBy('agency')" data-col="agency">Agency <span class="sa">▲</span></th>
+              <th onclick="sortBy('period_date')" data-col="period_date">Period <span class="sa">▲</span></th>
+              <th onclick="sortBy('service')" data-col="service">Svc <span class="sa">▲</span></th>
+              <th title="F = Frequency (projected visits)&#10;S = Scheduled appointments&#10;C = Completed visits&#10;AV = Attempted visits&#10;MV = Missed visit notes" style="cursor:help; border-bottom-style:dashed;">F / S / C / AV / MV ℹ</th>
+              <th onclick="sortBy('clinician')" data-col="clinician">Clinicians <span class="sa">▲</span></th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="comp-tbody">
+            <tr class="loading-row"><td colspan="8">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  </div><!-- /active-view -->
+
+  <div id="log-view" style="display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden;padding:18px 24px;gap:14px;">
+    <div class="log-toolbar">
+      <input type="text" id="log-search" placeholder="🔍 Search patient or clinician..." oninput="filterLog()" />
+      <span id="log-count-label" class="log-count-label"></span>
+    </div>
+    <div class="table-wrap">
+      <div class="ct">
+        <table>
+          <thead>
+            <tr>
+              <th>Resolved</th>
+              <th>Patient / Task</th>
+              <th>Agency</th>
+              <th>Svc</th>
+              <th>Clinicians</th>
+              <th>Week</th>
+              <th>By</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="log-tbody">
+            <tr class="loading-row"><td colspan="8">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div><!-- /log-view -->
+
+</div><!-- /app -->
+
+<!-- ══════ IMPORT MODAL ══════ -->
+<div class="modal-overlay" id="import-modal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title">Import TherapyBoss File</div>
+    <div class="modal-sub" id="import-modal-sub">Reviewing…</div>
+    <div class="import-preview" id="import-preview"></div>
+    <div id="import-changes-section" style="display:none;"></div>
+    <div class="import-hot-list" id="import-hot-preview" style="display:none;"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('import-modal')">Cancel</button>
+      <button class="btn-confirm" id="import-confirm-btn" onclick="confirmImport()" disabled>Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ ADD ITEM MODAL ══════ -->
+<div class="modal-overlay" id="add-modal" style="display:none;">
+  <div class="modal-box">
+    <div class="modal-title">Add Compliance Item</div>
+    <div class="modal-sub">Manually log a DC, PTE, 30th, or any issue not in the TB import.</div>
+    <div class="form-row">
+      <label>Agency</label>
+      <input id="add-agency" type="text" placeholder="Agency name" list="agency-list" />
+      <datalist id="agency-list"></datalist>
+    </div>
+    <div class="form-row">
+      <label>Patient / Task Description</label>
+      <input id="add-patient" type="text" placeholder="e.g. Buske, Carol — DC wk of 4/20" />
+      <div class="hint">Include patient name and what needs to happen (DC, PTE, 30th, MV, etc.)</div>
+    </div>
+    <div class="form-2col">
+      <div class="form-row">
+        <label>Service</label>
+        <select id="add-service">
+          <option value="">—</option>
+          <option>PT</option><option>PTA</option>
+          <option>OT</option><option>OTA</option>
+          <option>SLP</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Status</label>
+        <select id="add-status">
+          <option>Not Started</option>
+          <option>In Progress</option>
+          <option>Missed Visit</option>
+          <option>Hospital / Hold</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <label>Clinician(s)</label>
+      <input id="add-clinicians" type="text" placeholder="First name or full name — separate multiple with /" />
+      <div class="hint">Use / to separate if two clinicians (e.g. Alex / Daniel)</div>
+    </div>
+    <div class="form-row">
+      <label>Notes</label>
+      <textarea id="add-notes" placeholder="Reason, action taken, or follow-up…"></textarea>
+    </div>
+    <div class="form-row">
+      <label>Due / Period Date</label>
+      <input id="add-date" type="date" />
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('add-modal')">Cancel</button>
+      <button class="btn-confirm" onclick="confirmAddItem()">Add Item</button>
+    </div>
+  </div>
+</div>
+
+<!-- File input (hidden) -->
+<input type="file" id="file-input" accept=".xls,.html,.htm" style="display:none;" onchange="handleFileSelect(event)" />
+
+<!-- Status picker (shared, moved in DOM) -->
+<div class="status-picker" id="status-picker" style="display:none;">
+  <button onclick="pickStatus('Not Started')">⬜ Not Started</button>
+  <button onclick="pickStatus('In Progress')">🟡 In Progress</button>
+  <button onclick="pickStatus('Missed Visit')">🟫 Missed Visit</button>
+  <button onclick="pickStatus('Hospital / Hold')">🏥 Hospital / Hold</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ══════════════════════════════════════════════════
+   SUPABASE
+══════════════════════════════════════════════════ */
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.sessionStorage, persistSession: true, autoRefreshToken: true }
+});
+
+/* ══════════════════════════════════════════════════
+   STATE
+══════════════════════════════════════════════════ */
+var currentUser     = null;
+var allItems        = [];
+var allImports      = [];
+var activeImport    = null;
+var clinicianLookup = new Map();
+
+var filterAgency    = "";
+var filterService   = "";
+var filterStatus    = "";
+var filterClinician = "";
+var showHotOnly     = false;
+var sortCol = "status"; var sortDir = 1;
+
+var pendingImport    = null;
+var pickerItemId     = null;
+var currentView      = "active";
+var logItems         = [];
+var logFilterText    = "";
+
+const STATUSES = ["Not Started","In Progress","Missed Visit","Hospital / Hold","Done"];
+
+/* ══════════════════════════════════════════════════
+   VIEW SWITCHING
+══════════════════════════════════════════════════ */
+function switchView(view) {
+  currentView = view;
+  var isLog = view === "log";
+  document.getElementById("active-view").style.display = isLog ? "none" : "flex";
+  document.getElementById("log-view").style.display    = isLog ? "flex" : "none";
+  document.getElementById("tab-active").classList.toggle("active", !isLog);
+  document.getElementById("tab-log").classList.toggle("active",  isLog);
+  if (isLog) loadLog();
+}
+
+/* ══════════════════════════════════════════════════
+   LOG VIEW
+══════════════════════════════════════════════════ */
+async function loadLog() {
+  document.getElementById("log-tbody").innerHTML = "<tr class='loading-row'><td colspan='8'>Loading…</td></tr>";
+  var { data, error } = await db.from("compliance_items")
+    .select("*, compliance_imports(period_label)")
+    .eq("status", "Done")
+    .order("done_at", { ascending: false })
+    .limit(500);
+  if (error) { showToast("Log load failed: " + error.message, "error"); return; }
+  logItems = data || [];
+  filterLog();
+}
+function filterLog() {
+  logFilterText = (document.getElementById("log-search").value || "").trim().toLowerCase();
+  var visible = logItems.filter(function(item) {
+    if (!logFilterText) return true;
+    var patMatch = (item.patient_name||"").toLowerCase().indexOf(logFilterText) > -1;
+    var clinMatch = resolveTBClinicianList(item.clinician_raw).some(function(n){
+      return n.toLowerCase().indexOf(logFilterText) > -1;
+    });
+    return patMatch || clinMatch;
+  });
+  document.getElementById("log-count-label").textContent = visible.length + " resolved item" + (visible.length !== 1 ? "s" : "");
+  renderLog(visible);
+}
+function renderLog(items) {
+  if (!items.length) {
+    document.getElementById("log-tbody").innerHTML =
+      "<tr><td colspan='8'><div class='empty-state'><div class='icon'>✅</div><h3>No resolved items</h3><p>Items marked Done will appear here.</p></div></td></tr>";
+    return;
+  }
+  document.getElementById("log-tbody").innerHTML = items.map(function(item) {
+    var doneDate = item.done_at ? new Date(item.done_at) : null;
+    var dateStr  = doneDate ? doneDate.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) + " " +
+      doneDate.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit"}) : "—";
+    var rawP = item.patient_name || "";
+    var pComma = rawP.indexOf(",");
+    var patDisplay = pComma > -1
+      ? formatClinicianDisplayName(rawP.slice(pComma+1).trim() + " " + rawP.slice(0,pComma).trim())
+      : formatClinicianDisplayName(rawP);
+    var taskDesc = item.task_description ? "<div class='task-desc'>"+escHtml(item.task_description)+"</div>" : "";
+    var names = resolveTBClinicianList(item.clinician_raw);
+    var clinStr = names.length ? names.map(function(n){return escHtml(n);}).join(", ") : "<span style='color:#aaa'>—</span>";
+    var weekLabel = (item.compliance_imports && item.compliance_imports.period_label) || "—";
+    var byStr = item.done_by_email ? item.done_by_email.split("@")[0] : "—";
+    return "<tr>" +
+      "<td style='white-space:nowrap;font-size:12px;color:var(--gray)'>"+escHtml(dateStr)+"</td>" +
+      "<td><div class='patient-name'>"+escHtml(patDisplay)+"</div>"+taskDesc+"</td>" +
+      "<td>"+escHtml(item.agency||"")+"</td>" +
+      "<td><strong>"+escHtml(item.service||"")+"</strong></td>" +
+      "<td style='font-size:12px;'>"+clinStr+"</td>" +
+      "<td style='font-size:11px;color:var(--gray)'>"+escHtml(weekLabel)+"</td>" +
+      "<td class='log-resolved-by'>"+escHtml(byStr)+"</td>" +
+      "<td><button class='btn-reopen' data-reopen='"+escAttr(item.id)+"' onclick='reopenItem(\""+escAttr(item.id)+"\")'>Reopen</button></td>" +
+    "</tr>";
+  }).join("");
+}
+function reopenItem(id) {
+  var btn = document.querySelector("[data-reopen='" + id + "']");
+  if (!btn) return;
+  if (btn.dataset.confirming === "1") {
+    doReopen(id);
+  } else {
+    btn.dataset.confirming = "1";
+    btn.classList.add("confirming");
+    btn.textContent = "Sure?";
+    setTimeout(function() {
+      if (btn.dataset.confirming === "1") {
+        btn.dataset.confirming = "";
+        btn.classList.remove("confirming");
+        btn.textContent = "Reopen";
+      }
+    }, 3000);
+  }
+}
+async function doReopen(id) {
+  var item = logItems.find(function(i){return i.id === id;});
+  if (!item) return;
+  // Keep notes, clear done flags from clinician_states
+  var newStates = {};
+  Object.keys(item.clinician_states || {}).forEach(function(name) {
+    var note = (item.clinician_states[name] || {}).note;
+    if (note) newStates[name] = { note: note };
+  });
+  var { error } = await db.from("compliance_items").update({
+    status: "Not Started", done_at: null, done_by: null, done_by_email: null,
+    clinician_states: newStates
+  }).eq("id", id);
+  if (error) { showToast("Error: " + error.message, "error"); return; }
+  showToast("Item reopened — back in the active queue.", "info");
+  logItems = logItems.filter(function(i){return i.id !== id;});
+  filterLog();
+  // Refresh active batch if it contained this item
+  if (item.import_id === activeImport) await loadItems(activeImport);
+  // Update resolved count in stat bar
+  var doneStat = document.getElementById("stat-done");
+  if (doneStat) doneStat.textContent = Math.max(0, parseInt(doneStat.textContent||"0") - 1);
+}
+
+/* ══════════════════════════════════════════════════
+   AUTH
+══════════════════════════════════════════════════ */
+async function doLogin(e) {
+  e.preventDefault();
+  var email = document.getElementById("l-email").value.trim();
+  var pass  = document.getElementById("l-pass").value;
+  var btn   = document.getElementById("login-btn");
+  var err   = document.getElementById("login-error");
+  err.textContent = ""; btn.disabled = true; btn.textContent = "Signing in…";
+  var { data, error } = await db.auth.signInWithPassword({ email, password: pass });
+  btn.disabled = false; btn.textContent = "Sign In";
+  if (error) { err.textContent = error.message || "Incorrect email or password."; return; }
+  launchApp(data.session.user);
+}
+async function doLogout() { await db.auth.signOut(); location.reload(); }
+async function checkSession() {
+  var { data } = await db.auth.getSession();
+  if (data && data.session && data.session.user) launchApp(data.session.user);
+}
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+  var app = document.getElementById("app");
+  app.style.display = "flex";
+  document.getElementById("hdr-user").textContent = user.email || "";
+  checkDeadlineBanner();
+  await loadClinicians();
+  loadImports();
+}
+
+/* ══════════════════════════════════════════════════
+   NAME MATCHING (mirrors clinician-map.html)
+══════════════════════════════════════════════════ */
+function formatDisplayNameToken(v) {
+  var t = String(v || "");
+  return t.split("-").map(function(h) {
+    return h.split("'").map(function(a) {
+      if (!a) return "";
+      if (/^(ii|iii|iv|v|vi|vii|viii|ix|jr|sr)\.?$/i.test(a)) return a.replace(/\.$/, "").toUpperCase();
+      return a.charAt(0).toUpperCase() + a.slice(1);
+    }).join("'");
+  }).join("-");
+}
+function formatClinicianDisplayName(v) {
+  return String(v || "").trim().toLowerCase().split(/\s+/).map(formatDisplayNameToken).join(" ");
+}
+function normalizeClinicianName(v) {
+  return String(v || "").toLowerCase().replace(/[^a-z0-9,\s]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function getClinicianNameVariants(v) {
+  var base = normalizeClinicianName(v);
+  var variants = [], seen = {};
+  function add(s) { s = (s || "").trim(); if (s && !seen[s]) { seen[s] = true; variants.push(s); } }
+  add(base.replace(/,/g, "").trim());
+  add(base);
+  var cp = base.split(",").map(function(p) { return p.trim(); }).filter(Boolean);
+  if (cp.length >= 2) add((cp.slice(1).join(" ") + " " + cp[0]).replace(/\s+/g, " "));
+  var tokens = base.replace(/,/g, "").split(" ").filter(Boolean);
+  if (tokens.length >= 2) { add(tokens.join(" ")); add([tokens[tokens.length-1]].concat(tokens.slice(0,-1)).join(" ")); }
+  return variants;
+}
+async function loadClinicians() {
+  var { data } = await db.from("clinician_profiles").select("id, name");
+  clinicianLookup = new Map();
+  (data || []).forEach(function(c) {
+    if (!c.name) return;
+    getClinicianNameVariants(c.name).forEach(function(v) {
+      if (!clinicianLookup.has(v)) clinicianLookup.set(v, c);
+    });
+  });
+}
+function resolveTBName(raw) {
+  if (!raw) return "";
+  var trimmed = raw.trim();
+  var variants = getClinicianNameVariants(trimmed);
+  for (var i = 0; i < variants.length; i++) {
+    if (clinicianLookup.has(variants[i])) return clinicianLookup.get(variants[i]).name;
+  }
+  // Convert Last, First → First Last and title-case
+  var ci = trimmed.indexOf(",");
+  if (ci > -1) return formatClinicianDisplayName(trimmed.slice(ci+1).trim() + " " + trimmed.slice(0,ci).trim());
+  return formatClinicianDisplayName(trimmed);
+}
+function resolveTBClinicianList(raw) {
+  if (!raw) return [];
+  // Support both ";" (TB import) and "/" (manual entry)
+  return String(raw).split(/[;\/]/).map(function(n) { return n.trim(); }).filter(Boolean).map(resolveTBName);
+}
+
+/* ══════════════════════════════════════════════════
+   LOAD DATA
+══════════════════════════════════════════════════ */
+async function loadImports() {
+  var { data, error } = await db.from("compliance_imports").select("*").order("imported_at", { ascending: false });
+  if (error) { showToast("Failed to load: " + error.message, "error"); return; }
+  allImports = data || [];
+  renderImportBatches();
+  if (allImports.length > 0) selectBatch(null); // default: show all
+  else renderEmpty();
+}
+function renderImportBatches() {
+  var el = document.getElementById("import-batches");
+  if (!allImports.length) {
+    el.innerHTML = "<span style='font-size:13px;color:#aaa;font-style:italic;'>No imports yet.</span>"; return;
+  }
+  var totalRows = allImports.reduce(function(s,i){return s+(i.row_count||0);},0);
+  var allPill = "<div class='import-batch" + (activeImport === null ? " active" : "") +
+    "' onclick='selectBatch(null)'>All <span class='cnt'>" + totalRows + "</span></div>";
+  var batchPills = allImports.map(function(imp) {
+    var date = imp.imported_at ? new Date(imp.imported_at).toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"}) : "";
+    var label = imp.period_label || date;
+    var isManual = imp.period_label === "Manual";
+    return "<div class='import-batch" + (isManual ? " import-batch-manual" : "") + (imp.id === activeImport ? " active" : "") +
+      "' onclick='selectBatch(\"" + imp.id + "\")'>" + escHtml(label) +
+      "<span class='cnt'>" + (imp.row_count || 0) + "</span></div>";
+  }).join("");
+  el.innerHTML = allPill + batchPills;
+}
+async function selectBatch(id) {
+  activeImport = id;
+  renderImportBatches();
+  await loadItems(id);
+}
+async function loadItems(importId) {
+  document.getElementById("comp-tbody").innerHTML = '<tr class="loading-row"><td colspan="8">Loading…</td></tr>';
+  var query = db.from("compliance_items").select("*");
+  if (importId !== null) query = query.eq("import_id", importId);
+  var { data, error } = await query;
+  if (error) { showToast("Load failed: " + error.message, "error"); return; }
+  allItems = data || [];
+  populateFilters();
+  applyFilters();
+}
+function populateFilters() {
+  var agencies = Array.from(new Set(allItems.map(function(i){return i.agency;}).filter(Boolean))).sort();
+  var services = Array.from(new Set(allItems.map(function(i){return i.service;}).filter(Boolean))).sort();
+  var agDl = document.getElementById("agency-filter-list");
+  if (agDl) agDl.innerHTML = agencies.map(function(a){return "<option value='"+escAttr(a)+"'>";}).join("");
+  var svSel = document.getElementById("filter-service");
+  var curS = svSel.value;
+  svSel.innerHTML = "<option value=''>All Services</option>" +
+    services.map(function(s){return "<option"+(s===curS?" selected":"")+">"+escHtml(s)+"</option>";}).join("");
+  // Populate agency datalist for add modal
+  var dl = document.getElementById("agency-list");
+  if (dl) dl.innerHTML = agencies.map(function(a){return "<option value='"+escAttr(a)+"'>";}).join("");
+}
+
+/* ══════════════════════════════════════════════════
+   FILTERS + SORT + RENDER
+══════════════════════════════════════════════════ */
+function applyFilters() {
+  filterAgency    = document.getElementById("filter-agency").value.trim().toLowerCase();
+  filterService   = document.getElementById("filter-service").value;
+  filterStatus    = document.getElementById("filter-status").value;
+  filterClinician = document.getElementById("filter-clinician").value.trim().toLowerCase();
+  var visible = allItems.filter(function(item) {
+    if (item.status === "Done") return false; // Done items live in the Log view
+    if (filterAgency  && (item.agency||"").toLowerCase().indexOf(filterAgency) === -1) return false;
+    if (filterService && item.service !== filterService) return false;
+    if (filterStatus  && item.status  !== filterStatus)  return false;
+    if (showHotOnly   && !item.is_hot)                   return false;
+    if (filterClinician) {
+      var names = resolveTBClinicianList(item.clinician_raw);
+      var match = names.some(function(n){ return n.toLowerCase().indexOf(filterClinician) > -1; });
+      if (!match) return false;
+    }
+    return true;
+  });
+  visible.sort(function(a, b) {
+    var av = getSortVal(a, sortCol), bv = getSortVal(b, sortCol);
+    if (av < bv) return -sortDir;
+    if (av > bv) return  sortDir;
+    return 0;
+  });
+  renderTable(visible);
+  updateStats();
+}
+function getSortVal(item, col) {
+  if (col === "status") {
+    var order = {"Missed Visit":0,"Not Started":1,"In Progress":2,"Hospital / Hold":3,"Done":4};
+    var base = order[item.status] !== undefined ? order[item.status] : 5;
+    var urgency = item.is_hot ? "0" : (item.status !== "Done" && getAgeHours(item) >= 48 ? "1" : "2");
+    return urgency + String(base);
+  }
+  if (col === "period_date") return item.period_date || "";
+  if (col === "clinician") {
+    var names = resolveTBClinicianList(item.clinician_raw);
+    return names.length ? names[0].toLowerCase() : "zzz";
+  }
+  return String(item[col] || "").toLowerCase();
+}
+function sortBy(col) {
+  if (sortCol === col) sortDir = -sortDir; else { sortCol = col; sortDir = 1; }
+  document.querySelectorAll("thead th[data-col]").forEach(function(th) {
+    th.classList.toggle("sorted", th.getAttribute("data-col") === col);
+    var sa = th.querySelector(".sa");
+    if (sa) sa.textContent = (th.getAttribute("data-col") === col) ? (sortDir===1?"▲":"▼") : "▲";
+  });
+  applyFilters();
+}
+function toggleChip(key) {
+  if (key === "hot") { showHotOnly = !showHotOnly; document.getElementById("chip-hot").classList.toggle("on", showHotOnly); }
+  applyFilters();
+}
+function updateStats() {
+  document.getElementById("stat-mv").textContent   = allItems.filter(function(i){return i.status==="Missed Visit";}).length;
+  document.getElementById("stat-ip").textContent   = allItems.filter(function(i){return i.status==="In Progress";}).length;
+  document.getElementById("stat-hot").textContent  = allItems.filter(function(i){return i.is_hot;}).length;
+  document.getElementById("stat-done").textContent = allItems.filter(function(i){return i.status==="Done";}).length + (allImports.length ? "" : "");
+}
+function renderEmpty() {
+  document.getElementById("comp-tbody").innerHTML =
+    '<tr><td colspan="8"><div class="empty-state"><div class="icon">📋</div>' +
+    '<h3>No items yet</h3><p>Click <strong>Import TB</strong> to upload a TherapyBoss file, or <strong>+ Add Item</strong> to log an entry manually.</p></div></td></tr>';
+  updateStats();
+}
+function renderTable(items) {
+  if (!items.length) {
+    document.getElementById("comp-tbody").innerHTML =
+      '<tr><td colspan="8"><div class="empty-state"><div class="icon">🔍</div><h3>No items match</h3><p>Adjust the filters above.</p></div></td></tr>';
+    return;
+  }
+  document.getElementById("comp-tbody").innerHTML = items.map(renderRow).join("");
+}
+
+/* ── Status badge HTML ── */
+function statusBadgeHtml(status, itemId) {
+  var cls = { "Not Started":"s-not-started","In Progress":"s-in-progress","Done":"s-done","Missed Visit":"s-missed-visit","Hospital / Hold":"s-hospital" }[status] || "s-not-started";
+  var label = { "Not Started":"Not Started","In Progress":"In Progress","Done":"✓ Done","Missed Visit":"Missed Visit","Hospital / Hold":"Hospital/Hold" }[status] || status;
+  return "<div class='status-picker-wrap'>" +
+    "<button class='status-badge " + cls + "' onclick='openStatusPicker(event,\"" + escAttr(itemId) + "\")'>" + escHtml(label) + "</button></div>";
+}
+
+function renderRow(item) {
+  var isDone = item.status === "Done";
+  var isOverdue = !isDone && getAgeHours(item) >= 48;
+  var rowClass = isDone ? "row-done"
+    : item.is_hot ? "row-hot"
+    : isOverdue ? "row-overdue" : "";
+
+  // Patient name: convert "LAST, FIRST" → "First Last"
+  var rawP = item.patient_name || "";
+  var pComma = rawP.indexOf(",");
+  var patDisplay = pComma > -1
+    ? formatClinicianDisplayName(rawP.slice(pComma+1).trim() + " " + rawP.slice(0,pComma).trim())
+    : formatClinicianDisplayName(rawP);
+
+  // Task description (manual items use this field)
+  var taskDesc = item.task_description ? "<div class='task-desc'>" + escHtml(item.task_description) + "</div>" : "";
+
+  // Episode + period
+  var periodStr = "";
+  if (item.period_date) {
+    var pd = new Date(item.period_date + "T12:00:00");
+    periodStr = pd.toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"});
+  }
+  var episodeHtml = item.episode ? "<div class='episode-text'>" + escHtml(item.episode) + "</div>" : "";
+
+  // Counts
+  var f = item.freq_ordered||0, s = item.scheduled||0, c = item.completed||0,
+      av = item.attempted_visits||0, mv = item.missed_visits||0;
+  function chip(lbl,val,cls){ return "<span class='cnt-chip "+cls+"'><span class='cnt-label'>"+lbl+"</span> "+val+"</span>"; }
+  var counts = (f||s||c||av||mv)
+    ? "<div class='counts'>" +
+        chip("F",f,"cnt-normal") + chip("S",s,s<f?"cnt-warn":"cnt-normal") +
+        chip("C",c,c<s&&s>0?"cnt-warn":"cnt-normal") +
+        chip("AV",av,av>0?"cnt-warn":"cnt-normal") +
+        chip("MV",mv,mv>0?"cnt-alert":"cnt-normal") +
+      "</div>"
+    : "<span style='color:#aaa;font-size:11px;'>—</span>";
+
+  // Issue hint (for non-done rows)
+  var hint = "";
+  if (!isDone && (av>0||mv>0||s<f&&f>0)) {
+    var rs = [];
+    if (mv>0) rs.push(mv+" missed visit note"+(mv>1?"s":"")+" to enter");
+    if (av>0&&mv===0) rs.push(av+" attempted");
+    if (s<f&&f>0) rs.push("only "+s+"/"+f+" scheduled");
+    hint = "<div class='issue-hint'>⚠ " + rs.join(", ") + "</div>";
+  }
+
+  // Per-clinician sub-rows
+  var names = resolveTBClinicianList(item.clinician_raw);
+  var states = item.clinician_states || {};
+  var clinHtml = "";
+  if (names.length > 0) {
+    clinHtml = "<div class='clinician-rows'>" + names.map(function(name) {
+      var st = states[name] || {};
+      var cdone = Boolean(st.done), note = st.note||"";
+      var sid = escAttr(item.id), sname = escAttr(name);
+      return "<div class='clinician-sub-row'>" +
+        "<span class='clinician-sub-name"+(cdone?" is-done":"")+"' title='"+sname+"'>"+escHtml(name)+"</span>" +
+        "<input class='clinician-sub-note"+(note?" has-note":"")+"' type='text' placeholder='Note…' value='"+escAttr(note)+"' " +
+          "onblur='saveClinicianNote(\""+sid+"\",\""+sname+"\",this)' onkeydown='if(event.key===\"Enter\")this.blur()' />" +
+        "<button class='btn-c-done "+(cdone?"done":"open")+"' onclick='toggleClinicianDone(\""+sid+"\",\""+sname+"\")'>"+(cdone?"✓ Done":"Done?")+"</button>" +
+        "</div>";
+    }).join("") + "</div>";
+  } else {
+    clinHtml = "<span class='clinician-empty'>Unassigned</span>";
+  }
+
+  // Action column
+  var hotBtn = "<button class='btn-action btn-hot"+(item.is_hot?" on":"")+"' onclick='toggleHot(\""+escAttr(item.id)+"\")'>"+(item.is_hot?"⛔ HOT":"Flag HOT")+"</button>";
+  var allDoneBtn = "";
+  if (!isDone && names.length > 1 && names.some(function(n){return !(states[n]||{}).done;})) {
+    allDoneBtn = "<button class='btn-action btn-all-done' onclick='markAllCliniciansDone(\""+escAttr(item.id)+"\")'>✓ All Done</button>";
+  }
+  var resolvedInfo = "";
+  if (isDone && item.done_at) {
+    var dt = new Date(item.done_at).toLocaleDateString("en-US",{month:"short",day:"numeric"});
+    var by = item.done_by_email ? " · " + item.done_by_email.split("@")[0] : "";
+    resolvedInfo = "<div class='resolved-info'>Resolved " + dt + escHtml(by) + "</div>";
+  }
+
+  return "<tr class='"+rowClass.trim()+"' id='row-"+item.id+"'>" +
+    "<td>" + statusBadgeHtml(item.status||"Not Started", item.id) +
+      (item.is_hot ? "<div class='hot-badge'>⛔ HOT</div>" : "") +
+      (isOverdue && !item.is_hot ? "<div class='overdue-badge'>⏰ OVERDUE</div>" : "") + "</td>" +
+    "<td><div class='patient-name'>"+escHtml(patDisplay)+"</div>"+taskDesc+episodeHtml+"</td>" +
+    "<td>"+escHtml(item.agency||"")+"</td>" +
+    "<td>"+periodStr+ageChipHtml(item)+"</td>" +
+    "<td><strong>"+escHtml(item.service||"")+"</strong></td>" +
+    "<td>"+counts+hint+"</td>" +
+    "<td>"+clinHtml+"</td>" +
+    "<td class='td-actions'>"+hotBtn+allDoneBtn+resolvedInfo+"</td>" +
+    "</tr>";
+}
+
+/* ══════════════════════════════════════════════════
+   STATUS PICKER
+══════════════════════════════════════════════════ */
+var pickerEl = document.getElementById("status-picker");
+document.addEventListener("click", function(e) {
+  if (!pickerEl.contains(e.target) && !e.target.classList.contains("status-badge")) {
+    pickerEl.style.display = "none"; pickerItemId = null;
+  }
+});
+function openStatusPicker(e, itemId) {
+  e.stopPropagation();
+  pickerItemId = itemId;
+  var rect = e.currentTarget.getBoundingClientRect();
+  pickerEl.style.display = "block";
+  pickerEl.style.position = "fixed";
+  pickerEl.style.top  = (rect.bottom + 4) + "px";
+  pickerEl.style.left = rect.left + "px";
+  document.body.appendChild(pickerEl);
+}
+async function pickStatus(newStatus) {
+  pickerEl.style.display = "none";
+  if (!pickerItemId) return;
+  var id = pickerItemId; pickerItemId = null;
+  var item = allItems.find(function(i){return i.id===id;});
+  if (!item) return;
+
+  var updates = { status: newStatus };
+  if (newStatus === "Done") {
+    updates.done_at       = new Date().toISOString();
+    updates.done_by       = currentUser ? currentUser.id    : null;
+    updates.done_by_email = currentUser ? currentUser.email : null;
+    item.done_at       = updates.done_at;
+    item.done_by_email = updates.done_by_email;
+  } else {
+    // Reopening — clear done info
+    updates.done_at = null; updates.done_by = null; updates.done_by_email = null;
+    item.done_at = null; item.done_by_email = null;
+  }
+
+  var { error } = await db.from("compliance_items").update(updates).eq("id", id);
+  if (error) { showToast("Error: " + error.message, "error"); return; }
+  item.status = newStatus;
+  refreshRow(id);
+  updateStats();
+}
+
+/* ══════════════════════════════════════════════════
+   HOT TOGGLE
+══════════════════════════════════════════════════ */
+async function toggleHot(id) {
+  var item = allItems.find(function(i){return i.id===id;});
+  if (!item) return;
+  var newVal = !item.is_hot;
+  var { error } = await db.from("compliance_items").update({ is_hot: newVal }).eq("id", id);
+  if (error) { showToast("Error: " + error.message, "error"); return; }
+  item.is_hot = newVal;
+  refreshRow(id); updateStats();
+}
+
+/* ══════════════════════════════════════════════════
+   PER-CLINICIAN ACTIONS
+══════════════════════════════════════════════════ */
+function allCliniciansDone(item) {
+  var names = resolveTBClinicianList(item.clinician_raw);
+  if (!names.length) return false;
+  var states = item.clinician_states || {};
+  return names.every(function(n){ return Boolean((states[n]||{}).done); });
+}
+async function saveClinicianStates(item) {
+  var updates = { clinician_states: item.clinician_states };
+  if (allCliniciansDone(item) && item.status !== "Done") {
+    updates.status        = "Done";
+    updates.done_at       = new Date().toISOString();
+    updates.done_by       = currentUser ? currentUser.id    : null;
+    updates.done_by_email = currentUser ? currentUser.email : null;
+    item.status        = "Done";
+    item.done_at       = updates.done_at;
+    item.done_by_email = updates.done_by_email;
+  } else if (!allCliniciansDone(item) && item.status === "Done") {
+    updates.status = "In Progress";
+    updates.done_at = null; updates.done_by = null; updates.done_by_email = null;
+    item.status = "In Progress"; item.done_at = null; item.done_by_email = null;
+  }
+  var { error } = await db.from("compliance_items").update(updates).eq("id", item.id);
+  if (error) { showToast("Error: " + error.message, "error"); return false; }
+  return true;
+}
+async function toggleClinicianDone(itemId, clinicianName) {
+  var item = allItems.find(function(i){return i.id===itemId;});
+  if (!item) return;
+  if (!item.clinician_states) item.clinician_states = {};
+  var st = item.clinician_states[clinicianName] || {};
+  var nowDone = !st.done;
+  item.clinician_states[clinicianName] = Object.assign({}, st, {
+    done: nowDone, done_at: nowDone ? new Date().toISOString() : null,
+    done_by: nowDone && currentUser ? currentUser.email : null
+  });
+  var ok = await saveClinicianStates(item);
+  if (ok) { refreshRow(itemId); updateStats(); }
+}
+async function saveClinicianNote(itemId, clinicianName, inputEl) {
+  var item = allItems.find(function(i){return i.id===itemId;});
+  if (!item) return;
+  var newNote = (inputEl.value||"").trim();
+  if (!item.clinician_states) item.clinician_states = {};
+  var st = item.clinician_states[clinicianName] || {};
+  if ((st.note||"") === newNote) return;
+  item.clinician_states[clinicianName] = Object.assign({}, st, { note: newNote||null });
+  inputEl.classList.toggle("has-note", newNote.length > 0);
+  await db.from("compliance_items").update({ clinician_states: item.clinician_states }).eq("id", itemId);
+}
+async function markAllCliniciansDone(itemId) {
+  var item = allItems.find(function(i){return i.id===itemId;});
+  if (!item) return;
+  if (!item.clinician_states) item.clinician_states = {};
+  var now = new Date().toISOString(), byEmail = currentUser ? currentUser.email : null;
+  resolveTBClinicianList(item.clinician_raw).forEach(function(name) {
+    var st = item.clinician_states[name] || {};
+    if (!st.done) item.clinician_states[name] = Object.assign({}, st, { done: true, done_at: now, done_by: byEmail });
+  });
+  var ok = await saveClinicianStates(item);
+  if (ok) { refreshRow(itemId); updateStats(); }
+}
+
+function refreshRow(id) {
+  var item = allItems.find(function(i){return i.id===id;});
+  if (!item) return;
+  var row = document.getElementById("row-"+id);
+  if (!row) return;
+  // Check still passes filters
+  var pass = true;
+  if (filterAgency  && item.agency   !== filterAgency)  pass = false;
+  if (filterService && item.service  !== filterService) pass = false;
+  if (filterStatus  && item.status   !== filterStatus)  pass = false;
+  if (showHotOnly   && !item.is_hot)                    pass = false;
+  if (!pass) { row.remove(); return; }
+  var tmp = document.createElement("tbody");
+  tmp.innerHTML = renderRow(item);
+  row.replaceWith(tmp.firstElementChild);
+}
+
+/* ══════════════════════════════════════════════════
+   IMPORT
+══════════════════════════════════════════════════ */
+function openImportPicker() {
+  document.getElementById("file-input").value = "";
+  document.getElementById("file-input").click();
+}
+function handleFileSelect(e) {
+  var file = e.target.files[0]; if (!file) return;
+  var reader = new FileReader();
+  reader.onload = function(ev) { parseAndPreview(ev.target.result, file.name); };
+  reader.readAsText(file);
+}
+function parseTBFile(html) {
+  html = html.replace(/<!--[\s\S]*?-->/g, "");
+  var rowMatches = html.match(/<tr[\s\S]*?<\/tr>/gi);
+  if (!rowMatches || rowMatches.length < 2) return [];
+  function cellText(m) {
+    return m.replace(/<[^>]+>/g,"").replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&nbsp;/g," ").trim();
+  }
+  var results = [];
+  for (var i = 1; i < rowMatches.length; i++) {
+    var cells = (rowMatches[i].match(/<td[^>]*>([\s\S]*?)<\/td>/gi)||[]).map(cellText);
+    if (cells.length < 10 || (!cells[0] && !cells[1])) continue;
+    var rawPeriod = cells[3]||"", periodDate = null;
+    var pm = rawPeriod.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (pm) { var yr = pm[3].length===2?"20"+pm[3]:pm[3]; periodDate = yr+"-"+pm[1].padStart(2,"0")+"-"+pm[2].padStart(2,"0"); }
+    var freq = parseInt(cells[5])||0, sched = parseInt(cells[6])||0, comp = parseInt(cells[7])||0,
+        av   = parseInt(cells[8])||0, mv    = parseInt(cells[9])||0;
+    var autoStatus = (mv > 0 || av > 0 || sched < freq && freq > 0) ? "Missed Visit" : "Not Started";
+    var autoHot    = mv > 1 || (av > 0 && mv === 0);
+    results.push({
+      agency: cells[0]||"", patient_name: cells[1]||"", episode: cells[2]||"",
+      period_date: periodDate, service: cells[4]||"",
+      freq_ordered: freq, scheduled: sched, completed: comp,
+      attempted_visits: av, missed_visits: mv,
+      clinician_raw: cells[10]||"",
+      status: autoStatus, is_hot: autoHot,
+      clinician_states: {}, task_description: null
+    });
+  }
+  return results;
+}
+async function parseAndPreview(html, filename) {
+  var parsed = parseTBFile(html);
+  if (!parsed.length) { showToast("No data rows found. Make sure this is a TherapyBoss export file.", "error"); return; }
+
+  var periods     = parsed.map(function(r){return r.period_date;}).filter(Boolean).sort();
+  var latest      = periods[periods.length-1];
+  var periodLabel = latest ? "Wk " + new Date(latest+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}) : filename;
+
+  document.getElementById("import-modal-sub").textContent = "Checking existing records…";
+  document.getElementById("import-changes-section").style.display = "none";
+  document.getElementById("import-modal").style.display = "flex";
+  document.getElementById("import-confirm-btn").disabled = true;
+
+  // Fetch existing rows with full count data (both dated and null-date rows)
+  var existingMap = new Map();
+  var SELECT_COLS = "id,patient_name,episode,period_date,service,freq_ordered,scheduled,completed,attempted_visits,missed_visits,status";
+  var uniqueDates = Array.from(new Set(periods));
+  if (uniqueDates.length) {
+    var { data: existing } = await db.from("compliance_items").select(SELECT_COLS).in("period_date", uniqueDates);
+    (existing || []).forEach(function(r){ existingMap.set(dedupKey(r), r); });
+  }
+  // Also check rows with no period_date — these are skipped by .in() above
+  var { data: nullDateRows } = await db.from("compliance_items").select(SELECT_COLS).is("period_date", null);
+  (nullDateRows || []).forEach(function(r){ if (!existingMap.has(dedupKey(r))) existingMap.set(dedupKey(r), r); });
+
+  // Three-way categorize
+  var newRows = [], changedRows = [], unchangedCount = 0;
+  parsed.forEach(function(r) {
+    var key = dedupKey(r);
+    if (!existingMap.has(key)) {
+      newRows.push(r);
+    } else {
+      var ex = existingMap.get(key);
+      if (countsMatch(ex, r)) { unchangedCount++; }
+      else { changedRows.push({ existingId: ex.id, existing: ex, parsed: r }); }
+    }
+  });
+
+  var mvItems  = newRows.filter(function(r){return r.status==="Missed Visit";});
+  var hotItems = newRows.filter(function(r){return r.is_hot;});
+  var agencies = Array.from(new Set(parsed.map(function(r){return r.agency;}).filter(Boolean))).sort();
+  var services = Array.from(new Set(parsed.map(function(r){return r.service;}).filter(Boolean))).sort();
+
+  pendingImport = { newRows: newRows, changedRows: changedRows, filename: filename, periodLabel: periodLabel };
+
+  document.getElementById("import-modal-sub").textContent = "Review before importing \"" + filename + "\"";
+  document.getElementById("import-preview").innerHTML =
+    "<div class='ipr'><span class='ipr-l'>Rows in file</span><span class='ipr-v'>"+parsed.length+"</span></div>"+
+    "<div class='ipr'><span class='ipr-l'>New rows</span><span class='ipr-v' style='color:var(--blue)'>"+newRows.length+"</span></div>"+
+    "<div class='ipr'><span class='ipr-l'>Updated counts (review below)</span><span class='ipr-v' style='color:var(--orange)'>"+changedRows.length+"</span></div>"+
+    "<div class='ipr'><span class='ipr-l'>Unchanged (skipped)</span><span class='ipr-v' style='color:var(--gray)'>"+unchangedCount+"</span></div>"+
+    "<div class='ipr'><span class='ipr-l'>Period</span><span class='ipr-v'>"+escHtml(periodLabel)+"</span></div>"+
+    "<div class='ipr'><span class='ipr-l'>Agencies</span><span class='ipr-v'>"+agencies.length+"</span></div>"+
+    "<div class='ipr'><span class='ipr-l'>Services</span><span class='ipr-v'>"+escHtml(services.join(", "))+"</span></div>"+
+    (newRows.length ?
+      "<div class='ipr'><span class='ipr-l'>Auto → Missed Visit</span><span class='ipr-v' style='color:var(--s-mv-bg)'>"+mvItems.length+"</span></div>"+
+      "<div class='ipr'><span class='ipr-l'>Auto → HOT</span><span class='ipr-v' style='color:var(--red)'>"+hotItems.length+"</span></div>"
+    : "");
+
+  // Changed rows review section
+  var changesEl = document.getElementById("import-changes-section");
+  if (changedRows.length) {
+    changesEl.style.display = "";
+    changesEl.innerHTML = renderChangedRows(changedRows);
+  } else {
+    changesEl.style.display = "none";
+  }
+
+  // HOT preview
+  var hotEl = document.getElementById("import-hot-preview");
+  if (hotItems.length) {
+    hotEl.style.display = "";
+    hotEl.innerHTML = "<strong>⛔ Auto-flagged HOT:</strong>" + hotItems.slice(0,8).map(function(r) {
+      var why = [];
+      if (r.missed_visits>1) why.push(r.missed_visits+" missed");
+      if (r.attempted_visits>0&&r.missed_visits===0) why.push(r.attempted_visits+" attempted");
+      return "<div>• "+escHtml(r.patient_name)+" ("+escHtml(r.agency)+") — "+why.join(", ")+"</div>";
+    }).join("") + (hotItems.length>8?"<div>…and "+(hotItems.length-8)+" more</div>":"");
+  } else hotEl.style.display = "none";
+
+  var btn = document.getElementById("import-confirm-btn");
+  var total = newRows.length + changedRows.length;
+  if (total === 0) {
+    btn.disabled = true; btn.textContent = "Nothing to Import";
+    document.getElementById("import-modal-sub").textContent = "All " + parsed.length + " rows are already up to date.";
+  } else {
+    btn.disabled = false;
+    var parts = [];
+    if (newRows.length)    parts.push(newRows.length + " new");
+    if (changedRows.length) parts.push(changedRows.length + " update"+(changedRows.length!==1?"s":""));
+    btn.textContent = "Import (" + parts.join(" + ") + ")";
+  }
+}
+function closeModal(id) {
+  document.getElementById(id).style.display = "none";
+  if (id === "import-modal") pendingImport = null;
+}
+async function confirmImport() {
+  if (!pendingImport) return;
+  var btn = document.getElementById("import-confirm-btn");
+  btn.disabled = true; btn.textContent = "Importing…";
+  try {
+    var { newRows, changedRows } = pendingImport;
+
+    // Collect accepted updates (checked checkboxes)
+    var acceptedUpdates = [];
+    document.querySelectorAll(".change-chk:checked").forEach(function(chk) {
+      acceptedUpdates.push(changedRows[parseInt(chk.dataset.idx)]);
+    });
+
+    // Insert new rows (only if any)
+    var imp = null;
+    if (newRows.length) {
+      // Safety guard: if a batch with this period label already exists, reuse it
+      var existingBatch = allImports.find(function(b){
+        return b.period_label === pendingImport.periodLabel && b.period_label !== "Manual";
+      });
+      if (existingBatch) { imp = existingBatch; }
+      else {
+      var { data: impData, error: ie } = await db.from("compliance_imports").insert({
+        imported_by: currentUser ? currentUser.id : null,
+        filename: pendingImport.filename, period_label: pendingImport.periodLabel,
+        row_count: newRows.length
+      }).select().single();
+      if (ie) throw new Error(ie.message);
+      imp = impData;
+      } // end else (new batch)
+      var items = newRows.map(function(r){ return Object.assign({}, r, { import_id: imp.id }); });
+      for (var i = 0; i < items.length; i += 50) {
+        var { error: ce } = await db.from("compliance_items").insert(items.slice(i, i+50));
+        if (ce) throw new Error(ce.message);
+      }
+    }
+
+    // Apply accepted count updates
+    for (var j = 0; j < acceptedUpdates.length; j++) {
+      var cr = acceptedUpdates[j];
+      var np = cr.parsed;
+      var autoHot = np.missed_visits > 1 || (np.attempted_visits > 0 && np.missed_visits === 0);
+      var upd = {
+        freq_ordered: np.freq_ordered, scheduled: np.scheduled,
+        completed: np.completed, attempted_visits: np.attempted_visits,
+        missed_visits: np.missed_visits, is_hot: autoHot
+      };
+      // Only recalculate status if coordinator hasn't acted on it
+      if (cr.existing.status === "Not Started") upd.status = np.status;
+      var { error: ue } = await db.from("compliance_items").update(upd).eq("id", cr.existingId);
+      if (ue) throw new Error(ue.message);
+    }
+
+    var parts = [];
+    if (newRows.length)        parts.push(newRows.length + " new item"+(newRows.length!==1?"s":"")+" imported");
+    if (acceptedUpdates.length) parts.push(acceptedUpdates.length + " row"+(acceptedUpdates.length!==1?"s":"")+" updated");
+    showToast((parts.join(", ") || "Nothing changed") + ".", "success");
+
+    closeModal("import-modal");
+    await loadImports(); // reloads all items via selectBatch(null)
+  } catch(err) {
+    showToast("Import failed: " + err.message, "error");
+    btn.disabled = false; btn.textContent = "Import";
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   MANUAL ADD
+══════════════════════════════════════════════════ */
+function openAddModal() {
+  document.getElementById("add-agency").value = "";
+  document.getElementById("add-patient").value = "";
+  document.getElementById("add-service").value = "";
+  document.getElementById("add-status").value = "Not Started";
+  document.getElementById("add-clinicians").value = "";
+  document.getElementById("add-notes").value = "";
+  document.getElementById("add-date").value = "";
+  document.getElementById("add-modal").style.display = "flex";
+}
+async function confirmAddItem() {
+  var agency    = document.getElementById("add-agency").value.trim();
+  var patient   = document.getElementById("add-patient").value.trim();
+  var service   = document.getElementById("add-service").value;
+  var status    = document.getElementById("add-status").value;
+  var clinRaw   = document.getElementById("add-clinicians").value.trim();
+  var notes     = document.getElementById("add-notes").value.trim();
+  var dateVal   = document.getElementById("add-date").value;
+  if (!agency || !patient) { showToast("Agency and task description are required.", "error"); return; }
+
+  // Ensure a "Manual" import batch exists for today
+  var today = new Date().toLocaleDateString("en-US",{month:"short",day:"numeric",year:"numeric"});
+  var manualBatch = allImports.find(function(imp){ return imp.period_label === "Manual"; });
+  if (!manualBatch) {
+    var { data: nb, error: be } = await db.from("compliance_imports").insert({
+      imported_by: currentUser ? currentUser.id : null,
+      filename: "manual", period_label: "Manual", row_count: 0
+    }).select().single();
+    if (be) { showToast("Error: " + be.message, "error"); return; }
+    manualBatch = nb;
+    allImports.unshift(manualBatch);
+    renderImportBatches();
+  }
+
+  var row = {
+    import_id: manualBatch.id,
+    agency: agency,
+    patient_name: patient,
+    task_description: patient,  // store full text as task desc
+    episode: null, period_date: dateVal || null,
+    service: service || null,
+    freq_ordered: 0, scheduled: 0, completed: 0, attempted_visits: 0, missed_visits: 0,
+    clinician_raw: clinRaw.replace(/\//g,";"),
+    status: status, is_hot: false,
+    clinician_states: {},
+    hot_note: notes || null
+  };
+  if (notes) row.clinician_states["__note__"] = { note: notes };
+
+  var { error } = await db.from("compliance_items").insert(row);
+  if (error) { showToast("Error: " + error.message, "error"); return; }
+
+  // Update row count
+  await db.from("compliance_imports").update({ row_count: (manualBatch.row_count||0)+1 }).eq("id", manualBatch.id);
+  manualBatch.row_count = (manualBatch.row_count||0)+1;
+
+  showToast("Item added.", "success");
+  closeModal("add-modal");
+  await selectBatch(manualBatch.id);
+}
+
+/* ══════════════════════════════════════════════════
+   UTILS
+══════════════════════════════════════════════════ */
+function getAgeHours(item) {
+  if (!item.created_at) return 0;
+  return (Date.now() - new Date(item.created_at).getTime()) / 3600000;
+}
+function ageChipHtml(item) {
+  if (item.status === "Done") return "";
+  var hrs = getAgeHours(item);
+  var cls = hrs >= 48 ? "age-alert" : hrs >= 24 ? "age-warn" : "age-fresh";
+  var label = hrs < 1 ? "<1h ago"
+    : hrs < 24 ? Math.floor(hrs) + "h ago"
+    : Math.floor(hrs/24) + "d " + Math.floor(hrs%24) + "h ago";
+  return "<div class='age-chip " + cls + "'>🕐 " + label + "</div>";
+}
+function checkDeadlineBanner() {
+  var now = new Date();
+  var day = now.getDay(); // 0=Sun…6=Sat
+  var hour = now.getHours();
+  var banner = document.getElementById("deadline-banner");
+  var msg    = document.getElementById("deadline-msg");
+  if (day === 6) {
+    banner.className = "deadline-banner sat";
+    msg.textContent = "🚨 TODAY IS THE DEADLINE — Saturday";
+    banner.style.display = "";
+  } else if (day === 5 && hour >= 12) {
+    banner.className = "deadline-banner fri";
+    msg.textContent = "⚠ Saturday deadline is tomorrow";
+    banner.style.display = "";
+  } else {
+    banner.style.display = "none";
+  }
+}
+function countsMatch(ex, np) {
+  return ex.freq_ordered    === np.freq_ordered &&
+         ex.scheduled       === np.scheduled    &&
+         ex.completed       === np.completed    &&
+         ex.attempted_visits=== np.attempted_visits &&
+         ex.missed_visits   === np.missed_visits;
+}
+function chgChip(label, oldVal, newVal) {
+  if (oldVal === newVal)
+    return "<span class='chg-chip chg-same'><span class='chg-label'>"+label+"</span>"+oldVal+"</span>";
+  var up  = newVal > oldVal;
+  var cls = (label==="MV"||label==="AV") && up ? "chg-alert"
+          : label==="C" && up              ? "chg-good"
+          : "chg-changed";
+  return "<span class='chg-chip "+cls+"'><span class='chg-label'>"+label+"</span>"+oldVal+"→"+newVal+"</span>";
+}
+function renderChangedRows(changedRows) {
+  return "<div class='changes-header'>📊 "+changedRows.length+" row"+(changedRows.length!==1?"s":"")+" have updated counts — accept below:</div>" +
+    "<div class='changes-list'>" +
+    changedRows.map(function(cr, idx) {
+      var ex = cr.existing, np = cr.parsed;
+      var pName = formatClinicianDisplayName(ex.patient_name);
+      return "<label class='change-row'>" +
+        "<input type='checkbox' class='change-chk' data-idx='"+idx+"' checked>" +
+        "<div class='change-info'>" +
+          "<div class='change-patient'>"+escHtml(pName)+
+            " <span class='change-agency'>("+escHtml(np.agency)+" · "+escHtml(np.service)+")</span></div>" +
+          "<div class='change-counts'>" +
+            chgChip("F",  ex.freq_ordered,     np.freq_ordered)     +
+            chgChip("S",  ex.scheduled,         np.scheduled)        +
+            chgChip("C",  ex.completed,         np.completed)        +
+            chgChip("AV", ex.attempted_visits,  np.attempted_visits) +
+            chgChip("MV", ex.missed_visits,     np.missed_visits)    +
+          "</div>" +
+        "</div>" +
+      "</label>";
+    }).join("") +
+    "</div>";
+}
+function dedupKey(r) {
+  return [
+    String(r.patient_name || "").toLowerCase().trim(),
+    String(r.episode      || "").toLowerCase().trim(),
+    String(r.period_date  || ""),
+    String(r.service      || "").toLowerCase().trim()
+  ].join("|");
+}
+function escHtml(s) {
+  return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+}
+function escAttr(s) { return escHtml(s); }
+var _tt; function showToast(msg, type) {
+  var el = document.getElementById("toast");
+  el.innerHTML = "<div class='toast-msg "+(type||"info")+"'>"+escHtml(msg)+"</div>";
+  clearTimeout(_tt); _tt = setTimeout(function(){el.innerHTML="";}, 4000);
+}
+
+/* ══════════════════════════════════════════════════
+   INIT
+══════════════════════════════════════════════════ */
+checkSession();
+</script>
+</body>
+</html>
