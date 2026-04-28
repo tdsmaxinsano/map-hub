@@ -6071,18 +6071,19 @@
     });
 
     /* ── Auth state listener (handles token refresh, tab focus, etc.) ── */
-    var inPasswordRecovery = false;
+    var inPasswordRecovery = window.location.hash.includes("type=recovery");
     supabaseClient.auth.onAuthStateChange(async function(event, session) {
-      console.log("[Auth] event:", event, "| session:", session ? session.user.email : "null");
+      console.log("[Auth] event:", event, "| recovery flag:", inPasswordRecovery, "| session:", session ? session.user.email : "null");
       if (event === "PASSWORD_RECOVERY") {
         inPasswordRecovery = true;
         var authOverlay = document.getElementById("auth-overlay");
         if (authOverlay) { authOverlay.style.display = "flex"; authShowTab("setpassword"); }
         return;
       }
+      // Supabase fires SIGNED_IN before PASSWORD_RECOVERY on recovery links.
+      // Block ALL events until either: PASSWORD_RECOVERY fires and user sets password,
+      // or the flag was never set (normal login).
       if (inPasswordRecovery) {
-        // Supabase fires SIGNED_IN immediately after PASSWORD_RECOVERY — ignore it.
-        // The flag is cleared only after the user successfully sets a new password.
         console.log("[Auth] Suppressing", event, "during password recovery flow");
         return;
       }
