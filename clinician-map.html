@@ -5091,6 +5091,7 @@
               </div>
             </div>
             <button type="button" class="toolbar-logout-btn" id="toolbar-logout" style="display:none;">Sign out</button>
+            <div id="realtime-dot" title="Connecting..." style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;transition:background 0.3s;display:none;"></div>
           </div>
 
         </div>
@@ -5981,10 +5982,14 @@
         chip.style.display      = "inline-flex";
         logoutBtn.style.display = "";
         umUpdateManageBtn(role);
+        var dot = document.getElementById("realtime-dot");
+        if (dot) dot.style.display = "block";
       } else {
         chip.style.display      = "none";
         logoutBtn.style.display = "none";
         umUpdateManageBtn("readonly");
+        var dot = document.getElementById("realtime-dot");
+        if (dot) dot.style.display = "none";
       }
     }
 
@@ -6730,6 +6735,7 @@
       rulerSourceId: "ruler-line-source",
       territorySourceId: "territory-source",
       hasLoadedClinicians: false,
+      realtimeChannel: null,
       hasLoadedAgencies: false,
       hasLoadedCompletedServices: false,
       clinicianCompletedServiceHistoryByClinicianId: new Map(),
@@ -18369,6 +18375,127 @@
       fitMapToVisibleClinicians();
       syncMapInstructions();
       updateSummary();
+      setupClinicianRealtime();
+    }
+
+    /* ── Realtime: live clinician updates ── */
+    function setupClinicianRealtime() {
+      // Tear down any existing subscription before creating a new one
+      if (appState.realtimeChannel) {
+        supabaseClient.removeChannel(appState.realtimeChannel);
+        appState.realtimeChannel = null;
+      }
+
+      var realtimePendingIds = new Set();
+      var realtimeDebounceTimer = null;
+
+      function showRealtimeToast(message) {
+        var existing = document.getElementById("realtime-toast");
+        if (existing) existing.remove();
+        var toast = document.createElement("div");
+        toast.id = "realtime-toast";
+        toast.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:9px 18px;border-radius:20px;font-size:13px;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;box-shadow:0 2px 8px rgba(0,0,0,0.3);";
+        toast.textContent = "🔄 " + message;
+        document.body.appendChild(toast);
+        requestAnimationFrame(function() { toast.style.opacity = "1"; });
+        setTimeout(function() {
+          toast.style.opacity = "0";
+          setTimeout(function() { if (toast.parentNode) toast.remove(); }, 300);
+        }, 3000);
+      }
+
+      function setIndicator(connected) {
+        var dot = document.getElementById("realtime-dot");
+        if (!dot) return;
+        dot.style.background = connected ? "#22c55e" : "#f59e0b";
+        dot.title = connected ? "Live updates active" : "Reconnecting...";
+      }
+
+      async function patchClinician(clinicianId) {
+        // Don't patch if coordinator is actively editing this clinician's profile
+        if (appState.currentProfileClinicianId === clinicianId) {
+          console.log("[Realtime] Skipping patch — profile panel open for", clinicianId);
+          return;
+        }
+        try {
+          const [v2Res, profileRes] = await Promise.all([
+            supabaseClient.from("clinician_v2").select("*").eq("id", clinicianId).maybeSingle(),
+            supabaseClient.from("clinician_profiles").select("*").eq("clinician_id", clinicianId).maybeSingle()
+          ]);
+
+          if (!v2Res.data) {
+            // Clinician deleted
+            var idx = appState.clinicians.findIndex(function(c) { return c.id === clinicianId; });
+            if (idx !== -1) {
+              appState.clinicians.splice(idx, 1);
+              var entry = appState.markersById.get(clinicianId);
+              if (entry) { entry.marker.remove(); appState.markersById.delete(clinicianId); }
+              applyFilters();
+              renderSidebar();
+              updateSummary();
+            }
+            return;
+          }
+
+          var merged = mergeClinicianProfileRecord(v2Res.data, profileRes.data || null);
+          var normalized = normalizeClinician(merged);
+          var existingIdx = appState.clinicians.findIndex(function(c) { return c.id === clinicianId; });
+
+          if (existingIdx !== -1) {
+            appState.clinicians[existingIdx] = normalized;
+            updateMarkerVisual(clinicianId); // in-place update, no flicker
+          } else {
+            // Brand new clinician — add and sort
+            appState.clinicians.push(normalized);
+            appState.clinicians.sort(function(a, b) { return (a.name || "").localeCompare(b.name || ""); });
+            renderMarkers();
+          }
+          applyFilters();
+          renderSidebar();
+          updateSummary();
+        } catch (e) {
+          console.warn("[Realtime] patchClinician error:", e);
+        }
+      }
+
+      function schedulePatch(clinicianId) {
+        realtimePendingIds.add(String(clinicianId));
+        clearTimeout(realtimeDebounceTimer);
+        // Batch updates that arrive within 500ms (handles bulk imports gracefully)
+        realtimeDebounceTimer = setTimeout(async function() {
+          var ids = Array.from(realtimePendingIds);
+          realtimePendingIds.clear();
+          for (var i = 0; i < ids.length; i++) {
+            await patchClinician(ids[i]);
+          }
+          if (ids.length === 1) {
+            var c = appState.clinicians.find(function(c) { return c.id === ids[0]; });
+            showRealtimeToast("Map updated" + (c ? ": " + c.name : ""));
+          } else {
+            showRealtimeToast("Map updated: " + ids.length + " clinicians changed");
+          }
+        }, 500);
+      }
+
+      var channel = supabaseClient
+        .channel("clinician-realtime-v1")
+        .on("postgres_changes", { event: "*", schema: "public", table: "clinician_v2" }, function(payload) {
+          var id = (payload.new && payload.new.id) || (payload.old && payload.old.id);
+          if (id) schedulePatch(id);
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "clinician_profiles" }, function(payload) {
+          var id = payload.new && payload.new.clinician_id;
+          if (id) schedulePatch(id);
+        })
+        .subscribe(function(status) {
+          setIndicator(status === "SUBSCRIBED");
+          if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+            // Retry after 5 seconds
+            setTimeout(setupClinicianRealtime, 5000);
+          }
+        });
+
+      appState.realtimeChannel = channel;
     }
 
     function fitMapToVisibleClinicians(includeHiddenClinicians) {
