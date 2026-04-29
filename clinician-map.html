@@ -5949,7 +5949,11 @@
     async function fetchUserRole(userId) {
       try {
         var result = await supabaseClient.from("user_roles").select("role").eq("user_id", userId).single();
-        if (result.data && result.data.role) return result.data.role;
+        if (result.data && result.data.role) {
+          // Cache role so timeouts don't demote the user
+          try { localStorage.setItem("dcs_role_" + userId, result.data.role); } catch(e) {}
+          return result.data.role;
+        }
       } catch (e) { console.warn("Could not fetch user role", e); }
       return "readonly";
     }
@@ -6043,7 +6047,9 @@
       try {
         appCurrentUser = session.user;
         await withTimeout(ensureUserRoleExists(session.user.id, "readonly", session.user.email), 4000, null);
-        appUserRole = await withTimeout(fetchUserRole(session.user.id), 4000, "readonly");
+        var cachedRole = "readonly";
+        try { cachedRole = localStorage.getItem("dcs_role_" + session.user.id) || "readonly"; } catch(e) {}
+        appUserRole = await withTimeout(fetchUserRole(session.user.id), 6000, cachedRole);
         applyUserToToolbar(session.user, appUserRole);
         applyRoleMode(appUserRole);
       } catch (e) {
