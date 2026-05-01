@@ -1,0 +1,1793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DependableCare — Referral Board</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #f4f6f9;
+      --surface:  #ffffff;
+      --border:   #e2e8f0;
+      --text:     #1a202c;
+      --muted:    #718096;
+      --accent:   #1a1a2e;
+      --accent2:  #2d3a8c;
+      --green:    #22c55e;
+      --yellow:   #f59e0b;
+      --red:      #ef4444;
+      --blue:     #3b82f6;
+      --purple:   #8b5cf6;
+      --radius:   8px;
+    }
+
+    body { font-family: Arial, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+    /* ── Auth Overlay ── */
+    #auth-overlay {
+      position: fixed; inset: 0; background: #1a1a2e;
+      display: flex; align-items: center; justify-content: center; z-index: 1000;
+    }
+    .auth-box {
+      background: #fff; border-radius: 12px; padding: 40px 36px; width: 360px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.24);
+    }
+    .auth-logo { text-align: center; margin-bottom: 24px; }
+    .auth-logo h2 { font-size: 20px; color: #1a1a2e; }
+    .auth-logo p  { font-size: 13px; color: #718096; margin-top: 4px; }
+    .auth-field { margin-bottom: 16px; }
+    .auth-field label { display: block; font-size: 12px; font-weight: 600; color: #4a5568; margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+    .auth-field input { width: 100%; padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 14px; outline: none; }
+    .auth-field input:focus { border-color: #2d3a8c; }
+    .auth-submit { width: 100%; padding: 12px; background: #1a1a2e; color: #fff; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; }
+    .auth-submit:hover { background: #2d3a8c; }
+    .auth-error { color: #ef4444; font-size: 13px; margin-top: 10px; text-align: center; }
+
+    /* ── Header ── */
+    .header {
+      background: var(--accent); color: #fff;
+      padding: 0 24px; height: 52px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+    }
+    .header-left { display: flex; align-items: center; gap: 16px; }
+    .header-logo { font-size: 16px; font-weight: 700; letter-spacing: -.3px; }
+    .header-nav a {
+      color: rgba(255,255,255,0.7); text-decoration: none; font-size: 13px;
+      padding: 4px 10px; border-radius: 4px; transition: all .15s;
+    }
+    .header-nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+    .header-nav a.active { color: #fff; background: rgba(255,255,255,0.15); }
+    .header-right { display: flex; align-items: center; gap: 12px; }
+    .header-user { font-size: 12px; color: rgba(255,255,255,0.6); }
+    .btn-signout { background: transparent; border: 1px solid rgba(255,255,255,0.3); color: rgba(255,255,255,0.7); padding: 4px 10px; border-radius: 4px; font-size: 12px; cursor: pointer; }
+    .btn-signout:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 12px 24px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    }
+    .btn-primary {
+      background: var(--accent); color: #fff; border: none; padding: 8px 18px;
+      border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .btn-primary:hover { background: var(--accent2); }
+    .btn-secondary {
+      background: var(--surface); color: var(--text); border: 1px solid var(--border);
+      padding: 7px 14px; border-radius: 6px; font-size: 13px; cursor: pointer;
+    }
+    .btn-secondary:hover { background: var(--bg); }
+    .filter-group { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+    .filter-select {
+      padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; background: var(--surface); cursor: pointer; outline: none;
+    }
+    .search-input {
+      padding: 7px 12px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; width: 200px; outline: none;
+    }
+    .search-input:focus { border-color: var(--accent2); }
+
+    /* ── Stats bar ── */
+    .stats-bar {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 10px 24px; display: flex; gap: 24px;
+    }
+    .stat-chip { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+    .stat-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .stat-count { font-weight: 700; }
+    .stat-label { color: var(--muted); }
+
+    /* ── Main content ── */
+    .main { padding: 20px 24px; }
+
+    /* ── Referral Table ── */
+    .referral-table-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+    .referral-table { width: 100%; border-collapse: collapse; }
+    .referral-table th {
+      background: #f8fafc; padding: 10px 14px; text-align: left;
+      font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .5px;
+      border-bottom: 1px solid var(--border); white-space: nowrap;
+    }
+    .referral-table td { padding: 12px 14px; border-bottom: 1px solid var(--border); font-size: 13px; vertical-align: top; }
+    .referral-table tr.ref-row:hover { background: #f8fafc; cursor: pointer; }
+    .referral-table tr.ref-row.expanded { background: #f0f4ff; }
+    .referral-table tr.ref-row.expanded td { border-bottom: none; }
+
+    /* urgency row borders */
+    .ref-row.urgent-high td:first-child { border-left: 3px solid var(--red); }
+    .ref-row.urgent-med  td:first-child { border-left: 3px solid var(--yellow); }
+    .ref-row.urgent-low  td:first-child { border-left: 3px solid var(--green); }
+
+    .patient-name { font-weight: 600; color: var(--text); }
+    .patient-addr { font-size: 12px; color: var(--muted); margin-top: 2px; }
+
+    /* discipline tags */
+    .disc-tags { display: flex; gap: 4px; flex-wrap: wrap; }
+    .disc-tag {
+      font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px;
+      white-space: nowrap;
+    }
+    .disc-tag.pt  { background: #dbeafe; color: #1d4ed8; }
+    .disc-tag.ot  { background: #dcfce7; color: #15803d; }
+    .disc-tag.st  { background: #fef9c3; color: #854d0e; }
+    .disc-tag.pta { background: #e0e7ff; color: #4338ca; }
+    .disc-tag.ota { background: #d1fae5; color: #065f46; }
+
+    /* status badge */
+    .status-badge {
+      display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 9px;
+      border-radius: 10px; text-transform: uppercase; letter-spacing: .4px; white-space: nowrap;
+    }
+    .status-open     { background: #fef3c7; color: #92400e; }
+    .status-staffed  { background: #d1fae5; color: #065f46; }
+    .status-cancelled{ background: #fee2e2; color: #991b1b; }
+    .status-rejected { background: #f3f4f6; color: #6b7280; }
+
+    /* age chip */
+    .age-chip { font-size: 11px; color: var(--muted); white-space: nowrap; }
+    .age-chip.fresh  { color: var(--green); }
+    .age-chip.warn   { color: var(--yellow); }
+    .age-chip.alert  { color: var(--red); font-weight: 700; }
+
+    /* ── Expanded detail row ── */
+    .detail-row td { background: #f0f4ff; padding: 0; border-bottom: 1px solid var(--border); }
+    .detail-inner { padding: 16px 20px 20px; }
+    .detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+    .detail-header h4 { font-size: 14px; font-weight: 700; }
+    .detail-actions { display: flex; gap: 8px; }
+
+    /* contacts grid */
+    .contacts-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .contact-card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px;
+    }
+    .contact-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+    .contact-name { font-weight: 600; font-size: 13px; }
+    .contact-disc { font-size: 11px; color: var(--muted); }
+    .contact-response { font-size: 12px; margin-top: 4px; }
+    .contact-notes { font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic; }
+    .contact-notes-input {
+      width: 100%; margin-top: 6px; padding: 4px 7px;
+      border: 1px solid transparent; border-radius: 4px;
+      font-size: 11px; color: var(--muted); font-style: italic;
+      background: transparent; outline: none; font-family: inherit;
+      transition: border-color .15s, background .15s;
+    }
+    .contact-notes-input:hover { border-color: var(--border); background: var(--bg); }
+    .contact-notes-input:focus { border-color: var(--accent2); background: #fff; color: var(--text); font-style: normal; }
+    .contact-time { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .btn-remove-contact { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 4px; }
+    .btn-remove-contact:hover { color: var(--red); }
+    .btn-delete-ref {
+      background: none; border: none; font-size: 15px; cursor: pointer;
+      opacity: .35; padding: 3px 5px; border-radius: 4px; transition: opacity .15s, background .15s;
+    }
+    .btn-delete-ref:hover { opacity: 1; background: #fee2e2; }
+    /* Agency combobox */
+    #nr-agency-wrap { position: relative; }
+    #nr-agency-input { width: 100%; }
+    #nr-agency-drop {
+      position: fixed;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+      z-index: 9999; max-height: 220px; overflow-y: auto; display: none;
+    }
+    .agency-drop-item {
+      padding: 8px 12px; font-size: 13px; cursor: pointer;
+      border-bottom: 1px solid var(--border);
+    }
+    .agency-drop-item:last-child { border-bottom: none; }
+    .agency-drop-item:hover, .agency-drop-item.active { background: #f0f4ff; }
+    .agency-drop-empty { padding: 10px 12px; font-size: 12px; color: var(--muted); font-style: italic; }
+
+    /* ── Audit badges & star ratings ── */
+    .contact-stars { font-size: 13px; letter-spacing: 1px; margin-top: 3px; line-height: 1; }
+    .contact-stars .star-filled { color: #f59e0b; }
+    .contact-stars .star-empty  { color: #d1d5db; }
+    .contact-audit-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .audit-badge {
+      display: inline-flex; align-items: center; gap: 3px;
+      font-size: 10px; font-weight: 700; padding: 2px 6px;
+      border-radius: 999px; white-space: nowrap;
+    }
+    .audit-badge.clear    { background: #dcfce7; color: #166534; }
+    .audit-badge.warning  { background: #fef3c7; color: #92400e; }
+    .audit-badge.danger   { background: #fee2e2; color: #991b1b; }
+    .audit-badge.info     { background: #e0e7ff; color: #3730a3; }
+    .audit-badge.muted    { background: #f1f5f9; color: #64748b; }
+    .btn-audit {
+      background: #f0f4ff; border: 1px solid #c7d2fe; color: #3730a3;
+      padding: 5px 12px; border-radius: 6px; font-size: 12px;
+      font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 5px;
+      transition: background .15s;
+    }
+    .btn-audit:hover { background: #e0e7ff; }
+    .btn-audit:disabled { opacity: .6; cursor: default; }
+
+    /* response colors */
+    .resp-accepted      { color: var(--green); font-weight: 600; }
+    .resp-accepted_solo { color: #059669; font-weight: 600; }
+    .resp-waiting       { color: var(--yellow); font-weight: 600; }
+    .resp-declined      { color: var(--red); }
+    .resp-declined_full { color: #dc2626; }
+    .resp-declined_too_far { color: #dc2626; }
+    .resp-on_hold       { color: var(--blue); }
+    .resp-on_leave      { color: var(--purple); }
+    .resp-restaff       { color: #f59e0b; font-weight: 600; }
+    .resp-already_assigned { color: var(--muted); }
+
+    /* add contact form */
+    .add-contact-form {
+      background: var(--surface); border: 1px dashed var(--border); border-radius: 6px;
+      padding: 14px; display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end;
+    }
+    .add-contact-form .form-field { display: flex; flex-direction: column; gap: 4px; }
+    .add-contact-form label { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; }
+    .add-contact-form input, .add-contact-form select {
+      padding: 7px 10px; border: 1px solid var(--border); border-radius: 5px;
+      font-size: 13px; outline: none; background: var(--surface);
+    }
+    .add-contact-form input:focus, .add-contact-form select:focus { border-color: var(--accent2); }
+    .clinician-suggest {
+      position: absolute; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      z-index: 50; max-height: 180px; overflow-y: auto; width: 200px;
+    }
+    .clinician-suggest-item { padding: 8px 12px; font-size: 13px; cursor: pointer; }
+    .clinician-suggest-item:hover { background: var(--bg); }
+    .suggest-wrap { position: relative; }
+
+    /* ── History banner ── */
+    .history-banner {
+      background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px;
+      padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: #1d4ed8;
+    }
+    .history-banner strong { display: block; margin-bottom: 4px; }
+
+    /* ── New Referral Modal ── */
+    .modal-overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.5);
+      display: flex; align-items: center; justify-content: center; z-index: 200;
+    }
+    .modal {
+      background: var(--surface); border-radius: 10px; padding: 28px 28px 24px;
+      width: 560px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .modal h3 { font-size: 17px; font-weight: 700; margin-bottom: 20px; }
+    .modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .modal-grid .full { grid-column: 1 / -1; }
+    .form-field { display: flex; flex-direction: column; gap: 5px; }
+    .form-field label { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+    .form-field input, .form-field select, .form-field textarea {
+      padding: 9px 11px; border: 1px solid var(--border); border-radius: 6px;
+      font-size: 13px; outline: none; font-family: inherit;
+    }
+    .form-field input:focus, .form-field select:focus, .form-field textarea:focus { border-color: var(--accent2); }
+    .disc-checkboxes { display: flex; gap: 10px; flex-wrap: wrap; }
+    .disc-check { display: flex; align-items: center; gap: 5px; font-size: 13px; cursor: pointer; }
+    .disc-check input { cursor: pointer; }
+    .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+    .modal-error { color: var(--red); font-size: 13px; margin-top: 8px; }
+
+    /* address suggestions */
+    .addr-suggest {
+      position: absolute; background: var(--surface); border: 1px solid var(--border);
+      border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+      z-index: 300; width: 100%; max-height: 200px; overflow-y: auto;
+    }
+    .addr-suggest-item { padding: 9px 12px; font-size: 13px; cursor: pointer; border-bottom: 1px solid var(--border); }
+    .addr-suggest-item:last-child { border-bottom: none; }
+    .addr-suggest-item:hover { background: var(--bg); }
+    .addr-history-item { background: #eff6ff; }
+    .addr-history-label { font-size: 11px; color: var(--blue); font-weight: 600; margin-bottom: 2px; }
+
+    /* ── Empty state ── */
+    .empty-state { text-align: center; padding: 60px 20px; color: var(--muted); }
+    .empty-state p { margin-top: 8px; font-size: 14px; }
+
+    /* ── Toast ── */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      background: var(--accent); color: #fff; padding: 10px 20px; border-radius: 20px;
+      font-size: 13px; z-index: 9999; opacity: 0; transition: opacity .3s; pointer-events: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+
+    /* ── Referral status actions ── */
+    .ref-status-select {
+      font-size: 11px; padding: 3px 7px; border: 1px solid var(--border);
+      border-radius: 5px; cursor: pointer; background: var(--surface); outline: none;
+    }
+
+    /* ── Referral pin sonar animation ── */
+    @keyframes ref-sonar {
+      0%   { transform: scale(0.6); opacity: 0.75; }
+      100% { transform: scale(4);   opacity: 0; }
+    }
+    .ref-pin-wrap {
+      width: 14px; height: 14px;
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    .ref-pin-dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2.5px solid rgba(255,255,255,0.95);
+      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+      position: relative; z-index: 1; flex-shrink: 0;
+      transition: transform .15s;
+    }
+    .ref-pin-wrap:hover .ref-pin-dot { transform: scale(1.35); }
+    .ref-pin-ring {
+      position: absolute;
+      width: 14px; height: 14px; border-radius: 50%;
+      opacity: 0;
+      animation: ref-sonar var(--pulse-speed, 2.2s) ease-out infinite;
+    }
+    .ref-pin-ring2 {
+      position: absolute;
+      width: 14px; height: 14px; border-radius: 50%;
+      opacity: 0;
+      animation: ref-sonar var(--pulse-speed, 2.2s) ease-out infinite;
+      animation-delay: calc(var(--pulse-speed, 2.2s) / 2);
+    }
+
+    /* ── View toggle ── */
+    .view-toggle { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+    .view-btn {
+      background: var(--surface); color: var(--muted); border: none;
+      padding: 7px 14px; font-size: 13px; cursor: pointer; display: flex; align-items: center; gap: 5px;
+      transition: all .15s;
+    }
+    .view-btn:hover { background: var(--bg); color: var(--text); }
+    .view-btn.active { background: var(--accent); color: #fff; }
+
+    /* ── Map view ── */
+    #map-view {
+      height: calc(100vh - 164px);
+      position: relative;
+    }
+    #ref-map { width: 100%; height: 100%; }
+
+    /* Map legend */
+    .map-legend {
+      position: absolute; bottom: 28px; left: 12px; z-index: 10;
+      background: rgba(255,255,255,0.95); border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px 14px; font-size: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      pointer-events: none;
+    }
+    .map-legend-title { font-weight: 700; margin-bottom: 6px; color: var(--text); }
+    .legend-row { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; color: var(--muted); }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); flex-shrink: 0; }
+
+    /* Mapbox popup override */
+    .mapboxgl-popup-content { padding: 0 !important; border-radius: 8px !important; box-shadow: 0 4px 16px rgba(0,0,0,0.18) !important; }
+    .ref-popup { font-family: Arial, sans-serif; padding: 14px 16px; min-width: 220px; }
+    .ref-popup-name { font-weight: 700; font-size: 14px; margin-bottom: 3px; color: #1a202c; }
+    .ref-popup-addr { font-size: 12px; color: #718096; margin-bottom: 8px; }
+    .ref-popup-discs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 8px; }
+    .ref-popup-disc { font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 10px; background: #e0e7ff; color: #4338ca; }
+    .ref-popup-meta { display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 6px; }
+    .ref-popup-accepted { font-size: 12px; color: #059669; margin-bottom: 8px; }
+    .ref-popup-btn {
+      background: #1a1a2e; color: #fff; border: none; padding: 5px 12px;
+      border-radius: 5px; font-size: 12px; cursor: pointer; width: 100%;
+    }
+    .ref-popup-btn:hover { background: #2d3a8c; }
+
+    /* No-geo notice */
+    .no-geo-notice {
+      position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+      background: rgba(255,255,255,0.95); border: 1px solid #fef3c7;
+      border-radius: 6px; padding: 7px 14px; font-size: 12px; color: #92400e;
+      z-index: 10; box-shadow: 0 2px 6px rgba(0,0,0,0.1); display: none;
+      white-space: nowrap;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Auth Overlay -->
+<div id="auth-overlay">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <h2>DependableCare Staffing</h2>
+      <p>Referral Board</p>
+    </div>
+    <div class="auth-field">
+      <label>Email</label>
+      <input type="email" id="auth-email" placeholder="your@email.com" autocomplete="email">
+    </div>
+    <div class="auth-field">
+      <label>Password</label>
+      <input type="password" id="auth-password" placeholder="Password" autocomplete="current-password">
+    </div>
+    <button class="auth-submit" id="auth-submit-btn" onclick="doSignIn()">Sign in</button>
+    <div class="auth-error" id="auth-error"></div>
+  </div>
+</div>
+
+<!-- Header -->
+<div class="header">
+  <div class="header-left">
+    <div class="header-logo">DependableCare</div>
+    <nav class="header-nav">
+      <a href="clinician-map.html">Map</a>
+      <a href="compliance.html">Compliance</a>
+      <a href="referrals.html" class="active">Referrals</a>
+    </nav>
+  </div>
+  <div class="header-right">
+    <span class="header-user" id="header-user"></span>
+    <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+  </div>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar">
+  <button class="btn-primary" onclick="openNewReferral()">
+    <span>+</span> New Referral
+  </button>
+  <div class="view-toggle">
+    <button id="btn-table-view" class="view-btn active" onclick="switchView('table')">☰ Table</button>
+    <button id="btn-map-view"   class="view-btn"        onclick="switchView('map')">🗺 Map</button>
+  </div>
+  <div class="filter-group">
+    <input class="search-input" id="search-input" type="text" placeholder="Search patient or address…" oninput="applyFilters()">
+    <select class="filter-select" id="filter-status" onchange="applyFilters()">
+      <option value="">All Statuses</option>
+      <option value="open">Open</option>
+      <option value="staffed">Staffed</option>
+      <option value="cancelled">Cancelled</option>
+      <option value="rejected">Rejected</option>
+    </select>
+    <select class="filter-select" id="filter-agency" onchange="applyFilters()">
+      <option value="">All Agencies</option>
+    </select>
+    <select class="filter-select" id="filter-disc" onchange="applyFilters()">
+      <option value="">All Disciplines</option>
+      <option value="PT/PTA">PT / PTA</option>
+      <option value="OT/OTA">OT / OTA</option>
+      <option value="ST">ST</option>
+    </select>
+  </div>
+</div>
+
+<!-- Stats bar -->
+<div class="stats-bar">
+  <div class="stat-chip">
+    <div class="stat-dot" style="background:var(--yellow)"></div>
+    <span class="stat-count" id="stat-open">0</span>
+    <span class="stat-label">Open</span>
+  </div>
+  <div class="stat-chip">
+    <div class="stat-dot" style="background:var(--green)"></div>
+    <span class="stat-count" id="stat-staffed">0</span>
+    <span class="stat-label">Staffed</span>
+  </div>
+  <div class="stat-chip">
+    <div class="stat-dot" style="background:var(--red)"></div>
+    <span class="stat-count" id="stat-urgent">0</span>
+    <span class="stat-label">3+ days open</span>
+  </div>
+</div>
+
+<!-- Map view (outside .main so it can be full height) -->
+<div id="map-view" style="display:none">
+  <div id="ref-map"></div>
+  <div class="map-legend">
+    <div class="map-legend-title">Referral Pins</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div> Open — Fresh</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#f59e0b"></div> Open — 3+ days</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div> Open — 5+ days</div>
+    <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div> Staffed</div>
+  </div>
+  <div class="no-geo-notice" id="no-geo-notice"></div>
+</div>
+
+<!-- Main -->
+<div class="main" id="table-main">
+  <div class="referral-table-wrap" id="table-wrap">
+    <div class="empty-state" id="empty-state" style="display:none">
+      <div style="font-size:32px">📋</div>
+      <p>No referrals found. Add one using the button above.</p>
+    </div>
+    <table class="referral-table" id="referral-table">
+      <thead>
+        <tr>
+          <th>Patient</th>
+          <th>Agency</th>
+          <th>Source</th>
+          <th>Disciplines</th>
+          <th>Date</th>
+          <th>Age</th>
+          <th>Status</th>
+          <th></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="referral-tbody"></tbody>
+    </table>
+  </div>
+</div><!-- end table-main -->
+
+<!-- New Referral Modal -->
+<div class="modal-overlay" id="new-referral-modal" style="display:none" onclick="closeModalOnBackdrop(event)">
+  <div class="modal">
+    <h3>New Referral</h3>
+    <div id="addr-history-banner" style="display:none" class="history-banner"></div>
+    <div class="modal-grid">
+      <div class="form-field full">
+        <label>Patient Name</label>
+        <input type="text" id="nr-patient" placeholder="Last, First">
+      </div>
+      <div class="form-field full" style="position:relative">
+        <label>Address</label>
+        <input type="text" id="nr-address" placeholder="Full address with city, state, zip" oninput="onAddressInput()" autocomplete="off">
+        <div class="addr-suggest" id="addr-suggest" style="display:none"></div>
+      </div>
+      <div class="form-field">
+        <label>Agency</label>
+        <div id="nr-agency-wrap">
+          <input type="text" id="nr-agency-input" placeholder="Search or type agency…" autocomplete="off"
+            oninput="onAgencyInput()" onfocus="onAgencyFocus()" onkeydown="onAgencyKeydown(event)">
+          <div id="nr-agency-drop"></div>
+        </div>
+      </div>
+      <div class="form-field">
+        <label>Source</label>
+        <select id="nr-source">
+          <option value="TherapyBoss">TherapyBoss</option>
+          <option value="gchat">Group Chat</option>
+          <option value="phone">Phone Call</option>
+          <option value="email">Email</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label>Referral Date</label>
+        <input type="date" id="nr-date">
+      </div>
+      <div class="form-field">
+        <label>Disciplines Needed</label>
+        <div class="disc-checkboxes">
+          <label class="disc-check"><input type="checkbox" id="disc-pt" value="PT/PTA"> PT/PTA</label>
+          <label class="disc-check"><input type="checkbox" id="disc-ot" value="OT/OTA"> OT/OTA</label>
+          <label class="disc-check"><input type="checkbox" id="disc-st" value="ST"> ST</label>
+        </div>
+      </div>
+      <div class="form-field full">
+        <label>Special Flags</label>
+        <input type="text" id="nr-flags" placeholder="e.g. female only, Spanish speaking, solo, 10am visits">
+      </div>
+      <div class="form-field full">
+        <label>Notes</label>
+        <textarea id="nr-notes" rows="2" placeholder="Additional notes…"></textarea>
+      </div>
+    </div>
+    <div class="modal-error" id="nr-error"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeNewReferral()">Cancel</button>
+      <button class="btn-primary" onclick="saveNewReferral()">Save Referral</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<script>
+  const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+  const MAPBOX_TOKEN  = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { storage: localStorage, persistSession: true, autoRefreshToken: true }
+  });
+
+  let allReferrals   = [];
+  let allContacts    = [];
+  let allClinicians  = [];
+  let expandedId     = null;
+  let addrSuggestTimer = null;
+  let currentView    = "table";
+  let refMap         = null;
+  let refMapMarkers  = [];
+
+  const RESPONSE_LABELS = {
+    waiting:          "Waiting",
+    accepted:         "Accepted — Assigned",
+    accepted_solo:    "Accepted — Solo",
+    declined:         "Declined",
+    declined_full:    "Declined — Full",
+    declined_too_far: "Declined — Too Far",
+    on_hold:          "On Hold",
+    on_leave:         "On Leave",
+    restaff:          "Restaff",
+    already_assigned: "Already Assigned"
+  };
+
+  const RESPONSE_CLASS = {
+    waiting:          "resp-waiting",
+    accepted:         "resp-accepted",
+    accepted_solo:    "resp-accepted_solo",
+    declined:         "resp-declined",
+    declined_full:    "resp-declined_full",
+    declined_too_far: "resp-declined_too_far",
+    on_hold:          "resp-on_hold",
+    on_leave:         "resp-on_leave",
+    restaff:          "resp-restaff",
+    already_assigned: "resp-already_assigned"
+  };
+
+  // ── Auth ──
+  db.auth.onAuthStateChange(function(event, session) {
+    if (session && session.user) {
+      document.getElementById("auth-overlay").style.display = "none";
+      document.getElementById("header-user").textContent = session.user.email;
+      loadAll();
+    } else {
+      document.getElementById("auth-overlay").style.display = "flex";
+    }
+  });
+
+  async function doSignIn() {
+    var email    = document.getElementById("auth-email").value.trim();
+    var password = document.getElementById("auth-password").value;
+    var btn      = document.getElementById("auth-submit-btn");
+    var errEl    = document.getElementById("auth-error");
+    errEl.textContent = "";
+    btn.disabled = true; btn.textContent = "Signing in…";
+    var { error } = await db.auth.signInWithPassword({ email, password });
+    btn.disabled = false; btn.textContent = "Sign in";
+    if (error) errEl.textContent = error.message || "Incorrect email or password.";
+  }
+
+  async function doSignOut() {
+    await db.auth.signOut();
+  }
+
+  document.getElementById("auth-email").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("auth-password").focus();
+  });
+  document.getElementById("auth-password").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") doSignIn();
+  });
+
+  // ── Load data ──
+  async function loadAll() {
+    await Promise.all([loadReferrals(), loadCliniciansForSuggest()]);
+    setupRealtime();
+  }
+
+  async function loadReferrals() {
+    var { data: refs, error: e1 } = await db.from("referrals")
+      .select("*").order("referral_date", { ascending: false });
+    if (e1) { console.error(e1); return; }
+
+    var { data: contacts, error: e2 } = await db.from("referral_contacts")
+      .select("*").order("contacted_at", { ascending: true });
+    if (e2) { console.error(e2); return; }
+
+    allReferrals = refs || [];
+    allContacts  = contacts || [];
+    populateAgencyFilter();
+    applyFilters();
+  }
+
+  async function loadCliniciansForSuggest() {
+    var { data } = await db.from("clinician_v2").select("id, name, discipline").order("name");
+    allClinicians = data || [];
+  }
+
+  function populateAgencyFilter() {
+    var sel = document.getElementById("filter-agency");
+    var current = sel.value;
+    var agencies = [...new Set(allReferrals.map(function(r) { return r.agency; }).filter(Boolean))].sort();
+    sel.innerHTML = "<option value=''>All Agencies</option>";
+    agencies.forEach(function(a) {
+      var opt = document.createElement("option");
+      opt.value = a; opt.textContent = a;
+      if (a === current) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+
+  // ── Filters & Render ──
+  function applyFilters() {
+    var search = (document.getElementById("search-input").value || "").toLowerCase();
+    var status = document.getElementById("filter-status").value;
+    var agency = document.getElementById("filter-agency").value;
+    var disc   = document.getElementById("filter-disc").value;
+
+    var filtered = allReferrals.filter(function(r) {
+      if (status && r.status !== status) return false;
+      if (agency && r.agency !== agency) return false;
+      if (disc && !(r.disciplines || []).includes(disc)) return false;
+      if (search) {
+        var hay = ((r.patient_name || "") + " " + (r.address || "")).toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    });
+
+    renderStats();
+    renderTable(filtered);
+    if (currentView === "map") renderMapPins();
+  }
+
+  function renderStats() {
+    var open    = allReferrals.filter(function(r) { return r.status === "open"; }).length;
+    var staffed = allReferrals.filter(function(r) { return r.status === "staffed"; }).length;
+    var urgent  = allReferrals.filter(function(r) {
+      return r.status === "open" && getAgeDays(r.referral_date) >= 3;
+    }).length;
+    document.getElementById("stat-open").textContent    = open;
+    document.getElementById("stat-staffed").textContent = staffed;
+    document.getElementById("stat-urgent").textContent  = urgent;
+  }
+
+  function getAgeDays(dateStr) {
+    if (!dateStr) return 0;
+    var d = new Date(dateStr);
+    return Math.floor((Date.now() - d.getTime()) / 86400000);
+  }
+
+  function ageLabel(days) {
+    if (days === 0) return "Today";
+    if (days === 1) return "1d ago";
+    return days + "d ago";
+  }
+
+  function ageClass(days, status) {
+    if (status !== "open") return "";
+    if (days >= 5) return "alert";
+    if (days >= 3) return "warn";
+    return "fresh";
+  }
+
+  function urgencyClass(days, status) {
+    if (status !== "open") return "";
+    if (days >= 5) return "urgent-high";
+    if (days >= 3) return "urgent-med";
+    return "urgent-low";
+  }
+
+  function renderTable(refs) {
+    var tbody = document.getElementById("referral-tbody");
+    var empty = document.getElementById("empty-state");
+
+    if (!refs.length) {
+      tbody.innerHTML = "";
+      empty.style.display = "";
+      document.getElementById("referral-table").style.display = "none";
+      return;
+    }
+    document.getElementById("referral-table").style.display = "";
+    empty.style.display = "none";
+
+    tbody.innerHTML = "";
+    refs.forEach(function(ref) {
+      var days     = getAgeDays(ref.referral_date);
+      var discs    = (ref.disciplines || []);
+      var contacts = allContacts.filter(function(c) { return c.referral_id === ref.id; });
+      var isExpanded = expandedId === ref.id;
+
+      // Main row
+      var tr = document.createElement("tr");
+      tr.className = "ref-row " + urgencyClass(days, ref.status) + (isExpanded ? " expanded" : "");
+      tr.dataset.id = ref.id;
+      tr.onclick = function() { toggleExpand(ref.id); };
+
+      var discTagsHtml = discs.map(function(d) {
+        var cls = d === "PT/PTA" ? "pt" : d === "OT/OTA" ? "ot" : "st";
+        return "<span class='disc-tag " + cls + "'>" + d + "</span>";
+      }).join("");
+
+      var statusBadge = "<span class='status-badge status-" + ref.status + "'>" + ref.status + "</span>";
+      var ageCls = ageClass(days, ref.status);
+      var ageHtml = "<span class='age-chip " + ageCls + "'>" + ageLabel(days) + "</span>";
+
+      tr.innerHTML = "<td><div class='patient-name'>" + esc(ref.patient_name) + "</div>" +
+        (ref.address ? "<div class='patient-addr'>" + esc(ref.address) + "</div>" : "") +
+        (ref.flags ? "<div style='font-size:11px;color:#8b5cf6;margin-top:2px;'>⚑ " + esc(ref.flags) + "</div>" : "") +
+        "</td>" +
+        "<td>" + esc(ref.agency || "—") + "</td>" +
+        "<td style='color:var(--muted);font-size:12px'>" + esc(ref.source || "—") + "</td>" +
+        "<td><div class='disc-tags'>" + (discTagsHtml || "<span style='color:var(--muted);font-size:12px'>—</span>") + "</div></td>" +
+        "<td style='white-space:nowrap'>" + (ref.referral_date || "—") + "</td>" +
+        "<td>" + ageHtml + "</td>" +
+        "<td>" + statusBadge + "</td>" +
+        "<td style='color:var(--muted);font-size:18px;text-align:center'>" + (isExpanded ? "▲" : "▼") + "</td>" +
+        "<td style='text-align:center;padding:8px 10px'><button class='btn-delete-ref' title='Delete referral' onclick='deleteReferral(event,\"" + ref.id + "\")'>🗑</button></td>";
+
+      tbody.appendChild(tr);
+
+      // Expanded detail row
+      if (isExpanded) {
+        var dtr = document.createElement("tr");
+        dtr.className = "detail-row";
+        var dtd = document.createElement("td");
+        dtd.colSpan = 9;
+
+        var accepted = contacts.filter(function(c) {
+          return c.response === "accepted" || c.response === "accepted_solo";
+        });
+
+        dtd.innerHTML = renderDetailInner(ref, contacts);
+        dtr.appendChild(dtd);
+        tbody.appendChild(dtr);
+
+        // Wire up add contact form after render
+        setTimeout(function() { wireAddContactForm(ref.id); }, 0);
+      }
+    });
+  }
+
+  function renderStars(rating) {
+    if (rating === null || rating === undefined || rating === "") return "";
+    var n = Math.round(Number(rating));
+    if (isNaN(n) || n < 1) return "";
+    n = Math.min(n, 5);
+    var html = "<div class='contact-stars'>";
+    for (var i = 1; i <= 5; i++) {
+      html += "<span class='" + (i <= n ? "star-filled" : "star-empty") + "'>★</span>";
+    }
+    return html + "</div>";
+  }
+
+  function renderDetailInner(ref, contacts) {
+    var contactCards = contacts.map(function(c) {
+      var respLabel = RESPONSE_LABELS[c.response] || c.response;
+      var respCls   = RESPONSE_CLASS[c.response] || "";
+      var auditCache = (window._auditCache || {})[c.id];
+      var starsHtml = auditCache ? renderStars(auditCache.rating) : "";
+      var badgesHtml = "";
+      if (auditCache) {
+        if (!auditCache.found) {
+          badgesHtml = "<div class='contact-audit-badges'><span class='audit-badge muted'>? Not found in DB</span></div>";
+        } else if (!auditCache.issues || !auditCache.issues.length) {
+          badgesHtml = "<div class='contact-audit-badges'><span class='audit-badge clear'>✓ Clear</span></div>";
+        } else {
+          badgesHtml = "<div class='contact-audit-badges'>" +
+            auditCache.issues.map(function(issue) {
+              return "<span class='audit-badge " + issue.cls + "'>" + issue.label + "</span>";
+            }).join("") + "</div>";
+        }
+      }
+      return "<div class='contact-card' data-contact-id='" + c.id + "'>" +
+        "<div class='contact-card-header'>" +
+          "<div>" +
+            "<div class='contact-name'>" + esc(c.clinician_name) + "</div>" +
+            "<div class='contact-disc'>" + esc(c.discipline) + "</div>" +
+            starsHtml +
+          "</div>" +
+          "<button class='btn-remove-contact' onclick='removeContact(event,\"" + c.id + "\",\"" + ref.id + "\")' title='Remove'>✕</button>" +
+        "</div>" +
+        badgesHtml +
+        "<select class='ref-status-select' onchange='updateContactResponse(\"" + c.id + "\",this.value,\"" + ref.id + "\")'>" +
+          Object.keys(RESPONSE_LABELS).map(function(k) {
+            return "<option value='" + k + "'" + (c.response === k ? " selected" : "") + ">" + RESPONSE_LABELS[k] + "</option>";
+          }).join("") +
+        "</select>" +
+        "<input class='contact-notes-input' type='text' placeholder='Add note…' value='" + esc(c.notes || "") + "'" +
+          " onblur='updateContactNotes(\"" + c.id + "\",this.value,\"" + ref.id + "\")'" +
+          " onkeydown='if(event.key===\"Enter\"){this.blur();}' onclick='event.stopPropagation()'>" +
+        "<div class='contact-time'>" + formatTime(c.contacted_at) + "</div>" +
+        "</div>";
+    }).join("");
+
+    var discOptions = (ref.disciplines || []).flatMap(function(d) {
+      if (d === "PT/PTA") return ["PT","PTA"];
+      if (d === "OT/OTA") return ["OT","OTA"];
+      if (d === "ST") return ["ST"];
+      return [d];
+    });
+    if (!discOptions.length) discOptions = ["PT","PTA","OT","OTA","ST"];
+
+    var discOptHtml = discOptions.map(function(d) {
+      return "<option value='" + d + "'>" + d + "</option>";
+    }).join("");
+
+    var hasContacts = contacts.length > 0;
+    return "<div class='detail-inner'>" +
+      "<div class='detail-header'>" +
+        "<h4>Dispatch: " + esc(ref.patient_name) + (ref.notes ? " — <span style='font-weight:400;color:var(--muted)'>" + esc(ref.notes) + "</span>" : "") + "</h4>" +
+        "<div class='detail-actions'>" +
+          (hasContacts ? "<button class='btn-audit' id='audit-btn-" + ref.id + "' onclick='auditReferralClinicians(\"" + ref.id + "\")'>🔍 Audit</button>" : "") +
+          "<select class='filter-select' onchange='updateReferralStatus(\"" + ref.id + "\",this.value)' onclick='event.stopPropagation()'>" +
+            "<option value='open'" + (ref.status === "open" ? " selected" : "") + ">Open</option>" +
+            "<option value='staffed'" + (ref.status === "staffed" ? " selected" : "") + ">Staffed</option>" +
+            "<option value='cancelled'" + (ref.status === "cancelled" ? " selected" : "") + ">Cancelled</option>" +
+            "<option value='rejected'" + (ref.status === "rejected" ? " selected" : "") + ">Rejected</option>" +
+          "</select>" +
+        "</div>" +
+      "</div>" +
+      (contacts.length ? "<div class='contacts-grid'>" + contactCards + "</div>" : "<p style='color:var(--muted);font-size:13px;margin-bottom:14px'>No contacts yet — add a clinician below.</p>") +
+      "<div class='add-contact-form' id='add-form-" + ref.id + "' onclick='event.stopPropagation()'>" +
+        "<div class='form-field suggest-wrap'>" +
+          "<label>Clinician</label>" +
+          "<input type='text' id='cf-name-" + ref.id + "' placeholder='Clinician name' autocomplete='off' style='width:180px' oninput='onClinicianInput(\"" + ref.id + "\")'>" +
+          "<div class='clinician-suggest' id='cf-suggest-" + ref.id + "' style='display:none'></div>" +
+        "</div>" +
+        "<div class='form-field'><label>Discipline</label>" +
+          "<select id='cf-disc-" + ref.id + "' style='width:90px'>" + discOptHtml + "</select>" +
+        "</div>" +
+        "<div class='form-field'><label>Response</label>" +
+          "<select id='cf-resp-" + ref.id + "' style='width:160px'>" +
+            Object.keys(RESPONSE_LABELS).map(function(k) {
+              return "<option value='" + k + "'>" + RESPONSE_LABELS[k] + "</option>";
+            }).join("") +
+          "</select>" +
+        "</div>" +
+        "<div class='form-field'><label>Notes</label>" +
+          "<input type='text' id='cf-notes-" + ref.id + "' placeholder='optional' style='width:150px'>" +
+        "</div>" +
+        "<button class='btn-primary' style='align-self:flex-end' onclick='addContact(\"" + ref.id + "\")'>Add</button>" +
+      "</div>" +
+      "<div class='add-contact-form' style='margin-top:10px;gap:12px;align-items:center' onclick='event.stopPropagation()'>" +
+        "<span style='font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em'>Disciplines</span>" +
+        "<label style='display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer'>" +
+          "<input type='checkbox' id='rd-pt-" + ref.id + "' value='PT/PTA'" + ((ref.disciplines||[]).includes('PT/PTA') ? ' checked' : '') + "> PT / PTA" +
+        "</label>" +
+        "<label style='display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer'>" +
+          "<input type='checkbox' id='rd-ot-" + ref.id + "' value='OT/OTA'" + ((ref.disciplines||[]).includes('OT/OTA') ? ' checked' : '') + "> OT / OTA" +
+        "</label>" +
+        "<label style='display:flex;align-items:center;gap:5px;font-size:13px;cursor:pointer'>" +
+          "<input type='checkbox' id='rd-st-" + ref.id + "' value='ST'" + ((ref.disciplines||[]).includes('ST') ? ' checked' : '') + "> ST" +
+        "</label>" +
+        "<button class='btn-primary' style='align-self:flex-end' onclick='saveReferralDisciplines(\"" + ref.id + "\")'>Save</button>" +
+      "</div>" +
+    "</div>";
+  }
+
+  async function saveReferralDisciplines(refId) {
+    var disciplines = [];
+    if (document.getElementById("rd-pt-" + refId).checked) disciplines.push("PT/PTA");
+    if (document.getElementById("rd-ot-" + refId).checked) disciplines.push("OT/OTA");
+    if (document.getElementById("rd-st-" + refId).checked) disciplines.push("ST");
+    var { error } = await db.from("referrals").update({ disciplines: disciplines }).eq("id", refId);
+    if (error) { alert("Could not save: " + error.message); return; }
+    // Update local state and re-render
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    if (ref) ref.disciplines = disciplines;
+    toggleExpand(refId);
+    toggleExpand(refId);
+  }
+
+  function wireAddContactForm(refId) {
+    // Already wired via inline handlers
+  }
+
+  // ── Clinician suggest in detail form ──
+  function onClinicianInput(refId) {
+    var input   = document.getElementById("cf-name-" + refId);
+    var suggest = document.getElementById("cf-suggest-" + refId);
+    if (!input) return;
+    var q = (input.value || "").toLowerCase().trim();
+    if (!q || q.length < 2) { suggest.style.display = "none"; return; }
+    var matches = allClinicians.filter(function(c) {
+      return (c.name || "").toLowerCase().includes(q);
+    }).slice(0, 8);
+    if (!matches.length) { suggest.style.display = "none"; return; }
+    suggest.innerHTML = matches.map(function(c) {
+      return "<div class='clinician-suggest-item' onclick='pickClinician(\"" + refId + "\",\"" + esc(c.name) + "\")'>" +
+        esc(c.name) + (c.discipline ? " <span style='color:var(--muted);font-size:11px'>" + esc(c.discipline) + "</span>" : "") +
+        "</div>";
+    }).join("");
+    suggest.style.display = "";
+  }
+
+  function pickClinician(refId, name) {
+    var input   = document.getElementById("cf-name-" + refId);
+    var suggest = document.getElementById("cf-suggest-" + refId);
+    if (input) input.value = name;
+    if (suggest) suggest.style.display = "none";
+  }
+
+  // ── Add contact ──
+  async function addContact(refId) {
+    var name  = (document.getElementById("cf-name-" + refId).value || "").trim();
+    var disc  = document.getElementById("cf-disc-" + refId).value;
+    var resp  = document.getElementById("cf-resp-" + refId).value;
+    var notes = (document.getElementById("cf-notes-" + refId).value || "").trim();
+    if (!name) { showToast("Enter a clinician name"); return; }
+
+    var { data, error } = await db.from("referral_contacts").insert({
+      referral_id: refId, clinician_name: name,
+      discipline: disc, response: resp,
+      notes: notes || null
+    }).select().single();
+
+    if (error) { showToast("Error: " + error.message); return; }
+    allContacts.push(data);
+    applyFilters();
+    // Re-open expanded row
+    expandedId = refId;
+    applyFilters();
+    showToast(name + " added");
+  }
+
+  // ── Update contact response ──
+  async function updateContactResponse(contactId, newResp, refId) {
+    await db.from("referral_contacts").update({ response: newResp, updated_at: new Date().toISOString() }).eq("id", contactId);
+    var idx = allContacts.findIndex(function(c) { return c.id === contactId; });
+    if (idx !== -1) allContacts[idx].response = newResp;
+    showToast("Updated");
+    // Check if referral should be auto-staffed
+    checkAutoStaffed(refId);
+  }
+
+  function checkAutoStaffed(refId) {
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    if (!ref || ref.status !== "open") return;
+    var contacts = allContacts.filter(function(c) { return c.referral_id === refId; });
+    var discs = ref.disciplines || [];
+    var allStaffed = discs.every(function(d) {
+      var needed = d === "PT/PTA" ? ["PT","PTA"] : d === "OT/OTA" ? ["OT","OTA"] : ["ST"];
+      // Check if we have accepted for all needed, or a solo acceptance
+      var hasSolo = contacts.some(function(c) { return needed.includes(c.discipline) && c.response === "accepted_solo"; });
+      if (hasSolo) return true;
+      return needed.every(function(disc) {
+        return contacts.some(function(c) { return c.discipline === disc && (c.response === "accepted" || c.response === "accepted_solo"); });
+      });
+    });
+    // Don't auto-staff — just show a hint
+    if (allStaffed && discs.length) showToast("✅ All disciplines filled — you can mark as Staffed");
+  }
+
+  // ── Update contact notes ──
+  async function updateContactNotes(contactId, newNotes, refId) {
+    newNotes = (newNotes || "").trim();
+    var idx = allContacts.findIndex(function(c) { return c.id === contactId; });
+    // Skip if nothing changed
+    if (idx !== -1 && (allContacts[idx].notes || "") === newNotes) return;
+    await db.from("referral_contacts").update({ notes: newNotes || null, updated_at: new Date().toISOString() }).eq("id", contactId);
+    if (idx !== -1) allContacts[idx].notes = newNotes || null;
+    if (newNotes) showToast("Note saved");
+  }
+
+  // ── Audit clinicians on a referral ──
+  async function auditReferralClinicians(refId) {
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    var contacts = allContacts.filter(function(c) { return c.referral_id === refId; });
+    if (!contacts.length) { showToast("No clinicians to audit", "warning"); return; }
+
+    var btn = document.getElementById("audit-btn-" + refId);
+    if (btn) { btn.disabled = true; btn.innerHTML = "⏳ Auditing…"; }
+
+    try {
+      var agencyName = (ref && ref.agency || "").trim().toLowerCase();
+      var names = contacts.map(function(c) { return c.clinician_name; });
+
+      // Lookup clinicians by name (case-insensitive via ilike OR)
+      var orFilter = names.map(function(n) { return "name.ilike." + n; }).join(",");
+      var { data: clinicians } = await db.from("clinician_v2")
+        .select("id, name, active")
+        .or(orFilter);
+      clinicians = clinicians || [];
+
+      // Build name→clinician map (case-insensitive)
+      var nameMap = {};
+      clinicians.forEach(function(c) { nameMap[(c.name || "").toLowerCase()] = c; });
+
+      // Fetch clinician_profiles for matched IDs
+      var profileMap = {};
+      if (clinicians.length) {
+        var ids = clinicians.map(function(c) { return c.id; });
+        var { data: profiles } = await db.from("clinician_profiles")
+          .select("clinician_id, internal_rating, restrictions, do_not_rehire")
+          .in("clinician_id", ids);
+        (profiles || []).forEach(function(p) { profileMap[p.clinician_id] = p; });
+      }
+
+      // Clear previous cache
+      if (!window._auditCache) window._auditCache = {};
+
+      contacts.forEach(function(contact) {
+        var clin = nameMap[(contact.clinician_name || "").toLowerCase()];
+        if (!clin) {
+          window._auditCache[contact.id] = { found: false, rating: null, issues: [] };
+          return;
+        }
+        var profile = profileMap[clin.id] || {};
+        var issues = [];
+
+        // Agency restriction check
+        if (agencyName && profile.restrictions) {
+          var restrictedAgencies = (profile.restrictions.agencies || []).map(function(a) { return (a || "").toLowerCase(); });
+          var hasAgencyRestriction = restrictedAgencies.some(function(a) {
+            return a && (a.includes(agencyName) || agencyName.includes(a));
+          });
+          if (hasAgencyRestriction) {
+            issues.push({ cls: "danger", label: "⛔ Agency Restricted" });
+          }
+        }
+
+        // Do Not Rehire check
+        if (profile.do_not_rehire) {
+          issues.push({ cls: "danger", label: "🚫 Do Not Rehire" });
+        }
+
+        // Inactive status check
+        if (clin.active === false) {
+          issues.push({ cls: "warning", label: "⚠️ Inactive" });
+        }
+
+        // Rating
+        var rating = (profile.internal_rating !== null && profile.internal_rating !== undefined) ? profile.internal_rating : null;
+
+        window._auditCache[contact.id] = { found: true, rating: rating, issues: issues };
+      });
+
+      // Inject results directly into existing cards (no full re-render)
+      contacts.forEach(function(contact) {
+        var card = document.querySelector(".contact-card[data-contact-id='" + contact.id + "']");
+        if (!card) return;
+        var result = window._auditCache[contact.id];
+
+        // Inject / update stars (after .contact-disc, inside the name block)
+        var discDiv = card.querySelector(".contact-disc");
+        var existingStars = card.querySelector(".contact-stars");
+        if (existingStars) existingStars.remove();
+        var starsHtml = result ? renderStars(result.rating) : "";
+        if (starsHtml && discDiv) {
+          var tmp = document.createElement("div");
+          tmp.innerHTML = starsHtml;
+          discDiv.parentNode.insertBefore(tmp.firstChild, discDiv.nextSibling);
+        }
+
+        // Inject / update audit badges
+        var existing = card.querySelector(".contact-audit-badges");
+        if (existing) existing.remove();
+
+        var badgesDiv = document.createElement("div");
+        badgesDiv.className = "contact-audit-badges";
+
+        if (!result || !result.found) {
+          badgesDiv.innerHTML = "<span class='audit-badge muted'>? Not in directory</span>";
+        } else if (!result.issues.length) {
+          badgesDiv.innerHTML = "<span class='audit-badge clear'>✓ Clear</span>";
+        } else {
+          badgesDiv.innerHTML = result.issues.map(function(issue) {
+            return "<span class='audit-badge " + issue.cls + "'>" + issue.label + "</span>";
+          }).join("");
+        }
+
+        // Insert after contact-card-header
+        var header = card.querySelector(".contact-card-header");
+        if (header && header.nextSibling) {
+          card.insertBefore(badgesDiv, header.nextSibling);
+        } else {
+          card.appendChild(badgesDiv);
+        }
+      });
+
+      var flagCount = contacts.filter(function(c) {
+        var r = window._auditCache[c.id];
+        return r && r.found && r.issues.length > 0;
+      }).length;
+
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = flagCount > 0 ? "🔍 Audit (" + flagCount + " ⚠️)" : "🔍 Audit ✓";
+      }
+      if (flagCount > 0) {
+        showToast(flagCount + " issue" + (flagCount > 1 ? "s" : "") + " found — check cards", "warning");
+      } else {
+        showToast("Audit complete — all clear ✓");
+      }
+    } catch (err) {
+      console.error("Audit error:", err);
+      if (btn) { btn.disabled = false; btn.innerHTML = "🔍 Audit"; }
+      showToast("Audit failed: " + (err.message || err), "error");
+    }
+  }
+
+  // ── Remove contact ──
+  async function removeContact(event, contactId, refId) {
+    event.stopPropagation();
+    if (!confirm("Remove this contact?")) return;
+    await db.from("referral_contacts").delete().eq("id", contactId);
+    allContacts = allContacts.filter(function(c) { return c.id !== contactId; });
+    expandedId = refId;
+    applyFilters();
+  }
+
+  // ── Update referral status ──
+  async function updateReferralStatus(refId, newStatus) {
+    await db.from("referrals").update({ status: newStatus }).eq("id", refId);
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    if (ref) ref.status = newStatus;
+    expandedId = refId;
+    applyFilters();
+    showToast("Status updated to " + newStatus);
+  }
+
+  // ── Toggle expand ──
+  function toggleExpand(refId) {
+    expandedId = expandedId === refId ? null : refId;
+    applyFilters();
+  }
+
+  // ── Delete referral ──
+  async function deleteReferral(event, refId) {
+    event.stopPropagation();
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    var label = ref ? ref.patient_name : "this referral";
+    if (!confirm("Permanently delete referral for " + label + "?\nThis removes all contacts logged to it and cannot be undone.")) return;
+
+    // Delete contacts first (avoids FK constraint), then the referral
+    var r1 = await db.from("referral_contacts").delete().eq("referral_id", refId);
+    if (r1.error) {
+      showToast("❌ Could not delete contacts: " + r1.error.message);
+      console.error("deleteReferral contacts error:", r1.error);
+      return;
+    }
+
+    var r2 = await db.from("referrals").delete().eq("id", refId);
+    if (r2.error) {
+      showToast("❌ Could not delete referral: " + r2.error.message);
+      console.error("deleteReferral referral error:", r2.error);
+      return;
+    }
+
+    // Update local state
+    allReferrals = allReferrals.filter(function(r) { return r.id !== refId; });
+    allContacts  = allContacts.filter(function(c) { return c.referral_id !== refId; });
+    if (expandedId === refId) expandedId = null;
+    applyFilters();
+    showToast("Referral deleted");
+  }
+
+  // ── New Referral Modal ──
+  async function openNewReferral() {
+    // Set today's date
+    document.getElementById("nr-date").value = new Date().toISOString().slice(0,10);
+    document.getElementById("nr-patient").value = "";
+    document.getElementById("nr-address").value = "";
+    document.getElementById("nr-agency-input").value = "";
+    document.getElementById("nr-agency-drop").style.display = "none";
+    document.getElementById("nr-notes").value = "";
+    document.getElementById("nr-flags").value = "";
+    document.getElementById("nr-error").textContent = "";
+    document.getElementById("addr-history-banner").style.display = "none";
+    document.getElementById("addr-suggest").style.display = "none";
+    ["disc-pt","disc-ot","disc-st"].forEach(function(id) {
+      document.getElementById(id).checked = false;
+    });
+    loadAgencyNames(); // preload in background
+    document.getElementById("new-referral-modal").style.display = "flex";
+    setTimeout(function() { document.getElementById("nr-patient").focus(); }, 100);
+  }
+
+  var _agencyNames = [];
+  var _agencyLoaded = false;
+  var _agencyDropIdx = -1;
+
+  async function loadAgencyNames() {
+    if (_agencyLoaded) return;
+    _agencyLoaded = true;
+    _agencyNames = [];
+
+    // Try home_health_agencies table (same as clinician dashboard)
+    var { data: rows, error } = await db.from("home_health_agencies").select("name").order("name", { ascending: true });
+    if (error) {
+      console.warn("[Agency] home_health_agencies query failed:", error.message, error);
+    } else {
+      _agencyNames = (rows || []).map(function(a) { return (a.name || "").trim(); }).filter(Boolean);
+      console.log("[Agency] Loaded", _agencyNames.length, "agencies from home_health_agencies");
+    }
+
+    // Always supplement with agencies already used in existing referrals
+    var fromRefs = [...new Set(allReferrals.map(function(r) { return (r.agency || "").trim(); }).filter(Boolean))];
+    fromRefs.forEach(function(n) { if (!_agencyNames.includes(n)) _agencyNames.push(n); });
+    _agencyNames.sort(function(a, b) { return a.localeCompare(b); });
+    console.log("[Agency] Total after supplement:", _agencyNames.length, _agencyNames.slice(0,5));
+  }
+
+  function positionAgencyDrop() {
+    var drop  = document.getElementById("nr-agency-drop");
+    var input = document.getElementById("nr-agency-input");
+    if (!input) return;
+    var rect = input.getBoundingClientRect();
+    drop.style.top   = (rect.bottom + 4) + "px";
+    drop.style.left  = rect.left + "px";
+    drop.style.width = rect.width + "px";
+  }
+
+  function renderAgencyDrop(matches) {
+    var drop = document.getElementById("nr-agency-drop");
+    positionAgencyDrop();
+    _agencyDropIdx = -1;
+    if (!matches.length) {
+      drop.innerHTML = "<div class='agency-drop-empty'>No match — typed name will be saved as-is</div>";
+    } else {
+      drop.innerHTML = matches.map(function(name) {
+        return "<div class='agency-drop-item' onmousedown='pickAgency(this)'>" + esc(name) + "</div>";
+      }).join("");
+    }
+    drop.style.display = "block";
+  }
+
+  function pickAgency(el) {
+    document.getElementById("nr-agency-input").value = typeof el === "string" ? el : el.textContent.trim();
+    document.getElementById("nr-agency-drop").style.display = "none";
+    _agencyDropIdx = -1;
+  }
+
+  function closeAgencyDrop() {
+    document.getElementById("nr-agency-drop").style.display = "none";
+    _agencyDropIdx = -1;
+  }
+
+  async function onAgencyFocus() {
+    var drop = document.getElementById("nr-agency-drop");
+    // Show loading state immediately
+    positionAgencyDrop();
+    drop.innerHTML = "<div class='agency-drop-empty'>Loading agencies…</div>";
+    drop.style.display = "block";
+
+    await loadAgencyNames();
+
+    var q = (document.getElementById("nr-agency-input").value || "").trim().toLowerCase();
+    var matches = q ? _agencyNames.filter(function(n) { return n.toLowerCase().includes(q); }) : _agencyNames;
+
+    if (!_agencyNames.length) {
+      drop.innerHTML = "<div class='agency-drop-empty'>⚠️ No agencies found — type the name freely</div>";
+      drop.style.display = "block";
+      return;
+    }
+    renderAgencyDrop(matches.slice(0, 50));
+  }
+
+  async function onAgencyInput() {
+    if (!_agencyLoaded) { await loadAgencyNames(); }
+    var q = (document.getElementById("nr-agency-input").value || "").trim().toLowerCase();
+    var matches = q ? _agencyNames.filter(function(n) { return n.toLowerCase().includes(q); }) : _agencyNames;
+    renderAgencyDrop(matches.slice(0, 50));
+  }
+
+  function onAgencyKeydown(event) {
+    var drop = document.getElementById("nr-agency-drop");
+    var items = drop.querySelectorAll(".agency-drop-item");
+    if (!items.length) return;
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      _agencyDropIdx = Math.min(_agencyDropIdx + 1, items.length - 1);
+      items.forEach(function(el, i) { el.classList.toggle("active", i === _agencyDropIdx); });
+      if (items[_agencyDropIdx]) items[_agencyDropIdx].scrollIntoView({ block: "nearest" });
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      _agencyDropIdx = Math.max(_agencyDropIdx - 1, 0);
+      items.forEach(function(el, i) { el.classList.toggle("active", i === _agencyDropIdx); });
+      if (items[_agencyDropIdx]) items[_agencyDropIdx].scrollIntoView({ block: "nearest" });
+    } else if (event.key === "Enter") {
+      if (_agencyDropIdx >= 0 && items[_agencyDropIdx]) {
+        event.preventDefault();
+        pickAgency(items[_agencyDropIdx]);
+      } else {
+        closeAgencyDrop();
+      }
+    } else if (event.key === "Escape") {
+      closeAgencyDrop();
+    }
+  }
+
+  function closeNewReferral() {
+    document.getElementById("new-referral-modal").style.display = "none";
+  }
+
+  function closeModalOnBackdrop(e) {
+    if (e.target === document.getElementById("new-referral-modal")) closeNewReferral();
+  }
+
+  // ── Address input with history lookup + Mapbox suggest ──
+  function onAddressInput() {
+    var val = document.getElementById("nr-address").value;
+    clearTimeout(addrSuggestTimer);
+    document.getElementById("addr-history-banner").style.display = "none";
+
+    addrSuggestTimer = setTimeout(function() {
+      if (!val || val.length < 4) {
+        document.getElementById("addr-suggest").style.display = "none";
+        return;
+      }
+      // Check history
+      var lc = val.toLowerCase();
+      var matches = allReferrals.filter(function(r) {
+        return r.address && r.address.toLowerCase().includes(lc);
+      }).slice(0, 3);
+
+      fetchAddressSuggestions(val, matches);
+    }, 400);
+  }
+
+  async function fetchAddressSuggestions(query, historyMatches) {
+    var suggest = document.getElementById("addr-suggest");
+    suggest.innerHTML = "";
+
+    // History items first
+    historyMatches.forEach(function(r) {
+      var div = document.createElement("div");
+      div.className = "addr-suggest-item addr-history-item";
+      div.innerHTML = "<div class='addr-history-label'>📋 Previous referral — " + esc(r.patient_name) + " (" + esc(r.referral_date || "") + ")</div>" +
+        "<div>" + esc(r.address) + "</div>";
+      div.onclick = function() {
+        document.getElementById("nr-address").value = r.address;
+        suggest.style.display = "none";
+        showAddressHistory(r.address);
+      };
+      suggest.appendChild(div);
+    });
+
+    // Mapbox geocoding suggestions
+    try {
+      var url = "https://api.mapbox.com/geocoding/v5/mapbox.places/" +
+        encodeURIComponent(query) +
+        ".json?access_token=" + MAPBOX_TOKEN +
+        "&country=us&proximity=-87.6298,41.8781&types=address&limit=5";
+      var resp = await fetch(url);
+      var json = await resp.json();
+      (json.features || []).forEach(function(f) {
+        var div = document.createElement("div");
+        div.className = "addr-suggest-item";
+        div.textContent = f.place_name;
+        div.dataset.lat = f.center[1];
+        div.dataset.lng = f.center[0];
+        div.onclick = function() {
+          document.getElementById("nr-address").value = f.place_name;
+          document.getElementById("nr-address").dataset.lat = f.center[1];
+          document.getElementById("nr-address").dataset.lng = f.center[0];
+          suggest.style.display = "none";
+          checkAddressHistory(f.place_name);
+        };
+        suggest.appendChild(div);
+      });
+    } catch(e) { console.warn("Geocode suggest failed", e); }
+
+    suggest.style.display = suggest.children.length ? "" : "none";
+  }
+
+  function checkAddressHistory(address) {
+    var lc = address.toLowerCase().substring(0, 30);
+    var prev = allReferrals.filter(function(r) {
+      return r.address && r.address.toLowerCase().includes(lc.substring(0,15));
+    });
+    if (prev.length) showAddressHistory(address, prev);
+  }
+
+  function showAddressHistory(address, refs) {
+    refs = refs || allReferrals.filter(function(r) {
+      return r.address && r.address.toLowerCase().includes(address.toLowerCase().substring(0,15));
+    });
+    if (!refs.length) return;
+    var banner = document.getElementById("addr-history-banner");
+    banner.innerHTML = "<strong>📋 Previous referral at this address</strong>" +
+      refs.slice(0,3).map(function(r) {
+        var contacts = allContacts.filter(function(c) { return c.referral_id === r.id; });
+        var accepted = contacts.filter(function(c) { return c.response === "accepted" || c.response === "accepted_solo"; });
+        return "<div style='margin-top:4px'>" +
+          esc(r.patient_name) + " — " + esc(r.referral_date || "") +
+          (accepted.length ? " | Staffed with: " + accepted.map(function(c) { return esc(c.clinician_name) + " (" + esc(c.discipline) + ")"; }).join(", ") : "") +
+          "</div>";
+      }).join("");
+    banner.style.display = "";
+  }
+
+  // ── Save new referral ──
+  async function saveNewReferral() {
+    var patient = (document.getElementById("nr-patient").value || "").trim();
+    var address = (document.getElementById("nr-address").value || "").trim();
+    var agency = (document.getElementById("nr-agency-input").value || "").trim();
+    var source  = document.getElementById("nr-source").value;
+    var date    = document.getElementById("nr-date").value;
+    var notes   = (document.getElementById("nr-notes").value || "").trim();
+    var flags   = (document.getElementById("nr-flags").value || "").trim();
+    var errEl   = document.getElementById("nr-error");
+    errEl.textContent = "";
+
+    if (!patient) { errEl.textContent = "Patient name is required."; return; }
+    if (!address) { errEl.textContent = "Address is required."; return; }
+
+    var disciplines = [];
+    if (document.getElementById("disc-pt").checked) disciplines.push("PT/PTA");
+    if (document.getElementById("disc-ot").checked) disciplines.push("OT/OTA");
+    if (document.getElementById("disc-st").checked) disciplines.push("ST");
+
+    // Geocode if lat/lng not already set from suggestion
+    var addrInput = document.getElementById("nr-address");
+    var lat = parseFloat(addrInput.dataset.lat) || null;
+    var lng = parseFloat(addrInput.dataset.lng) || null;
+
+    if (!lat || !lng) {
+      try {
+        var url = "https://api.mapbox.com/geocoding/v5/mapbox.places/" +
+          encodeURIComponent(address) +
+          ".json?access_token=" + MAPBOX_TOKEN + "&country=us&limit=1";
+        var resp = await fetch(url);
+        var json = await resp.json();
+        if (json.features && json.features[0]) {
+          lng = json.features[0].center[0];
+          lat = json.features[0].center[1];
+        }
+      } catch(e) { console.warn("Geocode failed", e); }
+    }
+
+    var { data: ref, error } = await db.from("referrals").insert({
+      patient_name: patient,
+      address: address,
+      lat: lat, lng: lng,
+      agency: agency || null,
+      source: source,
+      disciplines: disciplines,
+      notes: notes || null,
+      flags: flags || null,
+      referral_date: date || new Date().toISOString().slice(0,10)
+    }).select().single();
+
+    if (error) { errEl.textContent = "Error: " + error.message; return; }
+
+    allReferrals.unshift(ref);
+    closeNewReferral();
+    populateAgencyFilter();
+    expandedId = ref.id;
+    applyFilters();
+    showToast("Referral added: " + patient);
+  }
+
+  // ── Realtime ──
+  function setupRealtime() {
+    db.channel("referrals-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "referrals" }, function(payload) {
+        if (payload.eventType === "INSERT") {
+          if (!allReferrals.find(function(r) { return r.id === payload.new.id; })) {
+            allReferrals.unshift(payload.new);
+            populateAgencyFilter();
+          }
+        } else if (payload.eventType === "UPDATE") {
+          var idx = allReferrals.findIndex(function(r) { return r.id === payload.new.id; });
+          if (idx !== -1) allReferrals[idx] = payload.new;
+        } else if (payload.eventType === "DELETE") {
+          allReferrals = allReferrals.filter(function(r) { return r.id !== payload.old.id; });
+        }
+        applyFilters();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "referral_contacts" }, function(payload) {
+        if (payload.eventType === "INSERT") {
+          if (!allContacts.find(function(c) { return c.id === payload.new.id; })) {
+            allContacts.push(payload.new);
+          }
+        } else if (payload.eventType === "UPDATE") {
+          var idx = allContacts.findIndex(function(c) { return c.id === payload.new.id; });
+          if (idx !== -1) allContacts[idx] = payload.new;
+        } else if (payload.eventType === "DELETE") {
+          allContacts = allContacts.filter(function(c) { return c.id !== payload.old.id; });
+        }
+        if (expandedId) applyFilters();
+      })
+      .subscribe();
+  }
+
+  // ── Helpers ──
+  function esc(str) {
+    return String(str || "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function formatTime(ts) {
+    if (!ts) return "";
+    var d = new Date(ts);
+    return d.toLocaleDateString("en-US", { month:"short", day:"numeric" }) +
+      " " + d.toLocaleTimeString("en-US", { hour:"numeric", minute:"2-digit" });
+  }
+
+  function showToast(msg) {
+    var t = document.getElementById("toast");
+    t.textContent = msg;
+    t.style.opacity = "1";
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(function() { t.style.opacity = "0"; }, 3000);
+  }
+
+  // Close address suggest + agency drop on outside click
+  document.addEventListener("click", function(e) {
+    if (!e.target.closest(".suggest-wrap") && !e.target.closest("#nr-address")) {
+      document.getElementById("addr-suggest").style.display = "none";
+    }
+    if (!e.target.closest("#nr-agency-wrap")) {
+      closeAgencyDrop();
+    }
+  });
+
+  // ── View toggle ──
+  function switchView(view) {
+    currentView = view;
+    var tableMain = document.getElementById("table-main");
+    var mapView   = document.getElementById("map-view");
+    var btnTable  = document.getElementById("btn-table-view");
+    var btnMap    = document.getElementById("btn-map-view");
+
+    if (view === "table") {
+      tableMain.style.display = "";
+      mapView.style.display   = "none";
+      btnTable.classList.add("active");
+      btnMap.classList.remove("active");
+    } else {
+      tableMain.style.display = "none";
+      mapView.style.display   = "";
+      btnTable.classList.remove("active");
+      btnMap.classList.add("active");
+
+      if (!refMap) {
+        initReferralMap();
+      } else {
+        refMap.resize();
+        renderMapPins();
+      }
+    }
+  }
+
+  // ── Init Mapbox map ──
+  function initReferralMap() {
+    mapboxgl.accessToken = MAPBOX_TOKEN;
+    refMap = new mapboxgl.Map({
+      container: "ref-map",
+      style: "mapbox://styles/mapbox/light-v11",
+      center: [-87.6298, 41.8781], // Chicago default
+      zoom: 10
+    });
+    refMap.addControl(new mapboxgl.NavigationControl(), "top-right");
+    refMap.on("load", function() {
+      renderMapPins();
+    });
+  }
+
+  // ── Render referral pins ──
+  function renderMapPins() {
+    if (!refMap || !refMap.isStyleLoaded()) return;
+
+    // Clear old markers
+    refMapMarkers.forEach(function(m) { m.remove(); });
+    refMapMarkers = [];
+
+    var search = (document.getElementById("search-input").value || "").toLowerCase();
+    var status = document.getElementById("filter-status").value;
+    var agency = document.getElementById("filter-agency").value;
+    var disc   = document.getElementById("filter-disc").value;
+
+    var toPlot = allReferrals.filter(function(r) {
+      if (!r.lat || !r.lng) return false;
+      if (status && r.status !== status) return false;
+      if (agency && r.agency !== agency) return false;
+      if (disc && !(r.disciplines || []).includes(disc)) return false;
+      if (search) {
+        var hay = ((r.patient_name || "") + " " + (r.address || "")).toLowerCase();
+        if (!hay.includes(search)) return false;
+      }
+      return true;
+    });
+
+    var noGeo = allReferrals.filter(function(r) { return !r.lat || !r.lng; }).length;
+    var notice = document.getElementById("no-geo-notice");
+    if (noGeo > 0) {
+      notice.textContent = noGeo + " referral" + (noGeo > 1 ? "s" : "") + " missing coordinates — add/re-save address to geocode.";
+      notice.style.display = "";
+    } else {
+      notice.style.display = "none";
+    }
+
+    toPlot.forEach(function(r) {
+      var days  = getAgeDays(r.referral_date);
+      var color = r.status === "staffed" ? "#22c55e" :
+                  days >= 5 ? "#ef4444" :
+                  days >= 3 ? "#f59e0b" : "#f97316";
+
+      // Sonar pin — pulse speed reflects urgency
+      var pulseSpeed = days >= 5 ? "1.1s" : days >= 3 ? "1.7s" : "2.4s";
+
+      var wrap  = document.createElement("div");
+      wrap.className = "ref-pin-wrap";
+      wrap.style.setProperty("--pulse-speed", pulseSpeed);
+
+      var ring  = document.createElement("div");
+      ring.className = "ref-pin-ring";
+      ring.style.background = color;
+
+      var ring2 = document.createElement("div");
+      ring2.className = "ref-pin-ring2";
+      ring2.style.background = color;
+
+      var dot   = document.createElement("div");
+      dot.className = "ref-pin-dot";
+      dot.style.background = color;
+
+      wrap.appendChild(ring);
+      wrap.appendChild(ring2);
+      wrap.appendChild(dot);
+
+      // Popup HTML
+      var discsHtml = (r.disciplines || []).map(function(d) {
+        return "<span class='ref-popup-disc'>" + esc(d) + "</span>";
+      }).join("");
+
+      var contacts = allContacts.filter(function(c) { return c.referral_id === r.id; });
+      var accepted = contacts.filter(function(c) {
+        return c.response === "accepted" || c.response === "accepted_solo";
+      });
+
+      var ageCss = (r.status === "open" && days >= 3) ? "color:#ef4444;font-weight:700" : "color:#718096";
+
+      var popupHtml =
+        "<div class='ref-popup'>" +
+          "<div class='ref-popup-name'>" + esc(r.patient_name) + "</div>" +
+          "<div class='ref-popup-addr'>" + esc(r.address || "") + "</div>" +
+          (discsHtml ? "<div class='ref-popup-discs'>" + discsHtml + "</div>" : "") +
+          "<div class='ref-popup-meta'>" +
+            "<span>" + esc(r.agency || "—") + "</span>" +
+            "<span style='" + ageCss + "'>" + ageLabel(days) + "</span>" +
+          "</div>" +
+          (accepted.length ?
+            "<div class='ref-popup-accepted'>✓ " +
+            accepted.map(function(c) { return esc(c.clinician_name) + " (" + esc(c.discipline) + ")"; }).join(", ") +
+            "</div>" : "") +
+          "<button class='ref-popup-btn' onclick=\"switchView('table');setTimeout(function(){toggleExpand('" + r.id + "')},120)\">Open Detail ↗</button>" +
+        "</div>";
+
+      var popup = new mapboxgl.Popup({
+        offset: 14,
+        closeButton: true,
+        maxWidth: "270px",
+        focusAfterOpen: false
+      }).setHTML(popupHtml);
+
+      var marker = new mapboxgl.Marker({ element: wrap, anchor: "center" })
+        .setLngLat([r.lng, r.lat])
+        .setPopup(popup)
+        .addTo(refMap);
+
+      refMapMarkers.push(marker);
+    });
+
+    // Fit bounds to visible pins
+    if (toPlot.length === 1) {
+      refMap.flyTo({ center: [toPlot[0].lng, toPlot[0].lat], zoom: 13, duration: 600 });
+    } else if (toPlot.length > 1) {
+      var bounds = new mapboxgl.LngLatBounds();
+      toPlot.forEach(function(r) { bounds.extend([r.lng, r.lat]); });
+      refMap.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 600 });
+    }
+  }
+</script>
+</body>
+</html>

@@ -397,13 +397,65 @@
       background: radial-gradient(circle at top left, #ffffff 0%, var(--bg) 58%, #d4dff0 100%);
       color: var(--text);
       overflow: hidden;
+      display: flex;
+      flex-direction: column;
     }
 
     .app-shell {
-      display: grid;
-      grid-template-columns: 360px minmax(0, 1fr);
-      height: 100vh;
+      display: flex;
+      flex-direction: row;
+      flex: 1;
+      min-height: 0;
       width: 100%;
+    }
+
+    /* Sidebar collapses via width */
+    .sidebar {
+      width: 360px;
+      min-width: 0;
+      flex-shrink: 0;
+      transition: width 0.25s ease;
+      overflow: hidden;
+    }
+
+    .app-shell.sidebar-collapsed .sidebar {
+      width: 0;
+    }
+
+    /* map-panel fills remaining space */
+    .map-panel {
+      position: relative;
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Sidebar collapse toggle — lives on map-panel left edge */
+    .sidebar-collapse-btn {
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 30;
+      width: 20px;
+      height: 48px;
+      border-radius: 0 6px 6px 0;
+      background: #fff;
+      border: 1px solid var(--panel-border);
+      border-left: none;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.12);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      color: #3f5580;
+      transition: background 0.15s;
+      line-height: 1;
+    }
+    .sidebar-collapse-btn:hover {
+      background: #eef2ff;
     }
 
     .sidebar {
@@ -411,11 +463,13 @@
       display: flex;
       flex-direction: column;
       min-height: 0;
+      overflow: hidden; /* keeps content inside during width collapse */
       background:
         linear-gradient(180deg, rgba(250, 252, 255, 0.99) 0%, rgba(243, 247, 254, 0.98) 28%, rgba(238, 243, 252, 0.98) 100%);
       border-right: 1px solid var(--panel-border);
       box-shadow: var(--panel-shadow);
       z-index: 2;
+      /* width + transition set in .sidebar block above */
     }
 
     .sidebar.resizing {
@@ -2016,13 +2070,6 @@
       text-transform: uppercase;
     }
 
-    .map-panel {
-      position: relative;
-      min-width: 0;
-      display: flex;
-      flex-direction: column;
-    }
-
     .top-toolbar {
       position: relative;
       z-index: 20;
@@ -2224,6 +2271,320 @@
       border-color: transparent;
       box-shadow: 0 10px 18px rgba(30, 77, 140, 0.22);
     }
+
+    /* ── Referral pin sonar animation ── */
+    @keyframes ref-sonar {
+      0%   { transform: scale(0.6); opacity: 0.75; }
+      100% { transform: scale(4);   opacity: 0; }
+    }
+    .ref-pin-wrap {
+      width: 14px; height: 14px;
+      position: relative;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer;
+    }
+    .ref-pin-dot {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 2.5px solid rgba(255,255,255,0.95);
+      box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+      position: relative; z-index: 1; flex-shrink: 0;
+      transition: transform .15s;
+    }
+    .ref-pin-wrap:hover .ref-pin-dot { transform: scale(1.35); }
+    .ref-pin-ring {
+      position: absolute;
+      width: 14px; height: 14px; border-radius: 50%;
+      opacity: 0;
+      animation: ref-sonar var(--pulse-speed, 2.2s) ease-out infinite;
+    }
+    /* Second ring, offset by half the cycle for a continuous double-pulse */
+    .ref-pin-ring2 {
+      position: absolute;
+      width: 14px; height: 14px; border-radius: 50%;
+      opacity: 0;
+      animation: ref-sonar var(--pulse-speed, 2.2s) ease-out infinite;
+      animation-delay: calc(var(--pulse-speed, 2.2s) / 2);
+    }
+
+    /* ── Referral pin contact-count badge ── */
+    .ref-pin-badge {
+      position: absolute;
+      top: -5px; right: -7px;
+      background: #1e4d8c;
+      color: #fff;
+      font-size: 8px; font-weight: 800; line-height: 1;
+      min-width: 14px; height: 14px;
+      border-radius: 7px;
+      padding: 0 3px;
+      border: 1.5px solid #fff;
+      display: flex; align-items: center; justify-content: center;
+      z-index: 3;
+      pointer-events: none;
+    }
+
+    /* ── Referral panel contact list ── */
+    .ref-contact-list {
+      margin-bottom: 8px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .ref-contact-item {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 11px; padding: 4px 7px;
+      border-radius: 6px; background: #f7f9fd;
+      border: 1px solid #e6edf7;
+    }
+    .ref-contact-name { flex: 1; font-weight: 600; color: #18274a; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ref-contact-disc { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 8px; color: #fff; flex-shrink: 0; }
+    .ref-contact-status {
+      font-size: 9px; font-weight: 700; padding: 1px 6px;
+      border-radius: 8px; flex-shrink: 0; letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .ref-contact-status.waiting  { background: #fef3c7; color: #92400e; }
+    .ref-contact-status.accepted { background: #d1fae5; color: #065f46; }
+    .ref-contact-status.declined { background: #fee2e2; color: #991b1b; }
+    .ref-contact-status.other    { background: #f0f4fa; color: #526480; }
+    .ref-contact-list-label {
+      font-size: 10px; font-weight: 800; letter-spacing: 0.06em;
+      text-transform: uppercase; color: #526480; margin-bottom: 2px;
+    }
+
+    /* ── Referral overlay toggle button ── */
+    #referral-overlay-btn {
+      display: flex; align-items: center; gap: 5px;
+      padding: 7px 12px; border-radius: 7px; border: 1.5px solid #e2b44b;
+      background: #fffbeb; color: #92400e; font-size: 12px; font-weight: 600;
+      cursor: pointer; white-space: nowrap; transition: all .15s;
+    }
+    #referral-overlay-btn:hover { background: #fef3c7; }
+    #referral-overlay-btn.active {
+      background: #f97316; color: #fff; border-color: #ea580c;
+      box-shadow: 0 4px 12px rgba(249,115,22,0.35);
+    }
+    #referral-overlay-btn .ref-count {
+      background: rgba(0,0,0,0.12); border-radius: 8px;
+      padding: 1px 6px; font-size: 11px;
+    }
+    /* ── Referral fixed panel (replaces Mapbox popup) ── */
+    #ref-fixed-panel {
+      position: absolute;
+      top: 16px;
+      left: 422px;
+      transform: none;
+      z-index: 25;
+      width: 300px;
+      max-width: calc(100% - 80px);
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(12,22,50,0.22), 0 2px 8px rgba(12,22,50,0.10);
+      border: 1px solid #dde6f3;
+      overflow: visible;
+      pointer-events: auto;
+    }
+    #ref-fixed-panel.hidden { display: none; }
+    /* ── Referral jump dropdown ── */
+    #ref-jump-cell { display: none; position: relative; }
+    #ref-jump-btn {
+      height: 32px; padding: 0 11px; border-radius: 7px;
+      border: 1.5px solid #e2b44b; background: #fffbeb;
+      color: #92400e; font-size: 12px; font-weight: 600;
+      cursor: pointer; white-space: nowrap;
+      display: flex; align-items: center; gap: 6px;
+      transition: all .15s;
+    }
+    #ref-jump-btn:hover { background: #fef3c7; }
+    #ref-jump-btn.open { background: #fef3c7; border-color: #f97316; box-shadow: 0 0 0 2px rgba(249,115,22,0.15); }
+    #ref-jump-panel {
+      display: none; position: absolute; top: calc(100% + 6px); left: 0;
+      background: #fff; border-radius: 10px;
+      box-shadow: 0 8px 32px rgba(12,22,50,0.18), 0 2px 8px rgba(12,22,50,0.08);
+      border: 1px solid #dde6f3;
+      min-width: 520px; max-width: 580px; max-height: 320px;
+      overflow-y: auto; z-index: 200;
+    }
+    #ref-jump-panel::-webkit-scrollbar { width: 5px; }
+    #ref-jump-panel::-webkit-scrollbar-thumb { background: rgba(30,77,140,0.2); border-radius: 4px; }
+    .ref-jump-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px; cursor: pointer;
+      border-bottom: 1px solid #f0f4f8; transition: background 0.1s;
+    }
+    .ref-jump-row:last-child { border-bottom: none; }
+    .ref-jump-row:hover { background: #eff6ff; }
+    .ref-jump-agency { font-size: 11px; font-weight: 600; color: #526480; white-space: nowrap; flex-shrink: 0; }
+    .ref-jump-disc { font-size: 10px; font-weight: 700; color: #fff; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+    .ref-jump-age { font-size: 11px; color: #718096; white-space: nowrap; }
+    .ref-jump-status { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
+    .ref-jump-status.open     { background: #fef3c7; color: #92400e; }
+    .ref-jump-status.staffed  { background: #d1fae5; color: #065f46; }
+    .ref-jump-status.cancelled{ background: #fee2e2; color: #991b1b; }
+    .ref-jump-empty { padding: 14px; font-size: 12px; color: #718096; text-align: center; }
+
+    /* ── Quick Add Referral modal ── */
+    #quick-add-ref-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(12,22,50,0.45); z-index: 1000;
+      align-items: center; justify-content: center;
+    }
+    #quick-add-ref-modal.open { display: flex; }
+    #quick-add-ref-box {
+      background: #fff; border-radius: 16px; width: 420px; max-width: calc(100vw - 40px);
+      box-shadow: 0 24px 64px rgba(12,22,50,0.28); padding: 24px 24px 20px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    #quick-add-ref-box h3 {
+      margin: 0; font-size: 16px; font-weight: 700; color: #1e2d4a;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    #quick-add-ref-box h3 button {
+      background: none; border: none; font-size: 18px; color: #9aaccc;
+      cursor: pointer; line-height: 1; padding: 0;
+    }
+    #quick-add-ref-box h3 button:hover { color: #1e2d4a; }
+    .qaref-field { display: flex; flex-direction: column; gap: 5px; }
+    .qaref-label { font-size: 11px; font-weight: 700; color: #526480; text-transform: uppercase; letter-spacing: .04em; }
+    .qaref-input {
+      height: 36px; padding: 0 11px; border-radius: 8px;
+      border: 1.5px solid #d0ddf0; font-size: 13px; color: #1e2d4a;
+      background: #f8fafd; width: 100%; box-sizing: border-box;
+      transition: border-color .15s;
+    }
+    .qaref-input:focus { outline: none; border-color: #2463eb; background: #fff; box-shadow: 0 0 0 3px rgba(36,99,235,0.1); }
+    /* Agency typeahead */
+    .qaref-typeahead-wrap { position: relative; }
+    #qaref-agency-list, #qaref-address-list {
+      display: none; position: absolute; top: calc(100% + 4px); left: 0; right: 0;
+      background: #fff; border-radius: 8px; border: 1.5px solid #d0ddf0;
+      box-shadow: 0 8px 24px rgba(12,22,50,0.14);
+      max-height: 180px; overflow-y: auto; z-index: 10;
+    }
+    .qaref-agency-opt {
+      padding: 9px 12px; font-size: 13px; color: #1e2d4a;
+      cursor: pointer; border-bottom: 1px solid #f0f4f8;
+    }
+    .qaref-agency-opt:last-child { border-bottom: none; }
+    .qaref-agency-opt:hover { background: #eff6ff; }
+    /* Disciplines */
+    .qaref-discs { display: flex; gap: 8px; flex-wrap: wrap; }
+    .qaref-disc-btn {
+      padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 700;
+      border: 2px solid #e2e8f0; background: #f8fafd; color: #526480;
+      cursor: pointer; transition: all .15s; user-select: none;
+    }
+    .qaref-disc-btn.selected { color: #fff; border-color: transparent; }
+    /* Submit */
+    #qaref-submit {
+      height: 40px; border-radius: 9px; border: none;
+      background: #f97316; color: #fff; font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: background .15s; margin-top: 2px;
+    }
+    #qaref-submit:hover { background: #ea580c; }
+    #qaref-submit:disabled { background: #d0ddf0; color: #9aaccc; cursor: not-allowed; }
+    .ref-panel-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 11px 12px 8px;
+      border-bottom: 1px solid #e6edf7;
+      background: #f7f9fd;
+      border-radius: 12px 12px 0 0;
+    }
+    .ref-panel-title { flex: 1; min-width: 0; }
+    .ref-panel-close {
+      width: 24px; height: 24px;
+      border-radius: 6px;
+      border: 1px solid #c8d5e8;
+      background: #fff;
+      cursor: pointer;
+      font-size: 13px; line-height: 1;
+      color: #526480;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      margin-left: 8px;
+    }
+    .ref-panel-close:hover { background: #fee2e2; border-color: #fca5a5; color: #bf3f34; }
+    .ref-panel-body { padding: 10px 12px 12px; }
+    .ref-overlay-inner {
+      font-family: Arial, sans-serif; padding: 13px 15px; min-width: 240px;
+    }
+    .ref-overlay-name  { font-weight: 700; font-size: 13px; color: #1a202c; margin-bottom: 3px; }
+    .ref-overlay-addr  { font-size: 11px; color: #718096; margin-bottom: 7px; }
+    .ref-overlay-discs { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 7px; }
+    .ref-overlay-disc  { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 8px; background: #e0e7ff; color: #4338ca; }
+    .ref-overlay-meta  { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 6px; }
+    /* Agency — clickable, opens point search */
+    .ref-agency-btn {
+      background: none; border: none; padding: 0; font-size: 11px; color: #2463eb;
+      cursor: pointer; text-align: left; text-decoration: underline; text-underline-offset: 2px;
+      max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .ref-agency-btn:hover { color: #1a4dbf; }
+    /* Age + Lens row */
+    .ref-meta-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .ref-lens-btn {
+      background: #edf1f8; border: 1px solid #c8d5e8; border-radius: 4px;
+      padding: 2px 6px; font-size: 10px; font-weight: 700; color: #1e4d8c;
+      cursor: pointer; white-space: nowrap;
+    }
+    .ref-lens-btn:hover { background: #d4dff0; }
+    /* Quick log row */
+    .ref-quick-log { margin: 8px 0; padding-top: 8px; border-top: 1px solid #e2e8f0; }
+    .ref-quick-log-label { font-size: 10px; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 5px; }
+    /* Row 1: full-width name input */
+    .ref-log-input {
+      width: 100%; padding: 5px 8px; border: 1px solid #e2e8f0;
+      border-radius: 4px; font-size: 12px; outline: none; font-family: Arial, sans-serif;
+      margin-bottom: 5px; box-sizing: border-box;
+    }
+    .ref-log-input:focus { border-color: #2463eb; }
+    /* Row 2: discipline + button */
+    .ref-quick-log-row { display: flex; gap: 5px; align-items: center; }
+    .ref-log-select {
+      flex: 1; padding: 5px 4px; border: 1px solid #e2e8f0; border-radius: 4px;
+      font-size: 12px; background: #fff; outline: none; cursor: pointer;
+    }
+    .ref-log-btn {
+      padding: 5px 12px; background: #1e4d8c; color: #fff; border: none;
+      border-radius: 4px; font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap;
+    }
+    .ref-log-btn:hover { background: #163a6e; }
+    .ref-log-ok { font-size: 11px; color: #1e9b58; font-weight: 600; display: none; margin-top: 4px; }
+    /* Autocomplete suggest dropdown inside popup */
+    .ref-log-suggest {
+      position: absolute; top: 100%; left: 0; right: 0; z-index: 9999;
+      background: #fff; border: 1px solid #c8d5e8; border-radius: 6px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.15); max-height: 160px; overflow-y: auto;
+      margin-top: 2px;
+    }
+    .ref-log-suggest-item {
+      padding: 7px 10px; font-size: 12px; cursor: pointer;
+      display: flex; align-items: center; border-bottom: 1px solid #f0f4f8;
+    }
+    .ref-log-suggest-item:last-child { border-bottom: none; }
+    .ref-log-suggest-item:hover { background: #eff6ff; }
+    /* Tap-to-log mode on ZIP coverage results */
+    .tap-to-log-mode { position: relative; }
+    .tap-to-log-banner {
+      background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 5px;
+      padding: 5px 9px; font-size: 11px; color: #1d4ed8; font-weight: 600;
+      margin-bottom: 6px; display: none;
+    }
+    .tap-to-log-mode .tap-to-log-banner { display: block; }
+    .tap-to-log-mode [data-zip-coverage-clinician] {
+      cursor: crosshair !important;
+      outline: 1px solid #bfdbfe;
+    }
+    .tap-to-log-mode [data-zip-coverage-clinician]:hover {
+      background: #eff6ff !important;
+    }
+    /* Open referral board link */
+    .ref-overlay-link  {
+      display: block; text-align: center; background: #f97316; color: #fff;
+      border: none; border-radius: 5px; padding: 5px 10px; font-size: 11px;
+      font-weight: 700; cursor: pointer; text-decoration: none; width: 100%;
+      margin-top: 8px;
+    }
+    .ref-overlay-link:hover { background: #ea580c; }
 
     .floating-status-panel {
       position: absolute;
@@ -4597,21 +4958,20 @@
 
     @media (max-width: 980px) {
       .app-shell {
-        grid-template-columns: 1fr;
-        grid-template-rows: auto minmax(48vh, 1fr);
+        flex-direction: column;
       }
 
       .sidebar {
+        width: 100% !important;
         max-height: 56vh;
         border-right: 0;
         border-bottom: 1px solid var(--panel-border);
       }
 
-      .sidebar-resize-handle {
+      .sidebar-resize-handle, .sidebar-collapse-btn {
         display: none;
       }
 
-      .map-panel { min-height: 48vh; }
       .top-toolbar {
         padding: 12px 14px;
       }
@@ -4818,15 +5178,9 @@
           <div class="brand-mark" aria-hidden="true">DC</div>
           <div class="sidebar-title-stack">
             <p class="eyebrow">DependableCare Staffing</p>
-            <div class="sidebar-kicker">Internal Staffing Portal</div>
           </div>
         </div>
         <h1>Clinician Coverage Dashboard</h1>
-        <div class="sidebar-header-meta">
-          <span class="portal-chip">Coverage Workspace</span>
-          <span class="portal-chip">Map + History</span>
-          <span class="portal-chip">Staffing Ops</span>
-        </div>
       </div>
       <div class="sidebar-scroll">
         <section class="controls">
@@ -4993,6 +5347,11 @@
 
     <main class="map-panel">
 
+      <button class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Collapse sidebar" onclick="toggleSidebarCollapse()">◀</button>
+
+      <!-- ── Persistent referral panel — stays open through all map interactions ── -->
+      <div id="ref-fixed-panel" class="hidden" role="dialog" aria-label="Referral detail"></div>
+
       <div class="top-toolbar">
         <div class="toolbar-row">
 
@@ -5028,6 +5387,34 @@
               <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true" title="Show clinician work center locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="4"/></svg>Work</span></button>
               <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false" title="Show clinician home locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Home</span></button>
             </div>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Referral overlay toggle ── -->
+          <div class="toolbar-cell" style="flex-shrink:0">
+            <button id="referral-overlay-btn" type="button" title="Show open referrals on map" onclick="toggleReferralOverlay()">
+              📋 Referrals <span class="ref-count" id="referral-overlay-count" style="display:none">0</span>
+            </button>
+          </div>
+
+          <!-- ── Quick add referral ── -->
+          <div class="toolbar-cell" style="flex-shrink:0">
+            <button type="button" onclick="openQuickAddReferral()" title="Quick add referral"
+              style="height:32px;padding:0 11px;border-radius:7px;border:1.5px solid #e2b44b;
+                     background:#fffbeb;color:#92400e;font-size:12px;font-weight:600;
+                     cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px;transition:all .15s"
+              onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='#fffbeb'">
+              + Referral
+            </button>
+          </div>
+
+          <!-- ── Referral jump dropdown ── -->
+          <div class="toolbar-cell" style="flex-shrink:0" id="ref-jump-cell">
+            <button id="ref-jump-btn" type="button" onclick="toggleRefJumpDropdown()">
+              Select referral <span style="font-size:10px;opacity:.7">▾</span>
+            </button>
+            <div id="ref-jump-panel"></div>
           </div>
 
           <div class="toolbar-sep"></div>
@@ -5137,6 +5524,7 @@
               <button id="zip-coverage-radius-grow" type="button" class="btn-secondary radius-step-button" aria-label="Grow proximity radius">+</button>
               <span class="zip-coverage-radius-label">proximity radius</span>
             </div>
+            <div class="tap-to-log-banner" id="tap-to-log-banner">👆 Click any clinician below to log them to the referral</div>
             <div id="zip-coverage-results" class="zip-coverage-results"></div>
           </div>
           <div id="zip-coverage-resize-handle" class="zip-coverage-resize-handle" role="separator" aria-label="Resize ZIP coverage results" tabindex="0"></div>
@@ -5187,8 +5575,8 @@
         </div>
       </div>
 
-      <div class="map-overlay">
-        <p id="map-instructions">Search any address or ZIP to place a location pin — Lens will activate automatically at the minimum size so you can see nearby clinicians right away. Click anywhere on the map to move the lens, then use − and + to refine the distance.</p>
+      <div class="map-overlay" style="display:none">
+        <p id="map-instructions"></p>
       </div>
       <aside id="therapyboss-dock" class="therapyboss-dock" aria-hidden="true">
         <div class="therapyboss-header">
@@ -5772,6 +6160,53 @@
       </aside>
       </div>
     </main>
+  </div>
+
+  <!-- ── Quick Add Referral Modal ── -->
+  <div id="quick-add-ref-modal" onclick="if(event.target===this)closeQuickAddReferral()">
+    <div id="quick-add-ref-box">
+      <h3>Quick Add Referral <button onclick="closeQuickAddReferral()" aria-label="Close">✕</button></h3>
+
+      <div class="qaref-field">
+        <div class="qaref-label">Patient Name</div>
+        <input id="qaref-patient-input" class="qaref-input" type="text" placeholder="Last, First">
+      </div>
+
+      <div class="qaref-field">
+        <div class="qaref-label">Agency</div>
+        <div class="qaref-typeahead-wrap">
+          <input id="qaref-agency-input" class="qaref-input" type="text"
+            placeholder="Type agency name…" autocomplete="off"
+            oninput="filterQarefAgencies(this.value)"
+            onkeydown="qarefAgencyKeydown(event)">
+          <div id="qaref-agency-list"></div>
+        </div>
+      </div>
+
+      <div class="qaref-field">
+        <div class="qaref-label">Patient Address</div>
+        <div class="qaref-typeahead-wrap">
+          <input id="qaref-address-input" class="qaref-input" type="text"
+            placeholder="Start typing address…" autocomplete="off"
+            oninput="qarefAddressInput(this.value)"
+            onkeydown="qarefAddressKeydown(event)">
+          <div id="qaref-address-list"></div>
+        </div>
+      </div>
+
+      <div class="qaref-field">
+        <div class="qaref-label">Disciplines Needed</div>
+        <div class="qaref-discs">
+          <div class="qaref-disc-btn" data-disc="PT"  onclick="toggleQarefDisc(this)" style="--dc:#2463eb">PT</div>
+          <div class="qaref-disc-btn" data-disc="PTA" onclick="toggleQarefDisc(this)" style="--dc:#1e9b58">PTA</div>
+          <div class="qaref-disc-btn" data-disc="OT"  onclick="toggleQarefDisc(this)" style="--dc:#7c3aed">OT</div>
+          <div class="qaref-disc-btn" data-disc="OTA" onclick="toggleQarefDisc(this)" style="--dc:#ef7d23">OTA</div>
+          <div class="qaref-disc-btn" data-disc="ST"  onclick="toggleQarefDisc(this)" style="--dc:#6b7280">ST</div>
+        </div>
+      </div>
+
+      <button id="qaref-submit" onclick="submitQuickAddReferral()">Save Referral</button>
+    </div>
   </div>
 
   <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -6746,7 +7181,14 @@
       isolatedAgencyVisitsActive: false,
       isolatedAgencyClinicianActive: false,
       agencyFootprintSiteKeys: null,
-      agencyFootprintClinicianIds: null
+      agencyFootprintClinicianIds: null,
+      referralOverlayActive: false,
+      referralOverlayMarkers: [],
+      referralOverlayData: [],
+      referralOverlayContacts: [],
+      _refLogInterceptBound: false,
+      refPanelOpenId: null,
+      refPanelDisciplineSnapshot: new Set()
     };
 
     const map = new mapboxgl.Map({
@@ -20480,6 +20922,891 @@
 
     // Tour auto-launch is triggered from handleAuthSession after successful login
   })();
+
+  // ══════════════════════════════════════════════
+  //  REFERRAL OVERLAY — open patient pins on map
+  // ══════════════════════════════════════════════
+
+  // ── Lift toolbar to full-width position above app-shell ──
+  (function() {
+    var toolbar  = document.querySelector(".top-toolbar");
+    var appShell = document.getElementById("app-shell");
+    if (toolbar && appShell && appShell.parentNode) {
+      appShell.parentNode.insertBefore(toolbar, appShell);
+    }
+  })();
+
+  // ── Sidebar collapse toggle ──
+  function toggleSidebarCollapse() {
+    var shell = document.getElementById("app-shell");
+    var btn   = document.getElementById("sidebar-collapse-btn");
+    var collapsed = shell.classList.toggle("sidebar-collapsed");
+    btn.textContent = collapsed ? "▶" : "◀";
+    btn.title = collapsed ? "Expand sidebar" : "Collapse sidebar";
+    // Trigger map resize so Mapbox fills the expanded space
+    setTimeout(function() { if (window.map) map.resize(); }, 280);
+  }
+
+  function toggleReferralOverlay() {
+    if (appState.referralOverlayActive) {
+      clearReferralOverlay();
+    } else {
+      loadReferralOverlay();
+    }
+  }
+
+  async function loadReferralOverlay() {
+    var btn = document.getElementById("referral-overlay-btn");
+    btn.innerHTML = "⏳ Loading…";
+    btn.disabled = true;
+
+    // Retry up to 3× — the Supabase auth lock can abort concurrent requests
+    // on first load; retrying after a short delay lets the lock settle.
+    var MAX_ATTEMPTS = 3;
+    for (var attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      try {
+        // Fetch open referrals that have coordinates
+        var { data: refs, error: e1 } = await supabaseClient
+          .from("referrals")
+          .select("*")
+          .in("status", ["open"])
+          .not("lat", "is", null)
+          .not("lng", "is", null)
+          .order("referral_date", { ascending: false });
+
+        if (e1) throw e1;
+
+        // Grab ALL contacts (all responses) for badge count + status list
+        var refIds = (refs || []).map(function(r) { return r.id; });
+        var contacts = [];
+        if (refIds.length > 0) {
+          var { data: cData } = await supabaseClient
+            .from("referral_contacts")
+            .select("referral_id, clinician_name, discipline, response")
+            .in("referral_id", refIds)
+            .order("created_at", { ascending: false });
+          contacts = cData || [];
+        }
+
+        appState.referralOverlayData    = refs || [];
+        appState.referralOverlayContacts = contacts;
+        appState.referralOverlayActive  = true;
+
+        renderReferralOverlay();
+        updateReferralOverlayBtn();
+        populateReferralDropdown();
+        return; // success — exit the retry loop
+
+      } catch (err) {
+        var isLockError = err && (err.name === "AbortError" || (err.message || "").includes("steal"));
+        if (isLockError && attempt < MAX_ATTEMPTS) {
+          // Supabase auth lock conflict — wait and retry
+          await new Promise(function(res) { setTimeout(res, 1200 * attempt); });
+          btn.innerHTML = "⏳ Retrying…";
+          continue;
+        }
+        // Permanent failure
+        console.error("[ReferralOverlay] Load failed:", err);
+        showToast("Could not load referrals: " + (err.message || err), "error");
+        btn.disabled = false;
+        btn.innerHTML = "📋 Referrals <span class='ref-count' id='referral-overlay-count' style='display:none'>0</span>";
+        return;
+      }
+    }
+  }
+
+  function renderReferralOverlay() {
+    // Clear any existing markers first
+    appState.referralOverlayMarkers.forEach(function(m) { m.remove(); });
+    appState.referralOverlayMarkers = [];
+
+    var refs     = appState.referralOverlayData;
+    var contacts = appState.referralOverlayContacts;
+
+    refs.forEach(function(r) {
+      if (!r.lat || !r.lng) return;
+
+      var days  = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
+      var color = days >= 5 ? "#ef4444" : days >= 3 ? "#f59e0b" : "#f97316";
+      var ring  = days >= 5 ? "#dc2626" : days >= 3 ? "#d97706" : "#ea580c";
+
+      // Sonar pin — pulse speed reflects urgency
+      var pulseSpeed = days >= 5 ? "1.1s" : days >= 3 ? "1.7s" : "2.4s";
+
+      var wrap  = document.createElement("div");
+      wrap.className = "ref-pin-wrap";
+      wrap.style.setProperty("--pulse-speed", pulseSpeed);
+
+      var ring  = document.createElement("div");
+      ring.className = "ref-pin-ring";
+      ring.style.background = color;
+
+      var ring2 = document.createElement("div");
+      ring2.className = "ref-pin-ring2";
+      ring2.style.background = color;
+
+      var dot   = document.createElement("div");
+      dot.className = "ref-pin-dot";
+      dot.style.background = color;
+
+      wrap.appendChild(ring);
+      wrap.appendChild(ring2);
+      wrap.appendChild(dot);
+
+      // Contact count badge (shown when > 0 contacts logged)
+      var contactCount = contacts.filter(function(c) { return c.referral_id === r.id; }).length;
+      var badgeEl = document.createElement("div");
+      badgeEl.className = "ref-pin-badge";
+      badgeEl.id = "ref-badge-" + r.id;
+      badgeEl.textContent = contactCount || "";
+      badgeEl.style.display = contactCount > 0 ? "flex" : "none";
+      wrap.appendChild(badgeEl);
+
+      var rid = r.id; // UUID — safe for use in IIFE closure
+
+      // Click on pin → open persistent fixed panel (not a Mapbox popup)
+      (function(refId, refObj) {
+        wrap.addEventListener("click", function(e) {
+          e.stopPropagation();
+          openRefPanel(refId, refObj);
+        });
+      })(rid, r);
+
+      var marker = new mapboxgl.Marker({ element: wrap, anchor: "center" })
+        .setLngLat([r.lng, r.lat])
+        .addTo(map);
+
+      appState.referralOverlayMarkers.push(marker);
+    });
+
+    // ── One-time capture-phase intercept on ZIP results for tap-to-log ──
+    // (registered once; checks window._refLogActive each click)
+    if (!appState._refLogInterceptBound) {
+      appState._refLogInterceptBound = true;
+      elements.zipCoverageResults.addEventListener("click", function(event) {
+        if (!window._refLogActive) return;
+        var btn = event.target.closest("[data-zip-coverage-clinician]");
+        if (!btn) return;
+        event.stopImmediatePropagation(); // block focusClinician
+        var active  = window._refLogActive;
+        var nameSpan = btn.querySelector(".zip-clinician-name");
+        var badge    = btn.querySelector(".radius-clinician-badge");
+        if (nameSpan) active.nameEl.value = nameSpan.textContent.trim();
+        // Auto-match discipline from badge
+        if (badge && active.discEl) {
+          var disc = badge.textContent.trim();
+          var opt = Array.from(active.discEl.options).find(function(o) { return o.value === disc; });
+          if (opt) active.discEl.value = disc;
+        }
+        refLogClinician(active.refId);
+      }, true); // capture phase — fires before the existing bubble-phase listener
+    }
+  }
+
+  function clearReferralOverlay() {
+    closeRefPanel(); // close fixed panel if open
+    appState.referralOverlayMarkers.forEach(function(m) { m.remove(); });
+    appState.referralOverlayMarkers = [];
+    appState.referralOverlayActive  = false;
+    appState.referralOverlayData    = [];
+    appState.referralOverlayContacts = [];
+    updateReferralOverlayBtn();
+    clearReferralDropdown();
+  }
+
+  function updateReferralOverlayBtn() {
+    var btn   = document.getElementById("referral-overlay-btn");
+    var count = appState.referralOverlayData.length;
+    btn.disabled = false;
+
+    if (appState.referralOverlayActive) {
+      btn.className = "active";
+      btn.innerHTML = "📋 Referrals" +
+        (count > 0 ? " <span class='ref-count'>" + count + "</span>" : "") +
+        " &times;";
+    } else {
+      btn.className = "";
+      btn.innerHTML = "📋 Referrals";
+    }
+  }
+
+  // ── Referral jump dropdown ──
+
+  var _refJumpOpen = false;
+
+  function toggleRefJumpDropdown() {
+    var panel = document.getElementById("ref-jump-panel");
+    var btn   = document.getElementById("ref-jump-btn");
+    if (!panel) return;
+    _refJumpOpen = !_refJumpOpen;
+    panel.style.display = _refJumpOpen ? "block" : "none";
+    btn.classList.toggle("open", _refJumpOpen);
+  }
+
+  function closeRefJumpDropdown() {
+    var panel = document.getElementById("ref-jump-panel");
+    var btn   = document.getElementById("ref-jump-btn");
+    if (panel) panel.style.display = "none";
+    if (btn)   btn.classList.remove("open");
+    _refJumpOpen = false;
+  }
+
+  function populateReferralDropdown() {
+    var cell  = document.getElementById("ref-jump-cell");
+    var panel = document.getElementById("ref-jump-panel");
+    var btn   = document.getElementById("ref-jump-btn");
+    if (!panel) return;
+
+    var refs = appState.referralOverlayData || [];
+    panel.innerHTML = "";
+
+    if (!refs.length) {
+      if (cell) cell.style.display = "none";
+      return;
+    }
+
+    var discColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
+
+    refs.forEach(function(r) {
+      var days       = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
+      var ageStr     = days === 0 ? "Today" : days === 1 ? "1d" : days + "d";
+      var status     = (r.status || "open").toLowerCase();
+
+      // Agency — 8 chars max
+      var agencyFull = r.agency_name || r.agency || "Unknown";
+      var agency     = agencyFull.length > 12 ? agencyFull.slice(0, 12) + "…" : agencyFull;
+
+      // Last name only — "SMITH, JOHN" → "Smith"
+      var rawName    = r.patient_name || "—";
+      var lastName   = rawName.includes(",") ? rawName.split(",")[0].trim() : rawName.split(" ")[0].trim();
+      lastName = lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase();
+
+      // Supervisor disciplines only — PT/PTA→PT, OT/OTA→OT, ST→ST, deduped
+      // Handles both ["PT","PTA"] and ["PT/PTA"] storage formats
+      var rawDiscs = [];
+      (r.disciplines || []).forEach(function(d) {
+        String(d).trim().toUpperCase().split("/").forEach(function(p) { rawDiscs.push(p.trim()); });
+      });
+      var supDiscs   = [];
+      if (rawDiscs.some(function(d){ return d === "PT" || d === "PTA"; })) supDiscs.push("PT");
+      if (rawDiscs.some(function(d){ return d === "OT" || d === "OTA"; })) supDiscs.push("OT");
+      if (rawDiscs.some(function(d){ return d === "ST"; }))               supDiscs.push("ST");
+
+      var discsHtml = supDiscs.map(function(d) {
+        var col = discColors[d] || "#6b7280";
+        return "<span class='ref-jump-disc' style='background:" + col + "'>" + d + "</span>";
+      }).join("");
+
+      // City from address
+      var addrParts  = (r.address || "").split(",");
+      var city       = addrParts.length > 1 ? addrParts[1].trim() : (addrParts[0].trim() || "—");
+
+      var statusCss  = status === "staffed" ? "staffed" : status === "cancelled" ? "cancelled" : "open";
+
+      var row = document.createElement("div");
+      row.className = "ref-jump-row";
+      row.innerHTML =
+        "<span class='ref-jump-agency' title='" + escHtml(agencyFull) + "'>" + escHtml(agency) + "</span>" +
+        "<span class='ref-jump-age' style='flex:1;color:#1e2d4a;font-weight:600;white-space:nowrap'>" + escHtml(lastName) + "</span>" +
+        "<span style='display:flex;gap:3px;flex-shrink:0'>" + discsHtml + "</span>" +
+        "<span class='ref-jump-age' style='min-width:60px'>" + escHtml(city) + "</span>" +
+        "<span class='ref-jump-age' style='min-width:36px'>" + ageStr + "</span>" +
+        "<span class='ref-jump-status " + statusCss + "'>" + status.toUpperCase() + "</span>";
+
+      row.addEventListener("click", function() { handleRefJumpRow(r); });
+      panel.appendChild(row);
+    });
+
+    // Update button label with count
+    if (btn) btn.innerHTML = refs.length + " open referral" + (refs.length !== 1 ? "s" : "") + " <span style='font-size:10px;opacity:.7'>▾</span>";
+    if (cell) cell.style.display = "flex";
+  }
+
+  function clearReferralDropdown() {
+    var cell  = document.getElementById("ref-jump-cell");
+    var panel = document.getElementById("ref-jump-panel");
+    var btn   = document.getElementById("ref-jump-btn");
+    closeRefJumpDropdown();
+    if (panel) panel.innerHTML = "";
+    if (btn)   btn.innerHTML = "Select referral <span style='font-size:10px;opacity:.7'>▾</span>";
+    if (cell)  cell.style.display = "none";
+  }
+
+  function handleRefJumpRow(r) {
+    closeRefJumpDropdown();
+    if (appState.refPanelOpenId && appState.refPanelOpenId !== r.id) closeRefPanel();
+    map.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.getZoom(), 13), speed: 1.1, essential: true });
+    setTimeout(function() {
+      openRefPanel(r.id, r);
+      refOpenLens(r.lng, r.lat, r.address || "");
+    }, 400);
+  }
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", function(e) {
+    var cell = document.getElementById("ref-jump-cell");
+    if (cell && !cell.contains(e.target) && _refJumpOpen) closeRefJumpDropdown();
+  });
+
+  // ── Referral panel helpers ──
+
+  function buildContactListHtml(contacts) {
+    if (!contacts || !contacts.length) {
+      return "<div style='font-size:11px;color:#718096;font-style:italic;padding:2px 0'>No contacts logged yet.</div>";
+    }
+    return contacts.map(function(c) {
+      var col = getDisciplineColor(c.discipline);
+      var statusKey = (c.response || "waiting").toLowerCase().replace(/[^a-z]/g, "");
+      var statusMap = {
+        waiting: "Pending", accepted: "Accepted", acceptedsolo: "Accepted",
+        declined: "Declined", notinterested: "Not interested"
+      };
+      var statusLabel = statusMap[statusKey] || c.response || "Pending";
+      var statusCss   = statusKey === "accepted" || statusKey === "acceptedsolo" ? "accepted"
+                      : statusKey === "declined" || statusKey === "notinterested" ? "declined"
+                      : statusKey === "waiting"  ? "waiting" : "other";
+      return "<div class='ref-contact-item'>" +
+        "<span class='ref-contact-name' title='" + escHtml(c.clinician_name) + "'>" + escHtml(c.clinician_name) + "</span>" +
+        "<span class='ref-contact-disc' style='background:" + col + "'>" + escHtml(c.discipline || "—") + "</span>" +
+        "<span class='ref-contact-status " + statusCss + "'>" + escHtml(statusLabel) + "</span>" +
+      "</div>";
+    }).join("");
+  }
+
+  function refreshRefPanelContacts(refId) {
+    // Use local appState — always up-to-date after a successful insert
+    var fresh = appState.referralOverlayContacts.filter(function(c) { return c.referral_id === refId; });
+
+    // Update the contact list section inside the open panel
+    var listEl = document.getElementById("rcp-" + refId);
+    if (listEl) listEl.innerHTML = buildContactListHtml(fresh);
+
+    // Update the sonar pin badge
+    var badgeEl = document.getElementById("ref-badge-" + refId);
+    if (badgeEl) {
+      badgeEl.textContent = fresh.length || "";
+      badgeEl.style.display = fresh.length > 0 ? "flex" : "none";
+    }
+  }
+
+  // ── Persistent referral panel — open / close ──
+
+  function openRefPanel(rid, r) {
+    // If this referral is already showing, do nothing
+    if (appState.refPanelOpenId === rid) return;
+    // If a different referral is open, block and notify
+    if (appState.refPanelOpenId) {
+      showToast("Close the current referral first to switch.", "warning");
+      return;
+    }
+
+    var contacts = appState.referralOverlayContacts;
+    var accepted = contacts.filter(function(c) { return c.referral_id === rid; }); // all contacts for this referral
+
+    var days   = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
+    var ageStr = days === 0 ? "Today" : days === 1 ? "1d" : days + "d";
+    var ageCss = days >= 3 ? "color:#ef4444;font-weight:700" : "color:#718096";
+
+    var discsHtml = (r.disciplines || []).map(function(d) {
+      return "<span class='ref-overlay-disc'>" + escHtml(d) + "</span>";
+    }).join("");
+
+    var discOptions = (r.disciplines || []).flatMap(function(d) {
+      if (d === "PT/PTA") return ["PT","PTA"];
+      if (d === "OT/OTA") return ["OT","OTA"];
+      if (d === "ST") return ["ST"];
+      return [d];
+    });
+    if (!discOptions.length) discOptions = ["PT","PTA","OT","OTA","ST"];
+    var discOptHtml = discOptions.map(function(d) {
+      return "<option value='" + d + "'>" + d + "</option>";
+    }).join("");
+
+    var agencySafe = escHtml(r.agency || "").replace(/'/g, "&#39;");
+    var addrSafe   = escHtml(r.address  || "").replace(/'/g, "&#39;");
+
+    var panelHtml =
+      "<div class='ref-panel-header'>" +
+        "<div class='ref-panel-title'>" +
+          "<div class='ref-overlay-name'>" + escHtml(r.patient_name) + "</div>" +
+          "<div class='ref-overlay-addr'>" + escHtml(r.address || "") + "</div>" +
+        "</div>" +
+        "<button class='ref-panel-close' onclick='closeRefPanel()' title='Close referral panel'>✕</button>" +
+      "</div>" +
+      "<div class='ref-panel-body'>" +
+        (discsHtml ? "<div class='ref-overlay-discs'>" + discsHtml + "</div>" : "") +
+
+        "<div class='ref-overlay-meta'>" +
+          (r.agency
+            ? "<button class='ref-agency-btn' onclick='refAgencySearch(\"" + agencySafe + "\")' title='Search agency on map'>" + escHtml(r.agency) + " ↗</button>"
+            : "<span style='color:#718096;font-size:11px'>—</span>") +
+          "<div class='ref-meta-right'>" +
+            "<span style='" + ageCss + ";font-size:11px'>" + ageStr + "</span>" +
+            "<button class='ref-lens-btn' onclick='refOpenLens(" + r.lng + "," + r.lat + ",\"" + addrSafe + "\")'>📍 Lens</button>" +
+          "</div>" +
+        "</div>" +
+
+        "<div class='ref-contact-list-label'>Contacts</div>" +
+        "<div class='ref-contact-list' id='rcp-" + rid + "'>" +
+          buildContactListHtml(accepted) +
+        "</div>" +
+
+        "<div class='ref-quick-log'>" +
+          "<div class='ref-quick-log-label'>Quick Log</div>" +
+          "<div style='position:relative'>" +
+            "<input type='text' id='rql-" + rid + "' class='ref-log-input' placeholder='Clinician name… (type or click list)' autocomplete='off'>" +
+            "<div class='ref-log-suggest' id='rqls-" + rid + "' style='display:none'></div>" +
+          "</div>" +
+          "<div class='ref-quick-log-row'>" +
+            "<select id='rqld-" + rid + "' class='ref-log-select'>" + discOptHtml + "</select>" +
+            "<button class='ref-log-btn' onclick='refLogClinician(\"" + rid + "\")'>Log</button>" +
+          "</div>" +
+          "<div class='ref-log-ok' id='rqlo-" + rid + "'>✓ Logged</div>" +
+        "</div>" +
+
+        "<a class='ref-overlay-link' href='referrals.html' target='_blank'>Open Referral Board ↗</a>" +
+      "</div>";
+
+    // Inject HTML into the fixed panel and show it
+    var panel = document.getElementById("ref-fixed-panel");
+    panel.innerHTML = panelHtml;
+    panel.classList.remove("hidden");
+
+    // Track state
+    appState.refPanelOpenId = rid;
+    appState.refPanelDisciplineSnapshot = new Set(appState.disciplineFilters);
+
+    // Wire up discipline select → isolate filter
+    var discEl    = document.getElementById("rqld-" + rid);
+    var nameEl    = document.getElementById("rql-"  + rid);
+    var suggestEl = document.getElementById("rqls-" + rid);
+
+    if (discEl) {
+      discEl.addEventListener("change", function() {
+        var disc = discEl.value;
+        if (!disc) return;
+        appState.disciplineFilters.clear();
+        appState.disciplineFilters.add(disc);
+        syncDisciplineToggleState();
+        applyFilters();
+      });
+
+      // ── Auto-apply on open: isolate to the pre-selected discipline immediately ──
+      if (discEl.value) {
+        appState.disciplineFilters.clear();
+        appState.disciplineFilters.add(discEl.value);
+        syncDisciplineToggleState();
+        applyFilters();
+      }
+    }
+
+    if (nameEl && suggestEl) {
+      // Tap-to-log mode when input is focused
+      nameEl.addEventListener("focus", function() {
+        window._refLogActive = { refId: rid, nameEl: nameEl, discEl: discEl };
+        elements.zipCoverageResults.classList.add("tap-to-log-mode");
+      });
+      nameEl.addEventListener("blur", function() {
+        setTimeout(function() {
+          if (window._refLogActive && window._refLogActive.refId === rid) {
+            window._refLogActive = null;
+            elements.zipCoverageResults.classList.remove("tap-to-log-mode");
+          }
+          suggestEl.style.display = "none";
+        }, 180);
+      });
+
+      // Autocomplete: live search clinician_v2
+      var _refPanelTimer = null;
+      nameEl.addEventListener("input", function() {
+        var q = (nameEl.value || "").trim();
+        clearTimeout(_refPanelTimer);
+        if (q.length < 2) { suggestEl.style.display = "none"; return; }
+        _refPanelTimer = setTimeout(async function() {
+          var { data } = await supabaseClient
+            .from("clinician_v2")
+            .select("id, name, discipline")
+            .ilike("name", "%" + q + "%")
+            .order("name")
+            .limit(7);
+          if (!data || !data.length) { suggestEl.style.display = "none"; return; }
+          suggestEl.innerHTML = data.map(function(c) {
+            var col = getDisciplineColor(c.discipline);
+            return "<div class='ref-log-suggest-item' data-cname='" + escapeHtml(c.name) + "' data-cdisc='" + escapeHtml(c.discipline || "") + "'>" +
+              "<span style='background:" + col + ";color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;margin-right:7px;flex-shrink:0'>" + escapeHtml(c.discipline || "?") + "</span>" +
+              escapeHtml(formatClinicianDisplayName(c.name)) +
+              "</div>";
+          }).join("");
+          suggestEl.style.display = "";
+          suggestEl.querySelectorAll(".ref-log-suggest-item").forEach(function(item) {
+            item.addEventListener("mousedown", function(e) {
+              e.preventDefault();
+              nameEl.value = item.dataset.cname;
+              suggestEl.style.display = "none";
+              if (discEl && item.dataset.cdisc) {
+                var opt = Array.from(discEl.options).find(function(o) { return o.value === item.dataset.cdisc; });
+                if (opt) discEl.value = item.dataset.cdisc;
+              }
+              nameEl.focus();
+            });
+          });
+        }, 250);
+      });
+    }
+  }
+
+  function closeRefPanel() {
+    if (!appState.refPanelOpenId) return;
+
+    // Restore discipline filters to pre-panel state
+    appState.disciplineFilters.clear();
+    appState.refPanelDisciplineSnapshot.forEach(function(d) {
+      appState.disciplineFilters.add(d);
+    });
+    syncDisciplineToggleState();
+    applyFilters();
+
+    // Clear tap-to-log mode
+    if (window._refLogActive) {
+      window._refLogActive = null;
+      if (elements.zipCoverageResults) {
+        elements.zipCoverageResults.classList.remove("tap-to-log-mode");
+      }
+    }
+
+    appState.refPanelOpenId = null;
+    appState.refPanelDisciplineSnapshot = new Set();
+
+    var panel = document.getElementById("ref-fixed-panel");
+    if (panel) {
+      panel.classList.add("hidden");
+      panel.innerHTML = "";
+    }
+  }
+
+  // ── Popup action: agency name → open HH agency profile panel ──
+  function refAgencySearch(agencyName) {
+    if (!agencyName) return;
+    var normalized = agencyName.toLowerCase().trim();
+
+    // Try exact match first, then partial
+    var match = appState.agencies.find(function(a) {
+      var draft = getAgencyDraftForRecord(a);
+      return (draft.name || "").toLowerCase().trim() === normalized;
+    });
+    if (!match) {
+      match = appState.agencies.find(function(a) {
+        var draft = getAgencyDraftForRecord(a);
+        var draftName = (draft.name || "").toLowerCase().trim();
+        return draftName.includes(normalized) || normalized.includes(draftName);
+      });
+    }
+
+    if (match) {
+      openAgencyProfile(match.id);
+    } else {
+      showToast("\"" + agencyName + "\" not found in agency directory — make sure agencies are loaded.", "warning");
+    }
+  }
+
+  // ── Popup action: Lens button → drop search pin + auto-fire ZIP coverage ──
+  function refOpenLens(lng, lat, address) {
+    // 1. Drop the lens search pin — then immediately dismiss the redundant
+    //    "Search Result" popup (address is already shown in the referral popup)
+    setSearchMarker(lng, lat, address || "Referral");
+    var _sp = appState.searchMarker && appState.searchMarker.getPopup();
+    if (_sp && _sp.isOpen()) _sp.remove();
+    setRadiusMode(true);
+    appState.selectedRadiusMiles = appState.selectedRadiusMiles || 5;
+    syncRadiusControls();
+    selectCliniciansByRadius(appState.lastPointSearchResult, appState.selectedRadiusMiles);
+    map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13), speed: 0.9, essential: true });
+
+    // 2. Extract ZIP from address and auto-run ZIP coverage so snap bar appears
+    var zipMatch = String(address || "").match(/\b(\d{5})\b/);
+    if (zipMatch) {
+      var zip = zipMatch[1];
+      elements.zipCoverageSearch.value = zip;
+      // Keep the visible sidebar ZIP input in sync
+      var panelInput = document.getElementById("zip-panel-search");
+      if (panelInput) panelInput.value = zip;
+      // Small delay so the lens finishes animating first
+      setTimeout(function() { runZipCoverageCheck(); }, 400);
+    }
+  }
+
+  // ── Popup action: quick log a clinician contact ──
+  async function refLogClinician(refId) {
+    var nameEl  = document.getElementById("rql-"  + refId);
+    var discEl  = document.getElementById("rqld-" + refId);
+    var okEl    = document.getElementById("rqlo-" + refId);
+    if (!nameEl || !discEl) return;
+
+    var name = (nameEl.value || "").trim();
+    var disc = discEl.value;
+    if (!name) { nameEl.focus(); nameEl.style.borderColor = "#ef4444"; return; }
+    nameEl.style.borderColor = "";
+
+    // Duplicate guard — same clinician already logged to this referral
+    var already = appState.referralOverlayContacts.find(function(c) {
+      return c.referral_id === refId &&
+             c.clinician_name.trim().toLowerCase() === name.toLowerCase();
+    });
+    if (already) {
+      nameEl.style.borderColor = "#f59e0b";
+      nameEl.title = "Already logged";
+      showToast(name + " is already logged on this referral.", "warning");
+      setTimeout(function() { nameEl.style.borderColor = ""; nameEl.title = ""; }, 2000);
+      return;
+    }
+
+    var logBtn = nameEl.closest(".ref-quick-log").querySelector(".ref-log-btn");
+    if (logBtn) { logBtn.disabled = true; logBtn.textContent = "…"; }
+
+    var { error } = await supabaseClient.from("referral_contacts").insert({
+      referral_id:    refId,
+      clinician_name: name,
+      discipline:     disc,
+      response:       "waiting"
+    });
+
+    if (logBtn) { logBtn.disabled = false; logBtn.textContent = "Log"; }
+
+    if (error) {
+      nameEl.style.borderColor = "#ef4444";
+      console.error("[RefLog]", error);
+      return;
+    }
+
+    // Update local cache first, then refresh panel + badge
+    appState.referralOverlayContacts.push({
+      referral_id:    refId,
+      clinician_name: name,
+      discipline:     disc,
+      response:       "waiting"
+    });
+
+    // Success feedback
+    nameEl.value = "";
+    if (okEl) { okEl.style.display = "block"; setTimeout(function() { okEl.style.display = "none"; }, 2500); }
+
+    // Refresh contact list in panel + update pin badge from local state
+    refreshRefPanelContacts(refId);
+  }
+
+  // Simple HTML escape for popup content
+  function escHtml(str) {
+    return String(str || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  // ── Quick Add Referral ──
+
+  var _qarefSelectedAgency = "";
+  var _qarefAgencyListIndex = -1;
+  var _qarefAddressCoords  = null; // { lng, lat, place_name }
+  var _qarefAddressIndex   = -1;
+  var _qarefAddressTimer   = null;
+
+  function openQuickAddReferral() {
+    // Reset form
+    document.getElementById("qaref-patient-input").value = "";
+    document.getElementById("qaref-agency-input").value = "";
+    document.getElementById("qaref-address-input").value = "";
+    document.getElementById("qaref-agency-list").style.display = "none";
+    document.getElementById("qaref-agency-list").innerHTML = "";
+    document.getElementById("qaref-submit").disabled = false;
+    document.getElementById("qaref-submit").textContent = "Save Referral";
+    document.querySelectorAll(".qaref-disc-btn.selected").forEach(function(b) {
+      b.classList.remove("selected");
+      b.style.background = "#f8fafd";
+      b.style.color = "#526480";
+      b.style.borderColor = "#e2e8f0";
+    });
+    _qarefSelectedAgency = "";
+    _qarefAgencyListIndex = -1;
+    _qarefAddressCoords  = null;
+    _qarefAddressIndex   = -1;
+    document.getElementById("qaref-address-list").style.display = "none";
+    document.getElementById("qaref-address-list").innerHTML = "";
+    document.getElementById("quick-add-ref-modal").classList.add("open");
+    setTimeout(function() { document.getElementById("qaref-patient-input").focus(); }, 100);
+  }
+
+  function closeQuickAddReferral() {
+    document.getElementById("quick-add-ref-modal").classList.remove("open");
+    document.getElementById("qaref-agency-list").style.display = "none";
+  }
+
+  function filterQarefAgencies(query) {
+    _qarefSelectedAgency = query; // update raw value as user types
+    var list = document.getElementById("qaref-agency-list");
+    if (!query.trim()) { list.style.display = "none"; list.innerHTML = ""; return; }
+    var matches = (appState.agencies || [])
+      .filter(function(a) { return (a.name || "").toLowerCase().includes(query.toLowerCase()); })
+      .slice(0, 12);
+    if (!matches.length) { list.style.display = "none"; list.innerHTML = ""; return; }
+    list.innerHTML = matches.map(function(a, i) {
+      return "<div class='qaref-agency-opt' data-name='" + escHtml(a.name) + "' data-idx='" + i + "' onmousedown='selectQarefAgency(\"" + escHtml(a.name).replace(/"/g,"&quot;") + "\")'>" + escHtml(a.name) + "</div>";
+    }).join("");
+    list.style.display = "block";
+    _qarefAgencyListIndex = -1;
+  }
+
+  function selectQarefAgency(name) {
+    _qarefSelectedAgency = name;
+    document.getElementById("qaref-agency-input").value = name;
+    document.getElementById("qaref-agency-list").style.display = "none";
+  }
+
+  function qarefAgencyKeydown(e) {
+    var list = document.getElementById("qaref-agency-list");
+    var opts = list.querySelectorAll(".qaref-agency-opt");
+    if (!opts.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      _qarefAgencyListIndex = Math.min(_qarefAgencyListIndex + 1, opts.length - 1);
+      opts.forEach(function(o, i) { o.style.background = i === _qarefAgencyListIndex ? "#eff6ff" : ""; });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      _qarefAgencyListIndex = Math.max(_qarefAgencyListIndex - 1, 0);
+      opts.forEach(function(o, i) { o.style.background = i === _qarefAgencyListIndex ? "#eff6ff" : ""; });
+    } else if (e.key === "Enter" && _qarefAgencyListIndex >= 0) {
+      e.preventDefault();
+      selectQarefAgency(opts[_qarefAgencyListIndex].dataset.name);
+    } else if (e.key === "Escape") {
+      list.style.display = "none";
+    }
+  }
+
+  function qarefAddressInput(query) {
+    _qarefAddressCoords = null; // clear confirmed coords on any new input
+    clearTimeout(_qarefAddressTimer);
+    var list = document.getElementById("qaref-address-list");
+    if (!query.trim() || query.length < 3) { list.style.display = "none"; list.innerHTML = ""; return; }
+    _qarefAddressTimer = setTimeout(async function() {
+      try {
+        var url = "https://api.mapbox.com/geocoding/v5/mapbox.places/"
+          + encodeURIComponent(query)
+          + ".json?access_token=" + mapboxgl.accessToken
+          + "&country=US&limit=6&types=address,postcode,place";
+        var res  = await fetch(url);
+        var json = await res.json();
+        var features = json.features || [];
+        if (!features.length) { list.style.display = "none"; return; }
+        list.innerHTML = features.map(function(f, i) {
+          return "<div class='qaref-agency-opt' data-idx='" + i + "' onmousedown='selectQarefAddress(" + i + ",this)'>" + escHtml(f.place_name) + "</div>";
+        }).join("");
+        list._features = features;
+        list.style.display = "block";
+        _qarefAddressIndex = -1;
+      } catch(e) { /* silent */ }
+    }, 300);
+  }
+
+  function selectQarefAddress(idx, el) {
+    var list = document.getElementById("qaref-address-list");
+    var f    = list._features && list._features[idx];
+    if (!f) return;
+    _qarefAddressCoords = { lng: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], place_name: f.place_name };
+    document.getElementById("qaref-address-input").value = f.place_name;
+    list.style.display = "none";
+  }
+
+  function qarefAddressKeydown(e) {
+    var list = document.getElementById("qaref-address-list");
+    var opts = list.querySelectorAll(".qaref-agency-opt");
+    if (!opts.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      _qarefAddressIndex = Math.min(_qarefAddressIndex + 1, opts.length - 1);
+      opts.forEach(function(o, i) { o.style.background = i === _qarefAddressIndex ? "#eff6ff" : ""; });
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      _qarefAddressIndex = Math.max(_qarefAddressIndex - 1, 0);
+      opts.forEach(function(o, i) { o.style.background = i === _qarefAddressIndex ? "#eff6ff" : ""; });
+    } else if (e.key === "Enter" && _qarefAddressIndex >= 0) {
+      e.preventDefault();
+      selectQarefAddress(_qarefAddressIndex, opts[_qarefAddressIndex]);
+    } else if (e.key === "Escape") {
+      list.style.display = "none";
+    }
+  }
+
+  function toggleQarefDisc(btn) {
+    var disc = btn.dataset.disc;
+    var colors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23", ST: "#6b7280" };
+    var col = colors[disc] || "#6b7280";
+    if (btn.classList.contains("selected")) {
+      btn.classList.remove("selected");
+      btn.style.background = "#f8fafd";
+      btn.style.color = "#526480";
+      btn.style.borderColor = "#e2e8f0";
+    } else {
+      btn.classList.add("selected");
+      btn.style.background = col;
+      btn.style.color = "#fff";
+      btn.style.borderColor = "transparent";
+    }
+  }
+
+  async function submitQuickAddReferral() {
+    var agency  = (_qarefSelectedAgency || document.getElementById("qaref-agency-input").value || "").trim();
+    var address = document.getElementById("qaref-address-input").value.trim();
+    var discs   = Array.from(document.querySelectorAll(".qaref-disc-btn.selected")).map(function(b) { return b.dataset.disc; });
+
+    var patient = document.getElementById("qaref-patient-input").value.trim();
+    if (!patient) { showToast("Please enter a patient name.", "warning"); document.getElementById("qaref-patient-input").focus(); return; }
+    if (!agency)  { showToast("Please enter an agency name.", "warning"); return; }
+    if (!_qarefAddressCoords) { showToast("Please select an address from the suggestions.", "warning"); document.getElementById("qaref-address-input").focus(); return; }
+
+    var lng       = _qarefAddressCoords.lng;
+    var lat       = _qarefAddressCoords.lat;
+    var placeName = _qarefAddressCoords.place_name;
+
+    var btn = document.getElementById("qaref-submit");
+    btn.disabled = true;
+    btn.textContent = "Saving…";
+
+    try {
+
+      btn.textContent = "Saving…";
+
+      var { error } = await supabaseClient.from("referrals").insert({
+        patient_name:  patient,
+        agency:        agency,
+        address:       placeName,
+        lat:           lat,
+        lng:           lng,
+        disciplines:   discs.length ? discs : null,
+        status:        "open",
+        referral_date: new Date().toISOString()
+      });
+
+      if (error) throw error;
+
+      closeQuickAddReferral();
+      showToast("Referral added! Reloading overlay…", "success");
+
+      // Reload overlay if active, otherwise activate it
+      if (appState.referralOverlayActive) {
+        clearReferralOverlay();
+        await loadReferralOverlay();
+      } else {
+        await loadReferralOverlay();
+      }
+
+    } catch (err) {
+      console.error("Quick add referral error:", err);
+      showToast("Could not save referral: " + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = "Save Referral";
+    }
+  }
+
   </script>
 </body>
 </html>
