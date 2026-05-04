@@ -20,7 +20,7 @@
       --danger: #bf3f34;
       --danger-strong: #952d24;
       --selected: #fff1ca;
-      --pt: #2463eb;
+      --pt: #dc2626;
       --pta: #1e9b58;
       --ot: #7c3aed;
       --ota: #ef7d23;
@@ -399,6 +399,14 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
+    }
+
+    #zoom-root {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      transition: transform 160ms ease, width 160ms ease, height 160ms ease;
     }
 
     .app-shell {
@@ -1001,6 +1009,47 @@
       padding-left: 8px;
       margin-top: 6px;
     }
+    .tool-link-row {
+      display: flex;
+      justify-content: center;
+      padding: 4px 0 2px;
+    }
+    .tool-link-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px 3px 7px;
+      border: 1px solid #c8d5e8;
+      border-radius: 999px;
+      background: #f0f4fa;
+      color: #4a6080;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+    }
+    .tool-link-btn:hover { background: #e2eaf5; border-color: #a0b4cc; }
+    .tool-link-btn--linked { border-color: #2558a3; color: #2558a3; background: #e8f0fb; }
+    .tool-link-btn--linked:hover { background: #d4e4f7; }
+    .tool-link-icon { width: 13px; height: 13px; flex-shrink: 0; }
+    .tool-link-btn--unlinked { opacity: 0.6; }
+    .zip-lock-btn {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 6px;
+      padding: 2px 4px;
+      border: 1px solid transparent;
+      border-radius: 5px;
+      background: none;
+      cursor: pointer;
+      vertical-align: middle;
+      transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+      opacity: 0.55;
+    }
+    .zip-lock-btn:hover { background: #e8f0fb; border-color: #a0b4cc; opacity: 1; }
+    .zip-lock-btn--locked { opacity: 0.55; }
+    .zip-lock-btn--unlocked { opacity: 1; color: #2558a3; border-color: #2558a3; background: #e8f0fb; }
+    .zip-lock-icon { width: 13px; height: 13px; }
     .radius-panel-controls {
       display: flex;
       align-items: center;
@@ -1375,46 +1424,53 @@
 
     /* ── Custom compass rose ── */
     #compass-rose {
-      position: absolute;
-      bottom: 110px;
-      right: 16px;
-      width: 72px;
-      height: 72px;
-      z-index: 10;
+      position: relative;
+      width: 52px;
+      height: 52px;
       cursor: pointer;
-      filter: drop-shadow(0 2px 6px rgba(12,22,50,0.18));
+      pointer-events: all;
+      flex-shrink: 0;
+      background: rgba(10, 20, 45, 0.62);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s, box-shadow 0.2s;
     }
+    #compass-rose:hover { background: rgba(10, 20, 45, 0.80); box-shadow: 0 0 12px rgba(120,160,255,0.2); }
     #compass-rose svg {
-      width: 72px;
-      height: 72px;
+      width: 40px;
+      height: 40px;
       transition: transform 0.15s ease;
       display: block;
     }
-    #compass-rose:hover { filter: drop-shadow(0 3px 10px rgba(12,22,50,0.28)); }
     /* Cardinal labels — fixed, don't rotate */
     #compass-rose .cr-n,
     #compass-rose .cr-s,
     #compass-rose .cr-e,
     #compass-rose .cr-w {
       position: absolute;
-      font-size: 9px;
+      font-size: 8px;
       font-weight: 800;
-      color: #18274a;
+      color: rgba(255,255,255,0.55);
       font-family: inherit;
       letter-spacing: 0.04em;
       line-height: 1;
       pointer-events: none;
     }
-    #compass-rose .cr-n { top: 0px;  left: 50%; transform: translateX(-50%); }
-    #compass-rose .cr-s { bottom: 0px; left: 50%; transform: translateX(-50%); }
-    #compass-rose .cr-e { right: 0px; top: 50%; transform: translateY(-50%); }
-    #compass-rose .cr-w { left: 0px;  top: 50%; transform: translateY(-50%); }
+    #compass-rose .cr-n { top: 2px;  left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.85); }
+    #compass-rose .cr-s { bottom: 2px; left: 50%; transform: translateX(-50%); }
+    #compass-rose .cr-e { right: 2px; top: 50%; transform: translateY(-50%); }
+    #compass-rose .cr-w { left: 2px;  top: 50%; transform: translateY(-50%); }
     /* Hide default Mapbox compass */
     .mapboxgl-ctrl-bottom-right { display: none !important; }
 
     /* ── AI Assistant Widget ── */
     #dc-assistant-widget {
-      position: absolute;
+      position: fixed;
       bottom: 52px;
       right: 18px;
       z-index: 20;
@@ -2212,6 +2268,50 @@
       color: var(--accent);
       box-shadow: 0 1px 3px rgba(12, 22, 50, 0.1);
     }
+    .sidebar-view-switch {
+      margin-top: 10px;
+      width: 100%;
+    }
+    .sidebar-view-switch button { flex: 1; justify-content: center; }
+
+    .toolbar-layer-toggles {
+      display: inline-flex;
+      align-items: center;
+      background: rgba(190, 210, 235, 0.35);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .toolbar-layer-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.15s ease;
+      line-height: 1;
+      opacity: 0.6;
+    }
+    .toolbar-layer-btn svg {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+    }
+    .toolbar-layer-btn:hover { color: var(--text); background: rgba(190, 210, 235, 0.3); opacity: 1; }
+    .toolbar-layer-btn.active { background: #fff; color: var(--accent); box-shadow: 0 1px 3px rgba(12,22,50,0.1); opacity: 1; }
+    .layer-btn-wrap { display: flex; flex-direction: column; align-items: stretch; border-radius: 6px; overflow: hidden; }
+    .layer-load-bar { height: 3px; background: linear-gradient(90deg, transparent 0%, #22c55e 40%, #86efac 60%, transparent 100%); background-size: 200% 100%; animation: layerBarSlide 1.1s linear infinite; opacity: 0; transition: opacity 0.2s; pointer-events: none; }
+    .layer-load-bar.loading { opacity: 1; }
+    @keyframes layerBarSlide { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
     /* ── Tier 1 (≤1450px): reduce cell padding, tighten buttons ── */
     @media (max-width: 1450px) {
@@ -2591,7 +2691,7 @@
       top: 16px;
       left: 16px;
       height: 340px;
-      max-height: calc(100% - 32px);
+      max-height: calc(100% - 24px);
       display: grid;
       grid-template-rows: auto minmax(0, 1fr);
       gap: 8px;
@@ -2662,6 +2762,79 @@
     }
 
     /* ── Toolbar status cluster ── */
+    .map-hud-group {
+      position: absolute;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      pointer-events: none;
+    }
+    .map-hud {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      background: rgba(10, 20, 45, 0.62);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 12px;
+      padding: 6px 10px;
+      white-space: nowrap;
+    }
+    .map-hud .toolbar-stat-chip {
+      background: transparent;
+      border-color: transparent;
+      min-width: 36px;
+      padding: 2px 6px;
+    }
+    .map-hud .toolbar-stat-value { color: rgba(255,255,255,0.3); }
+    .map-hud .toolbar-stat-label { color: rgba(255,255,255,0.25); }
+    .map-hud .toolbar-stat-chip.active {
+      background: rgba(30, 77, 140, 0.25);
+      border-color: rgba(37, 99, 235, 0.35);
+      box-shadow: 0 0 10px rgba(30, 77, 140, 0.5);
+    }
+    .map-hud .toolbar-stat-chip.active .toolbar-stat-value { color: #7eb8ff; }
+    .map-hud .toolbar-stat-chip.active .toolbar-stat-label { color: #7eb8ff; opacity: 0.75; }
+    .map-hud .toolbar-stat-chip.selected-active {
+      background: rgba(36, 99, 235, 0.22);
+      border-color: rgba(36, 99, 235, 0.45);
+      box-shadow: 0 0 14px rgba(36, 99, 235, 0.55);
+    }
+    .map-hud .toolbar-stat-chip.selected-active .toolbar-stat-value { color: #93c5fd; }
+    .map-hud .toolbar-stat-chip.selected-active .toolbar-stat-label { color: #93c5fd; opacity: 0.75; }
+    .hud-divider { width: 1px; height: 24px; background: rgba(255,255,255,0.12); margin: 0 4px; flex-shrink: 0; }
+    .map-hud .toolbar-disc-pill { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.28); border-color: transparent; }
+    .map-hud .toolbar-disc-pill.active { color: #fff; background: var(--disc-color); box-shadow: 0 0 9px var(--disc-color); }
+    .hud-clear-btn {
+      pointer-events: all;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.14);
+      color: rgba(255,255,255,0.45);
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.4px;
+      cursor: pointer;
+      transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .hud-clear-btn svg { width: 11px; height: 11px; flex-shrink: 0; }
+    .hud-clear-btn:hover {
+      background: rgba(239, 68, 68, 0.18);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #fca5a5;
+      box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+    }
     .toolbar-stat-cluster {
       display: flex;
       align-items: center;
@@ -2968,6 +3141,7 @@
       width: 100%;
       height: 100%;
       background: #d5dff0;
+      will-change: transform;
     }
 
     .map-overlay {
@@ -4548,7 +4722,7 @@
     }
 
     .version-indicator {
-      position: absolute;
+      position: fixed;
       right: 18px;
       bottom: 18px;
       padding: 4px 6px 4px 8px;
@@ -5170,6 +5344,7 @@
     </div>
   </div>
 
+  <div id="zoom-root">
   <div class="app-shell" id="app-shell">
 
     <aside class="sidebar" id="sidebar">
@@ -5181,6 +5356,10 @@
           </div>
         </div>
         <h1>Clinician Coverage Dashboard</h1>
+        <div class="toolbar-view-switch sidebar-view-switch" role="group" aria-label="Sidebar view switch">
+          <button id="view-switch-clinicians" type="button" class="active" title="Open Clinician List in sidebar"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Clinicians</button>
+          <button id="view-switch-services" type="button" title="Open Completed Services in sidebar"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Services</button>
+        </div>
       </div>
       <div class="sidebar-scroll">
         <section class="controls">
@@ -5355,12 +5534,18 @@
       <div class="top-toolbar">
         <div class="toolbar-row">
 
-          <!-- ── Cell 0: View Switch ── -->
-          <div class="toolbar-cell" style="padding-left:0">
-            <div class="toolbar-view-switch" role="group" aria-label="Sidebar view switch">
-              <button id="view-switch-clinicians" type="button" class="active" title="Open Clinician List in sidebar"><svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>Clinicians</button>
-              <button id="view-switch-services" type="button" title="Open Completed Services in sidebar"><svg viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Services</button>
+          <!-- ── User chip + logout ── -->
+          <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
+            <button type="button" class="um-manage-btn admin-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
+            <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
+              <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
+              <div style="display:flex;flex-direction:column;line-height:1.2">
+                <span id="toolbar-user-email" style="font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+                <span class="toolbar-user-role" id="toolbar-user-role">loading…</span>
+              </div>
             </div>
+            <button type="button" class="toolbar-logout-btn" id="toolbar-logout" style="display:none;">Sign out</button>
+            <div id="realtime-dot" title="Connecting..." style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;transition:background 0.3s;display:none;"></div>
           </div>
 
           <div class="toolbar-sep"></div>
@@ -5386,6 +5571,28 @@
             <div class="toolbar-pin-mode-toggle" role="group" aria-label="Clinician pin display mode">
               <button id="pin-mode-work" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="work" aria-pressed="true" title="Show clinician work center locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><circle cx="12" cy="12" r="4"/></svg>Work</span></button>
               <button id="pin-mode-home" class="btn-secondary toolbar-pin-mode-button" type="button" data-pin-mode-toggle="home" aria-pressed="false" title="Show clinician home locations"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-4 0v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>Home</span></button>
+            </div>
+          </div>
+
+          <div class="toolbar-sep"></div>
+
+          <!-- ── Map layer quick toggles ── -->
+          <div class="toolbar-cell" style="flex-shrink:0">
+            <div class="toolbar-layer-toggles" role="group" aria-label="Map layer visibility">
+              <div class="layer-btn-wrap">
+                <button id="toolbar-toggle-clinicians" type="button" class="toolbar-layer-btn" title="Show/hide clinicians on map">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                  Clinicians
+                </button>
+                <div class="layer-load-bar" id="clinician-load-bar"></div>
+              </div>
+              <div class="layer-btn-wrap">
+                <button id="toolbar-toggle-services" type="button" class="toolbar-layer-btn" title="Show/hide completed services on map">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                  Services
+                </button>
+                <div class="layer-load-bar" id="services-load-bar"></div>
+              </div>
             </div>
           </div>
 
@@ -5445,42 +5652,34 @@
           <input id="zip-coverage-search" type="text" aria-hidden="true" tabindex="-1" style="display:none">
           <button id="run-zip-coverage-check" type="button" style="display:none" tabindex="-1"></button>
 
-          <div class="toolbar-sep"></div>
 
-          <!-- ── Status cluster ── -->
-          <div class="toolbar-cell toolbar-stat-cluster">
-            <div class="toolbar-stat-chip" id="toolbar-visible-chip">
-              <span class="toolbar-stat-value" id="visible-count">0</span>
-              <span class="toolbar-stat-label">Visible</span>
-            </div>
-            <div class="toolbar-stat-chip" id="toolbar-selected-chip">
-              <span class="toolbar-stat-value" id="selected-count">0</span>
-              <span class="toolbar-stat-label">Selected</span>
-            </div>
-            <div class="toolbar-disc-pills">
-              <span class="toolbar-disc-pill" data-toolbar-disc="PT"  style="--disc-color:#2463eb">PT</span>
-              <span class="toolbar-disc-pill" data-toolbar-disc="PTA" style="--disc-color:#1e9b58">PTA</span>
-              <span class="toolbar-disc-pill" data-toolbar-disc="OT"  style="--disc-color:#7c3aed">OT</span>
-              <span class="toolbar-disc-pill" data-toolbar-disc="OTA" style="--disc-color:#ef7d23">OTA</span>
-            </div>
+        </div>
+      </div>
+
+      <!-- ── Map HUD row: compass + counts + discipline pills ── -->
+      <div id="map-hud-group" class="map-hud-group">
+        <!-- compass-rose injected here by JS -->
+        <div id="map-hud" class="map-hud">
+          <div class="toolbar-stat-chip" id="toolbar-visible-chip">
+            <span class="toolbar-stat-value" id="visible-count">0</span>
+            <span class="toolbar-stat-label">Visible</span>
           </div>
-
-          <div class="toolbar-sep"></div>
-
-          <!-- ── User chip + logout ── -->
-          <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
-            <button type="button" class="um-manage-btn admin-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
-            <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
-              <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
-              <div style="display:flex;flex-direction:column;line-height:1.2">
-                <span id="toolbar-user-email" style="font-size:11px;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
-                <span class="toolbar-user-role" id="toolbar-user-role">loading…</span>
-              </div>
-            </div>
-            <button type="button" class="toolbar-logout-btn" id="toolbar-logout" style="display:none;">Sign out</button>
-            <div id="realtime-dot" title="Connecting..." style="width:8px;height:8px;border-radius:50%;background:#f59e0b;flex-shrink:0;transition:background 0.3s;display:none;"></div>
+          <div class="toolbar-stat-chip" id="toolbar-selected-chip">
+            <span class="toolbar-stat-value" id="selected-count">0</span>
+            <span class="toolbar-stat-label">Selected</span>
           </div>
-
+          <div class="hud-divider"></div>
+          <div class="toolbar-disc-pills">
+            <span class="toolbar-disc-pill" data-toolbar-disc="PT"  style="--disc-color:#dc2626">PT</span>
+            <span class="toolbar-disc-pill" data-toolbar-disc="PTA" style="--disc-color:#1e9b58">PTA</span>
+            <span class="toolbar-disc-pill" data-toolbar-disc="OT"  style="--disc-color:#7c3aed">OT</span>
+            <span class="toolbar-disc-pill" data-toolbar-disc="OTA" style="--disc-color:#ef7d23">OTA</span>
+          </div>
+          <div class="hud-divider"></div>
+          <button id="hud-clear-btn" class="hud-clear-btn" type="button" title="Clear all filters and reset map">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            Clear
+          </button>
         </div>
       </div>
 
@@ -5499,19 +5698,12 @@
           </div>
         </div>
       </div>
-        <div class="version-indicator" id="version-indicator">
-          <button class="zoom-nudge" id="zoom-out" title="Zoom out (Ctrl + scroll)">−</button>
-          <span class="zoom-label" id="zoom-label">100%</span>
-          <button class="zoom-nudge" id="zoom-in" title="Zoom in (Ctrl + scroll)">+</button>
-          <span class="zoom-rev">v1.0</span>
-          <button id="tour-launch-btn" class="zoom-nudge tour-launch-btn" title="Feature tour">?</button>
-        </div>
       <div class="floating-status-panel">
         <div class="toolbar-tool-label">Coverage</div>
         <div class="status-card">
           <div class="helper-text" id="selection-message">Load clinicians to begin.</div>
           <div class="zip-coverage-shell">
-            <div class="radius-coverage-title"><span class="section-icon">🗂</span> ZIP Coverage Results</div>
+            <div class="radius-coverage-title"><span class="section-icon">🗂</span> ZIP Coverage Results<button id="zip-lock-btn" class="zip-lock-btn zip-lock-btn--locked" type="button" title="ZIP is locked — lens moves freely without updating ZIP. Click to unlock."><svg class="zip-lock-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button></div>
             <div class="zip-panel-search-row">
               <input id="zip-panel-search" class="toolbar-input" type="text" placeholder="Enter ZIP" maxlength="10" aria-label="Enter patient ZIP" autocomplete="new-password" autocorrect="off" autocapitalize="off" spellcheck="false">
               <button id="run-zip-panel-check" class="btn-secondary" type="button">Check</button>
@@ -5528,6 +5720,12 @@
             <div id="zip-coverage-results" class="zip-coverage-results"></div>
           </div>
           <div id="zip-coverage-resize-handle" class="zip-coverage-resize-handle" role="separator" aria-label="Resize ZIP coverage results" tabindex="0"></div>
+          <div class="tool-link-row">
+            <button id="tool-link-btn" class="tool-link-btn tool-link-btn--linked" type="button" title="ZIP and Lens snap together on search — click to unlink">
+              <svg class="tool-link-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+              <span class="tool-link-label">Linked</span>
+            </button>
+          </div>
           <!-- ── Radius step controls — live in panel, same IDs as before ── -->
           <div id="radius-panel-controls" class="radius-panel-controls" hidden>
             <button id="radius-mode-toggle" class="btn-secondary radius-panel-mode-btn" type="button" title="Toggle lens selection mode"><span class="btn-icon"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>Lens</span></button>
@@ -5540,39 +5738,6 @@
           <div id="radius-coverage-shell" class="radius-coverage-shell" hidden></div>
         </div>
         <div id="floating-status-resize-handle" class="floating-status-resize-handle" role="separator" aria-label="Resize status panel" aria-orientation="horizontal" tabindex="0"></div>
-      </div>
-      <!-- ── AI Assistant Widget ── -->
-      <div id="dc-assistant-widget">
-        <button id="dc-assistant-toggle" class="dc-assistant-toggle" title="DependableCare AI Assistant">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          <span class="dc-assistant-toggle-label">AI Assistant</span>
-        </button>
-        <div id="dc-assistant-panel" class="dc-assistant-panel" hidden>
-          <div class="dc-assistant-header">
-            <div class="dc-assistant-header-info">
-              <div class="dc-assistant-avatar">DC</div>
-              <div>
-                <div class="dc-assistant-title">DependableCare Assistant</div>
-                <div class="dc-assistant-subtitle">Staffing · Coverage · Placement</div>
-              </div>
-            </div>
-            <div class="dc-assistant-header-actions">
-              <button id="dc-assistant-minimize" class="dc-assistant-minimize" title="Minimize">—</button>
-              <button id="dc-assistant-close" class="dc-assistant-close" title="Close">✕</button>
-            </div>
-          </div>
-          <div id="dc-assistant-messages" class="dc-assistant-messages">
-            <div class="dc-assistant-msg assistant">
-              <div class="dc-assistant-bubble">Hi! I can help you find clinicians, check coverage, and review placement options. Try asking: <em>"Who are the top rated PTs near Skokie?"</em></div>
-            </div>
-          </div>
-          <div class="dc-assistant-input-row">
-            <textarea id="dc-assistant-input" class="dc-assistant-input" placeholder="Ask about clinicians, coverage, or placement…" rows="1"></textarea>
-            <button id="dc-assistant-send" class="dc-assistant-send" title="Send">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-            </button>
-          </div>
-        </div>
       </div>
 
       <div class="map-overlay" style="display:none">
@@ -6161,6 +6326,50 @@
       </div>
     </main>
   </div>
+  </div><!-- #zoom-root -->
+
+  <!-- ── Fixed viewport overlays (outside zoom-root so CSS transform doesn't affect them) ── -->
+  <div class="version-indicator" id="version-indicator">
+    <button class="zoom-nudge" id="zoom-out" title="Zoom out (Ctrl + scroll)">−</button>
+    <span class="zoom-label" id="zoom-label">100%</span>
+    <button class="zoom-nudge" id="zoom-in" title="Zoom in (Ctrl + scroll)">+</button>
+    <span class="zoom-rev">v1.0</span>
+    <button id="tour-launch-btn" class="zoom-nudge tour-launch-btn" title="Feature tour">?</button>
+  </div>
+
+  <!-- ── AI Assistant Widget ── -->
+  <div id="dc-assistant-widget">
+    <button id="dc-assistant-toggle" class="dc-assistant-toggle" title="DependableCare AI Assistant">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+      <span class="dc-assistant-toggle-label">AI Assistant</span>
+    </button>
+    <div id="dc-assistant-panel" class="dc-assistant-panel" hidden>
+      <div class="dc-assistant-header">
+        <div class="dc-assistant-header-info">
+          <div class="dc-assistant-avatar">DC</div>
+          <div>
+            <div class="dc-assistant-title">DependableCare Assistant</div>
+            <div class="dc-assistant-subtitle">Staffing · Coverage · Placement</div>
+          </div>
+        </div>
+        <div class="dc-assistant-header-actions">
+          <button id="dc-assistant-minimize" class="dc-assistant-minimize" title="Minimize">—</button>
+          <button id="dc-assistant-close" class="dc-assistant-close" title="Close">✕</button>
+        </div>
+      </div>
+      <div id="dc-assistant-messages" class="dc-assistant-messages">
+        <div class="dc-assistant-msg assistant">
+          <div class="dc-assistant-bubble">Hi! I can help you find clinicians, check coverage, and review placement options. Try asking: <em>"Who are the top rated PTs near Skokie?"</em></div>
+        </div>
+      </div>
+      <div class="dc-assistant-input-row">
+        <textarea id="dc-assistant-input" class="dc-assistant-input" placeholder="Ask about clinicians, coverage, or placement…" rows="1"></textarea>
+        <button id="dc-assistant-send" class="dc-assistant-send" title="Send">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
 
   <!-- ── Quick Add Referral Modal ── -->
   <div id="quick-add-ref-modal" onclick="if(event.target===this)closeQuickAddReferral()">
@@ -6197,7 +6406,7 @@
       <div class="qaref-field">
         <div class="qaref-label">Disciplines Needed</div>
         <div class="qaref-discs">
-          <div class="qaref-disc-btn" data-disc="PT"  onclick="toggleQarefDisc(this)" style="--dc:#2463eb">PT</div>
+          <div class="qaref-disc-btn" data-disc="PT"  onclick="toggleQarefDisc(this)" style="--dc:#dc2626">PT</div>
           <div class="qaref-disc-btn" data-disc="PTA" onclick="toggleQarefDisc(this)" style="--dc:#1e9b58">PTA</div>
           <div class="qaref-disc-btn" data-disc="OT"  onclick="toggleQarefDisc(this)" style="--dc:#7c3aed">OT</div>
           <div class="qaref-disc-btn" data-disc="OTA" onclick="toggleQarefDisc(this)" style="--dc:#ef7d23">OTA</div>
@@ -6228,6 +6437,10 @@
     })();
 
     mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
+    var _toolsLinked = true;
+    var _suppressLinkSnap = false;
+    var _zipLocked = true;
+    var _zipClearedByUser = false; // true after explicit clear — suppresses lens→ZIP auto-snap
     const supabaseUrl = "https://jpemlcuxjvynlbeygukb.supabase.co";
     const supabaseKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
     // Capture URL BEFORE Supabase client initializes — createClient clears the hash immediately
@@ -6661,7 +6874,7 @@
 
     let completedServiceLoadTimerHandle = null;
 
-    const disciplineColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
+    const disciplineColors = { PT: "#dc2626", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
     const profilePanelWidthStorageKey = "dependablecareProfilePanelWidth";
     const therapyBossPinnedStorageKey = "dependablecareTherapyBossPinned";
     const clinicianPinModeStorageKey = "dependablecareClinicianPinMode";
@@ -7055,6 +7268,7 @@
     const appState = {
       clinicians: [],
       filteredClinicians: [],
+      filteredIds: new Set(),
       agencies: [],
       completedServiceSites: [],
       markersById: new Map(),
@@ -7157,6 +7371,8 @@
       floatingStatusResizeActive: false,
       floatingStatusResizeStartY: 0,
       floatingStatusResizeStartHeight: 0,
+      floatingStatusResizeBoundsMin: 0,
+      floatingStatusResizeBoundsMax: 0,
       sidebarPanelWidth: null,
       sidebarResizeActive: false,
       sidebarResizeStartX: 0,
@@ -7198,7 +7414,9 @@
       zoom: 10.5,
       pitchWithRotate: false,
       maxPitch: 0,
-      bearingSnap: 7
+      bearingSnap: 7,
+      antialias: false,
+      fadeDuration: 0
     });
 
     // ── Custom compass rose ──
@@ -7207,33 +7425,29 @@
       rose.id = "compass-rose";
       rose.innerHTML = `
         <svg viewBox="0 0 120 120" xmlns="http://www.w3.org/2000/svg">
-          <!-- outer ring -->
-          <circle cx="60" cy="60" r="56" fill="rgba(255,255,255,0.92)" stroke="#c8d5e8" stroke-width="1.5"/>
-          <circle cx="60" cy="60" r="49" fill="none" stroke="#c8d5e8" stroke-width="0.8" stroke-dasharray="3,4"/>
-          <!-- cardinal points — filled dark for N/S, outline for E/W -->
-          <!-- N -->
-          <polygon points="60,8 66,52 60,58 54,52" fill="#18274a"/>
+          <!-- N — bright white -->
+          <polygon points="60,10 66,54 60,60 54,54" fill="rgba(255,255,255,0.95)"/>
           <!-- S -->
-          <polygon points="60,112 66,68 60,62 54,68" fill="#c8d5e8" stroke="#18274a" stroke-width="0.8"/>
+          <polygon points="60,110 66,66 60,60 54,66" fill="rgba(255,255,255,0.28)"/>
           <!-- E -->
-          <polygon points="112,60 68,54 62,60 68,66" fill="#c8d5e8" stroke="#18274a" stroke-width="0.8"/>
+          <polygon points="110,60 66,54 60,60 66,66" fill="rgba(255,255,255,0.28)"/>
           <!-- W -->
-          <polygon points="8,60 52,54 58,60 52,66" fill="#c8d5e8" stroke="#18274a" stroke-width="0.8"/>
-          <!-- intercardinal short ticks -->
-          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(45,60,60)"/>
-          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(135,60,60)"/>
-          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(225,60,60)"/>
-          <polygon points="60,18 62,42 60,44 58,42" fill="#18274a" opacity="0.25" transform="rotate(315,60,60)"/>
-          <!-- center dot -->
-          <circle cx="60" cy="60" r="4" fill="#18274a"/>
-          <circle cx="60" cy="60" r="2" fill="#fff"/>
-          <!-- labels — these stay fixed (not inside the rotating group) -->
+          <polygon points="10,60 54,54 60,60 54,66" fill="rgba(255,255,255,0.28)"/>
+          <!-- intercardinal ticks -->
+          <polygon points="60,20 62,44 60,46 58,44" fill="rgba(255,255,255,0.18)" transform="rotate(45,60,60)"/>
+          <polygon points="60,20 62,44 60,46 58,44" fill="rgba(255,255,255,0.18)" transform="rotate(135,60,60)"/>
+          <polygon points="60,20 62,44 60,46 58,44" fill="rgba(255,255,255,0.18)" transform="rotate(225,60,60)"/>
+          <polygon points="60,20 62,44 60,46 58,44" fill="rgba(255,255,255,0.18)" transform="rotate(315,60,60)"/>
+          <!-- center -->
+          <circle cx="60" cy="60" r="5" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.4)" stroke-width="1"/>
+          <circle cx="60" cy="60" r="2" fill="rgba(255,255,255,0.7)"/>
         </svg>
         <span class="cr-n">N</span>
         <span class="cr-s">S</span>
         <span class="cr-e">E</span>
         <span class="cr-w">W</span>`;
-      document.getElementById("map").appendChild(rose);
+      var hudGroup = document.getElementById("map-hud-group");
+      hudGroup.insertBefore(rose, hudGroup.firstChild);
 
       // Rotate the SVG (not the labels) with map bearing
       map.on("rotate", function() {
@@ -7791,6 +8005,25 @@
 
     function syncClinicianVisibilityToggle() {
       elements.showCliniciansToggle.checked = appState.showClinicians;
+      var btn = document.getElementById("toolbar-toggle-clinicians");
+      if (btn) btn.classList.toggle("active", appState.showClinicians);
+    }
+
+    function showClinicianLoadBar() {
+      var b = document.getElementById("clinician-load-bar");
+      if (b) b.classList.add("loading");
+    }
+    function hideClinicianLoadBar() {
+      var b = document.getElementById("clinician-load-bar");
+      if (b) b.classList.remove("loading");
+    }
+    function showServicesLoadBar() {
+      var b = document.getElementById("services-load-bar");
+      if (b) b.classList.add("loading");
+    }
+    function hideServicesLoadBar() {
+      var b = document.getElementById("services-load-bar");
+      if (b) b.classList.remove("loading");
     }
 
     function buildAgencyDraftFromInputs() {
@@ -8064,6 +8297,7 @@
     }
 
     function openAgencyProfile(agencyId) {
+      ensureAgenciesLoaded();
       const agency = getAgencyById(agencyId);
       if (!agency) return;
 
@@ -8358,6 +8592,14 @@
         essential: true
       });
       syncAgencyMapDisplay();
+    }
+
+    var _agencyLoadPromise = null;
+    function ensureAgenciesLoaded() {
+      if (appState.hasLoadedAgencies) return Promise.resolve();
+      if (_agencyLoadPromise) return _agencyLoadPromise;
+      _agencyLoadPromise = loadAgencies().finally(function() { _agencyLoadPromise = null; });
+      return _agencyLoadPromise;
     }
 
     async function loadAgencies() {
@@ -8992,6 +9234,205 @@
       ].join("");
     }
 
+    // ── Clinician GeoJSON layer (hybrid: circles for all, DOM marker for focused) ──
+
+    function ensureClinicianLayer() {
+      if (map.getSource("clinician-pins")) return;
+      map.addSource("clinician-pins", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+      var discColor = ["match", ["get", "discipline"],
+        "PT", "#dc2626", "PTA", "#1e9b58", "OT", "#7c3aed", "OTA", "#ef7d23", "#6b7280"];
+      var noneYet = ["literal", false]; // placeholder — applyClinicianLayerFilters() sets real filters
+      // Base rings — hollow circles: transparent fill, discipline-colored stroke
+      map.addLayer({
+        id: "clinician-circles",
+        type: "circle",
+        source: "clinician-pins",
+        filter: noneYet,
+        paint: {
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": 11,
+          "circle-stroke-color": discColor,
+          "circle-stroke-width": 3,
+          "circle-opacity": 1
+        }
+      });
+      // Inactive rings — muted colors, low opacity
+      map.addLayer({
+        id: "clinician-inactive",
+        type: "circle",
+        source: "clinician-pins",
+        filter: noneYet,
+        paint: {
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": 11,
+          "circle-stroke-color": ["match", ["get", "discipline"],
+            "PT", "#f09090", "PTA", "#7ab89a", "OT", "#a98ed6", "OTA", "#e0a87a", "#b0b8c0"],
+          "circle-stroke-width": 3,
+          "circle-opacity": 0.5
+        }
+      });
+      // Discipline abbreviation — colored text with white halo, centered inside ring
+      map.addLayer({
+        id: "clinician-disc-label",
+        type: "symbol",
+        source: "clinician-pins",
+        filter: noneYet,
+        layout: {
+          "text-field": ["get", "discipline"],
+          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          "text-size": 7,
+          "text-anchor": "center",
+          "text-offset": [0, 0],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true
+        },
+        paint: {
+          "text-color": discColor,
+          "text-halo-color": "rgba(255,255,255,0.95)",
+          "text-halo-width": 1.5
+        }
+      });
+      // Paused ring — amber stroke over paused clinicians
+      map.addLayer({
+        id: "clinician-paused-ring",
+        type: "circle",
+        source: "clinician-pins",
+        filter: noneYet,
+        paint: {
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": 15,
+          "circle-stroke-color": "rgba(231,178,77,0.9)",
+          "circle-stroke-width": 2.5
+        }
+      });
+      // Selected ring — dark navy stroke
+      map.addLayer({
+        id: "clinician-selected-ring",
+        type: "circle",
+        source: "clinician-pins",
+        filter: noneYet,
+        paint: {
+          "circle-color": "rgba(0,0,0,0)",
+          "circle-radius": 15,
+          "circle-stroke-color": "rgba(10,18,42,0.55)",
+          "circle-stroke-width": 2.5
+        }
+      });
+      // H/W label — small text top-right of each circle
+      map.addLayer({
+        id: "clinician-hw-label",
+        type: "symbol",
+        source: "clinician-pins",
+        filter: noneYet,
+        layout: {
+          "text-field": ["get", "locationSource"],
+          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          "text-size": 8.5,
+          "text-offset": [0.85, -0.85],
+          "text-anchor": "center"
+        },
+        paint: {
+          "text-color": "#1a2d52",
+          "text-halo-color": "rgba(255,255,255,0.95)",
+          "text-halo-width": 1.5
+        }
+      });
+      // New hire star — ★ above new clinicians
+      map.addLayer({
+        id: "clinician-new-star",
+        type: "symbol",
+        source: "clinician-pins",
+        filter: noneYet,
+        layout: {
+          "text-field": "★",
+          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          "text-size": 12,
+          "text-offset": [0, -1.4],
+          "text-anchor": "center"
+        },
+        paint: {
+          "text-color": "#f8d757",
+          "text-halo-color": "#7a5700",
+          "text-halo-width": 0.8
+        }
+      });
+    }
+
+    function buildClinicianFeature(clinician) {
+      var coords = getClinicianMapCoordinates(clinician);
+      if (!coords) return null;
+      var profileDraft = getProfileDraftForClinician(clinician) || getDefaultProfileDraft();
+      var statusInfo = getClinicianPopupStatusInfo(clinician);
+      var newInfo = getNewClinicianInfo(getProfileDraftDisplayedStartDate(profileDraft));
+      return {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [coords.lng, coords.lat] },
+        properties: {
+          id: clinician.id,
+          discipline: clinician.discipline || "",
+          status: statusInfo.status || "Active",
+          locationSource: coords.source === "home" ? "H" : "W",
+          isNew: newInfo.isNew
+        }
+      };
+    }
+
+    // Returns the array of clinician IDs that should be visible on the map right now.
+    // Lens spotlight IDs bypass the showClinicians toggle so the lens always shows pins.
+    function getVisibleClinicianIds() {
+      var ids = new Set();
+      if (appState.selectionCenter) {
+        var spotlight = appState.lensSpotlightIds || new Set();
+        spotlight.forEach(function(id) { ids.add(id); });
+      }
+      if (appState.showClinicians) {
+        appState.filteredIds.forEach(function(id) { ids.add(id); });
+      }
+      return Array.from(ids);
+    }
+
+    // Update all clinician layer filters without touching the GeoJSON source.
+    // This is O(1) GPU work vs O(n) setData — call this for any visibility change.
+    function applyClinicianLayerFilters() {
+      if (!map.getSource("clinician-pins") || !map.getLayer("clinician-circles")) return;
+      var visibleArr  = getVisibleClinicianIds();
+      var selectedArr = Array.from(appState.selectedIds || new Set());
+      var focusedId   = appState.focusedId || "__none__";
+      var vIn    = ["in", ["get", "id"], ["literal", visibleArr]];
+      var notFoc = ["!=", ["get", "id"], focusedId];
+      map.setFilter("clinician-circles",       ["all", vIn, notFoc, ["!=", ["get", "status"], "Inactive"]]);
+      map.setFilter("clinician-inactive",      ["all", vIn, notFoc, ["==", ["get", "status"], "Inactive"]]);
+      map.setFilter("clinician-disc-label",    ["all", vIn, notFoc]);
+      map.setFilter("clinician-paused-ring",   ["all", vIn, notFoc, ["==", ["get", "status"], "Paused"]]);
+      map.setFilter("clinician-selected-ring", ["all", vIn, notFoc, ["in", ["get", "id"], ["literal", selectedArr]]]);
+      map.setFilter("clinician-hw-label",      ["all", vIn, notFoc]);
+      map.setFilter("clinician-new-star",      ["all", vIn, notFoc, ["==", ["get", "isNew"], true]]);
+    }
+
+    function rebuildClinicianGeoJSON() {
+      var src = map.getSource("clinician-pins");
+      if (!src) return;
+      var features = [];
+      appState.clinicians.forEach(function(c) {
+        var f = buildClinicianFeature(c);
+        if (f) features.push(f);
+      });
+      src.setData({ type: "FeatureCollection", features: features });
+    }
+
+    function clearFocusedDomMarker() {
+      if (appState.focusedId) {
+        var entry = appState.markersById.get(appState.focusedId);
+        if (entry) {
+          entry.marker.remove();
+          appState.markersById.delete(appState.focusedId);
+        }
+      }
+    }
+
     function ensureCompletedServiceLayers() {
       if (!map.getSource(completedServiceSourceId)) {
         map.addSource(completedServiceSourceId, {
@@ -9016,34 +9457,7 @@
           source: completedServiceSourceId,
           filter: ["has", "point_count"],
           paint: {
-            "circle-color": [
-              "case",
-              [
-                "all",
-                [">=", ["coalesce", ["get", "ptSiteCount"], 0], ["coalesce", ["get", "ptaSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "ptSiteCount"], 0], ["coalesce", ["get", "otSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "ptSiteCount"], 0], ["coalesce", ["get", "otaSiteCount"], 0]]
-              ], disciplineColors.PT,
-              [
-                "all",
-                [">=", ["coalesce", ["get", "ptaSiteCount"], 0], ["coalesce", ["get", "ptSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "ptaSiteCount"], 0], ["coalesce", ["get", "otSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "ptaSiteCount"], 0], ["coalesce", ["get", "otaSiteCount"], 0]]
-              ], disciplineColors.PTA,
-              [
-                "all",
-                [">=", ["coalesce", ["get", "otSiteCount"], 0], ["coalesce", ["get", "ptSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "otSiteCount"], 0], ["coalesce", ["get", "ptaSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "otSiteCount"], 0], ["coalesce", ["get", "otaSiteCount"], 0]]
-              ], disciplineColors.OT,
-              [
-                "all",
-                [">=", ["coalesce", ["get", "otaSiteCount"], 0], ["coalesce", ["get", "ptSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "otaSiteCount"], 0], ["coalesce", ["get", "ptaSiteCount"], 0]],
-                [">=", ["coalesce", ["get", "otaSiteCount"], 0], ["coalesce", ["get", "otSiteCount"], 0]]
-              ], disciplineColors.OTA,
-              "#42535c"
-            ],
+            "circle-color": "#2463eb",
             "circle-opacity": 0.92,
             "circle-stroke-color": "#f5f8fd",
             "circle-stroke-width": 2,
@@ -9083,15 +9497,7 @@
           source: completedServiceSourceId,
           filter: ["!", ["has", "point_count"]],
           paint: {
-            "circle-color": [
-              "match",
-              ["get", "dominantDiscipline"],
-              "PT", disciplineColors.PT,
-              "PTA", disciplineColors.PTA,
-              "OT", disciplineColors.OT,
-              "OTA", disciplineColors.OTA,
-              "#42535c"
-            ],
+            "circle-color": "#2463eb",
             "circle-opacity": 0.97,
             "circle-stroke-color": "#f5f8fd",
             "circle-stroke-width": [
@@ -9243,7 +9649,7 @@
     }
 
     function updateCompletedServiceRadiusLabels() {
-      if (!appState.showCompletedServices || !appState.selectionCenter || !appState.hasLoadedCompletedServices) {
+      if (!appState.selectionCenter || !appState.hasLoadedCompletedServices) {
         clearCompletedServiceRadiusLabels();
         return;
       }
@@ -9563,6 +9969,7 @@
       const keepYearFilters = Boolean(safeOptions.keepYearFilters);
 
       appState.completedServiceLoadInProgress = true;
+      showServicesLoadBar();
       syncCompletedServiceLoadOlderButtonState();
       setCompletedServiceLoadProgress(
         forceAllYears ? "Loading Older Years" : "Loading Completed Services",
@@ -9902,6 +10309,7 @@
         renderClinicianCompletedServiceHistory();
       } finally {
         appState.completedServiceLoadInProgress = false;
+        hideServicesLoadBar();
         syncCompletedServiceLoadOlderButtonState();
         clearCompletedServiceLoadProgress();
       }
@@ -10792,6 +11200,15 @@
         }
       }
 
+      // Snap lens to ZIP centroid when linked
+      if (_toolsLinked && !_suppressLinkSnap && appState.zipCoverageCentroid) {
+        setRadiusMode(true);
+        selectCliniciansByRadius(
+          { lat: appState.zipCoverageCentroid.lat, lng: appState.zipCoverageCentroid.lng },
+          appState.selectedRadiusMiles
+        );
+      }
+
       // Auto-expand the status panel so ZIP results are visible without manual dragging
       if (normalizedZip && elements.floatingStatusPanel) {
         var currentH = appState.floatingStatusPanelHeight || floatingStatusPanelDefaultHeight;
@@ -10799,6 +11216,24 @@
       }
 
       renderZipCoverageCheck();
+    }
+
+    async function snapZipToLensLocation(lng, lat) {
+      try {
+        var resp = await fetch(
+          "https://api.mapbox.com/geocoding/v5/mapbox.places/" +
+          encodeURIComponent(lng) + "," + encodeURIComponent(lat) +
+          ".json?types=postcode&access_token=" + encodeURIComponent(mapboxgl.accessToken)
+        );
+        var data = await resp.json();
+        var zip = data.features && data.features[0] && data.features[0].text;
+        if (!zip) return;
+        var panelInput = document.getElementById("zip-panel-search");
+        if (panelInput) panelInput.value = zip;
+        elements.zipCoverageSearch.value = zip;
+        _suppressLinkSnap = true;
+        try { await runZipCoverageCheck(); } finally { _suppressLinkSnap = false; }
+      } catch(e) {}
     }
 
     function getClinicianCompletedServiceHistory(clinicianId) {
@@ -11630,6 +12065,8 @@
 
     function syncCompletedServiceVisibilityToggle() {
       elements.showCompletedServicesToggle.checked = appState.showCompletedServices;
+      var btn = document.getElementById("toolbar-toggle-services");
+      if (btn) btn.classList.toggle("active", appState.showCompletedServices);
     }
 
     function syncCompletedServicesMapDisplay() {
@@ -12000,7 +12437,7 @@
       }
 
       syncDisciplineToggleState();
-      applyFilters();
+      applyFiltersDebounced();
     }
 
     function toggleStatusFilter(status) {
@@ -12014,7 +12451,7 @@
       }
 
       syncStatusFilterToggleState();
-      applyFilters();
+      applyFiltersDebounced();
     }
 
     function toggleEmrFilter(key) {
@@ -12028,7 +12465,7 @@
       }
 
       syncEmrFilterToggleState();
-      applyFilters();
+      applyFiltersDebounced();
     }
 
     function toggleLanguageFilter(language) {
@@ -12042,7 +12479,7 @@
       }
 
       syncLanguageFilterToggleState();
-      applyFilters();
+      applyFiltersDebounced();
     }
 
     function normalizeClinicianSearchQuery(value) {
@@ -12234,12 +12671,12 @@
     }
 
     function getFloatingStatusPanelHeightBounds() {
-      const stageHeight = elements.mapStage ? elements.mapStage.getBoundingClientRect().height : 0;
-      const fallbackHeight = Math.max(420, window.innerHeight - 260);
-      const maxHeightBase = stageHeight > 0 ? stageHeight - 32 : fallbackHeight;
+      // Use offsetHeight (CSS px, unaffected by zoom transforms) so max matches CSS max-height: calc(100% - 24px)
+      const stageHeight = elements.mapStage ? elements.mapStage.offsetHeight : (window.innerHeight - 100);
+      const maxH = stageHeight - 16 - 8; // 16px top offset, 8px bottom gap
       return {
         min: floatingStatusPanelMinHeight,
-        max: Math.max(floatingStatusPanelMinHeight, Math.round(maxHeightBase))
+        max: Math.max(floatingStatusPanelMinHeight, maxH)
       };
     }
 
@@ -12316,7 +12753,11 @@
       if (!isFloatingStatusPanelResizable() || !elements.floatingStatusPanel) return;
       appState.floatingStatusResizeActive = true;
       appState.floatingStatusResizeStartY = clientY;
-      appState.floatingStatusResizeStartHeight = elements.floatingStatusPanel.getBoundingClientRect().height;
+      appState.floatingStatusResizeStartHeight = elements.floatingStatusPanel.offsetHeight;
+      // Cache bounds once — avoids getBoundingClientRect() on every pointermove (layout thrash)
+      const bounds = getFloatingStatusPanelHeightBounds();
+      appState.floatingStatusResizeBoundsMin = bounds.min;
+      appState.floatingStatusResizeBoundsMax = bounds.max;
       elements.floatingStatusPanel.classList.add("resizing");
       document.body.style.cursor = "ns-resize";
       document.body.style.userSelect = "none";
@@ -12325,7 +12766,17 @@
     function resizeFloatingStatusPanelFromPointer(clientY) {
       if (!appState.floatingStatusResizeActive) return;
       const deltaY = clientY - appState.floatingStatusResizeStartY;
-      applyFloatingStatusPanelHeight(appState.floatingStatusResizeStartHeight + deltaY, false);
+      const newHeight = Math.max(
+        appState.floatingStatusResizeBoundsMin,
+        Math.min(appState.floatingStatusResizeBoundsMax,
+          Math.round(appState.floatingStatusResizeStartHeight + deltaY))
+      );
+      // Direct style write only — no reads, no reflows during drag
+      elements.floatingStatusPanel.style.height = newHeight + "px";
+      appState.floatingStatusPanelHeight = newHeight;
+      if (elements.floatingStatusResizeHandle) {
+        elements.floatingStatusResizeHandle.setAttribute("aria-valuenow", String(newHeight));
+      }
     }
 
     function endFloatingStatusPanelResize(persistHeight) {
@@ -14778,11 +15229,9 @@
       // Lens spotlight: show pin inside lens even when "Show Clinicians" is off
       const spotlightIds = appState.lensSpotlightIds || new Set();
       const insideLens   = !!appState.selectionCenter && spotlightIds.has(clinicianId);
-      const isVisible    = insideLens || (appState.showClinicians && appState.filteredClinicians.some(function(item) {
-        return item.id === clinicianId;
-      }));
+      const isVisible    = insideLens || (appState.showClinicians && appState.filteredIds.has(clinicianId));
 
-      if (clinician) {
+      if (clinician && markerEntry.popup.isOpen()) {
         markerEntry.popup.setHTML(getPopupHtml(clinician));
       }
 
@@ -14796,16 +15245,20 @@
     }
 
     function syncAllMarkerVisuals() {
-      appState.markersById.forEach(function(_, clinicianId) {
-        updateMarkerVisual(clinicianId);
-      });
+      applyClinicianLayerFilters();
+      if (appState.focusedId && appState.markersById.has(appState.focusedId)) {
+        updateMarkerVisual(appState.focusedId);
+      }
     }
 
     function clearMarkers() {
+      clearFocusedDomMarker();
       appState.markersById.forEach(function(entry) {
         entry.marker.remove();
       });
       appState.markersById.clear();
+      var src = map.getSource("clinician-pins");
+      if (src) src.setData({ type: "FeatureCollection", features: [] });
       clearSelectionLabels();
     }
 
@@ -14876,10 +15329,14 @@
 
     function renderMarkers() {
       clearMarkers();
-      appState.clinicians.filter(hasCoordinates).forEach(function(clinician) {
-        buildMarker(clinician);
-      });
-      syncAllMarkerVisuals();
+      rebuildClinicianGeoJSON();
+      applyClinicianLayerFilters();
+      // Re-create DOM marker for focused clinician at new coordinates
+      // (needed when pin mode toggles work↔home after a clinician is focused)
+      if (appState.focusedId) {
+        var focused = appState.clinicians.find(function(c) { return c.id === appState.focusedId; });
+        if (focused) buildMarker(focused);
+      }
     }
 
     function renderSidebar() {
@@ -15049,6 +15506,12 @@
       }
     }
 
+    var _applyFiltersTimer = null;
+    function applyFiltersDebounced() {
+      clearTimeout(_applyFiltersTimer);
+      _applyFiltersTimer = setTimeout(applyFilters, 60);
+    }
+
     function applyFilters() {
       const hasDisciplineFilter = appState.disciplineFilters.size > 0;
       const hasStatusFilter = appState.statusFilters.size > 0;
@@ -15093,6 +15556,7 @@
         appState.focusedCompletedServiceKey = null;
       }
 
+      appState.filteredIds = new Set(appState.filteredClinicians.map(function(c) { return c.id; }));
       pruneSelectionToVisible();
       renderSidebar();
       renderCompletedServiceSidebar();
@@ -15106,12 +15570,18 @@
 
     function focusClinician(clinicianId, openPopup) {
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
-      const markerEntry = appState.markersById.get(clinicianId);
       const pinCoordinates = getClinicianMapCoordinates(clinician);
-      if (!clinician || !markerEntry || !pinCoordinates) return;
+      if (!clinician || !pinCoordinates) return;
+
+      // Remove DOM marker for previous focused clinician (if any)
+      clearFocusedDomMarker();
 
       appState.focusedCompletedServiceKey = null;
       appState.focusedId = clinicianId;
+
+      // Create DOM marker for this clinician (full teardrop + popup)
+      buildMarker(clinician);
+
       syncAllMarkerVisuals();
       renderCompletedServiceSidebar();
       updateCompletedServiceMarkerVisual();
@@ -15127,7 +15597,8 @@
         essential: true
       });
 
-      if (openPopup && appState.showClinicians && !markerEntry.popup.isOpen()) {
+      const markerEntry = appState.markersById.get(clinicianId);
+      if (openPopup && appState.showClinicians && markerEntry && !markerEntry.popup.isOpen()) {
         markerEntry.marker.togglePopup();
       }
 
@@ -15173,6 +15644,7 @@
       if (!appState.hasLoadedCompletedServices) {
         loadCompletedServiceSites();
       }
+      loadStatusLogForClinician(clinicianId);
     }
 
     function openNewClinicianProfile() {
@@ -18237,6 +18709,9 @@
     // Reset dismissed state when lens moves to a new position so bar can reappear
     function resetAlignBarDismissed() { appState._alignBarDismissed = false; }
 
+    var _lensHeavyTimer = null;
+    var _snapZipTimer   = null;
+
     function selectCliniciansByRadius(center, radiusMiles) {
       appState.selectionCenter = center;
       setSelectionCenterMarker(center);
@@ -18245,32 +18720,31 @@
       syncAlignmentBar();
       updateLensTextOverlay();
 
-      // selectedIds: filtered clinicians only (for sidebar, count, etc.)
-      const visibleClinicians = appState.filteredClinicians.filter(hasCoordinates);
-      const selectedIds = visibleClinicians.filter(function(clinician) {
-        const pinCoordinates = getClinicianMapCoordinates(clinician);
-        if (!pinCoordinates) return false;
-        return haversineMiles(center.lat, center.lng, pinCoordinates.lat, pinCoordinates.lng) <= radiusMiles;
-      }).map(function(clinician) { return clinician.id; });
+      // Single distance pass — selectedIds and lensSpotlightIds are the same set
+      const insideIds = [];
+      appState.filteredClinicians.forEach(function(clinician) {
+        const pin = getClinicianMapCoordinates(clinician);
+        if (!pin) return;
+        if (haversineMiles(center.lat, center.lng, pin.lat, pin.lng) <= radiusMiles) {
+          insideIds.push(clinician.id);
+        }
+      });
 
-      appState.selectedIds = new Set(selectedIds);
+      appState.selectedIds      = new Set(insideIds);
+      appState.lensSpotlightIds = new Set(insideIds);
 
-      // lensSpotlightIds: filtered clinicians inside lens (respects all active filters,
-      // used for spotlight pins + labels when "Show Clinicians" toggle is off)
-      appState.lensSpotlightIds = new Set(
-        appState.filteredClinicians.filter(function(clinician) {
-          const pin = getClinicianMapCoordinates(clinician);
-          if (!pin) return false;
-          return haversineMiles(center.lat, center.lng, pin.lat, pin.lng) <= radiusMiles;
-        }).map(function(c) { return c.id; })
-      );
       ensureCompletedServicesLoadedForRadius();
-      syncAllMarkerVisuals();
-      updateSelectionLabels();
-      updateCompletedServiceRadiusLabels();
-      renderSidebar();
-      renderRadiusCoverage();
-      updateSummary();
+      syncAllMarkerVisuals(); // fast: GPU-side setFilter only
+
+      // Debounce DOM-heavy work — sidebar, labels, coverage don't need to update every drag pixel
+      clearTimeout(_lensHeavyTimer);
+      _lensHeavyTimer = setTimeout(function() {
+        updateSelectionLabels();
+        updateCompletedServiceRadiusLabels();
+        renderSidebar();
+        renderRadiusCoverage();
+        updateSummary();
+      }, 80);
     }
 
     function updateSelectionLabels() {
@@ -18473,6 +18947,24 @@
       syncRadiusControls();
       selectCliniciansByRadius(appState.lastPointSearchResult, appState.selectedRadiusMiles);
 
+      // Extract ZIP from geocoding response and populate ZIP coverage
+      if (_toolsLinked) {
+        var zip = null;
+        if (feature.place_type && feature.place_type.indexOf("postcode") !== -1) {
+          zip = feature.text;
+        } else if (Array.isArray(feature.context)) {
+          var postcodeCtx = feature.context.find(function(c) { return c.id && c.id.startsWith("postcode."); });
+          if (postcodeCtx) zip = postcodeCtx.text;
+        }
+        if (zip) {
+          var panelInput = document.getElementById("zip-panel-search");
+          if (panelInput) panelInput.value = zip;
+          elements.zipCoverageSearch.value = zip;
+          _suppressLinkSnap = true;
+          runZipCoverageCheck().finally(function() { _suppressLinkSnap = false; });
+        }
+      }
+
       map.flyTo({
         center: [lng, lat],
         zoom: Math.max(map.getZoom(), 13),
@@ -18664,35 +19156,33 @@
     }
 
     async function loadClinicians() {
-      const response = await supabaseClient
-        .from("clinician_v2")
-        .select("*")
-        .order("name", { ascending: true });
+      showClinicianLoadBar();
+      const [clinicianResponse, profileResponse, languageResponse, zipCoverageResponse] = await Promise.all([
+        supabaseClient
+          .from("clinician_v2")
+          .select("*")
+          .order("name", { ascending: true }),
+        supabaseClient
+          .from("clinician_profiles")
+          .select("*"),
+        supabaseClient
+          .from("clinician_profile_languages")
+          .select("clinician_id, language_options(name)"),
+        supabaseClient
+          .from("clinician_zip_coverages")
+          .select("clinician_id, zip_code, discipline, memo, clinician_name_raw, updated_at")
+          .order("zip_code", { ascending: true })
+      ]);
 
-      if (response.error) {
-        console.error("Error loading clinicians:", response.error);
+      if (clinicianResponse.error) {
+        console.error("Error loading clinicians:", clinicianResponse.error);
         elements.selectionMessage.textContent = "Failed to load clinicians.";
+        hideClinicianLoadBar();
         return;
       }
 
-      let clinicianRecords = response.data || [];
+      let clinicianRecords = clinicianResponse.data || [];
       try {
-        const [profileResponse, languageResponse, statusLogResponse, zipCoverageResponse] = await Promise.all([
-          supabaseClient
-            .from("clinician_profiles")
-            .select("*"),
-          supabaseClient
-            .from("clinician_profile_languages")
-            .select("clinician_id, language_options(name)"),
-          supabaseClient
-            .from("clinician_profile_status_log")
-            .select("clinician_id, from_status, to_status, reason, changed_at")
-            .order("changed_at", { ascending: false }),
-          supabaseClient
-            .from("clinician_zip_coverages")
-            .select("clinician_id, zip_code, discipline, memo, clinician_name_raw, updated_at")
-            .order("zip_code", { ascending: true })
-        ]);
 
         const profileById = new Map();
         if (!profileResponse.error) {
@@ -18718,22 +19208,6 @@
           });
         } else {
           console.error("Error loading clinician languages:", languageResponse.error);
-        }
-
-        const statusHistoryByClinicianId = new Map();
-        if (!statusLogResponse.error) {
-          (statusLogResponse.data || []).forEach(function(row) {
-            const bucket = statusHistoryByClinicianId.get(row.clinician_id) || [];
-            bucket.push({
-              fromStatus: row.from_status,
-              toStatus: row.to_status,
-              reason: row.reason,
-              changedAt: row.changed_at
-            });
-            statusHistoryByClinicianId.set(row.clinician_id, bucket);
-          });
-        } else {
-          console.error("Error loading clinician status history:", statusLogResponse.error);
         }
 
         const zipCoveragesByClinicianId = new Map();
@@ -18767,13 +19241,6 @@
           if (zipCoverageRows.length) {
             mergedRecord.zip_coverages = zipCoverageRows;
             mergedRecord.preferred_zips = summarizeClinicianZipCoverage(zipCoverageRows);
-          }
-          const statusHistory = normalizeStatusHistoryEntries(statusHistoryByClinicianId.get(record.id) || []);
-          if (statusHistory.length) {
-            mergedRecord.profile_status_history = statusHistory;
-            mergedRecord.profile_tags = Object.assign({}, mergedRecord.profile_tags || {}, {
-              statusHistory: statusHistory
-            });
           }
           return mergedRecord;
         });
@@ -18817,7 +19284,35 @@
       fitMapToVisibleClinicians();
       syncMapInstructions();
       updateSummary();
+      hideClinicianLoadBar();
       setupClinicianRealtime();
+    }
+
+    async function loadStatusLogForClinician(clinicianId) {
+      const clinician = appState.clinicians.find(function(c) { return c.id === clinicianId; });
+      if (!clinician) return;
+      if (Array.isArray(clinician.profile_status_history) && clinician.profile_status_history.length) return;
+      try {
+        const response = await supabaseClient
+          .from("clinician_profile_status_log")
+          .select("clinician_id, from_status, to_status, reason, changed_at")
+          .eq("clinician_id", clinicianId)
+          .order("changed_at", { ascending: false });
+        if (response.error || !response.data || !response.data.length) return;
+        const entries = normalizeStatusHistoryEntries(response.data.map(function(row) {
+          return { fromStatus: row.from_status, toStatus: row.to_status, reason: row.reason, changedAt: row.changed_at };
+        }));
+        clinician.profile_status_history = entries;
+        if (!clinician.profile_tags) clinician.profile_tags = {};
+        clinician.profile_tags.statusHistory = entries;
+        if (appState.currentProfileClinicianId === clinicianId) {
+          var draft = appState.profileDraftByClinicianId.get(clinicianId);
+          if (draft && (!Array.isArray(draft.statusHistory) || !draft.statusHistory.length)) {
+            draft.statusHistory = entries;
+            appState.profileDraftByClinicianId.set(clinicianId, draft);
+          }
+        }
+      } catch(e) {}
     }
 
     /* ── Realtime: live clinician updates ── */
@@ -19034,9 +19529,6 @@
       syncProfilePanelWidth();
       syncFloatingStatusPanelHeight();
       appState.therapyBossDockPinned = loadStoredTherapyBossPinned();
-      if (!appState.hasLoadedAgencies) {
-        loadAgencies();
-      }
       loadSharedLanguageOptions();
       syncLanguageFilterToggleState();
       syncClinicianVisibilityToggle();
@@ -19066,14 +19558,17 @@
         var btnServices   = document.getElementById("view-switch-services");
         var clinicianPanel = document.querySelector(".clinician-directory-panel");
         var servicesPanel  = document.querySelector(".completed-service-directory-panel");
+        var sidebarScroll  = document.querySelector(".sidebar-scroll");
         if (!btnClinicians || !btnServices) return;
 
         function activate(btn, panel) {
           btnClinicians.classList.toggle("active", btn === btnClinicians);
           btnServices.classList.toggle("active", btn === btnServices);
-          if (panel) {
-            panel.open = true;
-            panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          if (panel) panel.open = true;
+          if (btn === btnClinicians && sidebarScroll) {
+            sidebarScroll.scrollTo({ top: 0, behavior: "smooth" });
+          } else if (panel && sidebarScroll) {
+            panel.scrollIntoView({ behavior: "smooth", block: "start" });
           }
         }
         btnClinicians.addEventListener("click", function() { activate(btnClinicians, clinicianPanel); });
@@ -19132,11 +19627,19 @@
         panelInput.addEventListener("keydown", function(event) {
           if (event.key === "Enter") {
             event.preventDefault();
+            _zipClearedByUser = false;
             elements.zipCoverageSearch.value = panelInput.value;
             runZipCoverageCheck();
           }
         });
         panelBtn.addEventListener("click", function() {
+          _zipClearedByUser = false;
+          var val = String(panelInput.value || "").trim();
+          if (!val && appState.selectionCenter) {
+            // Empty input + active lens → find ZIP at lens location
+            snapZipToLensLocation(appState.selectionCenter.lng, appState.selectionCenter.lat);
+            return;
+          }
           elements.zipCoverageSearch.value = panelInput.value;
           runZipCoverageCheck();
         });
@@ -19144,6 +19647,8 @@
         var clearBtn = document.getElementById("clear-zip-panel-check");
         if (clearBtn) {
           clearBtn.addEventListener("click", function() {
+            clearTimeout(_snapZipTimer);   // cancel any in-flight lens→ZIP snap
+            _zipClearedByUser = true;      // suppress future snaps until user re-runs ZIP
             panelInput.value = "";
             elements.zipCoverageSearch.value = "";
             appState.zipCoverageCheckQuery = "";
@@ -19152,6 +19657,45 @@
             renderZipCoverageCheck();
           });
         }
+      })();
+
+      /* ── Tool Link (ZIP ↔ Lens) ── */
+      (function() {
+        var btn = document.getElementById("tool-link-btn");
+        if (!btn) return;
+        btn.addEventListener("click", function() {
+          _toolsLinked = !_toolsLinked;
+          btn.classList.toggle("tool-link-btn--linked", _toolsLinked);
+          btn.classList.toggle("tool-link-btn--unlinked", !_toolsLinked);
+          btn.querySelector(".tool-link-label").textContent = _toolsLinked ? "Linked" : "Unlinked";
+          btn.title = _toolsLinked
+            ? "ZIP and Lens snap together on search — click to unlink"
+            : "ZIP and Lens are independent — click to link";
+        });
+      })();
+
+      /* ── ZIP Lock ── */
+      (function() {
+        var lockBtn = document.getElementById("zip-lock-btn");
+        if (!lockBtn) return;
+
+        function updateLockIcon() {
+          var locked = _zipLocked;
+          lockBtn.classList.toggle("zip-lock-btn--locked", locked);
+          lockBtn.classList.toggle("zip-lock-btn--unlocked", !locked);
+          lockBtn.title = locked
+            ? "ZIP is locked — lens moves freely without updating ZIP. Click to unlock."
+            : "ZIP unlocked — lens updates ZIP on drop. Click to lock.";
+          // Swap SVG: locked=closed padlock, unlocked=open padlock
+          lockBtn.querySelector(".zip-lock-icon").innerHTML = locked
+            ? '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'
+            : '<rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>';
+        }
+
+        lockBtn.addEventListener("click", function() {
+          _zipLocked = !_zipLocked;
+          updateLockIcon();
+        });
       })();
 
       elements.zipCoverageResults.addEventListener("click", function(event) {
@@ -19497,24 +20041,41 @@
       /* ── Page zoom nudge control ── */
       (function() {
         var STEPS = [50, 60, 70, 75, 80, 85, 90, 95, 100, 110, 120, 125, 133, 150];
-        var currentZoom = 100;
+        var currentZoom = 70;
 
         function applyZoom(pct) {
           currentZoom = pct;
           var scale = pct / 100;
-          var shell = document.getElementById("app-shell");
-          if (shell) {
-            shell.style.transformOrigin = "top left";
-            shell.style.transform = "scale(" + scale + ")";
-            // Expand layout dimensions so scaled content fills the viewport exactly
-            shell.style.width  = (100 / scale).toFixed(4) + "vw";
-            shell.style.height = (100 / scale).toFixed(4) + "vh";
+          var root = document.getElementById("zoom-root");
+          if (root) {
+            if (scale === 1) {
+              // At 100%, restore normal flex behavior
+              root.style.position = "";
+              root.style.top = "";
+              root.style.left = "";
+              root.style.width = "";
+              root.style.height = "";
+              root.style.transform = "";
+              root.style.transformOrigin = "";
+            } else {
+              // position:fixed takes the element out of body's flow so body's
+              // overflow:hidden can't clip the expanded layout at y=100vh.
+              // The scaled rendering then fills exactly 100vw×100vh.
+              root.style.position = "fixed";
+              root.style.top = "0";
+              root.style.left = "0";
+              root.style.width  = (100 / scale).toFixed(4) + "vw";
+              root.style.height = (100 / scale).toFixed(4) + "vh";
+              root.style.transformOrigin = "top left";
+              root.style.transform = "scale(" + scale + ")";
+            }
           }
           var label = document.getElementById("zoom-label");
           if (label) label.textContent = pct + "%";
-          // Tell Mapbox to redraw its canvas to the new container size
+          // Resize Mapbox after the CSS transition finishes so the canvas
+          // doesn't redraw mid-animation and cause a flash.
           if (typeof map !== "undefined" && map && typeof map.resize === "function") {
-            requestAnimationFrame(function() { map.resize(); });
+            setTimeout(function() { map.resize(); }, 170);
           }
         }
 
@@ -19535,10 +20096,23 @@
         if (btnIn)  btnIn.addEventListener("click",  function(e) { e.stopPropagation(); nudge(+1); });
         if (btnOut) btnOut.addEventListener("click", function(e) { e.stopPropagation(); nudge(-1); });
 
+        // Intercept Ctrl+scroll so it drives the custom zoom instead of native browser zoom
+        // Skip if the gesture is over the map canvas — let Mapbox handle pinch-to-zoom there
+        window.addEventListener("wheel", function(e) {
+          if (!e.ctrlKey) return;
+          var mapEl = document.getElementById("map");
+          if (mapEl && mapEl.contains(e.target)) return;
+          e.preventDefault();
+          nudge(e.deltaY < 0 ? +1 : -1);
+        }, { passive: false });
+
         // Re-apply on window resize so the compensating dimensions stay accurate
         window.addEventListener("resize", function() {
           applyZoom(currentZoom);
         });
+
+        // Apply default zoom on load
+        applyZoom(currentZoom);
       })();
 
       /* ── ZIP coverage proximity radius +/− ── */
@@ -19628,6 +20202,20 @@
         });
       });
 
+      // Clinician GeoJSON layer — click to focus, cursor pointer on hover
+      ["clinician-circles", "clinician-inactive"].forEach(function(layerId) {
+        map.on("click", layerId, function(e) {
+          if (!e.features || !e.features.length) return;
+          focusClinician(e.features[0].properties.id, false);
+        });
+        map.on("mouseenter", layerId, function() {
+          map.getCanvas().style.cursor = "pointer";
+        });
+        map.on("mouseleave", layerId, function() {
+          map.getCanvas().style.cursor = "";
+        });
+      });
+
       [completedServiceClusterLayerId, completedServiceClusterCountLayerId, completedServicePointLayerId, completedServicePointFocusedLayerId, completedServicePointCountLayerId].forEach(function(layerId) {
         map.on("mouseenter", layerId, function() {
           map.getCanvas().style.cursor = "pointer";
@@ -19635,6 +20223,35 @@
         map.on("mouseleave", layerId, function() {
           map.getCanvas().style.cursor = "";
         });
+      });
+
+      document.getElementById("toolbar-toggle-clinicians").addEventListener("click", function() {
+        appState.showClinicians = !appState.showClinicians;
+        elements.showCliniciansToggle.checked = appState.showClinicians;
+        syncClinicianVisibilityToggle();
+        if (!appState.showClinicians) {
+          appState.markersById.forEach(function(entry) {
+            if (entry.popup && entry.popup.isOpen()) entry.popup.remove();
+          });
+        }
+        syncAllMarkerVisuals();
+        updateSelectionLabels();
+        if (appState.showClinicians) fitMapToVisibleClinicians();
+        updateSummary();
+      });
+
+      document.getElementById("toolbar-toggle-services").addEventListener("click", async function() {
+        appState.showCompletedServices = !appState.showCompletedServices;
+        elements.showCompletedServicesToggle.checked = appState.showCompletedServices;
+        if (appState.showCompletedServices && !appState.hasLoadedCompletedServices) {
+          await loadCompletedServiceSites();
+        }
+        syncCompletedServiceVisibilityToggle();
+        syncCompletedServicesMapDisplay();
+      });
+
+      document.getElementById("hud-clear-btn").addEventListener("click", function() {
+        resetAllMapTools();
       });
 
       elements.showCliniciansToggle.addEventListener("change", function() {
@@ -20274,6 +20891,13 @@
         syncAgencyMapDisplay();
       });
 
+      var agencyDetailsPanel = document.querySelector(".agency-directory-panel");
+      if (agencyDetailsPanel) {
+        agencyDetailsPanel.addEventListener("toggle", function() {
+          if (agencyDetailsPanel.open) ensureAgenciesLoaded();
+        });
+      }
+
       elements.agencyNameInput.addEventListener("input", handleAgencyDraftChange);
       elements.agencyTypeInput.addEventListener("input", handleAgencyDraftChange);
       elements.agencyActiveSelect.addEventListener("change", handleAgencyDraftChange);
@@ -20596,10 +21220,12 @@
 
         if (!appState.radiusMode) return;
         selectCliniciansByRadius({ lat: event.lngLat.lat, lng: event.lngLat.lng }, appState.selectedRadiusMiles);
-      });
-
-      map.on("contextmenu", function() {
-        resetAllMapTools();
+        if (_toolsLinked && !_zipLocked && !_zipClearedByUser) {
+          clearTimeout(_snapZipTimer);
+          _snapZipTimer = setTimeout(function() {
+            snapZipToLensLocation(event.lngLat.lng, event.lngLat.lat);
+          }, 350);
+        }
       });
 
       document.addEventListener("click", function(event) {
@@ -20634,6 +21260,7 @@
       ensureSelectionCircleLayer();
       ensureRulerLayer();
       ensureTerritoryLayer();
+      ensureClinicianLayer();
       ensureCompletedServiceLayers();
       bindEvents();
 
@@ -21165,7 +21792,7 @@
       return;
     }
 
-    var discColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
+    var discColors = { PT: "#dc2626", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
 
     refs.forEach(function(r) {
       var days       = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
@@ -21612,6 +22239,7 @@
   var _qarefAddressTimer   = null;
 
   function openQuickAddReferral() {
+    ensureAgenciesLoaded();
     // Reset form
     document.getElementById("qaref-patient-input").value = "";
     document.getElementById("qaref-agency-input").value = "";
@@ -21738,7 +22366,7 @@
 
   function toggleQarefDisc(btn) {
     var disc = btn.dataset.disc;
-    var colors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23", ST: "#6b7280" };
+    var colors = { PT: "#dc2626", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23", ST: "#6b7280" };
     var col = colors[disc] || "#6b7280";
     if (btn.classList.contains("selected")) {
       btn.classList.remove("selected");
