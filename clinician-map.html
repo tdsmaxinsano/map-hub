@@ -2372,10 +2372,10 @@
       box-shadow: 0 10px 18px rgba(30, 77, 140, 0.22);
     }
 
-    /* ── Referral pin sonar animation ── */
+    /* ── Referral pin sonar animation — box-shadow only, no transform ── */
     @keyframes ref-sonar {
-      0%   { transform: scale(0.6); opacity: 0.75; }
-      100% { transform: scale(4);   opacity: 0; }
+      0%   { box-shadow: 0 0 0 0 var(--sonar-color, rgba(249,115,22,0.65)); opacity: 1; }
+      100% { box-shadow: 0 0 0 18px var(--sonar-color, rgba(249,115,22,0)); opacity: 0; }
     }
     .ref-pin-wrap {
       width: 14px; height: 14px;
@@ -2390,20 +2390,16 @@
       position: relative; z-index: 1; flex-shrink: 0;
       transition: transform .15s;
     }
-    .ref-pin-wrap:hover .ref-pin-dot { transform: scale(1.35); }
-    .ref-pin-ring {
-      position: absolute;
-      width: 14px; height: 14px; border-radius: 50%;
-      opacity: 0;
+    .ref-pin-dot::before, .ref-pin-dot::after {
+      content: ''; position: absolute; inset: 0; border-radius: 50%;
       animation: ref-sonar var(--pulse-speed, 2.2s) ease-out infinite;
+      will-change: box-shadow, opacity; pointer-events: none;
     }
-    /* Second ring, offset by half the cycle for a continuous double-pulse */
-    .ref-pin-ring2 {
-      position: absolute;
-      width: 14px; height: 14px; border-radius: 50%;
-      opacity: 0;
-      animation: ref-sonar var(--pulse-speed, 2.2s) ease-out infinite;
-      animation-delay: calc(var(--pulse-speed, 2.2s) / 2);
+    .ref-pin-dot::after { animation-delay: calc(var(--pulse-speed, 2.2s) / 2); }
+    .ref-pin-wrap:hover .ref-pin-dot { transform: scale(1.35); }
+    /* Legacy DOM marker classes — unused after GeoJSON migration. Pins now render as WebGL layers. */
+    .ref-pin-ring, .ref-pin-ring2 {
+      display: none;
     }
 
     /* ── Referral pin contact-count badge ── */
@@ -2482,8 +2478,8 @@
       pointer-events: auto;
     }
     #ref-fixed-panel.hidden { display: none; }
-    /* ── Referral jump dropdown ── */
-    #ref-jump-cell { display: none; position: relative; }
+    /* ── Referral jump floating panel ── */
+    #ref-jump-cell { display: block; position: relative; }
     #ref-jump-btn {
       height: 32px; padding: 0 11px; border-radius: 7px;
       border: 1.5px solid #e2b44b; background: #fffbeb;
@@ -2495,30 +2491,113 @@
     #ref-jump-btn:hover { background: #fef3c7; }
     #ref-jump-btn.open { background: #fef3c7; border-color: #f97316; box-shadow: 0 0 0 2px rgba(249,115,22,0.15); }
     #ref-jump-panel {
-      display: none; position: absolute; top: calc(100% + 6px); left: 0;
-      background: #fff; border-radius: 10px;
-      box-shadow: 0 8px 32px rgba(12,22,50,0.18), 0 2px 8px rgba(12,22,50,0.08);
+      display: none; position: fixed;
+      left: 0; top: 0;
+      background: #fff; border-radius: 12px;
+      box-shadow: 0 16px 48px rgba(12,22,50,0.22), 0 4px 12px rgba(12,22,50,0.1);
       border: 1px solid #dde6f3;
-      min-width: 520px; max-width: 580px; max-height: 320px;
-      overflow-y: auto; z-index: 200;
+      width: 520px; max-height: 420px;
+      flex-direction: column; overflow: hidden;
+      z-index: 600; user-select: none;
+      will-change: transform;
     }
-    #ref-jump-panel::-webkit-scrollbar { width: 5px; }
-    #ref-jump-panel::-webkit-scrollbar-thumb { background: rgba(30,77,140,0.2); border-radius: 4px; }
+    .ref-jump-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; background: #1e2d4a;
+      border-radius: 12px 12px 0 0; cursor: grab; flex-shrink: 0;
+    }
+    .ref-jump-header:active { cursor: grabbing; }
+    .ref-jump-header-title { color: #fff; font-size: 12px; font-weight: 700; }
+    .ref-jump-close-btn {
+      background: none; border: none; color: rgba(255,255,255,0.7);
+      font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1;
+    }
+    .ref-jump-close-btn:hover { color: #fff; }
+    .ref-jump-body { overflow-y: auto; flex: 1; }
+    .ref-jump-body::-webkit-scrollbar { width: 5px; }
+    .ref-jump-body::-webkit-scrollbar-thumb { background: rgba(30,77,140,0.2); border-radius: 4px; }
+    /* grid columns: Agency | Name | Discs | City | Age | Status | 🗑 */
+    .ref-jump-col-hdr, .ref-jump-row {
+      display: grid;
+      grid-template-columns: 90px 1fr 54px 68px 32px 76px 28px;
+      align-items: center;
+      padding: 0 14px;
+      gap: 0;
+    }
+    .ref-jump-col-hdr {
+      padding-top: 5px; padding-bottom: 5px;
+      background: #f0f4fb; border-bottom: 2px solid #dde6f3; flex-shrink: 0;
+    }
+    .ref-jump-col-hdr > span {
+      font-size: 10px; font-weight: 600; color: #9ca3af;
+      white-space: nowrap;
+    }
     .ref-jump-row {
-      display: flex; align-items: center; gap: 10px;
-      padding: 8px 14px; cursor: pointer;
+      padding-top: 7px; padding-bottom: 7px;
+      cursor: pointer;
       border-bottom: 1px solid #f0f4f8; transition: background 0.1s;
     }
     .ref-jump-row:last-child { border-bottom: none; }
     .ref-jump-row:hover { background: #eff6ff; }
-    .ref-jump-agency { font-size: 11px; font-weight: 600; color: #526480; white-space: nowrap; flex-shrink: 0; }
-    .ref-jump-disc { font-size: 10px; font-weight: 700; color: #fff; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
-    .ref-jump-age { font-size: 11px; color: #718096; white-space: nowrap; }
-    .ref-jump-status { font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap; }
-    .ref-jump-status.open     { background: #fef3c7; color: #92400e; }
-    .ref-jump-status.staffed  { background: #d1fae5; color: #065f46; }
-    .ref-jump-status.cancelled{ background: #fee2e2; color: #991b1b; }
-    .ref-jump-empty { padding: 14px; font-size: 12px; color: #718096; text-align: center; }
+    .ref-jump-row.selected { background: #dbeafe; box-shadow: inset 3px 0 0 #2463eb; }
+    .ref-jump-row.selected:hover { background: #bfdbfe; }
+    /* ── OPRB single control row ── */
+    .ref-jump-controls {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 5px 14px; border-bottom: 1px solid #e8edf5;
+      flex-shrink: 0; background: #f8fafc; gap: 8px;
+    }
+    .oprb-sort-wrap { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+    .oprb-sort-label { font-size: 10px; font-weight: 700; color: #8a9bb5; text-transform: uppercase; letter-spacing: .04em; }
+    .oprb-sort-select {
+      font-size: 11px; color: #1e2d4a; font-weight: 600;
+      border: 1px solid #dde6f3; border-radius: 5px;
+      padding: 2px 6px; background: #fff;
+      cursor: pointer; outline: none;
+    }
+    .oprb-sort-select:hover { border-color: #93afd4; }
+    .oprb-filter-pills { display: flex; gap: 3px; flex-wrap: nowrap; }
+    .oprb-filter-pill {
+      font-size: 10px; padding: 2px 8px; border-radius: 20px;
+      border: 1px solid #dde6f3; background: #fff;
+      cursor: pointer; color: #6b7280; font-weight: 500;
+      white-space: nowrap; transition: all 0.1s;
+    }
+    .oprb-filter-pill.active { background: #1e2d4a; color: #fff; border-color: #1e2d4a; }
+    .oprb-filter-pill:hover:not(.active) { background: #eff6ff; border-color: #93afd4; }
+    /* ── Status cell — clean at rest, interactive on hover ── */
+    .oprb-status-cell { position: relative; display: flex; align-items: center; }
+    .oprb-status-cell select {
+      appearance: none; -webkit-appearance: none;
+      border: none; background: transparent;
+      font-size: 11px; font-weight: 600;
+      padding: 3px 14px 3px 4px;
+      cursor: pointer; border-radius: 4px;
+      width: 100%; outline: none;
+      transition: background 0.12s;
+    }
+    .oprb-status-cell::after {
+      content: '▾'; position: absolute; right: 3px; top: 50%;
+      transform: translateY(-50%); font-size: 8px; color: #8a9bb5;
+      pointer-events: none; opacity: 0; transition: opacity 0.15s;
+    }
+    .ref-jump-row:hover .oprb-status-cell::after { opacity: 1; }
+    .ref-jump-row:hover .oprb-status-cell select { background: rgba(30,45,74,0.06); }
+    .oprb-trash-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 13px; padding: 2px 4px; border-radius: 4px;
+      opacity: 0; transition: opacity 0.15s, color 0.15s;
+      color: #94a3b8; line-height: 1;
+    }
+    .ref-jump-row:hover .oprb-trash-btn { opacity: 1; }
+    .oprb-trash-btn:hover { color: #dc2626 !important; background: #fee2e2; }
+    .ref-jump-agency   { font-size: 11px; font-weight: 600; color: #526480; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ref-jump-name     { font-size: 11px; font-weight: 600; color: #1e2d4a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 6px; }
+    .ref-jump-discs    { display: flex; gap: 3px; align-items: center; overflow: hidden; }
+    .ref-jump-disc     { font-size: 10px; font-weight: 700; color: #fff; padding: 2px 5px; border-radius: 4px; white-space: nowrap; flex-shrink: 0; }
+    .ref-jump-city     { font-size: 11px; color: #718096; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 0 4px; }
+    .ref-jump-age-cell { font-size: 11px; color: #718096; white-space: nowrap; text-align: center; }
+    .ref-jump-empty    { padding: 14px; font-size: 12px; color: #718096; text-align: center; }
 
     /* ── Quick Add Referral modal ── */
     #quick-add-ref-modal {
@@ -2573,13 +2652,21 @@
     }
     .qaref-disc-btn.selected { color: #fff; border-color: transparent; }
     /* Submit */
+    .qaref-footer { display: flex; gap: 8px; margin-top: 2px; }
     #qaref-submit {
-      height: 40px; border-radius: 9px; border: none;
+      flex: 1; height: 40px; border-radius: 9px; border: none;
       background: #f97316; color: #fff; font-size: 14px; font-weight: 700;
-      cursor: pointer; transition: background .15s; margin-top: 2px;
+      cursor: pointer; transition: background .15s;
     }
     #qaref-submit:hover { background: #ea580c; }
     #qaref-submit:disabled { background: #d0ddf0; color: #9aaccc; cursor: not-allowed; }
+    #qaref-cancel {
+      display: none; height: 40px; padding: 0 18px; border-radius: 9px;
+      border: 1.5px solid #e2e8f0; background: #fff; color: #526480;
+      font-size: 14px; font-weight: 600; cursor: pointer; transition: all .15s;
+    }
+    #qaref-cancel:hover { background: #f1f5f9; border-color: #c8d5e8; }
+    #qaref-cancel.visible { display: block; }
     .ref-panel-header {
       display: flex;
       align-items: flex-start;
@@ -2603,6 +2690,103 @@
       margin-left: 8px;
     }
     .ref-panel-close:hover { background: #fee2e2; border-color: #fca5a5; color: #bf3f34; }
+    .ref-panel-edit {
+      width: 24px; height: 24px; border-radius: 6px;
+      border: 1px solid #c8d5e8; background: #fff;
+      cursor: pointer; font-size: 12px; line-height: 1; color: #526480;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; margin-left: 8px;
+    }
+    .ref-panel-edit:hover { background: #eff6ff; border-color: #93c5fd; color: #2463eb; }
+
+    /* ── TB Import modal ── */
+    #tb-import-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(12,22,50,0.5); z-index: 1001;
+      align-items: center; justify-content: center;
+    }
+    #tb-import-modal.open { display: flex; }
+    #tb-import-box {
+      background: #fff; border-radius: 14px; padding: 28px 28px 22px;
+      width: 720px; max-width: 96vw; max-height: 88vh;
+      display: flex; flex-direction: column; gap: 14px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+    }
+    #tb-import-box h3 {
+      margin: 0; font-size: 15px; font-weight: 700; color: #1e2d4a;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    #tb-import-box h3 button {
+      background: none; border: none; font-size: 16px;
+      cursor: pointer; color: #718096; line-height: 1;
+    }
+    #tb-key-status {
+      font-size: 11px; color: #718096;
+      display: flex; align-items: center; gap: 6px;
+    }
+    #tb-key-status .tb-key-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: #d1d5db; flex-shrink: 0;
+    }
+    #tb-key-status.has-key .tb-key-dot { background: #22c55e; }
+    #tb-key-status a {
+      color: #3b82f6; text-decoration: none; font-size: 10px; margin-left: auto;
+    }
+    #tb-key-status a:hover { text-decoration: underline; }
+    #tb-key-edit-row {
+      display: none; align-items: center; gap: 8px; margin-top: 4px;
+    }
+    #tb-key-edit-row.open { display: flex; }
+    #tb-key-edit-row input {
+      flex: 1; padding: 5px 10px; font-size: 12px; border: 1px solid #e2e8f0;
+      border-radius: 6px; font-family: monospace; color: #1e2d4a;
+    }
+    #tb-key-edit-row button {
+      padding: 5px 12px; font-size: 12px; font-weight: 600; border-radius: 6px;
+      border: none; background: #1e2d4a; color: #fff; cursor: pointer;
+    }
+    #tb-drop-zone {
+      border: 2px dashed #c8d5e8; border-radius: 10px;
+      background: #f8fafd; padding: 28px 20px;
+      text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+      flex-shrink: 0;
+    }
+    #tb-drop-zone.drag-over { border-color: #3b82f6; background: #eff6ff; }
+    #tb-drop-zone.has-image { border-style: solid; border-color: #86efac; background: #f0fdf4; }
+    #tb-drop-zone p { margin: 0; font-size: 13px; color: #718096; }
+    #tb-drop-zone strong { color: #1e2d4a; }
+    #tb-drop-zone .tb-paste-hint {
+      display: inline-block; margin-top: 8px; font-size: 11px; color: #94a3b8;
+      background: #f1f5f9; border-radius: 5px; padding: 3px 8px;
+    }
+    #tb-drop-zone img { max-width: 100%; max-height: 180px; border-radius: 6px; margin-top: 10px; display: none; }
+    #tb-scan-btn {
+      background: #1e2d4a; color: #fff; border: none; border-radius: 7px;
+      padding: 9px 20px; font-size: 13px; font-weight: 600;
+      cursor: pointer; flex-shrink: 0; align-self: flex-start;
+    }
+    #tb-scan-btn:disabled { opacity: .5; cursor: not-allowed; }
+    #tb-preview-wrap { flex: 1; overflow-y: auto; min-height: 0; }
+    .tb-preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .tb-preview-table th {
+      background: #f1f5f9; color: #718096; font-weight: 600;
+      padding: 6px 8px; text-align: left; position: sticky; top: 0; z-index: 1;
+    }
+    .tb-preview-table td { padding: 6px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+    .tb-preview-table tr:hover td { background: #f8fafd; }
+    .tb-geo-pending { color: #f59e0b; font-size: 10px; }
+    .tb-geo-ok      { color: #22c55e; font-size: 10px; }
+    .tb-geo-fail    { color: #ef4444; font-size: 10px; }
+    #tb-import-footer {
+      display: flex; align-items: center; justify-content: space-between;
+      border-top: 1px solid #f1f5f9; padding-top: 12px; flex-shrink: 0;
+    }
+    #tb-import-footer span { font-size: 12px; color: #718096; }
+    #tb-import-btn {
+      background: #1e9b58; color: #fff; border: none; border-radius: 7px;
+      padding: 9px 22px; font-size: 13px; font-weight: 600; cursor: pointer;
+    }
+    #tb-import-btn:disabled { opacity: .5; cursor: not-allowed; }
+
     .ref-panel-body { padding: 10px 12px 12px; }
     .ref-overlay-inner {
       font-family: Arial, sans-serif; padding: 13px 15px; min-width: 240px;
@@ -5605,21 +5789,11 @@
             </button>
           </div>
 
-          <!-- ── Quick add referral ── -->
-          <div class="toolbar-cell" style="flex-shrink:0">
-            <button type="button" onclick="openQuickAddReferral()" title="Quick add referral"
-              style="height:32px;padding:0 11px;border-radius:7px;border:1.5px solid #e2b44b;
-                     background:#fffbeb;color:#92400e;font-size:12px;font-weight:600;
-                     cursor:pointer;white-space:nowrap;display:flex;align-items:center;gap:5px;transition:all .15s"
-              onmouseover="this.style.background='#fef3c7'" onmouseout="this.style.background='#fffbeb'">
-              + Referral
-            </button>
-          </div>
 
           <!-- ── Referral jump dropdown ── -->
           <div class="toolbar-cell" style="flex-shrink:0" id="ref-jump-cell">
             <button id="ref-jump-btn" type="button" onclick="toggleRefJumpDropdown()">
-              Select referral <span style="font-size:10px;opacity:.7">▾</span>
+              OPRB <span style="font-size:10px;opacity:.7">▾</span>
             </button>
             <div id="ref-jump-panel"></div>
           </div>
@@ -6374,7 +6548,7 @@
   <!-- ── Quick Add Referral Modal ── -->
   <div id="quick-add-ref-modal" onclick="if(event.target===this)closeQuickAddReferral()">
     <div id="quick-add-ref-box">
-      <h3>Quick Add Referral <button onclick="closeQuickAddReferral()" aria-label="Close">✕</button></h3>
+      <h3 id="qaref-modal-title">Quick Add Referral <button onclick="closeQuickAddReferral()" aria-label="Close">✕</button></h3>
 
       <div class="qaref-field">
         <div class="qaref-label">Patient Name</div>
@@ -6414,7 +6588,63 @@
         </div>
       </div>
 
-      <button id="qaref-submit" onclick="submitQuickAddReferral()">Save Referral</button>
+      <div class="qaref-footer">
+        <button id="qaref-cancel" onclick="closeQuickAddReferral()">Cancel</button>
+        <button id="qaref-submit" onclick="submitQuickAddReferral()">Save Referral</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TherapyBoss Screenshot Import Modal ── -->
+  <div id="tb-import-modal" onclick="if(event.target===this)closeTbImport()">
+    <div id="tb-import-box">
+      <h3>Import from TherapyBoss <button onclick="closeTbImport()" aria-label="Close">✕</button></h3>
+
+      <div id="tb-key-status">
+        <span class="tb-key-dot"></span>
+        <span id="tb-key-label">No API key saved</span>
+        <a href="#" class="admin-only" onclick="toggleTbKeyEdit(event)">Change key</a>
+      </div>
+      <div id="tb-key-edit-row">
+        <input type="password" id="tb-api-key" placeholder="sk-…" autocomplete="off">
+        <button onclick="saveTbApiKeyFromInput()">Save</button>
+      </div>
+
+      <div id="tb-drop-zone"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleTbDrop(event)"
+           onclick="document.getElementById('tb-file-input').click()">
+        <p><strong>Drop or paste a screenshot</strong> — or click to select a file</p>
+        <span class="tb-paste-hint">⌘V / Ctrl+V to paste from clipboard</span>
+        <img id="tb-preview-img" alt="preview">
+      </div>
+      <input type="file" id="tb-file-input" accept="image/*" style="display:none"
+             onchange="handleTbFileSelect(this)">
+
+      <button id="tb-scan-btn" onclick="runTbScan()" disabled>🔍 Scan with AI</button>
+
+      <div id="tb-preview-wrap" style="display:none">
+        <table class="tb-preview-table">
+          <thead>
+            <tr>
+              <th style="width:28px"></th>
+              <th>Patient</th>
+              <th>Address</th>
+              <th>Disciplines</th>
+              <th>Agency</th>
+              <th>Date</th>
+              <th>Geo</th>
+            </tr>
+          </thead>
+          <tbody id="tb-preview-tbody"></tbody>
+        </table>
+      </div>
+
+      <div id="tb-import-footer" style="display:none">
+        <span id="tb-import-count">0 referrals ready</span>
+        <button id="tb-import-btn" onclick="commitTbImport()">Import Referrals</button>
+      </div>
     </div>
   </div>
 
@@ -9421,6 +9651,137 @@
         if (f) features.push(f);
       });
       src.setData({ type: "FeatureCollection", features: features });
+    }
+
+    // ── Referral GeoJSON layer (replaces DOM markers — eliminates zoom drift) ──
+
+    function ensureReferralLayer() {
+      if (map.getSource("referral-pins")) return;
+      map.addSource("referral-pins", {
+        type: "geojson",
+        data: { type: "FeatureCollection", features: [] }
+      });
+
+      var sonarColor = ["match", ["get", "ageBucket"],
+        "red",   "rgba(239,68,68,0.65)",
+        "amber", "rgba(245,158,11,0.65)",
+                 "rgba(249,115,22,0.65)"];
+
+      // Two pulse layers (layer-2 below, layer-1 above) — radius/opacity animated by sonar tick
+      ["referral-sonar-2", "referral-sonar-1"].forEach(function(id) {
+        map.addLayer({
+          id: id, type: "circle", source: "referral-pins",
+          paint: {
+            "circle-color": sonarColor,
+            "circle-radius": 7,
+            "circle-opacity": 0,
+            "circle-stroke-width": 0,
+            "circle-pitch-alignment": "map"
+          }
+        });
+      });
+
+      // Solid colored dot — the actual pin
+      map.addLayer({
+        id: "referral-dot", type: "circle", source: "referral-pins",
+        paint: {
+          "circle-color": ["match", ["get", "ageBucket"],
+            "red",   "#ef4444",
+            "amber", "#f59e0b",
+                     "#f97316"],
+          "circle-radius": 7,
+          "circle-stroke-color": "rgba(255,255,255,0.95)",
+          "circle-stroke-width": 2.5
+        }
+      });
+
+      // Contact-count badge background — only when count > 0
+      map.addLayer({
+        id: "referral-badge-bg", type: "circle", source: "referral-pins",
+        filter: [">", ["get", "count"], 0],
+        paint: {
+          "circle-color": "#1e2d4a",
+          "circle-radius": 7,
+          "circle-translate": [10, -8],
+          "circle-stroke-color": "#ffffff",
+          "circle-stroke-width": 1.5
+        }
+      });
+
+      // Badge count text
+      map.addLayer({
+        id: "referral-badge-text", type: "symbol", source: "referral-pins",
+        filter: [">", ["get", "count"], 0],
+        layout: {
+          "text-field": ["to-string", ["get", "count"]],
+          "text-size": 9,
+          "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+          "text-offset": [0.83, -0.66],
+          "text-allow-overlap": true,
+          "text-ignore-placement": true
+        },
+        paint: { "text-color": "#ffffff" }
+      });
+    }
+
+    function buildReferralFeature(r, contactCount) {
+      if (!r.lat || !r.lng) return null;
+      var days = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
+      var bucket = days >= 5 ? "red" : days >= 3 ? "amber" : "fresh";
+      return {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [r.lng, r.lat] },
+        properties: { id: r.id, ageBucket: bucket, count: contactCount || 0 }
+      };
+    }
+
+    function rebuildReferralGeoJSON() {
+      var src = map.getSource("referral-pins");
+      if (!src) return;
+      var refs = appState.referralOverlayData || [];
+      var contacts = appState.referralOverlayContacts || [];
+      var features = [];
+      refs.forEach(function(r) {
+        var n = contacts.filter(function(c) { return c.referral_id === r.id; }).length;
+        var f = buildReferralFeature(r, n);
+        if (f) features.push(f);
+      });
+      src.setData({ type: "FeatureCollection", features: features });
+    }
+
+    function startReferralSonarTick() {
+      if (appState._refSonarTicking) return;
+      appState._refSonarTicking = true;
+      function tick() {
+        if (!appState.referralOverlayActive || !map.getLayer("referral-sonar-1")) {
+          appState._refSonarTicking = false;
+          return;
+        }
+        var t = Date.now();
+        // Pulse periods per age bucket (ms) — older referrals pulse faster
+        var P = { red: 1100, amber: 1700, fresh: 2400 };
+        function radExpr(offsetMs) {
+          function r(per) { var p = ((t + offsetMs) % per) / per; return 7 + p * 18; }
+          return ["match", ["get", "ageBucket"],
+            "red",   r(P.red),
+            "amber", r(P.amber),
+                     r(P.fresh)];
+        }
+        function opaExpr(offsetMs) {
+          function o(per) { var p = ((t + offsetMs) % per) / per; return 0.65 * (1 - p); }
+          return ["match", ["get", "ageBucket"],
+            "red",   o(P.red),
+            "amber", o(P.amber),
+                     o(P.fresh)];
+        }
+        map.setPaintProperty("referral-sonar-1", "circle-radius",  radExpr(0));
+        map.setPaintProperty("referral-sonar-1", "circle-opacity", opaExpr(0));
+        // Layer 2 — half-period offset (uses largest period as reference)
+        map.setPaintProperty("referral-sonar-2", "circle-radius",  radExpr(1200));
+        map.setPaintProperty("referral-sonar-2", "circle-opacity", opaExpr(1200));
+        requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
     }
 
     function clearFocusedDomMarker() {
@@ -20216,6 +20577,21 @@
         });
       });
 
+      // Referral GeoJSON layer — click to open ref panel
+      map.on("click", "referral-dot", function(e) {
+        if (!e.features || !e.features.length) return;
+        var rid = e.features[0].properties.id;
+        var r = (appState.referralOverlayData || []).find(function(x) { return x.id === rid; });
+        if (!r) return;
+        if (appState.refPanelOpenId && appState.refPanelOpenId !== rid) {
+          showToast("Close the current referral first to switch", "warning", 2200);
+          return;
+        }
+        openRefPanel(rid, r);
+      });
+      map.on("mouseenter", "referral-dot", function() { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", "referral-dot", function() { map.getCanvas().style.cursor = ""; });
+
       [completedServiceClusterLayerId, completedServiceClusterCountLayerId, completedServicePointLayerId, completedServicePointFocusedLayerId, completedServicePointCountLayerId].forEach(function(layerId) {
         map.on("mouseenter", layerId, function() {
           map.getCanvas().style.cursor = "pointer";
@@ -21261,6 +21637,7 @@
       ensureRulerLayer();
       ensureTerritoryLayer();
       ensureClinicianLayer();
+      ensureReferralLayer();
       ensureCompletedServiceLayers();
       bindEvents();
 
@@ -21643,68 +22020,13 @@
   }
 
   function renderReferralOverlay() {
-    // Clear any existing markers first
+    // Legacy DOM marker cleanup (in case any stragglers from older sessions)
     appState.referralOverlayMarkers.forEach(function(m) { m.remove(); });
     appState.referralOverlayMarkers = [];
 
-    var refs     = appState.referralOverlayData;
-    var contacts = appState.referralOverlayContacts;
-
-    refs.forEach(function(r) {
-      if (!r.lat || !r.lng) return;
-
-      var days  = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
-      var color = days >= 5 ? "#ef4444" : days >= 3 ? "#f59e0b" : "#f97316";
-      var ring  = days >= 5 ? "#dc2626" : days >= 3 ? "#d97706" : "#ea580c";
-
-      // Sonar pin — pulse speed reflects urgency
-      var pulseSpeed = days >= 5 ? "1.1s" : days >= 3 ? "1.7s" : "2.4s";
-
-      var wrap  = document.createElement("div");
-      wrap.className = "ref-pin-wrap";
-      wrap.style.setProperty("--pulse-speed", pulseSpeed);
-
-      var ring  = document.createElement("div");
-      ring.className = "ref-pin-ring";
-      ring.style.background = color;
-
-      var ring2 = document.createElement("div");
-      ring2.className = "ref-pin-ring2";
-      ring2.style.background = color;
-
-      var dot   = document.createElement("div");
-      dot.className = "ref-pin-dot";
-      dot.style.background = color;
-
-      wrap.appendChild(ring);
-      wrap.appendChild(ring2);
-      wrap.appendChild(dot);
-
-      // Contact count badge (shown when > 0 contacts logged)
-      var contactCount = contacts.filter(function(c) { return c.referral_id === r.id; }).length;
-      var badgeEl = document.createElement("div");
-      badgeEl.className = "ref-pin-badge";
-      badgeEl.id = "ref-badge-" + r.id;
-      badgeEl.textContent = contactCount || "";
-      badgeEl.style.display = contactCount > 0 ? "flex" : "none";
-      wrap.appendChild(badgeEl);
-
-      var rid = r.id; // UUID — safe for use in IIFE closure
-
-      // Click on pin → open persistent fixed panel (not a Mapbox popup)
-      (function(refId, refObj) {
-        wrap.addEventListener("click", function(e) {
-          e.stopPropagation();
-          openRefPanel(refId, refObj);
-        });
-      })(rid, r);
-
-      var marker = new mapboxgl.Marker({ element: wrap, anchor: "center" })
-        .setLngLat([r.lng, r.lat])
-        .addTo(map);
-
-      appState.referralOverlayMarkers.push(marker);
-    });
+    // Render via WebGL GeoJSON layers — no zoom drift
+    rebuildReferralGeoJSON();
+    startReferralSonarTick();
 
     // ── One-time capture-phase intercept on ZIP results for tap-to-log ──
     // (registered once; checks window._refLogActive each click)
@@ -21737,6 +22059,9 @@
     appState.referralOverlayActive  = false;
     appState.referralOverlayData    = [];
     appState.referralOverlayContacts = [];
+    // Clear the GeoJSON source — sonar tick will self-terminate next frame
+    var src = map.getSource("referral-pins");
+    if (src) src.setData({ type: "FeatureCollection", features: [] });
     updateReferralOverlayBtn();
     clearReferralDropdown();
   }
@@ -21757,16 +22082,56 @@
     }
   }
 
-  // ── Referral jump dropdown ──
+  // ── Referral jump floating panel ──
 
-  var _refJumpOpen = false;
+  var _refJumpOpen  = false;
+  var _oprbSort     = "name";   // name | age | agency | status | region
+  var _oprbFilter   = "all";    // all | open | staffed | cancelled
+  var _refDragging  = false;
+  var _refDragOffX  = 0;
+  var _refDragOffY  = 0;
+  var _refFloatLeft = null;
+  var _refFloatTop  = null;
+
+  function startRefPanelDrag(e) {
+    var panel = document.getElementById("ref-jump-panel");
+    if (!panel) return;
+    _refDragging = true;
+    var rect = panel.getBoundingClientRect();
+    _refDragOffX = e.clientX - rect.left;
+    _refDragOffY = e.clientY - rect.top;
+    e.preventDefault();
+  }
 
   function toggleRefJumpDropdown() {
     var panel = document.getElementById("ref-jump-panel");
     var btn   = document.getElementById("ref-jump-btn");
     if (!panel) return;
     _refJumpOpen = !_refJumpOpen;
-    panel.style.display = _refJumpOpen ? "block" : "none";
+    if (_refJumpOpen) {
+      // Rebuild panel content every open so it's always current
+      populateReferralDropdown();
+      // If overlay data has never been fetched, load it silently now
+      if (!appState.referralOverlayData) {
+        loadReferralOverlay().then(function() {
+          if (_refJumpOpen) populateReferralDropdown();
+        });
+      }
+      var x, y;
+      if (_refFloatLeft !== null) {
+        x = _refFloatLeft;
+        y = _refFloatTop;
+      } else {
+        var tbBar = document.querySelector(".top-toolbar");
+        var tbBottom = tbBar ? tbBar.getBoundingClientRect().bottom + 10 : 70;
+        x = Math.round((window.innerWidth - 520) / 2);
+        y = Math.round(tbBottom);
+      }
+      panel.style.transform = "translate(" + x + "px," + y + "px)";
+      panel.style.display = "flex";
+    } else {
+      panel.style.display = "none";
+    }
     btn.classList.toggle("open", _refJumpOpen);
   }
 
@@ -21784,69 +22149,198 @@
     var btn   = document.getElementById("ref-jump-btn");
     if (!panel) return;
 
-    var refs = appState.referralOverlayData || [];
+    var allRefs = (appState.referralOverlayData || []).slice();
     panel.innerHTML = "";
 
-    if (!refs.length) {
-      if (cell) cell.style.display = "none";
+    // Always show the OPRB button
+    if (cell) cell.style.display = "";
+
+    // ── Title bar (always rendered so + Referral / Import buttons are accessible) ──
+    var hdrEmpty = document.createElement("div");
+    hdrEmpty.className = "ref-jump-header";
+    hdrEmpty.onmousedown = startRefPanelDrag;
+    hdrEmpty.innerHTML = "<span class='ref-jump-header-title'>📋 OPRB</span>" +
+      "<button onclick='openQuickAddReferral()' style='background:#e2b44b;color:#1e2d4a;border:none;border-radius:5px;font-size:11px;font-weight:700;padding:3px 9px;cursor:pointer;white-space:nowrap;'>+ Referral</button>" +
+      "<button onclick='openTbImport()' style='background:#6366f1;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;padding:3px 9px;cursor:pointer;white-space:nowrap;margin-left:4px;'>📷 Import</button>" +
+      "<button class='ref-jump-close-btn' onclick='closeRefJumpDropdown()' title='Close'>&#x2715;</button>";
+    panel.appendChild(hdrEmpty);
+
+    if (!allRefs.length) {
+      var emptyDiv = document.createElement("div");
+      emptyDiv.className = "ref-jump-empty";
+      emptyDiv.textContent = "No referrals — add one above.";
+      panel.appendChild(emptyDiv);
       return;
     }
 
-    var discColors = { PT: "#dc2626", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
+    // Discipline colors matching app-wide values
+    var discColors = { PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" };
 
-    refs.forEach(function(r) {
-      var days       = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
-      var ageStr     = days === 0 ? "Today" : days === 1 ? "1d" : days + "d";
-      var status     = (r.status || "open").toLowerCase();
+    // ── Controls bar — single row: sort select left, filter pills right ──
+    var ctrl = document.createElement("div");
+    ctrl.className = "ref-jump-controls";
 
-      // Agency — 8 chars max
-      var agencyFull = r.agency_name || r.agency || "Unknown";
-      var agency     = agencyFull.length > 12 ? agencyFull.slice(0, 12) + "…" : agencyFull;
+    // Left: sort select
+    var sortWrap = document.createElement("div");
+    sortWrap.className = "oprb-sort-wrap";
+    sortWrap.innerHTML = "<span class='oprb-sort-label'>Sort</span>";
+    var sortSel = document.createElement("select");
+    sortSel.className = "oprb-sort-select";
+    [["name","Name"],["region","Region"],["age","Age"],["agency","Agency"],["status","Status"]].forEach(function(o) {
+      var opt = document.createElement("option");
+      opt.value = o[0]; opt.textContent = o[1];
+      if (o[0] === _oprbSort) opt.selected = true;
+      sortSel.appendChild(opt);
+    });
+    sortSel.addEventListener("change", function(e) { e.stopPropagation(); _oprbSort = e.target.value; populateReferralDropdown(); });
+    sortWrap.appendChild(sortSel);
+    ctrl.appendChild(sortWrap);
 
-      // Last name only — "SMITH, JOHN" → "Smith"
-      var rawName    = r.patient_name || "—";
-      var lastName   = rawName.includes(",") ? rawName.split(",")[0].trim() : rawName.split(" ")[0].trim();
-      lastName = lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase();
+    // Right: filter pills
+    var filterWrap = document.createElement("div");
+    filterWrap.className = "oprb-filter-pills";
+    [["all","All"],["open","Open"],["staffed","Staffed"],["cancelled","Cancelled"],["rejected","Rejected"]].forEach(function(pair) {
+      var pill = document.createElement("button");
+      pill.className = "oprb-filter-pill" + (_oprbFilter === pair[0] ? " active" : "");
+      pill.textContent = pair[1];
+      pill.addEventListener("click", function(e) { e.stopPropagation(); _oprbFilter = pair[0]; populateReferralDropdown(); });
+      filterWrap.appendChild(pill);
+    });
+    ctrl.appendChild(filterWrap);
+    panel.appendChild(ctrl);
 
-      // Supervisor disciplines only — PT/PTA→PT, OT/OTA→OT, ST→ST, deduped
-      // Handles both ["PT","PTA"] and ["PT/PTA"] storage formats
-      var rawDiscs = [];
-      (r.disciplines || []).forEach(function(d) {
-        String(d).trim().toUpperCase().split("/").forEach(function(p) { rawDiscs.push(p.trim()); });
-      });
-      var supDiscs   = [];
-      if (rawDiscs.some(function(d){ return d === "PT" || d === "PTA"; })) supDiscs.push("PT");
-      if (rawDiscs.some(function(d){ return d === "OT" || d === "OTA"; })) supDiscs.push("OT");
-      if (rawDiscs.some(function(d){ return d === "ST"; }))               supDiscs.push("ST");
-
-      var discsHtml = supDiscs.map(function(d) {
-        var col = discColors[d] || "#6b7280";
-        return "<span class='ref-jump-disc' style='background:" + col + "'>" + d + "</span>";
-      }).join("");
-
-      // City from address
-      var addrParts  = (r.address || "").split(",");
-      var city       = addrParts.length > 1 ? addrParts[1].trim() : (addrParts[0].trim() || "—");
-
-      var statusCss  = status === "staffed" ? "staffed" : status === "cancelled" ? "cancelled" : "open";
-
-      var row = document.createElement("div");
-      row.className = "ref-jump-row";
-      row.innerHTML =
-        "<span class='ref-jump-agency' title='" + escHtml(agencyFull) + "'>" + escHtml(agency) + "</span>" +
-        "<span class='ref-jump-age' style='flex:1;color:#1e2d4a;font-weight:600;white-space:nowrap'>" + escHtml(lastName) + "</span>" +
-        "<span style='display:flex;gap:3px;flex-shrink:0'>" + discsHtml + "</span>" +
-        "<span class='ref-jump-age' style='min-width:60px'>" + escHtml(city) + "</span>" +
-        "<span class='ref-jump-age' style='min-width:36px'>" + ageStr + "</span>" +
-        "<span class='ref-jump-status " + statusCss + "'>" + status.toUpperCase() + "</span>";
-
-      row.addEventListener("click", function() { handleRefJumpRow(r); });
-      panel.appendChild(row);
+    // ── Apply filter ──
+    var refs = _oprbFilter === "all" ? allRefs : allRefs.filter(function(r) {
+      return (r.status || "open").toLowerCase() === _oprbFilter;
     });
 
-    // Update button label with count
-    if (btn) btn.innerHTML = refs.length + " open referral" + (refs.length !== 1 ? "s" : "") + " <span style='font-size:10px;opacity:.7'>▾</span>";
+    // ── Apply sort ──
+    refs.sort(function(a, b) {
+      if (_oprbSort === "name") {
+        var an = (a.patient_name || "").split(",")[0].trim().toLowerCase();
+        var bn = (b.patient_name || "").split(",")[0].trim().toLowerCase();
+        return an < bn ? -1 : an > bn ? 1 : 0;
+      }
+      if (_oprbSort === "region") {
+        var ap = (a.address || "").split(","); var _a0 = (ap[0]||"").trim(); var ar = /\d/.test(_a0) && ap.length>1 ? ap[1].trim().toLowerCase() : _a0.toLowerCase();
+        var bp = (b.address || "").split(","); var _b0 = (bp[0]||"").trim(); var br = /\d/.test(_b0) && bp.length>1 ? bp[1].trim().toLowerCase() : _b0.toLowerCase();
+        return ar < br ? -1 : ar > br ? 1 : 0;
+      }
+      if (_oprbSort === "age") {
+        return new Date(a.referral_date).getTime() - new Date(b.referral_date).getTime(); // oldest first
+      }
+      if (_oprbSort === "agency") {
+        var aa = (a.agency_name || a.agency || "").toLowerCase();
+        var ba = (b.agency_name || b.agency || "").toLowerCase();
+        return aa < ba ? -1 : aa > ba ? 1 : 0;
+      }
+      if (_oprbSort === "status") {
+        var order = { open: 0, staffed: 1, cancelled: 2, rejected: 3 };
+        var as = order[(a.status || "open").toLowerCase()] || 0;
+        var bs = order[(b.status || "open").toLowerCase()] || 0;
+        return as - bs;
+      }
+      return 0;
+    });
+
+    // ── Column header ──
+    var colHdr = document.createElement("div");
+    colHdr.className = "ref-jump-col-hdr";
+    colHdr.innerHTML = "<span>Agency</span><span style='padding:0 6px'>Name</span><span>Disc</span><span style='padding:0 4px'>City</span><span style='text-align:center'>Age</span><span>Status</span><span></span>";
+    panel.appendChild(colHdr);
+
+    // ── Scrollable body ──
+    var body = document.createElement("div");
+    body.className = "ref-jump-body";
+    panel.appendChild(body);
+
+    if (!refs.length) {
+      var empty = document.createElement("div");
+      empty.className = "ref-jump-empty";
+      empty.textContent = "No " + _oprbFilter + " referrals";
+      body.appendChild(empty);
+    } else {
+      refs.forEach(function(r) {
+        var days       = Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000);
+        var ageStr     = days === 0 ? "Today" : days === 1 ? "1d" : days + "d";
+        var status     = (r.status || "open").toLowerCase();
+
+        var agencyFull = r.agency_name || r.agency || "Unknown";
+        var agency     = agencyFull.length > 12 ? agencyFull.slice(0, 12) + "…" : agencyFull;
+
+        var rawName    = r.patient_name || "—";
+        var lastName   = rawName.includes(",") ? rawName.split(",")[0].trim() : rawName.split(" ")[0].trim();
+        lastName = lastName.charAt(0).toUpperCase() + lastName.slice(1).toLowerCase();
+
+        var rawDiscs = [];
+        (r.disciplines || []).forEach(function(d) {
+          String(d).trim().toUpperCase().split("/").forEach(function(p) { rawDiscs.push(p.trim()); });
+        });
+        var supDiscs = [];
+        if (rawDiscs.some(function(d){ return d === "PT" || d === "PTA"; })) supDiscs.push("PT");
+        if (rawDiscs.some(function(d){ return d === "OT" || d === "OTA"; })) supDiscs.push("OT");
+        if (rawDiscs.some(function(d){ return d === "ST"; }))               supDiscs.push("ST");
+        var discsHtml = supDiscs.map(function(d) {
+          return "<span class='ref-jump-disc' style='background:" + (discColors[d] || "#6b7280") + "'>" + d + "</span>";
+        }).join("");
+
+        var addrParts = (r.address || "").split(",");
+        var _ap0 = (addrParts[0] || "").trim();
+        var city = /\d/.test(_ap0) && addrParts.length > 1 ? addrParts[1].trim() : (_ap0 || "—");
+
+        var row = document.createElement("div");
+        row.className = "ref-jump-row";
+        row.setAttribute("data-ref-id", r.id);
+        row.innerHTML =
+          "<span class='ref-jump-agency' title='" + escHtml(agencyFull) + "'>" + escHtml(agency) + "</span>" +
+          "<span class='ref-jump-name'>" + escHtml(lastName) + "</span>" +
+          "<span class='ref-jump-discs'>" + discsHtml + "</span>" +
+          "<span class='ref-jump-city'>" + escHtml(city) + "</span>" +
+          "<span class='ref-jump-age-cell'>" + ageStr + "</span>" +
+          "<div class='oprb-status-cell'><select style='color:" +
+            (status === "staffed" ? "#166534" : status === "cancelled" || status === "rejected" ? "#6b7280" : "#92400e") + "'>" +
+            "<option value='open'"      + (status === "open"      ? " selected" : "") + ">Open</option>" +
+            "<option value='staffed'"   + (status === "staffed"   ? " selected" : "") + ">Staffed</option>" +
+            "<option value='cancelled'" + (status === "cancelled" ? " selected" : "") + ">Cancelled</option>" +
+            "<option value='rejected'"  + (status === "rejected"  ? " selected" : "") + ">Rejected</option>" +
+          "</select></div>";
+
+        // Wire select — stopPropagation so it doesn't trigger row fly
+        var sel = row.querySelector(".oprb-status-cell select");
+        sel.addEventListener("click",  function(e) { e.stopPropagation(); });
+        sel.addEventListener("change", function(e) {
+          e.stopPropagation();
+          var v = sel.value;
+          sel.style.color = v === "staffed" ? "#166534" : (v === "cancelled" || v === "rejected") ? "#6b7280" : "#92400e";
+          oprb_updateStatus(r.id, v);
+        });
+        // Trash button
+        var trashBtn = document.createElement("button");
+        trashBtn.className = "oprb-trash-btn";
+        trashBtn.title = "Delete referral";
+        trashBtn.textContent = "🗑";
+        (function(rid) {
+          trashBtn.addEventListener("click", function(e) {
+            e.stopPropagation();
+            oprb_deleteReferral(rid);
+          });
+        })(r.id);
+        row.appendChild(trashBtn);
+
+        // Row click (ignore if on select or trash)
+        row.addEventListener("click", function(e) {
+          if (e.target.tagName === "SELECT" || e.target.tagName === "OPTION" || e.target.classList.contains("oprb-trash-btn")) return;
+          handleRefJumpRow(r);
+        });
+        body.appendChild(row);
+      });
+    }
+
+    if (btn) btn.innerHTML = "OPRB <span style='font-size:10px;opacity:.7'>▾</span>";
     if (cell) cell.style.display = "flex";
+
+    // Re-apply highlight if a referral panel is open
+    if (appState.refPanelOpenId) highlightRefJumpRow(appState.refPanelOpenId);
   }
 
   function clearReferralDropdown() {
@@ -21860,7 +22354,6 @@
   }
 
   function handleRefJumpRow(r) {
-    closeRefJumpDropdown();
     if (appState.refPanelOpenId && appState.refPanelOpenId !== r.id) closeRefPanel();
     map.flyTo({ center: [r.lng, r.lat], zoom: Math.max(map.getZoom(), 13), speed: 1.1, essential: true });
     setTimeout(function() {
@@ -21869,11 +22362,18 @@
     }, 400);
   }
 
-  // Close dropdown when clicking outside
-  document.addEventListener("click", function(e) {
-    var cell = document.getElementById("ref-jump-cell");
-    if (cell && !cell.contains(e.target) && _refJumpOpen) closeRefJumpDropdown();
+  // Drag move + release for floating panel
+  document.addEventListener("mousemove", function(e) {
+    if (!_refDragging) return;
+    var panel = document.getElementById("ref-jump-panel");
+    if (!panel) return;
+    var x = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  e.clientX - _refDragOffX));
+    var y = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, e.clientY - _refDragOffY));
+    panel.style.transform = "translate(" + x + "px," + y + "px)";
+    _refFloatLeft = x;
+    _refFloatTop  = y;
   });
+  document.addEventListener("mouseup", function() { _refDragging = false; });
 
   // ── Referral panel helpers ──
 
@@ -21908,15 +22408,42 @@
     var listEl = document.getElementById("rcp-" + refId);
     if (listEl) listEl.innerHTML = buildContactListHtml(fresh);
 
-    // Update the sonar pin badge
-    var badgeEl = document.getElementById("ref-badge-" + refId);
-    if (badgeEl) {
-      badgeEl.textContent = fresh.length || "";
-      badgeEl.style.display = fresh.length > 0 ? "flex" : "none";
-    }
+    // Refresh the GeoJSON pin badge counts (cheap; n is small)
+    if (typeof rebuildReferralGeoJSON === "function") rebuildReferralGeoJSON();
   }
 
   // ── Persistent referral panel — open / close ──
+
+  async function oprb_deleteReferral(refId) {
+    if (!confirm("Delete this referral and all logged contacts? This cannot be undone.")) return;
+    var { error: e1 } = await supabaseClient.from("referral_contacts").delete().eq("referral_id", refId);
+    if (e1) { showToast("Failed to delete contacts: " + e1.message, "error"); return; }
+    var { error: e2 } = await supabaseClient.from("referrals").delete().eq("id", refId);
+    if (e2) { showToast("Failed to delete referral: " + e2.message, "error"); return; }
+    appState.referralOverlayData     = (appState.referralOverlayData     || []).filter(function(r) { return r.id !== refId; });
+    appState.referralOverlayContacts = (appState.referralOverlayContacts || []).filter(function(c) { return c.referral_id !== refId; });
+    if (appState.refPanelOpenId === refId) closeRefPanel();
+    rebuildReferralGeoJSON();
+    populateReferralDropdown();
+    showToast("Referral deleted", "success", 2000);
+  }
+
+  async function oprb_updateStatus(refId, newStatus) {
+    var { error } = await supabaseClient.from("referrals").update({ status: newStatus }).eq("id", refId);
+    if (error) { showToast("Failed to update status", "error"); return; }
+    var ref = (appState.referralOverlayData || []).find(function(r) { return r.id === refId; });
+    if (ref) ref.status = newStatus;
+    populateReferralDropdown();
+    showToast("Status updated to " + newStatus, "success", 2000);
+  }
+
+  function highlightRefJumpRow(refId) {
+    var body = document.querySelector(".ref-jump-body");
+    if (!body) return;
+    body.querySelectorAll(".ref-jump-row").forEach(function(row) {
+      row.classList.toggle("selected", row.getAttribute("data-ref-id") === refId);
+    });
+  }
 
   function openRefPanel(rid, r) {
     // If this referral is already showing, do nothing
@@ -21926,6 +22453,7 @@
       showToast("Close the current referral first to switch.", "warning");
       return;
     }
+    highlightRefJumpRow(rid);
 
     var contacts = appState.referralOverlayContacts;
     var accepted = contacts.filter(function(c) { return c.referral_id === rid; }); // all contacts for this referral
@@ -21958,6 +22486,7 @@
           "<div class='ref-overlay-name'>" + escHtml(r.patient_name) + "</div>" +
           "<div class='ref-overlay-addr'>" + escHtml(r.address || "") + "</div>" +
         "</div>" +
+        "<button class='ref-panel-edit' onclick='openEditReferral(\"" + rid + "\")' title='Edit referral'>✎</button>" +
         "<button class='ref-panel-close' onclick='closeRefPanel()' title='Close referral panel'>✕</button>" +
       "</div>" +
       "<div class='ref-panel-body'>" +
@@ -22150,7 +22679,8 @@
     map.flyTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13), speed: 0.9, essential: true });
 
     // 2. Extract ZIP from address and auto-run ZIP coverage so snap bar appears
-    var zipMatch = String(address || "").match(/\b(\d{5})\b/);
+    // Match first 5-digit number AFTER a comma — avoids grabbing the street number
+    var zipMatch = String(address || "").match(/,.*?\b(\d{5})\b/);
     if (zipMatch) {
       var zip = zipMatch[1];
       elements.zipCoverageSearch.value = zip;
@@ -22159,6 +22689,9 @@
       if (panelInput) panelInput.value = zip;
       // Small delay so the lens finishes animating first
       setTimeout(function() { runZipCoverageCheck(); }, 400);
+    } else {
+      // No ZIP in address string — reverse-geocode coordinates to find central ZIP
+      snapZipToLensLocation(lng, lat);
     }
   }
 
@@ -22237,9 +22770,14 @@
   var _qarefAddressCoords  = null; // { lng, lat, place_name }
   var _qarefAddressIndex   = -1;
   var _qarefAddressTimer   = null;
+  var _qarefEditId         = null; // non-null when modal is in edit mode
 
   function openQuickAddReferral() {
     ensureAgenciesLoaded();
+    // Reset edit mode
+    _qarefEditId = null;
+    var modalTitle = document.getElementById("qaref-modal-title");
+    if (modalTitle) modalTitle.textContent = "Quick Add Referral";
     // Reset form
     document.getElementById("qaref-patient-input").value = "";
     document.getElementById("qaref-agency-input").value = "";
@@ -22248,6 +22786,7 @@
     document.getElementById("qaref-agency-list").innerHTML = "";
     document.getElementById("qaref-submit").disabled = false;
     document.getElementById("qaref-submit").textContent = "Save Referral";
+    document.getElementById("qaref-cancel").classList.remove("visible");
     document.querySelectorAll(".qaref-disc-btn.selected").forEach(function(b) {
       b.classList.remove("selected");
       b.style.background = "#f8fafd";
@@ -22269,6 +22808,42 @@
     document.getElementById("qaref-agency-list").style.display = "none";
   }
 
+  function openEditReferral(refId) {
+    var r = (appState.referralOverlayData || []).find(function(x) { return String(x.id) === String(refId); });
+    if (!r) { showToast("Referral not found", "error"); return; }
+
+    // Open modal in clean state first, then pre-populate
+    openQuickAddReferral();
+
+    // Patient name
+    document.getElementById("qaref-patient-input").value = r.patient_name || "";
+
+    // Agency
+    _qarefSelectedAgency = r.agency || "";
+    document.getElementById("qaref-agency-input").value = r.agency || "";
+
+    // Address — restore coords so submit doesn't block on "select from suggestions"
+    if (r.address) {
+      document.getElementById("qaref-address-input").value = r.address;
+      _qarefAddressCoords = { lng: r.lng, lat: r.lat, place_name: r.address };
+    }
+
+    // Disciplines — select matching buttons
+    var savedDiscs = r.disciplines || [];
+    document.querySelectorAll(".qaref-disc-btn").forEach(function(btn) {
+      if (savedDiscs.includes(btn.dataset.disc)) {
+        if (!btn.classList.contains("selected")) toggleQarefDisc(btn);
+      }
+    });
+
+    // Switch modal to edit mode
+    _qarefEditId = String(refId);
+    var modalTitle = document.getElementById("qaref-modal-title");
+    if (modalTitle) modalTitle.textContent = "Edit Referral";
+    document.getElementById("qaref-submit").textContent = "Update Referral";
+    document.getElementById("qaref-cancel").classList.add("visible");
+  }
+
   function filterQarefAgencies(query) {
     _qarefSelectedAgency = query; // update raw value as user types
     var list = document.getElementById("qaref-agency-list");
@@ -22278,7 +22853,7 @@
       .slice(0, 12);
     if (!matches.length) { list.style.display = "none"; list.innerHTML = ""; return; }
     list.innerHTML = matches.map(function(a, i) {
-      return "<div class='qaref-agency-opt' data-name='" + escHtml(a.name) + "' data-idx='" + i + "' onmousedown='selectQarefAgency(\"" + escHtml(a.name).replace(/"/g,"&quot;") + "\")'>" + escHtml(a.name) + "</div>";
+      return "<div class='qaref-agency-opt' data-name='" + escHtml(a.name) + "' data-idx='" + i + "' onclick='selectQarefAgency(\"" + escHtml(a.name).replace(/"/g,"&quot;") + "\")'>" + escHtml(a.name) + "</div>";
     }).join("");
     list.style.display = "block";
     _qarefAgencyListIndex = -1;
@@ -22326,7 +22901,7 @@
         var features = json.features || [];
         if (!features.length) { list.style.display = "none"; return; }
         list.innerHTML = features.map(function(f, i) {
-          return "<div class='qaref-agency-opt' data-idx='" + i + "' onmousedown='selectQarefAddress(" + i + ",this)'>" + escHtml(f.place_name) + "</div>";
+          return "<div class='qaref-agency-opt' data-idx='" + i + "' onclick='selectQarefAddress(" + i + ",this)'>" + escHtml(f.place_name) + "</div>";
         }).join("");
         list._features = features;
         list.style.display = "block";
@@ -22403,23 +22978,390 @@
 
       btn.textContent = "Saving…";
 
-      var { error } = await supabaseClient.from("referrals").insert({
-        patient_name:  patient,
-        agency:        agency,
-        address:       placeName,
-        lat:           lat,
-        lng:           lng,
-        disciplines:   discs.length ? discs : null,
-        status:        "open",
-        referral_date: new Date().toISOString()
+      if (_qarefEditId) {
+        // ── UPDATE existing referral ──
+        var { error } = await supabaseClient.from("referrals").update({
+          patient_name: patient,
+          agency:       agency,
+          address:      placeName,
+          lat:          lat,
+          lng:          lng,
+          disciplines:  discs.length ? discs : null
+        }).eq("id", _qarefEditId);
+
+        if (error) throw error;
+
+        // Patch local state
+        var idx = (appState.referralOverlayData || []).findIndex(function(x) { return String(x.id) === _qarefEditId; });
+        if (idx !== -1) {
+          Object.assign(appState.referralOverlayData[idx], {
+            patient_name: patient, agency: agency,
+            address: placeName, lat: lat, lng: lng,
+            disciplines: discs.length ? discs : null
+          });
+        }
+
+        var editedId = _qarefEditId;
+        closeQuickAddReferral();
+        showToast("Referral updated!", "success");
+        rebuildReferralGeoJSON();
+        populateReferralDropdown();
+        // Refresh open panel if it's showing this referral
+        if (appState.refPanelOpenId === editedId) {
+          closeRefPanel();
+          openRefPanel(editedId);
+        }
+
+      } else {
+        // ── INSERT new referral ──
+        var { error } = await supabaseClient.from("referrals").insert({
+          patient_name:  patient,
+          agency:        agency,
+          address:       placeName,
+          lat:           lat,
+          lng:           lng,
+          disciplines:   discs.length ? discs : null,
+          status:        "open",
+          referral_date: new Date().toISOString()
+        });
+
+        if (error) throw error;
+
+        closeQuickAddReferral();
+        showToast("Referral added! Reloading overlay…", "success");
+
+        // Reload overlay if active, otherwise activate it
+        if (appState.referralOverlayActive) {
+          clearReferralOverlay();
+          await loadReferralOverlay();
+        } else {
+          await loadReferralOverlay();
+        }
+      }
+
+    } catch (err) {
+      console.error("Quick add referral error:", err);
+      showToast("Could not save referral: " + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = _qarefEditId ? "Update Referral" : "Save Referral";
+    }
+  }
+
+  // ── TherapyBoss Screenshot Import ──────────────────────────────────────────
+
+  var _tbImageBase64 = null;
+  var _tbParsedRows  = [];
+  var _tbGeoResults  = {}; // index → { lng, lat, place_name } or null
+
+  async function loadTbApiKey() {
+    // Try Supabase first (works across browsers/devices), fall back to localStorage
+    try {
+      if (appCurrentUser && appCurrentUser.id) {
+        var { data } = await supabaseClient
+          .from("staff_config")
+          .select("openai_api_key")
+          .eq("user_id", appCurrentUser.id)
+          .maybeSingle();
+        if (data && data.openai_api_key) {
+          localStorage.setItem("dc_openai_key", data.openai_api_key);
+          return data.openai_api_key;
+        }
+      }
+    } catch(e) {}
+    return localStorage.getItem("dc_openai_key") || "";
+  }
+
+  async function saveTbApiKey(key) {
+    localStorage.setItem("dc_openai_key", key);
+    try {
+      if (appCurrentUser && appCurrentUser.id) {
+        await supabaseClient.from("staff_config").upsert({
+          user_id:        appCurrentUser.id,
+          openai_api_key: key,
+          updated_at:     new Date().toISOString()
+        }, { onConflict: "user_id" });
+      }
+    } catch(e) {}
+  }
+
+  function updateTbKeyStatus(key) {
+    var status = document.getElementById("tb-key-status");
+    var label  = document.getElementById("tb-key-label");
+    if (key) {
+      status.classList.add("has-key");
+      label.textContent = "API key saved in Supabase ✓";
+    } else {
+      status.classList.remove("has-key");
+      label.textContent = "No API key saved";
+    }
+  }
+
+  function toggleTbKeyEdit(e) {
+    e.preventDefault();
+    var row = document.getElementById("tb-key-edit-row");
+    var isOpen = row.classList.toggle("open");
+    if (isOpen) {
+      document.getElementById("tb-api-key").value = localStorage.getItem("dc_openai_key") || "";
+      setTimeout(function() { document.getElementById("tb-api-key").focus(); }, 50);
+    }
+  }
+
+  async function saveTbApiKeyFromInput() {
+    var key = document.getElementById("tb-api-key").value.trim();
+    if (!key) { showToast("Enter a key first.", "warning"); return; }
+    await saveTbApiKey(key);
+    document.getElementById("tb-key-edit-row").classList.remove("open");
+    updateTbKeyStatus(key);
+    showToast("API key saved!", "success", 2000);
+  }
+
+  async function openTbImport() {
+    // Load key and update status indicator
+    var savedKey = await loadTbApiKey();
+    document.getElementById("tb-api-key").value = savedKey;
+    updateTbKeyStatus(savedKey);
+    document.getElementById("tb-key-edit-row").classList.remove("open");
+
+    // Reset drop zone
+    document.getElementById("tb-drop-zone").className = "";
+    var img = document.getElementById("tb-preview-img");
+    img.style.display = "none";
+    img.src = "";
+    document.getElementById("tb-scan-btn").disabled = true;
+    document.getElementById("tb-scan-btn").textContent = "🔍 Scan with AI";
+    document.getElementById("tb-preview-wrap").style.display = "none";
+    document.getElementById("tb-import-footer").style.display = "none";
+    document.getElementById("tb-preview-tbody").innerHTML = "";
+    document.getElementById("tb-file-input").value = "";
+    _tbImageBase64 = null;
+    _tbParsedRows  = [];
+    _tbGeoResults  = {};
+    document.getElementById("tb-import-modal").classList.add("open");
+  }
+
+  function closeTbImport() {
+    document.getElementById("tb-import-modal").classList.remove("open");
+  }
+
+  // Clipboard paste — works anywhere while the modal is open
+  document.addEventListener("paste", function(e) {
+    if (!document.getElementById("tb-import-modal").classList.contains("open")) return;
+    // Don't intercept paste into the API key input
+    if (document.activeElement && document.activeElement.id === "tb-api-key") return;
+    var items = e.clipboardData && e.clipboardData.items;
+    if (!items) return;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        e.preventDefault();
+        loadTbImage(items[i].getAsFile());
+        return;
+      }
+    }
+  });
+
+  function handleTbDrop(e) {
+    e.preventDefault();
+    document.getElementById("tb-drop-zone").classList.remove("drag-over");
+    var file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith("image/")) loadTbImage(file);
+  }
+
+  function handleTbFileSelect(input) {
+    var file = input.files[0];
+    if (file) loadTbImage(file);
+  }
+
+  function loadTbImage(file) {
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      _tbImageBase64 = ev.target.result;
+      var img = document.getElementById("tb-preview-img");
+      img.src = _tbImageBase64;
+      img.style.display = "block";
+      var dz = document.getElementById("tb-drop-zone");
+      dz.classList.add("has-image");
+      var strong = dz.querySelector("strong");
+      if (strong) strong.textContent = "✓ " + (file.name || "Screenshot pasted");
+      document.getElementById("tb-scan-btn").disabled = false;
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function runTbScan() {
+    var apiKey = document.getElementById("tb-api-key").value.trim();
+    if (!apiKey) { showToast("Enter your OpenAI API key first.", "warning"); return; }
+    if (!_tbImageBase64) { showToast("No image loaded.", "warning"); return; }
+
+    saveTbApiKey(apiKey);
+
+    var btn = document.getElementById("tb-scan-btn");
+    btn.disabled = true;
+    btn.textContent = "⏳ Scanning…";
+
+    try {
+      var resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer " + apiKey
+        },
+        body: JSON.stringify({
+          model: "gpt-4o",
+          max_tokens: 4096,
+          messages: [{
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "This is a screenshot of a TherapyBoss referral list. Extract all referrals as a JSON array. Each object should have these fields:\n- patient_name (string, 'Last, First Middle' format)\n- address (string, full street address with city, state, zip)\n- disciplines (array of strings, e.g. [\"PT\"], [\"OT\"], [\"PT\",\"OT\"] — if the same patient appears on multiple rows for different disciplines, merge them into one record with all disciplines)\n- agency (string, the home health agency name)\n- referral_date (string, YYYY-MM-DD, from the date/time column)\n- insurance (string, e.g. 'Medicare Home Health')\n\nReturn ONLY a valid JSON array. No markdown fences, no explanation."
+              },
+              {
+                type: "image_url",
+                image_url: { url: _tbImageBase64, detail: "high" }
+              }
+            ]
+          }]
+        })
       });
 
+      var data = await resp.json();
+      if (!resp.ok) throw new Error((data.error && data.error.message) || resp.statusText);
+
+      var raw = (data.choices[0].message.content || "").trim();
+      // Strip any accidental markdown fences
+      raw = raw.replace(/^```[a-z]*\n?/i, "").replace(/```$/, "").trim();
+      var rows = JSON.parse(raw);
+      if (!Array.isArray(rows)) throw new Error("Response was not an array");
+
+      _tbParsedRows = rows;
+      _tbGeoResults = {};
+      renderTbPreview(rows);
+
+    } catch (err) {
+      console.error("TB scan error:", err);
+      showToast("Scan failed: " + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = "🔍 Scan with AI";
+      return;
+    }
+
+    btn.textContent = "🔍 Re-scan";
+    btn.disabled = false;
+  }
+
+  function renderTbPreview(rows) {
+    var tbody = document.getElementById("tb-preview-tbody");
+    tbody.innerHTML = rows.map(function(r, i) {
+      var discs = (r.disciplines || []).join(", ");
+      return "<tr id='tb-row-" + i + "'>" +
+        "<td><input type='checkbox' checked data-idx='" + i + "' onchange='updateTbCount()'></td>" +
+        "<td>" + escHtml(r.patient_name || "") + "</td>" +
+        "<td style='max-width:180px;word-break:break-word'>" + escHtml(r.address || "") + "</td>" +
+        "<td>" + escHtml(discs) + "</td>" +
+        "<td>" + escHtml(r.agency || "") + "</td>" +
+        "<td>" + escHtml(r.referral_date || "") + "</td>" +
+        "<td id='tb-geo-" + i + "'><span class='tb-geo-pending'>⏳</span></td>" +
+      "</tr>";
+    }).join("");
+
+    document.getElementById("tb-preview-wrap").style.display = "block";
+    document.getElementById("tb-import-footer").style.display = "flex";
+    updateTbCount();
+
+    // Geocode all rows asynchronously
+    rows.forEach(function(r, i) { geocodeTbRow(r, i); });
+  }
+
+  async function geocodeTbRow(r, idx) {
+    var addr = (r.address || "").trim();
+    if (!addr) {
+      _tbGeoResults[idx] = null;
+      document.getElementById("tb-geo-" + idx).innerHTML = "<span class='tb-geo-fail'>✗ no addr</span>";
+      return;
+    }
+
+    // Check Supabase geocode cache first
+    try {
+      var { data: cached } = await supabaseClient
+        .from("therapy_boss_address_geocode_cache")
+        .select("lat,lng,place_name")
+        .eq("address", addr)
+        .maybeSingle();
+      if (cached) {
+        _tbGeoResults[idx] = { lng: cached.lng, lat: cached.lat, place_name: cached.place_name || addr };
+        document.getElementById("tb-geo-" + idx).innerHTML = "<span class='tb-geo-ok'>✓</span>";
+        return;
+      }
+    } catch(e) {}
+
+    // Call Mapbox geocoder
+    try {
+      var geoData = await geocodeMapboxQuery(addr);
+      var feat = geoData && geoData.features && geoData.features[0];
+      if (!feat) throw new Error("no result");
+      var gLng = feat.center[0], gLat = feat.center[1];
+      var place_name = feat.place_name || addr;
+      _tbGeoResults[idx] = { lng: gLng, lat: gLat, place_name: place_name };
+      document.getElementById("tb-geo-" + idx).innerHTML = "<span class='tb-geo-ok'>✓</span>";
+
+      // Cache result
+      try {
+        await supabaseClient.from("therapy_boss_address_geocode_cache").upsert({
+          address: addr, lat: gLat, lng: gLng, place_name: place_name,
+          provider: "mapbox", updated_at: new Date().toISOString()
+        }, { onConflict: "address" });
+      } catch(e) {}
+
+    } catch(err) {
+      _tbGeoResults[idx] = null;
+      document.getElementById("tb-geo-" + idx).innerHTML = "<span class='tb-geo-fail'>✗ not found</span>";
+    }
+  }
+
+  function updateTbCount() {
+    var checked = document.querySelectorAll("#tb-preview-tbody input[type=checkbox]:checked").length;
+    document.getElementById("tb-import-count").textContent = checked + " referral" + (checked !== 1 ? "s" : "") + " selected";
+    document.getElementById("tb-import-btn").disabled = checked === 0;
+  }
+
+  async function commitTbImport() {
+    var btn = document.getElementById("tb-import-btn");
+    btn.disabled = true;
+    btn.textContent = "Importing…";
+
+    var checkboxes = document.querySelectorAll("#tb-preview-tbody input[type=checkbox]:checked");
+    var toInsert = [];
+    checkboxes.forEach(function(cb) {
+      var idx = parseInt(cb.dataset.idx, 10);
+      var r   = _tbParsedRows[idx];
+      var geo = _tbGeoResults[idx];
+      if (!geo) return; // skip ungeocoded rows
+      toInsert.push({
+        patient_name:  r.patient_name || "Unknown",
+        agency:        r.agency || "",
+        address:       geo.place_name,
+        lat:           geo.lat,
+        lng:           geo.lng,
+        disciplines:   (r.disciplines && r.disciplines.length) ? r.disciplines : null,
+        status:        "open",
+        referral_date: r.referral_date ? new Date(r.referral_date).toISOString() : new Date().toISOString()
+      });
+    });
+
+    if (!toInsert.length) {
+      showToast("No geocoded rows to import — check failed addresses.", "warning");
+      btn.disabled = false;
+      btn.textContent = "Import Referrals";
+      return;
+    }
+
+    try {
+      var { error } = await supabaseClient.from("referrals").insert(toInsert);
       if (error) throw error;
 
-      closeQuickAddReferral();
-      showToast("Referral added! Reloading overlay…", "success");
+      closeTbImport();
+      showToast("Imported " + toInsert.length + " referral" + (toInsert.length !== 1 ? "s" : "") + "!", "success");
 
-      // Reload overlay if active, otherwise activate it
       if (appState.referralOverlayActive) {
         clearReferralOverlay();
         await loadReferralOverlay();
@@ -22428,10 +23370,10 @@
       }
 
     } catch (err) {
-      console.error("Quick add referral error:", err);
-      showToast("Could not save referral: " + (err.message || err), "error");
+      console.error("TB import error:", err);
+      showToast("Import failed: " + (err.message || err), "error");
       btn.disabled = false;
-      btn.textContent = "Save Referral";
+      btn.textContent = "Import Referrals";
     }
   }
 
