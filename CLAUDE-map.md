@@ -51,22 +51,33 @@ refPanelDisciplineSnapshot — Set — discipline filters before panel opened
 
 **Key functions (Script 1):**
 - `handleAuthSession(session)` — runs after login, loads all data
-- `loadClinicians()` — fetches clinician_v2 + clinician_profiles, merges, renders
+- `loadClinicians()` — fetches clinician_v2 + clinician_profiles, merges, renders; calls `showClinicianLoadBar()` at start, `hideClinicianLoadBar()` on finish/error
 - `applyFilters()` — re-filters sidebar + map markers based on appState
 - `syncDisciplineToggleState()` — syncs filter button UI to appState.disciplineFilters
 - `runZipCoverageCheck()` — ZIP coverage lookup
-- `selectCliniciansByRadius(center, miles)` — radius tool
+- `selectCliniciansByRadius(center, miles)` — radius tool; heavy DOM work (labels, sidebar, coverage) debounced 80ms via `_lensHeavyTimer`; ZIP snap debounced 350ms via `_snapZipTimer`
 - `openAgencyProfile(agencyId)` — opens agency panel
 - `saveCurrentClinicianProfile()` — saves profile edits to Supabase
 - `showToast(message, type, duration)` — toast notifications
 - `getDisciplineColor(discipline)` — returns hex color for discipline badge
 - `formatClinicianDisplayName(value)` — formats "LAST, FIRST" display names
 - `escapeHtml(value)` — HTML escape (Script 1 version)
+- `showClinicianLoadBar()` / `hideClinicianLoadBar()` — shows/hides animated shimmer bar under Clinicians toolbar button
+- `showServicesLoadBar()` / `hideServicesLoadBar()` — shows/hides animated shimmer bar under Services toolbar button
+- `syncClinicianVisibilityToggle()` — syncs `#toolbar-toggle-clinicians` active class to `appState.showClinicians`
+- `syncCompletedServiceVisibilityToggle()` — syncs `#toolbar-toggle-services` active class to `appState.showCompletedServices`
+- `ensureClinicianLayer()` — sets up GeoJSON source `"clinician-pins"` + 7 WebGL layers on map style load
+- `buildClinicianFeature(clinician)` — returns GeoJSON Feature for one clinician (id, discipline, status, locationSource, isNew)
+- `rebuildClinicianGeoJSON()` — rebuilds full GeoJSON from `appState.clinicians`, calls `map.getSource("clinician-pins").setData(...)`
+- `applyClinicianLayerFilters()` — applies GPU-side `map.setFilter()` to all clinician layers using visible/selected/focused ID arrays; guards on source + layer existence
+- `getVisibleClinicianIds()` — returns union of `lensSpotlightIds` (if lens active) and `filteredIds` (if showClinicians)
+- `clearFocusedDomMarker()` — removes the single focused DOM marker from map and `appState.markersById`
+- `syncAllMarkerVisuals()` — calls `applyClinicianLayerFilters()` + `updateMarkerVisual()` for focused DOM marker only
 
 **Key functions (Script 2):**
 - `toggleReferralOverlay()` — load/clear referral pins
 - `loadReferralOverlay()` — fetches referrals + ALL contacts, has 3× retry for Supabase lock errors
-- `renderReferralOverlay()` — creates sonar pin markers on map
+- `renderReferralOverlay()` — calls `rebuildReferralGeoJSON()` + `startReferralSonarTick()` to show pins via WebGL; also binds one-time ZIP capture-phase intercept
 - `openRefPanel(rid, r)` — opens fixed referral panel at top-left of map (left: 422px, top: 16px)
 - `closeRefPanel()` — closes panel, restores discipline filters
 - `refreshRefPanelContacts(refId)` — updates contact list + badge from local state
@@ -75,6 +86,10 @@ refPanelDisciplineSnapshot — Set — discipline filters before panel opened
 - `refOpenLens(lng, lat, address)` — drops lens pin at referral address
 - `refAgencySearch(agencyName)` — opens agency profile from referral panel
 - `escHtml(str)` — HTML escape (Script 2 version, used in referral overlay)
+- `ensureReferralLayer()` — sets up GeoJSON source `"referral-pins"` + 5 WebGL layers: `referral-sonar-2`, `referral-sonar-1` (pulse rings), `referral-dot` (colored core), `referral-badge-bg` (navy circle), `referral-badge-text` (count). Called in `map.on("style.load")`.
+- `buildReferralFeature(r, contactCount)` — returns GeoJSON Feature with `id`, `ageBucket` ("fresh"/"amber"/"red"), `count` props
+- `rebuildReferralGeoJSON()` — rebuilds full FeatureCollection from `appState.referralOverlayData`, calls `map.getSource("referral-pins").setData(...)`
+- `startReferralSonarTick()` — `requestAnimationFrame` loop; calls `map.setPaintProperty` each frame to animate `circle-radius` + `circle-opacity` on both sonar layers using age-bucket pulse periods (red 1.1s / amber 1.7s / fresh 2.4s); layer-2 offset 1200ms for double-pulse; loop self-terminates when `appState.referralOverlayActive` is false
 - `populateReferralDropdown()` — builds custom jump dropdown from appState.referralOverlayData; each row: agency (12 char + ellipsis, full name on hover), last name only, supervisor disciplines (PT/PTA→PT, OT/OTA→OT, ST→ST — handles "PT/PTA" slash format, no fixed min-width so badges sit naturally), city from address, age, status chip
 - `clearReferralDropdown()` — hides and empties the jump dropdown
 - `toggleRefJumpDropdown()` — opens/closes the jump dropdown panel
@@ -192,6 +207,9 @@ The referral overlay shows open referrals as sonar (pulsing) pins on the map.
 **Known issue — Supabase lock conflicts:**
 On page load, the auth token refresh uses a "steal" lock that aborts concurrent Supabase requests. `loadReferralOverlay()` handles this with 3× retry logic (1.2s, 2.4s delays). Other loaders (clinicians, agencies) may also show AbortErrors on first load — refreshing the page resolves this.
 
+**Referral pins are GeoJSON WebGL layers (not DOM markers):**
+`renderReferralOverlay()` no longer creates DOM markers. Pins render via source `"referral-pins"` and 5 WebGL layers set up by `ensureReferralLayer()`. This permanently eliminates zoom-drift — DOM markers reposition via JS rAF and can lag behind the WebGL canvas during zoom; GeoJSON layers render inside the canvas and scale natively. The pulse animation is driven by `startReferralSonarTick()` using `setPaintProperty` each frame. Click handling is via `map.on("click", "referral-dot")` in `bindEvents()`.
+
 ---
 
 ## Layout & CSS Architecture (clinician-map.html)
@@ -230,6 +248,12 @@ body (flex column)
 - **Referral jump dropdown** — `#ref-jump-cell` hidden until overlay loads; button label shows count e.g. "2 open referrals ▾"; `_refJumpOpen` tracks open state; click-outside closes via document listener
 - **Quick add referral** — fields: patient_name (NOT NULL in DB), agency (typeahead from appState.agencies), address (Mapbox geocoding typeahead, debounced 300ms), disciplines (colored toggle pills). On save: inserts to Supabase, reloads overlay
 - **Discipline colors** — `{ PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" }` (ST falls back to #6b7280)
+- **`_zipClearedByUser` flag** — set `true` when user clicks the ZIP clear button; suppresses `snapZipToLensLocation` on subsequent lens moves so ZIP doesn't silently re-populate after being cleared
+- **Default startup zoom** — 70% (set via `var currentZoom = 70` in the zoom IIFE, not 100%)
+- **Clinician markers are GeoJSON WebGL layers** — not DOM markers. 7 layers: `clinician-circles`, `clinician-inactive`, `clinician-disc-label`, `clinician-paused-ring`, `clinician-selected-ring`, `clinician-hw-label`, `clinician-new-star`. Only the focused clinician gets a DOM marker (via `buildMarker()`). Filters applied via `applyClinicianLayerFilters()` using `map.setFilter()` — no GeoJSON rebuild on filter change.
+- **Referral pins are also GeoJSON WebGL layers** — not DOM markers. 5 layers on source `"referral-pins"`: `referral-sonar-2`, `referral-sonar-1`, `referral-dot`, `referral-badge-bg`, `referral-badge-text`. Pulse animation driven by `startReferralSonarTick()` rAF loop via `setPaintProperty`. Click via `map.on("click","referral-dot")`. Badge updates via `rebuildReferralGeoJSON()` in `refreshRefPanelContacts()`.
+- **Toolbar load bars** — `.layer-btn-wrap` wraps each toggle button as a column; `.layer-load-bar` is a 3px green shimmer bar (CSS animation `layerBarSlide`). IDs: `#clinician-load-bar`, `#services-load-bar`. Add `.loading` class to show, remove to hide.
+- **User chip is first in toolbar** — `.toolbar-cell` with `#toolbar-user-chip`, `#toolbar-logout`, `#realtime-dot`, `#toolbar-manage-users` is the first child of `.toolbar-row`
 
 ---
 
