@@ -143,7 +143,11 @@ The referral board. Separate standalone file.
 - **Used for:** Geocoding (address → lat/lng), map rendering, markers, radius search, territory polygons
 
 ### SendGrid
-- Used for email notifications — check file for API key location
+- Used for sending reactivation request emails to the hiring manager
+- API key stored as Supabase Edge Function secret: `SENDGRID_API_KEY`
+- Verified sender: `info@dependablecarestaffing.com` (stored as `SENDGRID_FROM_EMAIL` secret)
+- Recipient: `dcsrep01.dependablecare@gmail.com` (stored as `HIRING_MANAGER_EMAIL` secret)
+- Secrets managed via Supabase Dashboard → Edge Functions → send-reactivation-email → Secrets
 
 ---
 
@@ -254,6 +258,96 @@ body (flex column)
 - **Referral pins are also GeoJSON WebGL layers** — not DOM markers. 5 layers on source `"referral-pins"`: `referral-sonar-2`, `referral-sonar-1`, `referral-dot`, `referral-badge-bg`, `referral-badge-text`. Pulse animation driven by `startReferralSonarTick()` rAF loop via `setPaintProperty`. Click via `map.on("click","referral-dot")`. Badge updates via `rebuildReferralGeoJSON()` in `refreshRefPanelContacts()`.
 - **Toolbar load bars** — `.layer-btn-wrap` wraps each toggle button as a column; `.layer-load-bar` is a 3px green shimmer bar (CSS animation `layerBarSlide`). IDs: `#clinician-load-bar`, `#services-load-bar`. Add `.loading` class to show, remove to hide.
 - **User chip is first in toolbar** — `.toolbar-cell` with `#toolbar-user-chip`, `#toolbar-logout`, `#realtime-dot`, `#toolbar-manage-users` is the first child of `.toolbar-row`
+
+---
+
+## Reactivation Request Feature
+
+When a clinician's status is **Inactive**, a "📧 Send Reactivation Request" button appears in their profile panel. Clicking it opens a compose modal; submitting sends an email to the hiring manager via a Supabase Edge Function.
+
+### UI Elements
+- `#profile-reactivation-btn` — button, `.edit-only`, shown only when `currentStatus === "Inactive"` (toggled via `.visible` class in `renderProfileStatus()` ~line 13585)
+- `#reactivation-modal` — compose modal (opened by `openReactivationModal()`, closed by `closeReactivationModal()`)
+- `#reactivation-who` — shows clinician name, discipline, and inactive-since date
+- `#reactivation-note` — optional note textarea
+- `#reactivation-send` — send button (calls `submitReactivationRequest()`)
+- `#profile-reactivation-stamp` — date stamp div shown below button after a request is sent ("📨 Last requested: May 5, 2026 3:42 PM")
+- `#profile-reactivation-stamp-date` — span inside stamp with formatted timestamp
+
+### Key JS Functions
+- `openReactivationModal()` — uses `getCurrentProfileClinicianRecord()` to get clinician; populates modal with name/discipline/inactive-since
+- `closeReactivationModal()` — removes `.open` class from modal
+- `submitReactivationRequest()` — POSTs to Edge Function, then saves `reactivationRequestedAt` ISO timestamp to `profile_tags` via Supabase upsert, updates in-memory clinician, calls `renderReactivationStamp()`
+- `renderReactivationStamp(clinicianId)` — reads `profile_tags.reactivationRequestedAt` from clinician record, shows/hides stamp using `formatStatusHistoryTimestamp()` for formatting
+
+### Supabase Edge Function
+- **Name:** `send-reactivation-email`
+- **Project ref:** `jpemlcuxjvynlbeygukb`
+- **File:** `supabase/functions/send-reactivation-email/index.ts`
+- **Deployed via:** Supabase CLI (`supabase functions deploy send-reactivation-email --project-ref jpemlcuxjvynlbeygukb`)
+- **Payload:** `{ clinicianName, discipline, inactiveSince, note, senderName, senderEmail }`
+- **reply_to:** set to the logged-in user's email so hiring manager can reply directly
+
+### Timestamp Persistence
+- Stored as `profile_tags.reactivationRequestedAt` (ISO string) in the `clinician_profiles` table `tags` JSON column
+- No schema change required — `tags` already holds arbitrary metadata
+- Upserted on successful send; in-memory `appState.clinicians` record updated immediately for instant UI refresh
+
+---
+
+## TherapyBoss Import — Sync Update Mode + ZIP Coverage Preview + Email Reports
+
+### Three Import Modes (Clinician Master)
+The clinician_master import has three modes selectable via buttons (`data-clinician-import-mode`):
+- **`full_initial_load`** — Upserts all clinicians, including new + existing. Overwrites name, discipline, address, phone, email. Use only for first roster baseline.
+- **`additions_only`** (default) — Skips existing clinicians entirely. Only new ones get created. Map profile remains source of truth.
+- **`status_update`** (labeled "Sync Update") — On matched clinicians ONLY: syncs status (Active/Inactive), address, lat/lng, zip, and phone. Other fields (name, discipline, EMR, ratings, etc.) untouched. Unmatched names skipped.
+
+### Sync Update Mode Logic
+- Mode set via `setClinicianImportMode("status_update")` → `appState.clinicianImportMode`
+- Inside `uploadClinicianMasterImportToSupabase()` row loop: dedicated branch updates `clinician_v2` (status, active, address, zip, lat, lng) + `clinician_profiles` (status, phone)
+- Sparse update: only writes fields that actually differ from current portal state
+- In-memory `appState.clinicians` record updated immediately so map refreshes without `loadClinicians()` reload
+
+### ZIP Coverage Import — Replace All Per Clinician
+- `uploadClinicianZipCoverageImportToSupabase()` deletes ALL existing coverage for matched clinicians, then inserts new rows
+- Preferred ZIPs are NOT manually editable in the portal (they come only from imports), so replace-all is safe
+- After commit, `clinician_v2.preferred_zips` is updated with comma-separated zip summary
+- `clinician_zip_coverages` columns: `clinician_id`, `zip_code`, `discipline`, `memo`, `clinician_name_raw`, `source_system`, `import_batch_id`, `updated_at`
+
+### Preview/Confirmation Modals
+Both Sync Update and ZIP Coverage now show a preview modal BEFORE committing — single shared `#status-preview-modal` HTML repurposed for each flow.
+
+**`showStatusUpdatePreview()`** — Sync Update preview:
+- Computes per-clinician diff: status flip, phone change, address change, zip change
+- Renders one card per changed clinician with emoji-prefixed change list
+- Sections: Changes / Not Found in Portal
+- Returns Promise<bool> — true = confirm, false = cancel
+
+**`showZipCoveragePreview()`** — ZIP Coverage preview:
+- Compares incoming zip|discipline keys against clinician's current `zip_coverages`
+- Per-clinician card with green `+ Add`, red `− Remove`, amber `~ Memo changed` lines
+- Summary: `+12 · −3 · ~1 across 8 clinicians · 2 unmatched`
+- Returns Promise<bool>
+
+Both preview functions use `escapeHtml()` for all user content. The modal title is swapped via `modal.querySelector("h3").textContent` and restored on cleanup.
+
+### Import Report Email
+After successful Sync Update or ZIP Coverage import, an HTML report email is automatically sent.
+
+**Edge Function:** `send-import-report` (`supabase/functions/send-import-report/index.ts`)
+- **Recipients:** TO = logged-in user's email; CC = comma/semicolon-separated list from `IMPORT_REPORT_CC_EMAIL` secret
+- **Payload:** `{ reportType, summary, sectionsHtml, runByName, runByEmail }`
+- **Reuses existing secrets:** `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`
+- **Optional secret:** `IMPORT_REPORT_CC_EMAIL` — supports multiple addresses, e.g. `"a@x.com, b@y.com, c@z.com"`
+
+**Client flow:**
+1. Preview function builds report payload (`buildSyncReport()` or `buildZipReport()`) inside its scope
+2. On confirm, payload stored in module-level `_pendingImportReport` var
+3. After successful upload in `uploadImportToSupabase()`, `sendImportReport(_pendingImportReport)` is called and the var cleared
+4. Email failure does NOT roll back import — only a warning toast appears
+
+**Helper:** `sendImportReport(payload)` — POSTs to the edge function with logged-in user as `runByEmail`, shows success toast "Report emailed."
 
 ---
 

@@ -799,6 +799,7 @@
       transform: none;
     }
     .import-submode-row { flex-wrap: nowrap; }
+    .import-submode-row .import-kind-button { flex: 1; padding: 7px 6px; text-align: center; }
 
     .import-warning {
       margin-top: 6px;
@@ -2699,6 +2700,54 @@
     }
     .ref-panel-edit:hover { background: #eff6ff; border-color: #93c5fd; color: #2463eb; }
 
+    /* ── Reactivation request modal ── */
+    #reactivation-modal {
+      display: none; position: fixed; inset: 0;
+      background: rgba(12,22,50,0.45); z-index: 1002;
+      align-items: center; justify-content: center;
+    }
+    #reactivation-modal.open { display: flex; }
+    #reactivation-box {
+      background: #fff; border-radius: 14px; padding: 26px 26px 20px;
+      width: 460px; max-width: 96vw;
+      display: flex; flex-direction: column; gap: 14px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+    }
+    #reactivation-box h3 {
+      margin: 0; font-size: 15px; font-weight: 700; color: #1e2d4a;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    #reactivation-box h3 button {
+      background: none; border: none; font-size: 16px; cursor: pointer; color: #718096;
+    }
+    .react-who {
+      font-size: 13px; color: #526480; background: #f8fafd;
+      border-radius: 8px; padding: 10px 12px;
+    }
+    .react-who strong { color: #1e2d4a; }
+    #reactivation-note {
+      width: 100%; padding: 8px 10px; font-size: 13px;
+      border: 1px solid #e2e8f0; border-radius: 8px; resize: vertical;
+      min-height: 72px; font-family: inherit; color: #1e2d4a;
+      box-sizing: border-box;
+    }
+    #reactivation-note:focus { outline: none; border-color: #93c5fd; }
+    #reactivation-send {
+      height: 40px; border-radius: 9px; border: none;
+      background: #1e2d4a; color: #fff; font-size: 14px; font-weight: 700;
+      cursor: pointer; transition: background .15s;
+    }
+    #reactivation-send:hover { background: #2d3f63; }
+    #reactivation-send:disabled { background: #d0ddf0; color: #9aaccc; cursor: not-allowed; }
+    #profile-reactivation-btn {
+      display: none; width: 100%; margin-top: 6px;
+      padding: 8px 0; border-radius: 8px; border: 1.5px solid #e2b44b;
+      background: #fffbeb; color: #92400e; font-size: 13px; font-weight: 600;
+      cursor: pointer; transition: all .15s;
+    }
+    #profile-reactivation-btn:hover { background: #fef3c7; border-color: #f59e0b; }
+    #profile-reactivation-btn.visible { display: block; }
+
     /* ── TB Import modal ── */
     #tb-import-modal {
       display: none; position: fixed; inset: 0;
@@ -3552,8 +3601,8 @@
 
     .import-modal-body {
       min-height: 0;
-      overflow: auto;
-      padding: 20px 24px 22px;
+      overflow-y: auto;
+      padding: 20px 36px 22px 24px;
       display: grid;
       gap: 16px;
       align-content: start;
@@ -3562,8 +3611,8 @@
 
     .import-grid {
       display: grid;
-      grid-template-columns: minmax(0, 310px) minmax(0, 1fr);
-      gap: 16px;
+      grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+      gap: 18px;
       align-items: start;
     }
 
@@ -5984,6 +6033,7 @@
                   <div class="import-kind-row import-submode-row" role="group" aria-label="Clinician import mode">
                     <button type="button" class="import-kind-button" data-clinician-import-mode="full_initial_load">Full Initial Load</button>
                     <button type="button" class="import-kind-button active" data-clinician-import-mode="additions_only">Additions Only</button>
+                    <button type="button" class="import-kind-button" data-clinician-import-mode="status_update">Sync Update</button>
                   </div>
                   <div id="clinician-import-mode-copy" class="toolbar-subtext">Create missing clinicians only. Name matches are skipped so the map profile stays the source of truth.</div>
                   <div id="clinician-import-mode-warning" class="import-warning" hidden>
@@ -6135,6 +6185,12 @@
               <div id="profile-status-history" class="profile-status-history full">
                 <div class="status-history-title">Status Log</div>
                 <div class="status-history-empty">No activation or inactivation changes logged yet.</div>
+              </div>
+              <button id="profile-reactivation-btn" class="edit-only" onclick="openReactivationModal()">
+                📧 Send Reactivation Request
+              </button>
+              <div id="profile-reactivation-stamp" style="display:none; font-size:11px; color:#718096; margin-top:4px; padding-left:2px;">
+                📨 Last requested: <span id="profile-reactivation-stamp-date"></span>
               </div>
               <input id="profile-rating-input" type="hidden" value="">
               <div id="profile-pause-row" class="profile-pause-row full">
@@ -6595,19 +6651,43 @@
     </div>
   </div>
 
+  <!-- ── Reactivation Request Modal ── -->
+  <div id="reactivation-modal" onclick="if(event.target===this)closeReactivationModal()">
+    <div id="reactivation-box">
+      <h3>Send Reactivation Request <button onclick="closeReactivationModal()" aria-label="Close">✕</button></h3>
+      <div class="react-who" id="reactivation-who"></div>
+      <textarea id="reactivation-note" placeholder="Optional note to hiring manager…"></textarea>
+      <button id="reactivation-send" onclick="submitReactivationRequest()">📧 Send to Hiring Manager</button>
+    </div>
+  </div>
+
+  <!-- Status Update preview modal -->
+  <div id="status-preview-modal" style="display:none; position:fixed; inset:0; background:rgba(12,22,50,0.55); z-index:1100; align-items:center; justify-content:center;">
+    <div style="background:#fff; border-radius:14px; width:560px; max-width:96vw; max-height:84vh; display:flex; flex-direction:column; box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="padding:20px 22px 12px; border-bottom:1px solid #eef2f7;">
+        <h3 style="margin:0; font-size:15px; font-weight:800; color:#1e2d4a;">Confirm Status Update</h3>
+        <div id="status-preview-summary" style="font-size:12px; color:#718096; margin-top:4px;"></div>
+      </div>
+      <div style="padding:14px 22px; overflow-y:auto; flex:1;">
+        <div id="status-preview-activate"></div>
+        <div id="status-preview-deactivate" style="margin-top:14px;"></div>
+        <div id="status-preview-notfound" style="margin-top:14px;"></div>
+      </div>
+      <div style="padding:14px 22px; border-top:1px solid #eef2f7; display:flex; gap:10px; justify-content:flex-end;">
+        <button id="status-preview-cancel" type="button" class="btn-secondary">Cancel</button>
+        <button id="status-preview-confirm" type="button" class="btn-primary">Apply Changes</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── TherapyBoss Screenshot Import Modal ── -->
   <div id="tb-import-modal" onclick="if(event.target===this)closeTbImport()">
     <div id="tb-import-box">
       <h3>Import from TherapyBoss <button onclick="closeTbImport()" aria-label="Close">✕</button></h3>
 
-      <div id="tb-key-status">
+      <div id="tb-key-status" class="has-key">
         <span class="tb-key-dot"></span>
-        <span id="tb-key-label">No API key saved</span>
-        <a href="#" class="admin-only" onclick="toggleTbKeyEdit(event)">Change key</a>
-      </div>
-      <div id="tb-key-edit-row">
-        <input type="password" id="tb-api-key" placeholder="sk-…" autocomplete="off">
-        <button onclick="saveTbApiKeyFromInput()">Save</button>
+        <span id="tb-key-label">AI Scanner Ready</span>
       </div>
 
       <div id="tb-drop-zone"
@@ -13520,6 +13600,11 @@
         button.classList.toggle("active", isActive);
         button.setAttribute("aria-pressed", isActive ? "true" : "false");
       });
+
+      // Show reactivation request button only when clinician is Inactive
+      var reactBtn = document.getElementById("profile-reactivation-btn");
+      if (reactBtn) reactBtn.classList.toggle("visible", currentStatus === "Inactive");
+      renderReactivationStamp();
     }
 
     function syncProfileRatingStars() {
@@ -16718,12 +16803,17 @@
     }
 
     function getClinicianImportModeLabel(mode) {
-      return mode === "full_initial_load" ? "Full Initial Load" : "Additions Only";
+      if (mode === "full_initial_load") return "Full Initial Load";
+      if (mode === "status_update")     return "Sync Update";
+      return "Additions Only";
     }
 
     function getClinicianImportModeDescription(mode) {
       if (mode === "full_initial_load") {
         return "Use this only for the first roster baseline. Matched names update existing clinicians and new names are created.";
+      }
+      if (mode === "status_update") {
+        return "Syncs Active/Inactive status, address, and phone number on matched clinicians. Other fields (name, discipline, EMR, etc.) are left untouched. Unmatched clinicians are skipped.";
       }
       return "Create missing clinicians only. Name matches are skipped so the map profile stays the source of truth.";
     }
@@ -16870,7 +16960,7 @@
 
     function setClinicianImportMode(mode, options) {
       const safeOptions = options || {};
-      const normalizedMode = mode === "full_initial_load" ? "full_initial_load" : "additions_only";
+      const normalizedMode = mode === "full_initial_load" ? "full_initial_load" : mode === "status_update" ? "status_update" : "additions_only";
       if (appState.clinicianImportMode === normalizedMode) {
         syncImportKindUi();
         return;
@@ -18207,6 +18297,59 @@
           existingClinician = processedCliniciansByKey.get(importKey) || null;
         }
 
+        // Sync Update mode — sync status + address + phone, skip everything else
+        if (appState.clinicianImportMode === "status_update") {
+          if (!existingClinician) {
+            skippedCount += 1;
+            continue;
+          }
+          const newStatus = row.active === false ? "Inactive" : "Active";
+          const newActive = row.active !== false;
+
+          const v2Update = { status: newStatus, active: newActive };
+          const newAddrSU = String(row.full_address || "").trim();
+          const oldAddrSU = String(existingClinician.address || "").trim();
+          if (newAddrSU && normalizeGeocodeAddressKey(newAddrSU) !== normalizeGeocodeAddressKey(oldAddrSU)) {
+            v2Update.address = newAddrSU;
+            if (typeof row.lat === "number") v2Update.lat = row.lat;
+            if (typeof row.lng === "number") v2Update.lng = row.lng;
+          }
+          const newZipSU = String(row.zip || "").trim();
+          const oldZipSU = String(existingClinician.zip || "").trim();
+          if (newZipSU && newZipSU !== oldZipSU) v2Update.zip = newZipSU;
+
+          const v2Res = await supabaseClient
+            .from("clinician_v2")
+            .update(v2Update)
+            .eq("id", existingClinician.id);
+          if (v2Res.error) throw v2Res.error;
+
+          const profileUpsert = { clinician_id: existingClinician.id, status: newStatus };
+          const newPhoneSU = String(row.phone || "").trim();
+          const oldPhoneSU = String(existingClinician.phone || "").trim();
+          if (newPhoneSU && newPhoneSU !== oldPhoneSU) profileUpsert.phone = newPhoneSU;
+
+          const profRes = await supabaseClient
+            .from("clinician_profiles")
+            .upsert(profileUpsert, { onConflict: "clinician_id" });
+          if (profRes.error) throw profRes.error;
+
+          var inMem = appState.clinicians.find(function(x) { return x.id === existingClinician.id; });
+          if (inMem) {
+            inMem.status = newStatus;
+            inMem.active = newActive;
+            if (v2Update.address) inMem.address = v2Update.address;
+            if (v2Update.zip)     inMem.zip     = v2Update.zip;
+            if (typeof v2Update.lat === "number") inMem.lat = v2Update.lat;
+            if (typeof v2Update.lng === "number") inMem.lng = v2Update.lng;
+            if (profileUpsert.phone) inMem.phone = profileUpsert.phone;
+          }
+
+          updatedCount += 1;
+          if (importKey) processedCliniciansByKey.set(importKey, Object.assign({}, existingClinician, v2Update, profileUpsert));
+          continue;
+        }
+
         const payload = buildClinicianImportSupabasePayload(row, existingClinician);
 
         if (!payload.name || !payload.discipline || !payload.address) {
@@ -18562,6 +18705,279 @@
       }
     }
 
+    var _pendingImportReport = null;
+
+    async function sendImportReport(payload) {
+      try {
+        var sessionData = await supabaseClient.auth.getSession();
+        var token       = (sessionData.data.session || {}).access_token || "";
+        var senderEmail = appCurrentUser ? (appCurrentUser.email || "") : "";
+        var senderName  = senderEmail ? senderEmail.split("@")[0] : "Staff";
+        if (!senderEmail) return;
+
+        var resp = await fetch(
+          "https://jpemlcuxjvynlbeygukb.supabase.co/functions/v1/send-import-report",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+            body: JSON.stringify(Object.assign({}, payload, { runByName: senderName, runByEmail: senderEmail }))
+          }
+        );
+        if (!resp.ok) {
+          var err = await resp.json();
+          console.warn("Import report email failed:", err);
+          showToast("Import succeeded, but report email failed.", "warning");
+        } else {
+          showToast("Report emailed.", "success");
+        }
+      } catch (err) {
+        console.warn("Import report email error:", err);
+      }
+    }
+
+    async function showStatusUpdatePreview() {
+      const rows = normalizeImportRowsForUpload();
+      if (appState.importGeocodeEnabled) {
+        await resolveClinicianImportGeocodes(rows);
+      }
+
+      const changes  = [];
+      const notFound = [];
+
+      rows.forEach(function(row) {
+        const existing = row.matched_clinician_id
+          ? appState.clinicians.find(function(c) { return c.id === row.matched_clinician_id; })
+          : null;
+        if (!existing) { notFound.push(row.name || "(unnamed)"); return; }
+
+        const items = [];
+
+        const newActive = row.active !== false;
+        const currentlyActive = existing.active !== false && existing.status !== "Inactive";
+        if (newActive !== currentlyActive) {
+          items.push(newActive ? "✅ Activate" : "⛔ Deactivate");
+        }
+
+        const oldPhone = String(existing.phone || "").trim();
+        const newPhone = String(row.phone || "").trim();
+        if (newPhone && newPhone !== oldPhone) {
+          items.push("📞 Phone: " + (oldPhone || "—") + " → " + newPhone);
+        }
+
+        const oldAddr = String(existing.address || "").trim();
+        const newAddr = String(row.full_address || "").trim();
+        const addrChanged = newAddr && normalizeGeocodeAddressKey(newAddr) !== normalizeGeocodeAddressKey(oldAddr);
+        if (addrChanged) {
+          items.push("🏠 Address: " + (oldAddr || "—") + " → " + newAddr);
+        }
+
+        const oldZip = String(existing.zip || "").trim();
+        const newZip = String(row.zip || "").trim();
+        if (newZip && newZip !== oldZip && !addrChanged) {
+          items.push("📮 Zip: " + (oldZip || "—") + " → " + newZip);
+        }
+
+        if (items.length) changes.push({ name: existing.name, items: items });
+      });
+
+      const renderChange = function(c) {
+        return "<div style='padding:8px 10px;border-radius:8px;background:#f8fafd;margin-bottom:6px'>" +
+               "<div style='font-weight:700;color:#1e2d4a;font-size:12.5px;margin-bottom:3px'>" + escapeHtml(c.name) + "</div>" +
+               "<div style='font-size:12px;color:#526480;line-height:1.55'>" + c.items.map(function(i) { return escapeHtml(i); }).join("<br>") + "</div>" +
+               "</div>";
+      };
+
+      document.getElementById("status-preview-activate").innerHTML =
+        changes.length
+          ? "<div style='font-size:12px;font-weight:700;color:#1e2d4a;margin-bottom:8px'>Changes (" + changes.length + ")</div>" + changes.map(renderChange).join("")
+          : "<div style='font-size:12.5px;color:#9aaccc;text-align:center;padding:20px 0'>No changes detected.</div>";
+      document.getElementById("status-preview-deactivate").innerHTML = "";
+      document.getElementById("status-preview-notfound").innerHTML =
+        notFound.length
+          ? "<div style='font-size:12px;font-weight:700;color:#9a7700;margin-bottom:6px'>⚠️ Not Found in Portal (skipped) (" + notFound.length + ")</div>" +
+            "<div style='font-size:12.5px;color:#1e2d4a;line-height:1.55;max-height:140px;overflow-y:auto;background:#f8fafd;border-radius:8px;padding:8px 10px'>" +
+            notFound.map(function(n) { return escapeHtml(n); }).join("<br>") + "</div>"
+          : "";
+
+      document.getElementById("status-preview-summary").textContent =
+        changes.length + " clinician" + (changes.length === 1 ? "" : "s") + " will change · " + notFound.length + " not found";
+
+      document.getElementById("status-preview-modal").style.display = "flex";
+
+      function buildSyncReport() {
+        if (!changes.length && !notFound.length) return null;
+        const parts = [];
+        if (changes.length) {
+          parts.push(
+            "<h3 style='font-size:13px;margin:14px 0 6px;color:#1e2d4a'>Changes (" + changes.length + ")</h3>" +
+            changes.map(function(c) {
+              return "<div style='padding:8px 10px;border-radius:6px;background:#f8fafd;margin-bottom:5px'>" +
+                     "<strong>" + escapeHtml(c.name) + "</strong><br>" +
+                     c.items.map(function(i) { return escapeHtml(i); }).join("<br>") +
+                     "</div>";
+            }).join("")
+          );
+        }
+        if (notFound.length) {
+          parts.push(
+            "<h3 style='font-size:13px;margin:14px 0 6px;color:#9a7700'>Not Found (skipped)</h3>" +
+            "<div style='font-size:13px;color:#1e2d4a'>" + notFound.map(function(n) { return escapeHtml(n); }).join("<br>") + "</div>"
+          );
+        }
+        return {
+          reportType: "sync_update",
+          summary: changes.length + " clinicians updated · " + notFound.length + " not found",
+          sectionsHtml: parts.join("")
+        };
+      }
+
+      return new Promise(function(resolve) {
+        function cleanup(result) {
+          document.getElementById("status-preview-modal").style.display = "none";
+          document.getElementById("status-preview-confirm").onclick = null;
+          document.getElementById("status-preview-cancel").onclick = null;
+          if (result) _pendingImportReport = buildSyncReport();
+          resolve(result);
+        }
+        document.getElementById("status-preview-confirm").onclick = function() { cleanup(true); };
+        document.getElementById("status-preview-cancel").onclick  = function() { cleanup(false); };
+      });
+    }
+
+    async function showZipCoveragePreview() {
+      const rows = normalizeImportRowsForUpload();
+
+      const incomingByClinician = new Map();
+      const unmatchedNames = new Set();
+
+      rows.forEach(function(row) {
+        if (!row.name || !row.zip_code) return;
+        if (!row.matched_clinician_id)  { unmatchedNames.add(row.name); return; }
+
+        const bucket = incomingByClinician.get(row.matched_clinician_id) || new Map();
+        const key = (row.zip_code || "") + "|" + (row.discipline || "");
+        bucket.set(key, { zip: row.zip_code, discipline: row.discipline, memo: row.memo });
+        incomingByClinician.set(row.matched_clinician_id, bucket);
+      });
+
+      const changes = [];
+      incomingByClinician.forEach(function(newSet, clinicianId) {
+        const clinician = appState.clinicians.find(function(c) { return c.id === clinicianId; });
+        if (!clinician) return;
+
+        const currentRows = (clinician.zip_coverages || []);
+        const currentByKey = new Map();
+        currentRows.forEach(function(r) {
+          const key = (r.zip_code || "") + "|" + (r.discipline || "");
+          currentByKey.set(key, r);
+        });
+
+        const added = [], removed = [], changed = [];
+        newSet.forEach(function(newRow, key) {
+          const existing = currentByKey.get(key);
+          if (!existing) {
+            added.push(newRow);
+          } else {
+            const oldMemo = String(existing.memo || "").trim();
+            const newMemo = String(newRow.memo  || "").trim();
+            if (oldMemo !== newMemo) changed.push({ zip: newRow.zip, discipline: newRow.discipline, oldMemo: oldMemo, newMemo: newMemo });
+          }
+        });
+        currentByKey.forEach(function(oldRow, key) {
+          if (!newSet.has(key)) removed.push({ zip: oldRow.zip_code, discipline: oldRow.discipline });
+        });
+
+        if (added.length || removed.length || changed.length) {
+          changes.push({ name: clinician.name, added: added, removed: removed, changed: changed });
+        }
+      });
+
+      const formatZip = function(r) { return (r.zip || r.zip_code) + (r.discipline ? " (" + r.discipline + ")" : ""); };
+      const renderClinician = function(c) {
+        const lines = [];
+        if (c.added.length) {
+          lines.push("<span style='color:#0c8a4f'>+ Add: " + c.added.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
+        }
+        if (c.removed.length) {
+          lines.push("<span style='color:#b3261e'>− Remove: " + c.removed.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
+        }
+        if (c.changed.length) {
+          lines.push("<span style='color:#9a7700'>~ Memo changed: " + c.changed.map(function(x) { return escapeHtml(x.zip + " (" + (x.oldMemo || "—") + " → " + (x.newMemo || "—") + ")"); }).join(", ") + "</span>");
+        }
+        return "<div style='padding:8px 10px;border-radius:8px;background:#f8fafd;margin-bottom:6px'>" +
+               "<div style='font-weight:700;color:#1e2d4a;font-size:12.5px;margin-bottom:3px'>" + escapeHtml(c.name) + "</div>" +
+               "<div style='font-size:12px;line-height:1.55'>" + lines.join("<br>") + "</div>" +
+               "</div>";
+      };
+
+      document.getElementById("status-preview-activate").innerHTML =
+        changes.length
+          ? "<div style='font-size:12px;font-weight:700;color:#1e2d4a;margin-bottom:8px'>ZIP Coverage Changes (" + changes.length + " clinicians)</div>" + changes.map(renderClinician).join("")
+          : "<div style='font-size:12.5px;color:#9aaccc;text-align:center;padding:20px 0'>No changes detected.</div>";
+      document.getElementById("status-preview-deactivate").innerHTML = "";
+      document.getElementById("status-preview-notfound").innerHTML =
+        unmatchedNames.size
+          ? "<div style='font-size:12px;font-weight:700;color:#9a7700;margin-bottom:6px'>⚠️ Unmatched Names (skipped) (" + unmatchedNames.size + ")</div>" +
+            "<div style='font-size:12.5px;color:#1e2d4a;line-height:1.55;max-height:140px;overflow-y:auto;background:#f8fafd;border-radius:8px;padding:8px 10px'>" +
+            Array.from(unmatchedNames).map(function(n) { return escapeHtml(n); }).join("<br>") + "</div>"
+          : "";
+
+      const totalAdded   = changes.reduce(function(s,c) { return s + c.added.length;   }, 0);
+      const totalRemoved = changes.reduce(function(s,c) { return s + c.removed.length; }, 0);
+      const totalChanged = changes.reduce(function(s,c) { return s + c.changed.length; }, 0);
+      document.getElementById("status-preview-summary").textContent =
+        "+" + totalAdded + " · −" + totalRemoved + " · ~" + totalChanged + " across " + changes.length + " clinicians · " + unmatchedNames.size + " unmatched";
+
+      const modal = document.getElementById("status-preview-modal");
+      const heading = modal.querySelector("h3");
+      const prevText = heading ? heading.textContent : "";
+      if (heading) heading.textContent = "Confirm ZIP Coverage Update";
+
+      modal.style.display = "flex";
+
+      function buildZipReport() {
+        if (!changes.length && !unmatchedNames.size) return null;
+        const parts = [];
+        if (changes.length) {
+          parts.push(
+            "<h3 style='font-size:13px;margin:14px 0 6px;color:#1e2d4a'>ZIP Changes (" + changes.length + " clinicians)</h3>" +
+            changes.map(function(c) {
+              const lines = [];
+              if (c.added.length)   lines.push("<span style='color:#0c8a4f'>+ " + c.added.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
+              if (c.removed.length) lines.push("<span style='color:#b3261e'>− " + c.removed.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
+              if (c.changed.length) lines.push("<span style='color:#9a7700'>~ memo: " + c.changed.map(function(x) { return escapeHtml(x.zip); }).join(", ") + "</span>");
+              return "<div style='padding:8px 10px;border-radius:6px;background:#f8fafd;margin-bottom:5px'>" +
+                     "<strong>" + escapeHtml(c.name) + "</strong><br>" + lines.join("<br>") + "</div>";
+            }).join("")
+          );
+        }
+        if (unmatchedNames.size) {
+          parts.push(
+            "<h3 style='font-size:13px;margin:14px 0 6px;color:#9a7700'>Unmatched (skipped)</h3>" +
+            "<div style='font-size:13px'>" + Array.from(unmatchedNames).map(function(n) { return escapeHtml(n); }).join("<br>") + "</div>"
+          );
+        }
+        return {
+          reportType: "zip_coverage",
+          summary: "+" + totalAdded + " · −" + totalRemoved + " · ~" + totalChanged + " across " + changes.length + " clinicians",
+          sectionsHtml: parts.join("")
+        };
+      }
+
+      return new Promise(function(resolve) {
+        function cleanup(result) {
+          modal.style.display = "none";
+          if (heading) heading.textContent = prevText;
+          document.getElementById("status-preview-confirm").onclick = null;
+          document.getElementById("status-preview-cancel").onclick = null;
+          if (result) _pendingImportReport = buildZipReport();
+          resolve(result);
+        }
+        document.getElementById("status-preview-confirm").onclick = function() { cleanup(true); };
+        document.getElementById("status-preview-cancel").onclick  = function() { cleanup(false); };
+      });
+    }
+
     async function uploadImportToSupabase() {
       if (appState.importUploadInProgress) return;
 
@@ -18588,6 +19004,25 @@
         }
       }
 
+      if (
+        appState.importKind === "clinician_master"
+        && appState.clinicianImportMode === "status_update"
+      ) {
+        const confirmed = await showStatusUpdatePreview();
+        if (!confirmed) {
+          setImportStatus("Status update canceled.");
+          return;
+        }
+      }
+
+      if (appState.importKind === "zip_coverage") {
+        const confirmed = await showZipCoveragePreview();
+        if (!confirmed) {
+          setImportStatus("ZIP coverage update canceled.");
+          return;
+        }
+      }
+
       appState.importUploadInProgress = true;
       syncImportUploadState();
 
@@ -18602,6 +19037,10 @@
           await uploadClinicianMasterImportToSupabase();
         } else {
           await uploadReferralImportToSupabase();
+        }
+        if (_pendingImportReport) {
+          await sendImportReport(_pendingImportReport);
+          _pendingImportReport = null;
         }
       } catch (error) {
         const rawMessage = String((error && (error.message || error.details || error.hint)) || error || "Unknown upload error");
@@ -23047,6 +23486,127 @@
     }
   }
 
+  // ── Reactivation Request Email ──────────────────────────────────────────────
+
+  var _reactivationClinician = null;
+
+  function openReactivationModal() {
+    var c = getCurrentProfileClinicianRecord();
+    if (!c) return;
+    _reactivationClinician = c;
+
+    var name       = c.name || c.full_name || "";
+    var discipline = c.discipline || "";
+
+    // Find when they became inactive from status history
+    var history = appState.currentProfileStatusHistory || [];
+    var inactiveEntry = history.find(function(e) { return e.toStatus === "Inactive"; });
+    var inactiveSince = inactiveEntry
+      ? new Date(inactiveEntry.changedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : null;
+
+    var whoEl = document.getElementById("reactivation-who");
+    whoEl.innerHTML =
+      "<strong>" + escHtml(name) + "</strong>" +
+      (discipline ? " &nbsp;·&nbsp; " + escHtml(discipline) : "") +
+      (inactiveSince ? " &nbsp;·&nbsp; Inactive since " + escHtml(inactiveSince) : "");
+
+    document.getElementById("reactivation-note").value = "";
+    document.getElementById("reactivation-send").disabled = false;
+    document.getElementById("reactivation-send").textContent = "📧 Send to Hiring Manager";
+    document.getElementById("reactivation-modal").classList.add("open");
+    setTimeout(function() { document.getElementById("reactivation-note").focus(); }, 100);
+  }
+
+  function renderReactivationStamp(clinicianId) {
+    var stampEl = document.getElementById("profile-reactivation-stamp");
+    var dateEl  = document.getElementById("profile-reactivation-stamp-date");
+    if (!stampEl || !dateEl) return;
+    var id = clinicianId || appState.currentProfileClinicianId;
+    var rec = id ? appState.clinicians.find(function(x) { return x.id === id; }) : null;
+    var ts  = rec && rec.profile_tags && rec.profile_tags.reactivationRequestedAt;
+    if (ts) {
+      dateEl.textContent = formatStatusHistoryTimestamp(ts);
+      stampEl.style.display = "block";
+    } else {
+      stampEl.style.display = "none";
+    }
+  }
+
+  function closeReactivationModal() {
+    document.getElementById("reactivation-modal").classList.remove("open");
+  }
+
+  async function submitReactivationRequest() {
+    var c = _reactivationClinician;
+    if (!c) return;
+
+    var btn = document.getElementById("reactivation-send");
+    btn.disabled = true;
+    btn.textContent = "Sending…";
+
+    var name       = c.name || c.full_name || "";
+    var discipline = c.discipline || "";
+    var note       = document.getElementById("reactivation-note").value.trim();
+
+    var history = appState.currentProfileStatusHistory || [];
+    var inactiveEntry = history.find(function(e) { return e.toStatus === "Inactive"; });
+    var inactiveSince = inactiveEntry
+      ? new Date(inactiveEntry.changedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : null;
+
+    try {
+      var sessionData = await supabaseClient.auth.getSession();
+      var token       = (sessionData.data.session || {}).access_token || "";
+      var senderEmail = appCurrentUser ? (appCurrentUser.email || "") : "";
+      var senderName  = senderEmail ? senderEmail.split("@")[0] : "Staff";
+
+      var resp = await fetch(
+        "https://jpemlcuxjvynlbeygukb.supabase.co/functions/v1/send-reactivation-email",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + token
+          },
+          body: JSON.stringify({
+            clinicianName: name,
+            discipline:    discipline,
+            inactiveSince: inactiveSince,
+            note:          note,
+            senderName:    senderName,
+            senderEmail:   senderEmail
+          })
+        }
+      );
+
+      var result = await resp.json();
+      if (!resp.ok || result.error) throw new Error(result.error || resp.statusText);
+
+      closeReactivationModal();
+      showToast("Reactivation request sent to hiring manager!", "success");
+
+      // Save timestamp to profile_tags and update display
+      var sentAt = new Date().toISOString();
+      var clinicianId = c.id;
+      var existing = appState.clinicians.find(function(x) { return x.id === clinicianId; });
+      if (existing) {
+        existing.profile_tags = Object.assign({}, existing.profile_tags || {}, { reactivationRequestedAt: sentAt });
+      }
+      renderReactivationStamp(clinicianId);
+      supabaseClient
+        .from("clinician_profiles")
+        .upsert({ clinician_id: clinicianId, tags: Object.assign({}, (existing && existing.profile_tags) || {}) }, { onConflict: "clinician_id" })
+        .then(function(res) { if (res.error) console.warn("stamp save error:", res.error); });
+
+    } catch (err) {
+      console.error("Reactivation email error:", err);
+      showToast("Could not send email: " + (err.message || err), "error");
+      btn.disabled = false;
+      btn.textContent = "📧 Send to Hiring Manager";
+    }
+  }
+
   // ── TherapyBoss Screenshot Import ──────────────────────────────────────────
 
   var _tbImageBase64 = null;
@@ -23054,74 +23614,11 @@
   var _tbGeoResults  = {}; // index → { lng, lat, place_name } or null
 
   async function loadTbApiKey() {
-    // Try Supabase first (works across browsers/devices), fall back to localStorage
-    try {
-      if (appCurrentUser && appCurrentUser.id) {
-        var { data } = await supabaseClient
-          .from("staff_config")
-          .select("openai_api_key")
-          .eq("user_id", appCurrentUser.id)
-          .maybeSingle();
-        if (data && data.openai_api_key) {
-          localStorage.setItem("dc_openai_key", data.openai_api_key);
-          return data.openai_api_key;
-        }
-      }
-    } catch(e) {}
-    return localStorage.getItem("dc_openai_key") || "";
-  }
-
-  async function saveTbApiKey(key) {
-    localStorage.setItem("dc_openai_key", key);
-    try {
-      if (appCurrentUser && appCurrentUser.id) {
-        await supabaseClient.from("staff_config").upsert({
-          user_id:        appCurrentUser.id,
-          openai_api_key: key,
-          updated_at:     new Date().toISOString()
-        }, { onConflict: "user_id" });
-      }
-    } catch(e) {}
-  }
-
-  function updateTbKeyStatus(key) {
-    var status = document.getElementById("tb-key-status");
-    var label  = document.getElementById("tb-key-label");
-    if (key) {
-      status.classList.add("has-key");
-      label.textContent = "API key saved in Supabase ✓";
-    } else {
-      status.classList.remove("has-key");
-      label.textContent = "No API key saved";
-    }
-  }
-
-  function toggleTbKeyEdit(e) {
-    e.preventDefault();
-    var row = document.getElementById("tb-key-edit-row");
-    var isOpen = row.classList.toggle("open");
-    if (isOpen) {
-      document.getElementById("tb-api-key").value = localStorage.getItem("dc_openai_key") || "";
-      setTimeout(function() { document.getElementById("tb-api-key").focus(); }, 50);
-    }
-  }
-
-  async function saveTbApiKeyFromInput() {
-    var key = document.getElementById("tb-api-key").value.trim();
-    if (!key) { showToast("Enter a key first.", "warning"); return; }
-    await saveTbApiKey(key);
-    document.getElementById("tb-key-edit-row").classList.remove("open");
-    updateTbKeyStatus(key);
-    showToast("API key saved!", "success", 2000);
+    // (Legacy) - key now lives as Supabase Edge Function secret. No-op.
+    return "";
   }
 
   async function openTbImport() {
-    // Load key and update status indicator
-    var savedKey = await loadTbApiKey();
-    document.getElementById("tb-api-key").value = savedKey;
-    updateTbKeyStatus(savedKey);
-    document.getElementById("tb-key-edit-row").classList.remove("open");
-
     // Reset drop zone
     document.getElementById("tb-drop-zone").className = "";
     var img = document.getElementById("tb-preview-img");
@@ -23188,44 +23685,30 @@
   }
 
   async function runTbScan() {
-    var apiKey = document.getElementById("tb-api-key").value.trim();
-    if (!apiKey) { showToast("Enter your OpenAI API key first.", "warning"); return; }
     if (!_tbImageBase64) { showToast("No image loaded.", "warning"); return; }
-
-    saveTbApiKey(apiKey);
 
     var btn = document.getElementById("tb-scan-btn");
     btn.disabled = true;
     btn.textContent = "⏳ Scanning…";
 
     try {
-      var resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": "Bearer " + apiKey
-        },
-        body: JSON.stringify({
-          model: "gpt-4o",
-          max_tokens: 4096,
-          messages: [{
-            role: "user",
-            content: [
-              {
-                type: "text",
-                text: "This is a screenshot of a TherapyBoss referral list. Extract all referrals as a JSON array. Each object should have these fields:\n- patient_name (string, 'Last, First Middle' format)\n- address (string, full street address with city, state, zip)\n- disciplines (array of strings, e.g. [\"PT\"], [\"OT\"], [\"PT\",\"OT\"] — if the same patient appears on multiple rows for different disciplines, merge them into one record with all disciplines)\n- agency (string, the home health agency name)\n- referral_date (string, YYYY-MM-DD, from the date/time column)\n- insurance (string, e.g. 'Medicare Home Health')\n\nReturn ONLY a valid JSON array. No markdown fences, no explanation."
-              },
-              {
-                type: "image_url",
-                image_url: { url: _tbImageBase64, detail: "high" }
-              }
-            ]
-          }]
-        })
-      });
+      var sessionData = await supabaseClient.auth.getSession();
+      var token       = (sessionData.data.session || {}).access_token || "";
+
+      var resp = await fetch(
+        "https://jpemlcuxjvynlbeygukb.supabase.co/functions/v1/tb-scan-image",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + token
+          },
+          body: JSON.stringify({ imageBase64: _tbImageBase64 })
+        }
+      );
 
       var data = await resp.json();
-      if (!resp.ok) throw new Error((data.error && data.error.message) || resp.statusText);
+      if (!resp.ok || data.error) throw new Error(data.error || resp.statusText);
 
       var raw = (data.choices[0].message.content || "").trim();
       // Strip any accidental markdown fences
