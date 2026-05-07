@@ -24,8 +24,8 @@ All files are standalone HTML/CSS/JS — no framework, no build step. They share
 - **URL:** `https://jpemlcuxjvynlbeygukb.supabase.co`
 - **Project ref:** `jpemlcuxjvynlbeygukb`
 - **Anon key:** hardcoded in each file (search `supabaseKey`)
-- **Auth:** Cookie-based in clinician-map.html; localStorage-based in others
-- **RLS:** Enabled on all tables
+- **Auth:** `localStorage`-based in **all** files (clinician-map.html switched from `sessionStorage` → `localStorage` in May 2026 so sessions survive tab closes / browser restarts; required for the upcoming RLS rollout to not break first-time logins on a fresh browser)
+- **RLS:** Phase 1 SQL written but currently **rolled back / OFF** (see `supabase/policies/01_phase1_enable_rls.sql` and `01_phase1_rollback.sql`). The auth/loading fixes in clinician-map.html are the prerequisite for re-enabling RLS without leaving the map blank for fresh-browser sign-ins.
 
 ### Supabase Edge Functions
 | Function | Purpose | Secrets used |
@@ -82,7 +82,10 @@ Three roles stored in `user_roles` (user_id, role):
 
 ## Pending Work (as of last update)
 
-- **clinician-map.html** — performance optimizations discussed (GeoJSON layers, virtual scroll, staggered data load) — not yet implemented
+- **Phase 1 RLS** — SQL ready in `supabase/policies/01_phase1_enable_rls.sql`; auth/loading hardening landed; awaiting re-apply + verification
+- **Phase 2 RLS** — per-role policies (admin/editor/readonly) tied to `user_roles`
+- **Storage bucket RLS** — `clinician-photos` bucket needs its own policy review
+- **clinician-map.html** — performance optimizations discussed (GeoJSON layers, virtual scroll, staggered data load) — partially landed
 - **time-tracker.html** — Task #4: time edit approval system + 10hr hard stop (partially built, needs testing/polish)
 - **compliance.html** — not yet explored or documented
 - **Portal shell** — eventual goal is a unified iframe shell in `index.html` so all tools feel like one app
