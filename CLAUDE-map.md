@@ -351,6 +351,32 @@ After successful Sync Update or ZIP Coverage import, an HTML report email is aut
 
 ---
 
+## TherapyBoss Screenshot Import — AI Scan via Edge Function
+
+The "Import from TherapyBoss" modal lets staff drop a screenshot of TB referrals and have GPT-4o vision parse it into structured rows. The OpenAI key is **never sent to the browser** — it lives only as a Supabase Edge Function secret.
+
+### Edge Function
+- **Name:** `tb-scan-image` (`supabase/functions/tb-scan-image/index.ts`)
+- **Project ref:** `jpemlcuxjvynlbeygukb`
+- **Reads secret:** `OPENAI_API_KEY` (shared org-wide; same key used by AI assistant)
+- **Payload:** `{ imageBase64, prompt? }` — prompt has a sensible TB-specific default if omitted
+- **Calls:** OpenAI `/v1/chat/completions` with `model: gpt-4o`, `max_tokens: 4096`, vision input
+- **Returns:** raw OpenAI response (client extracts `choices[0].message.content` and JSON-parses)
+- **JWT verification:** ON — only signed-in portal users can invoke
+
+### Client Flow
+- `runTbScan()` (~line 23710) gets the user's session token, POSTs `_tbImageBase64` to the edge function, parses the returned JSON array of referrals, calls `renderTbPreview()`
+- No API key prompt or storage in browser — modal shows static "🟢 AI Scanner Ready" indicator (`#tb-key-status`, `#tb-key-label`)
+- Vestigial `loadTbApiKey()` stub remains (returns `""`) to avoid breaking other call sites; `saveTbApiKey()`, `updateTbKeyStatus()`, `toggleTbKeyEdit()`, `saveTbApiKeyFromInput()` were removed
+
+### Why the Migration
+Previously each user entered their own OpenAI key, ostensibly saved to a `staff_config.openai_api_key` row. The save was wrapped in `try { ... } catch(e) {}` that swallowed Supabase RLS errors silently — so localStorage was the only reliable cache. Browser eviction (Safari ITP, Chrome storage purge) wiped localStorage overnight, requiring re-entry. Moving the key server-side eliminated:
+- The wipe issue (no browser storage involved)
+- Per-user billing fragmentation (one shared org key)
+- Key exposure to the browser (security win)
+
+---
+
 ## Development Tips
 
 - **Start new sessions per feature** — the file is 21,000+ lines; focused sessions crash less

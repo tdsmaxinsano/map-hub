@@ -19955,9 +19955,24 @@
       await loadClinicians();
     }
 
+    async function fetchAllRows(buildQuery, pageSize) {
+      const size = pageSize || 1000;
+      const all = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await buildQuery().range(from, from + size - 1);
+        if (error) throw error;
+        if (!data || !data.length) break;
+        all.push.apply(all, data);
+        if (data.length < size) break;
+        from += size;
+      }
+      return all;
+    }
+
     async function loadClinicians() {
       showClinicianLoadBar();
-      const [clinicianResponse, profileResponse, languageResponse, zipCoverageResponse] = await Promise.all([
+      const [clinicianResponse, profileResponse, languageRows, zipCoverageRows] = await Promise.all([
         supabaseClient
           .from("clinician_v2")
           .select("*")
@@ -19965,14 +19980,21 @@
         supabaseClient
           .from("clinician_profiles")
           .select("*"),
-        supabaseClient
-          .from("clinician_profile_languages")
-          .select("clinician_id, language_options(name)"),
-        supabaseClient
-          .from("clinician_zip_coverages")
-          .select("clinician_id, zip_code, discipline, memo, clinician_name_raw, updated_at")
-          .order("zip_code", { ascending: true })
+        fetchAllRows(function() {
+          return supabaseClient
+            .from("clinician_profile_languages")
+            .select("clinician_id, language_options(name)");
+        }),
+        fetchAllRows(function() {
+          return supabaseClient
+            .from("clinician_zip_coverages")
+            .select("clinician_id, zip_code, discipline, memo, clinician_name_raw, updated_at")
+            .order("zip_code", { ascending: true });
+        })
       ]);
+      // Wrap paged arrays so downstream code that expects {data, error} still works
+      const languageResponse    = { data: languageRows,    error: null };
+      const zipCoverageResponse = { data: zipCoverageRows, error: null };
 
       if (clinicianResponse.error) {
         console.error("Error loading clinicians:", clinicianResponse.error);

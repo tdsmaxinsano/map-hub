@@ -22,9 +22,19 @@ All files are standalone HTML/CSS/JS — no framework, no build step. They share
 
 ### Supabase
 - **URL:** `https://jpemlcuxjvynlbeygukb.supabase.co`
+- **Project ref:** `jpemlcuxjvynlbeygukb`
 - **Anon key:** hardcoded in each file (search `supabaseKey`)
 - **Auth:** Cookie-based in clinician-map.html; localStorage-based in others
 - **RLS:** Enabled on all tables
+
+### Supabase Edge Functions
+| Function | Purpose | Secrets used |
+|---|---|---|
+| `send-reactivation-email` | Emails hiring manager when staff requests reactivation of an Inactive clinician | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `HIRING_MANAGER_EMAIL` |
+| `send-import-report` | After successful Sync Update or ZIP coverage import, emails change report to logged-in user (CC list optional) | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `IMPORT_REPORT_CC_EMAIL` (optional, comma-separated) |
+| `tb-scan-image` | Proxies TherapyBoss screenshot scan to OpenAI gpt-4o vision; key never leaves Supabase | `OPENAI_API_KEY` |
+
+All functions have CORS headers and use JWT verification (signed-in users only). Deploy via Supabase Dashboard → Edge Functions or CLI (`supabase functions deploy <name> --project-ref jpemlcuxjvynlbeygukb`).
 
 ### Mapbox
 - **Access token:** `pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A`
