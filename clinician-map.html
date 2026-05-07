@@ -6784,7 +6784,7 @@
     };
     const supabaseClient = supabase.createClient(supabaseUrl, supabaseKey, {
       auth: {
-        storage: window.sessionStorage,
+        storage: window.localStorage,
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: true
@@ -7030,6 +7030,20 @@
         }
       } finally {
         if (authOverlay) authOverlay.style.display = "none";
+        // If the map style already loaded (user was on the login screen while Mapbox loaded),
+        // force a clinician reload now that we have an authenticated session.
+        // Without this, anon queries run first (returning [] under RLS) and signing in
+        // leaves the map blank because map.on("style.load") already fired.
+        if (session && session.user) {
+          try {
+            if (typeof map !== "undefined" && map && typeof map.isStyleLoaded === "function" && map.isStyleLoaded()) {
+              appState.hasLoadedClinicians = false;
+              await loadClinicians();
+            }
+          } catch(e) {
+            console.warn("post-login loadClinicians failed:", e);
+          }
+        }
         // Launch tour on first login only
         try {
           if (!localStorage.getItem("dcs_tour_done") && typeof startTour === "function") {
@@ -15184,6 +15198,7 @@
     }
 
     function getFirstAvailableFieldValue(record, keys) {
+      if (!record) return "";
       for (let index = 0; index < keys.length; index += 1) {
         const value = record[keys[index]];
         if (value === null || value === undefined) continue;
@@ -15341,6 +15356,7 @@
       const clinician = appState.clinicians.find(function(entry) {
         return entry.id === normalizedClinicianId;
       }) || null;
+      if (!clinician) return true;
       const ignoreBefore = getClinicianIgnoreHistoryBeforeValue(clinician);
       if (!ignoreBefore) return true;
 
@@ -19970,7 +19986,12 @@
       return all;
     }
 
+    var _cliniciansLoading = false;
+
     async function loadClinicians() {
+      if (_cliniciansLoading) return;
+      _cliniciansLoading = true;
+      try {
       showClinicianLoadBar();
       const [clinicianResponse, profileResponse, languageRows, zipCoverageRows] = await Promise.all([
         supabaseClient
@@ -19999,7 +20020,6 @@
       if (clinicianResponse.error) {
         console.error("Error loading clinicians:", clinicianResponse.error);
         elements.selectionMessage.textContent = "Failed to load clinicians.";
-        hideClinicianLoadBar();
         return;
       }
 
@@ -20106,8 +20126,11 @@
       fitMapToVisibleClinicians();
       syncMapInstructions();
       updateSummary();
-      hideClinicianLoadBar();
       setupClinicianRealtime();
+      } finally {
+        hideClinicianLoadBar();
+        _cliniciansLoading = false;
+      }
     }
 
     async function loadStatusLogForClinician(clinicianId) {
@@ -22425,19 +22448,41 @@
     btn.innerHTML = "⏳ Loading…";
     btn.disabled = true;
 
-    // Retry up to 3× — the Supabase auth lock can abort concurrent requests
-    // on first load; retrying after a short delay lets the lock settle.
+    // Wrap a promise so it rejects if it hasn't settled in `ms` ms — needed because
+    // the Supabase auth lock can leave concurrent requests hanging (no error, no
+    // resolution), which would otherwise trap the button on "Loading…" forever.
+    function rejectOnTimeout(promise, ms, label) {
+      return Promise.race([
+        promise,
+        new Promise(function(_, reject) {
+          setTimeout(function() {
+            var err = new Error((label || "request") + " timed out after " + ms + "ms");
+            err.name = "TimeoutError";
+            reject(err);
+          }, ms);
+        })
+      ]);
+    }
+
+    // Retry up to 3× — the Supabase auth lock can abort or stall concurrent
+    // requests on first load; retrying after a short delay lets the lock settle.
     var MAX_ATTEMPTS = 3;
     for (var attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
       try {
         // Fetch open referrals that have coordinates
-        var { data: refs, error: e1 } = await supabaseClient
-          .from("referrals")
-          .select("*")
-          .in("status", ["open"])
-          .not("lat", "is", null)
-          .not("lng", "is", null)
-          .order("referral_date", { ascending: false });
+        var refsResp = await rejectOnTimeout(
+          supabaseClient
+            .from("referrals")
+            .select("*")
+            .in("status", ["open"])
+            .not("lat", "is", null)
+            .not("lng", "is", null)
+            .order("referral_date", { ascending: false }),
+          10000,
+          "referrals query"
+        );
+        var refs = refsResp.data;
+        var e1   = refsResp.error;
 
         if (e1) throw e1;
 
@@ -22445,12 +22490,16 @@
         var refIds = (refs || []).map(function(r) { return r.id; });
         var contacts = [];
         if (refIds.length > 0) {
-          var { data: cData } = await supabaseClient
-            .from("referral_contacts")
-            .select("referral_id, clinician_name, discipline, response")
-            .in("referral_id", refIds)
-            .order("created_at", { ascending: false });
-          contacts = cData || [];
+          var cResp = await rejectOnTimeout(
+            supabaseClient
+              .from("referral_contacts")
+              .select("referral_id, clinician_name, discipline, response")
+              .in("referral_id", refIds)
+              .order("created_at", { ascending: false }),
+            10000,
+            "referral_contacts query"
+          );
+          contacts = cResp.data || [];
         }
 
         appState.referralOverlayData    = refs || [];
@@ -22463,9 +22512,14 @@
         return; // success — exit the retry loop
 
       } catch (err) {
-        var isLockError = err && (err.name === "AbortError" || (err.message || "").includes("steal"));
-        if (isLockError && attempt < MAX_ATTEMPTS) {
-          // Supabase auth lock conflict — wait and retry
+        var isRetryable = err && (
+          err.name === "AbortError" ||
+          err.name === "TimeoutError" ||
+          (err.message || "").includes("steal") ||
+          (err.message || "").toLowerCase().includes("fetch")
+        );
+        if (isRetryable && attempt < MAX_ATTEMPTS) {
+          // Supabase auth lock / timeout / network blip — wait and retry
           await new Promise(function(res) { setTimeout(res, 1200 * attempt); });
           btn.innerHTML = "⏳ Retrying…";
           continue;
