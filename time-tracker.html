@@ -212,6 +212,8 @@
     .setting-row input, .setting-row select { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 13px; outline: none; }
     .setting-row input:focus, .setting-row select:focus { border-color: var(--blue); }
     .setting-row .s-name { font-weight: 800; color: var(--blue); width: 100px; font-size: 14px; }
+    .setting-row .s-name-input { font-weight: 800; color: var(--blue); width: 150px; font-size: 14px; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: 6px; outline: none; }
+    .setting-row .s-name-input:focus { border-color: var(--blue); }
     .setting-row label { font-size: 11px; color: var(--gray); font-weight: 700; text-transform: uppercase; }
     .setting-group { display: flex; flex-direction: column; gap: 4px; }
     .btn-save-staff { padding: 7px 16px; background: var(--blue); color: var(--white); border: none; border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; }
@@ -994,6 +996,10 @@ function hoursToday(entries, tz) {
 
 function fmtHrs(h) { return h.toFixed(2); }
 function fmtUSD(n) { return '$' + Math.abs(n).toFixed(2); }
+function escAttr(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
 
 // ══════════════════════════════════════════════════════════════
 //  STAFF CONFIG
@@ -1809,7 +1815,10 @@ async function renderSettings() {
     <div class="setting-row" data-uid="${s.user_id}">
       <div style="display:flex;align-items:center;gap:8px;">
         <div id="photo-thumb-${s.user_id}">${photoEl}</div>
-        <div class="s-name">${s.display_name}</div>
+        <input type="text" class="s-name-input"
+          value="${escAttr(s.display_name || '')}"
+          data-orig="${escAttr(s.display_name || '')}"
+          placeholder="Display name" />
       </div>
       <div class="setting-group">
         <label>Rate ($/hr)</label>
@@ -1873,6 +1882,9 @@ async function renderSettings() {
 
 async function saveStaffConfig(uid, btn) {
   const row     = btn.closest('.setting-row');
+  const nameEl  = row.querySelector('.s-name-input');
+  const newName = (nameEl?.value || '').trim();
+  const origName= nameEl?.dataset.orig || '';
   const rate    = parseFloat(row.querySelector('.s-rate').value);
   const tz      = row.querySelector('.s-tz').value;
   const active  = row.querySelector('.s-active').value === 'true';
@@ -1882,6 +1894,19 @@ async function saveStaffConfig(uid, btn) {
   const wiseEmail=row.querySelector('.s-wise-email')?.value.trim() || null;
 
   btn.textContent = '...';
+
+  // (a) Name change — route through the admin-gated RPC so this is the
+  //     same write path Kanban → Manage Staff uses. Skip if unchanged.
+  if (newName && newName !== origName) {
+    const { error: rpcErr } = await db.rpc('upsert_staff_profile', {
+      p_user_id: uid,
+      p_display_name: newName
+    });
+    if (rpcErr) { showToast('Name update failed: ' + rpcErr.message); btn.textContent = 'Save'; return; }
+    if (nameEl) nameEl.dataset.orig = newName;
+  }
+
+  // (b) Operational fields (rate / tz / active / pay_type / wise_*)
   const { error } = await db.from('staff_config').update({
     hourly_rate: rate, timezone: tz, is_active: active,
     pay_type: payType, wise_recipient_id: wiseId,
@@ -2111,6 +2136,11 @@ function switchTab(name) {
   if (name === 'hud')       startHUD();
   else                      stopHUD();
   if (name === 'approvals') renderApprovals();
+  if (name === 'settings') {
+    // Pull fresh staff list — name/color/photo may have been changed in
+    // Kanban → Manage Staff or directly in Supabase since this page first loaded.
+    loadStaffConfig().then(() => renderSettings());
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
