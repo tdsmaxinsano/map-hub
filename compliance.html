@@ -36,7 +36,9 @@
 
     /* ── LOGIN ── */
     #login-screen {
-      display: flex; align-items: center; justify-content: center;
+      /* Hidden by default to prevent flash on each page load.
+         JS explicitly sets display:flex when no session is present. */
+      display: none; align-items: center; justify-content: center;
       min-height: 100vh;
       background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
     }
@@ -324,6 +326,16 @@
     .deadline-banner .dl-sub  { font-weight: 400; font-size: 12px; opacity: 0.85; margin-top: 1px; }
 
     /* ── VIEW TABS ── */
+    .portal-nav { display: flex; gap: 2px; align-items: center; }
+    .portal-nav-link {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 6px 11px; border-radius: 6px;
+      font-size: 12px; font-weight: 700; text-decoration: none;
+      color: rgba(255,255,255,0.75); background: transparent;
+      white-space: nowrap; transition: background 0.15s, color 0.15s;
+    }
+    .portal-nav-link:hover { background: rgba(255,255,255,0.15); color: #fff; }
+    .portal-nav-link.active { background: var(--white); color: var(--blue); box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
     .view-tabs { display: flex; gap: 4px; }
     .view-tab {
       padding: 6px 16px; border-radius: 20px; border: none; font-size: 12px;
@@ -394,6 +406,13 @@
       <h1>DCS Compliance</h1>
       <span class="tag">Tracker</span>
     </div>
+    <nav class="portal-nav">
+      <a href="clinician-map.html" class="portal-nav-link">🗺️ Map</a>
+      <a href="referrals.html"     class="portal-nav-link">📋 Referrals</a>
+      <a href="time-tracker.html"  class="portal-nav-link">⏱️ Time</a>
+      <a href="compliance.html"    class="portal-nav-link active">✅ Compliance</a>
+      <a href="kanban.html"        class="portal-nav-link">🗂️ Kanban</a>
+    </nav>
     <div class="view-tabs">
       <button class="view-tab active" id="tab-active" onclick="switchView('active')">Active Queue</button>
       <button class="view-tab" id="tab-log" onclick="switchView('log')">📜 Resolved Log</button>
@@ -584,7 +603,7 @@
 const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
 const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { storage: window.sessionStorage, persistSession: true, autoRefreshToken: true }
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
 });
 
 /* ══════════════════════════════════════════════════
@@ -743,7 +762,13 @@ async function doLogin(e) {
 async function doLogout() { await db.auth.signOut(); location.reload(); }
 async function checkSession() {
   var { data } = await db.auth.getSession();
-  if (data && data.session && data.session.user) launchApp(data.session.user);
+  if (data && data.session && data.session.user) {
+    launchApp(data.session.user);
+  } else {
+    // No session — show the login screen (it's hidden by default in CSS
+    // to prevent a flash on every page load when the user IS authenticated).
+    document.getElementById("login-screen").style.display = "flex";
+  }
 }
 async function launchApp(user) {
   currentUser = user;
@@ -1561,5 +1586,6 @@ var _tt; function showToast(msg, type) {
 ══════════════════════════════════════════════════ */
 checkSession();
 </script>
+<script src="chat-widget.js"></script>
 </body>
 </html>
