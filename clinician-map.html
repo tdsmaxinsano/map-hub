@@ -303,6 +303,53 @@
       text-transform: uppercase;
     }
 
+    /* ── Share Cursor toolbar button + remote-cursor rendering ── */
+    .toolbar-share-cursor-btn {
+      background: transparent;
+      border: 1.5px solid var(--border, #cbd5e1);
+      color: var(--text, #1f2937);
+      padding: 5px 9px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s, border-color 0.15s;
+      flex-shrink: 0;
+    }
+    .toolbar-share-cursor-btn:hover { background: rgba(190,210,235,0.3); }
+    .toolbar-share-cursor-btn.active {
+      background: #22c55e; border-color: #16a34a; color: #fff;
+      box-shadow: 0 0 0 2px rgba(34,197,94,0.18);
+    }
+    .toolbar-share-cursor-btn.active::after {
+      content: "● ON";
+      margin-left: 4px;
+      font-size: 9px;
+      letter-spacing: 0.3px;
+    }
+    .shared-cursor {
+      position: fixed;
+      top: 0; left: 0;
+      pointer-events: none;
+      z-index: 9998;
+      will-change: transform;
+      transition: transform 0.06s linear, opacity 0.25s;
+    }
+    .shared-cursor-label {
+      display: inline-block;
+      margin-left: 18px;
+      margin-top: -4px;
+      padding: 2px 7px;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      border-radius: 10px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
+      white-space: nowrap;
+    }
+
     .toolbar-logout-btn {
       height: 28px;
       padding: 0 10px;
@@ -6099,6 +6146,7 @@
 
           <!-- ── User chip + logout ── -->
           <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
+            <button type="button" class="toolbar-share-cursor-btn" id="toolbar-share-cursor" style="display:none;" onclick="toggleCursorShare()" title="Share my cursor with others viewing the map (hold Shift for a burst)">👁️ Share Cursor</button>
             <button type="button" class="um-manage-btn admin-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
             <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
               <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
@@ -20730,6 +20778,7 @@
       syncMapInstructions();
       updateSummary();
       setupClinicianRealtime();
+      if (typeof setupSharedCursor === "function") setupSharedCursor();
       } finally {
         hideClinicianLoadBar();
         _cliniciansLoading = false;
@@ -20882,6 +20931,246 @@
 
       appState.realtimeChannel = channel;
     }
+
+    /* ══════════════════════════════════════════════════════════════════════
+       SHARED CURSOR — "look at this" pointer-share for pair viewing.
+       Broadcasts your mouse position (as lng/lat) to everyone else on the
+       map who is also signed in. Other clients render a colored cursor +
+       name label that tracks your hand. Two activation paths:
+         • Toolbar toggle (👁️ Share Cursor) — persistent until clicked off
+         • Hotkey burst (hold Shift) — broadcast only while held
+       Map coords (not screen px) are sent so it works across different
+       zoom levels and viewports. Pure Supabase broadcast channel — no DB
+       writes, no realtime publication required, ephemeral.
+       ══════════════════════════════════════════════════════════════════════ */
+    (function sharedCursorModule() {
+      var SHARE_THROTTLE_MS = 50;    // ~20Hz broadcast
+      var STALE_TIMEOUT_MS  = 2500;  // remove stale remote cursor after 2.5s
+      var sharingOn   = false;       // toolbar toggle state
+      var hotkeyHeld  = false;       // Shift currently held
+      var channel     = null;
+      var lastBroadcastAt = 0;
+      var staffCache  = null;        // {user_id: {display_name, display_color, email}}
+      var myUserId    = null;
+      var remoteCursors = {};        // {user_id: {el, timer, lng, lat}}
+      var initialized = false;
+
+      function isSharing() { return sharingOn || hotkeyHeld; }
+
+      async function ensureStaffCache() {
+        if (staffCache) return staffCache;
+        try {
+          var res = await supabaseClient.rpc("list_staff");
+          var map = {};
+          (res.data || []).forEach(function(s) { map[s.user_id] = s; });
+          staffCache = map;
+        } catch (e) {
+          staffCache = {};
+        }
+        return staffCache;
+      }
+
+      function nameForUser(uid) {
+        var s = staffCache && staffCache[uid];
+        if (s && s.display_name && s.display_name.trim()) return s.display_name.trim();
+        if (s && s.email) return s.email.split("@")[0];
+        return "user";
+      }
+      function colorForUser(uid) {
+        var s = staffCache && staffCache[uid];
+        return (s && s.display_color) || "#2463eb";
+      }
+
+      function setupChannel() {
+        if (channel) return channel;
+        channel = supabaseClient.channel("map-cursors-v1", {
+          config: { broadcast: { self: false } }
+        })
+        .on("broadcast", { event: "cursor" }, function(payload) {
+          handleRemoteCursor(payload.payload);
+        })
+        .on("broadcast", { event: "leave" }, function(payload) {
+          if (payload && payload.payload) removeRemoteCursor(payload.payload.user_id);
+        })
+        .subscribe();
+        return channel;
+      }
+
+      function teardownChannel() {
+        if (!channel) return;
+        try { supabaseClient.removeChannel(channel); } catch (e) {}
+        channel = null;
+      }
+
+      function handleRemoteCursor(msg) {
+        if (!msg || !msg.user_id || msg.user_id === myUserId) return;
+        // Ensure we have a name/color for this user (cache miss → reload)
+        if (!staffCache || !staffCache[msg.user_id]) {
+          ensureStaffCache().then(function() {
+            var cur = remoteCursors[msg.user_id];
+            if (cur && cur.el) refreshCursorAppearance(cur, msg.user_id);
+          });
+        }
+        var cur = remoteCursors[msg.user_id];
+        if (!cur) {
+          cur = remoteCursors[msg.user_id] = { el: createCursorEl(msg.user_id) };
+          document.body.appendChild(cur.el);
+        }
+        cur.lng = msg.lng;
+        cur.lat = msg.lat;
+        positionCursorEl(cur);
+        clearTimeout(cur.timer);
+        cur.timer = setTimeout(function() { removeRemoteCursor(msg.user_id); }, STALE_TIMEOUT_MS);
+      }
+
+      function removeRemoteCursor(uid) {
+        var cur = remoteCursors[uid];
+        if (!cur) return;
+        clearTimeout(cur.timer);
+        if (cur.el && cur.el.parentNode) cur.el.parentNode.removeChild(cur.el);
+        delete remoteCursors[uid];
+      }
+
+      function createCursorEl(uid) {
+        var color = colorForUser(uid);
+        var name  = nameForUser(uid);
+        var el = document.createElement("div");
+        el.className = "shared-cursor";
+        el.dataset.uid = uid;
+        el.innerHTML =
+          '<svg width="22" height="22" viewBox="0 0 22 22" style="display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.35));">' +
+            '<path d="M3 2 L3 18 L8 14 L11 21 L14 20 L11 13 L18 13 Z" fill="' + color + '" stroke="#fff" stroke-width="1.4"/>' +
+          '</svg>' +
+          '<div class="shared-cursor-label" style="background:' + color + ';">' + escapeHtml(name) + '</div>';
+        return el;
+      }
+
+      function refreshCursorAppearance(cur, uid) {
+        // After name/color cache fills in, replace the cursor's contents
+        var fresh = createCursorEl(uid);
+        cur.el.innerHTML = fresh.innerHTML;
+      }
+
+      function positionCursorEl(cur) {
+        if (!cur || !cur.el || cur.lng == null || cur.lat == null) return;
+        if (!map || typeof map.project !== "function") return;
+        var pt = map.project([cur.lng, cur.lat]);
+        var rect = map.getContainer().getBoundingClientRect();
+        cur.el.style.transform = "translate(" + (rect.left + pt.x) + "px, " + (rect.top + pt.y) + "px)";
+      }
+
+      function repositionAll() {
+        Object.keys(remoteCursors).forEach(function(uid) { positionCursorEl(remoteCursors[uid]); });
+      }
+
+      function broadcastCursor(e) {
+        if (!isSharing() || !channel || !myUserId) return;
+        var now = Date.now();
+        if (now - lastBroadcastAt < SHARE_THROTTLE_MS) return;
+        lastBroadcastAt = now;
+        var rect = map.getContainer().getBoundingClientRect();
+        var x = e.clientX - rect.left;
+        var y = e.clientY - rect.top;
+        if (x < 0 || y < 0 || x > rect.width || y > rect.height) return;
+        var coord = map.unproject([x, y]);
+        try {
+          channel.send({
+            type: "broadcast",
+            event: "cursor",
+            payload: { user_id: myUserId, lng: coord.lng, lat: coord.lat }
+          });
+        } catch (err) { /* swallow — network blip */ }
+      }
+
+      function broadcastLeave() {
+        if (!channel || !myUserId) return;
+        try {
+          channel.send({
+            type: "broadcast",
+            event: "leave",
+            payload: { user_id: myUserId }
+          });
+        } catch (err) {}
+      }
+
+      function updateButtonUI() {
+        var btn = document.getElementById("toolbar-share-cursor");
+        if (!btn) return;
+        btn.classList.toggle("active", sharingOn);
+        btn.title = sharingOn
+          ? "Sharing your cursor — click to stop"
+          : "Share your cursor with others on the map (or hold Shift for a burst)";
+      }
+
+      // PUBLIC: called from button onclick
+      window.toggleCursorShare = async function() {
+        if (!myUserId) return;
+        if (!sharingOn) {
+          await ensureStaffCache();
+          setupChannel();
+          sharingOn = true;
+        } else {
+          sharingOn = false;
+          // If hotkey is also held we keep the channel open; otherwise tell
+          // peers to drop our cursor immediately rather than waiting for fade
+          if (!hotkeyHeld) broadcastLeave();
+        }
+        updateButtonUI();
+      };
+
+      // PUBLIC: called once after auth + map are ready (from loadClinicians)
+      window.setupSharedCursor = function() {
+        if (initialized) return;
+        if (typeof appCurrentUser === "undefined" || !appCurrentUser) return;
+        if (typeof map === "undefined" || !map) return;
+        initialized = true;
+        myUserId = appCurrentUser.id;
+
+        // Channel up immediately so we RECEIVE cursors even before we share
+        ensureStaffCache().then(setupChannel);
+
+        // Show the toolbar button (hidden until init so unauthed users don't see it)
+        var btn = document.getElementById("toolbar-share-cursor");
+        if (btn) btn.style.display = "";
+        // In iframe-shell mode keep it visible — it's map-specific, not duplicated by the shell
+
+        // Track local mouse on the map container
+        var container = map.getContainer();
+        container.addEventListener("mousemove", broadcastCursor);
+
+        // Keep remote cursors anchored to map coords on pan/zoom/resize/scroll
+        map.on("move",   repositionAll);
+        map.on("zoom",   repositionAll);
+        map.on("resize", repositionAll);
+        window.addEventListener("scroll", repositionAll, true);
+        window.addEventListener("resize", repositionAll);
+
+        // Hotkey burst: hold Shift to share, release to stop
+        window.addEventListener("keydown", function(e) {
+          if (e.key === "Shift" && !hotkeyHeld) {
+            // Ignore Shift if user is typing in an input
+            var tag = (document.activeElement && document.activeElement.tagName) || "";
+            if (tag === "INPUT" || tag === "TEXTAREA" || (document.activeElement && document.activeElement.isContentEditable)) return;
+            hotkeyHeld = true;
+            ensureStaffCache().then(setupChannel);
+          }
+        });
+        window.addEventListener("keyup", function(e) {
+          if (e.key === "Shift" && hotkeyHeld) {
+            hotkeyHeld = false;
+            if (!sharingOn) broadcastLeave();
+          }
+        });
+        // If Shift was released outside the window (window blur), release the hold
+        window.addEventListener("blur", function() {
+          if (hotkeyHeld) { hotkeyHeld = false; if (!sharingOn) broadcastLeave(); }
+        });
+
+        // Best-effort cleanup so peers don't see a frozen cursor after we close the tab
+        window.addEventListener("pagehide",     broadcastLeave);
+        window.addEventListener("beforeunload", broadcastLeave);
+      };
+    })();
 
     /* ── Referral overlay realtime: listens to referrals + referral_contacts
        so deletes/edits made on referrals.html (or by a coworker) reflect on
