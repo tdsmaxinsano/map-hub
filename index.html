@@ -112,6 +112,17 @@
     cursor: pointer; margin-top: 8px;
   }
   .login-error { color: #c0392b; font-size: 12px; margin-top: 8px; min-height: 16px; }
+  .login-success { color: #1d6f3a; font-size: 12px; margin-top: 8px; }
+  .login-toggle-row {
+    margin-top: 14px; text-align: center;
+    font-size: 12px; color: var(--muted);
+  }
+  .login-toggle-row a {
+    color: var(--accent); font-weight: 700; cursor: pointer;
+    text-decoration: none; margin-left: 4px;
+  }
+  .login-toggle-row a:hover { text-decoration: underline; }
+  .login-mode-title { font-size: 13px; color: var(--muted); text-align: center; margin: -10px 0 18px; }
 
   /* ── Shell main: hosts the home pane + 5 iframes ── */
   #app { display: none; flex-direction: column; height: 100vh; }
@@ -245,12 +256,18 @@
       <h1>DependableCare</h1>
       <p>Portal Home</p>
     </div>
+    <div id="login-mode-title" class="login-mode-title">Sign in to continue</div>
     <label for="login-email">Email</label>
     <input id="login-email" type="email" autocomplete="username" />
     <label for="login-password">Password</label>
     <input id="login-password" type="password" autocomplete="current-password" />
     <button id="login-btn" type="button">Sign in</button>
     <div id="login-error" class="login-error"></div>
+    <div id="login-success" class="login-success"></div>
+    <div class="login-toggle-row">
+      <span id="login-toggle-prompt">New to the portal?</span>
+      <a id="login-toggle-link">Create account</a>
+    </div>
   </div>
 </div>
 
@@ -484,17 +501,78 @@
   });
 
   // ── Auth ──
+  let loginMode = "signin"; // "signin" | "signup"
+
+  function setLoginMode(mode) {
+    loginMode = mode;
+    const btn = document.getElementById("login-btn");
+    const title = document.getElementById("login-mode-title");
+    const prompt = document.getElementById("login-toggle-prompt");
+    const link = document.getElementById("login-toggle-link");
+    const pw = document.getElementById("login-password");
+    const err = document.getElementById("login-error");
+    const ok = document.getElementById("login-success");
+    err.textContent = ""; ok.textContent = "";
+    if (mode === "signup") {
+      btn.textContent = "Create account";
+      title.textContent = "Create your account";
+      prompt.textContent = "Already have an account?";
+      link.textContent = "Sign in";
+      pw.setAttribute("autocomplete", "new-password");
+      pw.setAttribute("placeholder", "Choose a password (min 6 chars)");
+    } else {
+      btn.textContent = "Sign in";
+      title.textContent = "Sign in to continue";
+      prompt.textContent = "New to the portal?";
+      link.textContent = "Create account";
+      pw.setAttribute("autocomplete", "current-password");
+      pw.removeAttribute("placeholder");
+    }
+  }
+
+  async function doSubmit() {
+    if (loginMode === "signup") return doSignUp();
+    return doSignIn();
+  }
+
   async function doSignIn() {
     const email = document.getElementById("login-email").value.trim();
     const password = document.getElementById("login-password").value;
     const btn = document.getElementById("login-btn");
     const err = document.getElementById("login-error");
-    err.textContent = "";
+    const ok = document.getElementById("login-success");
+    err.textContent = ""; ok.textContent = "";
     btn.disabled = true; btn.textContent = "Signing in…";
     const { data, error } = await db.auth.signInWithPassword({ email, password });
     btn.disabled = false; btn.textContent = "Sign in";
     if (error) { err.textContent = error.message || "Incorrect email or password."; return; }
     await launchApp(data.session.user);
+  }
+
+  async function doSignUp() {
+    const email = document.getElementById("login-email").value.trim();
+    const password = document.getElementById("login-password").value;
+    const btn = document.getElementById("login-btn");
+    const err = document.getElementById("login-error");
+    const ok = document.getElementById("login-success");
+    err.textContent = ""; ok.textContent = "";
+    if (!email || !password) { err.textContent = "Email and password required."; return; }
+    if (password.length < 6) { err.textContent = "Password must be at least 6 characters."; return; }
+    btn.disabled = true; btn.textContent = "Creating account…";
+    const { data, error } = await db.auth.signUp({ email, password });
+    btn.disabled = false; btn.textContent = "Create account";
+    if (error) {
+      err.textContent = error.message || "Could not create account.";
+      return;
+    }
+    // If email confirmation is OFF in Supabase, signUp returns a session and we can launch the app.
+    if (data && data.session && data.session.user) {
+      await launchApp(data.session.user);
+      return;
+    }
+    // Otherwise, prompt the user to check their email
+    ok.textContent = "Account created! Check your email to confirm, then sign in.";
+    setLoginMode("signin");
   }
 
   async function doSignOut() {
@@ -615,12 +693,15 @@
   }
 
   // Wire login form
-  document.getElementById("login-btn").onclick = doSignIn;
+  document.getElementById("login-btn").onclick = doSubmit;
   document.getElementById("login-email").addEventListener("keydown", function(e) {
     if (e.key === "Enter") document.getElementById("login-password").focus();
   });
   document.getElementById("login-password").addEventListener("keydown", function(e) {
-    if (e.key === "Enter") doSignIn();
+    if (e.key === "Enter") doSubmit();
+  });
+  document.getElementById("login-toggle-link").addEventListener("click", function() {
+    setLoginMode(loginMode === "signup" ? "signin" : "signup");
   });
 
   db.auth.onAuthStateChange(function(event, session) {
