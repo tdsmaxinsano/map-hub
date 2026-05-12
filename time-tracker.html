@@ -328,7 +328,15 @@
       .staff-grid  { grid-template-columns: 1fr; }
       header h1 { font-size: 14px; }
     }
+    /* In iframe shell: hide the entire in-page header (the shell has its own
+       brand/nav/user-chip/sign-out). Header lives inside #app, not directly
+       under body. The clocks live in this header — if coordinators miss
+       them, we can surface them elsewhere later. */
+    html.in-iframe-shell #app > header { display: none !important; }
   </style>
+  <script>
+    if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+  </script>
 </head>
 <body>
 

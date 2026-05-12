@@ -416,7 +416,14 @@
       z-index: 10; box-shadow: 0 2px 6px rgba(0,0,0,0.1); display: none;
       white-space: nowrap;
     }
+    /* In iframe shell: hide the entire in-page header (the shell has its own
+       brand/nav/user-chip/sign-out — keeping these duplicates would clutter
+       the top of the iframe). */
+    html.in-iframe-shell .header { display: none !important; }
   </style>
+  <script>
+    if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+  </script>
 </head>
 <body>
 

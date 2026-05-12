@@ -599,7 +599,14 @@
     padding: 40px 20px;
     width: 100%;
   }
+  /* In iframe shell: hide the entire in-page header (the shell has its own
+     brand/nav/user-chip/sign-out). The kanban's board tabs + toolbar live
+     BELOW the header and stay visible. */
+  html.in-iframe-shell #app > header { display: none !important; }
 </style>
+<script>
+  if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+</script>
 </head>
 <body>
 
@@ -1214,13 +1221,28 @@
     return ({clinician:"👤", referral:"📋", compliance_item:"✅", agency:"🏢"})[type] || "🔗";
   }
 
+  // Map linked_entity_type → { shell tab name, URL param name }
+  const LINKED_TO_TAB = {
+    clinician:       { tab: "map",        param: "clinician" },
+    referral:        { tab: "referrals",  param: "ref" },
+    compliance_item: { tab: "compliance", param: "item" },
+    agency:          { tab: "map",        param: "agency" }
+  };
+
   function navigateToLinked(linkedStr) {
     const parts = linkedStr.split(":");
     const type = parts[0]; const id = parts[1];
-    if (type === "clinician") window.location.href = "clinician-map.html?clinician=" + id;
-    else if (type === "referral") window.location.href = "referrals.html?ref=" + id;
-    else if (type === "compliance_item") window.location.href = "compliance.html?item=" + id;
-    else if (type === "agency") window.location.href = "clinician-map.html?agency=" + id;
+    const target = LINKED_TO_TAB[type];
+    if (!target) return;
+    const qs = target.param + "=" + encodeURIComponent(id);
+    // If inside the iframe shell, switch tabs cleanly via the parent.
+    // Otherwise, fall back to a full page navigation.
+    if (window.parent && window.parent !== window && typeof window.parent.shellSwitchTab === "function") {
+      window.parent.shellSwitchTab(target.tab, qs);
+    } else {
+      const file = { map: "clinician-map.html", referrals: "referrals.html", compliance: "compliance.html" }[target.tab];
+      if (file) window.location.href = file + "?" + qs;
+    }
   }
 
   // ── SLA calculation ──
@@ -2059,6 +2081,26 @@
   // Auth state listener
   db.auth.onAuthStateChange(function(event, session) {
     if (!session) document.getElementById("login-screen").style.display = "flex";
+  });
+
+  // Listen for postMessage requests from the parent shell (or other iframes).
+  // Lets sibling tools open the task-create modal pre-filled without reloading
+  // the kanban iframe and losing its state (active board, scroll, etc.).
+  //
+  // Expected message shape:
+  //   { type: "kanban:openTaskModal", link: { type, id, label } }
+  window.addEventListener("message", function(e) {
+    var data = e.data;
+    if (!data || data.type !== "kanban:openTaskModal") return;
+    var lk = data.link || {};
+    if (lk.type && lk.id) {
+      modalLinkedEntityType  = lk.type;
+      modalLinkedEntityId    = lk.id;
+      modalLinkedEntityLabel = lk.label || "";
+    }
+    openTaskModal(null);
+    // Override link area after the modal opened
+    refreshLinkedDisplay();
   });
 
   // Pre-fill linked entity from URL (when arriving via "+ Task" from another portal page)

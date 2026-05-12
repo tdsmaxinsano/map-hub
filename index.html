@@ -1,12 +1,637 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>DependableCare Portal</title>
-  <script>
-    // Redirect everything to clinician-map.html, preserving any query/hash (e.g. recovery tokens)
-    window.location.replace("clinician-map.html" + window.location.search + window.location.hash);
-  </script>
+<meta charset="utf-8" />
+<title>DependableCare Portal</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script>
+  // Password-recovery handoff — keep this in clinician-map.html, redirect there
+  (function() {
+    var search = window.location.search || "";
+    var hash   = window.location.hash || "";
+    if (hash.includes("type=recovery") || search.includes("type=recovery") ||
+        hash.includes("error=access_denied") || hash.includes("otp_expired")) {
+      window.location.replace("clinician-map.html" + search + hash);
+    }
+  })();
+</script>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --blue: #18274a;
+    --blue-mid: #2a4477;
+    --accent: #2463eb;
+    --accent-strong: #1a4fc4;
+    --gold: #e2b44b;
+    --bg: #edf1f8;
+    --card: #ffffff;
+    --text: #18274a;
+    --muted: #6b7894;
+    --white: #ffffff;
+    --border: #c8d5e8;
+    --header-h: 56px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.45;
+    overflow: hidden; /* shell takes 100vh; tabs scroll internally */
+  }
+
+  /* ── Shell header ── */
+  header {
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+    color: var(--white);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    height: var(--header-h);
+    flex-shrink: 0;
+  }
+  .header-brand { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .header-brand h1 { font-size: 17px; font-weight: 800; }
+  .header-brand span.tag {
+    font-size: 10px; background: var(--gold); color: var(--blue);
+    font-weight: 800; padding: 2px 8px; border-radius: 20px; text-transform: uppercase;
+  }
+
+  /* Shell tab strip */
+  .shell-tabs { display: flex; gap: 2px; align-items: center; }
+  .shell-tab {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 11px; border-radius: 6px;
+    font-size: 12px; font-weight: 700; text-decoration: none;
+    color: rgba(255,255,255,0.75); background: transparent;
+    white-space: nowrap; border: none; cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    font-family: inherit;
+  }
+  .shell-tab:hover { background: rgba(255,255,255,0.15); color: #fff; }
+  .shell-tab.active {
+    background: var(--white); color: var(--blue);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .header-user { font-size: 13px; opacity: 0.85; }
+  .btn-signout {
+    background: rgba(255,255,255,0.15); color: #fff; border: none;
+    padding: 7px 14px; border-radius: 8px; font-size: 12px;
+    font-weight: 800; cursor: pointer;
+  }
+  .btn-signout:hover { background: rgba(255,255,255,0.25); }
+
+  /* ── Login overlay (kept hidden until needed) ── */
+  #login-screen {
+    display: none; align-items: center; justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+  }
+  .login-card {
+    background: var(--white); border-radius: 16px; padding: 40px 36px;
+    width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .login-logo { text-align: center; margin-bottom: 28px; }
+  .login-logo h1 { font-size: 22px; color: var(--blue); font-weight: 800; }
+  .login-logo p  { font-size: 13px; color: var(--gold); font-weight: 600; margin-top: 4px; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input {
+    width: 100%; border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 14px; margin-bottom: 12px;
+    background: #fff; color: var(--text);
+  }
+  .login-card button {
+    width: 100%; background: var(--accent); color: #fff; border: none;
+    border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700;
+    cursor: pointer; margin-top: 8px;
+  }
+  .login-error { color: #c0392b; font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+  /* ── Shell main: hosts the home pane + 5 iframes ── */
+  #app { display: none; flex-direction: column; height: 100vh; }
+  #shell-main {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+  }
+  #shell-main > [data-pane], #shell-main > iframe {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    border: 0;
+  }
+  #shell-main > [hidden] { display: none; }
+  #pane-home {
+    overflow-y: auto;
+    background: var(--bg);
+  }
+
+  /* ── Home pane content (same as previous dashboard) ── */
+  .home-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 28px 20px 80px;
+  }
+  .hero { margin-bottom: 24px; }
+  .hero h1 { font-size: 26px; font-weight: 800; margin-bottom: 4px; }
+  .hero p { color: var(--muted); font-size: 14px; }
+
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .stat-card {
+    background: var(--card); border-radius: 12px;
+    padding: 14px 16px; border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .stat-icon { font-size: 28px; line-height: 1; flex-shrink: 0; }
+  .stat-card .stat-value { font-size: 22px; font-weight: 800; line-height: 1.1; }
+  .stat-card .stat-label {
+    font-size: 11.5px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; margin-top: 1px;
+  }
+
+  h2.section-title {
+    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em;
+    color: var(--muted); margin: 4px 0 10px;
+  }
+  .tools-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 12px;
+    margin-bottom: 32px;
+  }
+  .tool-card {
+    background: var(--card); border-radius: 14px; padding: 20px;
+    border: 1px solid var(--border);
+    cursor: pointer; user-select: none;
+    transition: transform 0.15s, box-shadow 0.15s, border-color 0.15s;
+    display: flex; flex-direction: column; gap: 8px;
+    min-height: 130px;
+    font-family: inherit;
+    color: var(--text);
+    text-align: left;
+  }
+  .tool-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(12, 22, 50, 0.12);
+    border-color: var(--accent);
+  }
+  .tool-card .tool-icon { font-size: 32px; line-height: 1; }
+  .tool-card h3 { font-size: 16px; font-weight: 800; margin-top: 2px; }
+  .tool-card p { font-size: 12px; color: var(--muted); line-height: 1.4; flex: 1; }
+  .tool-card .open-link { font-size: 12px; font-weight: 700; color: var(--accent); margin-top: 4px; }
+
+  .recent-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 12px;
+  }
+  .recent-card {
+    background: var(--card); border-radius: 12px;
+    padding: 14px 16px; border: 1px solid var(--border);
+  }
+  .recent-card h3 {
+    font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); margin-bottom: 10px;
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .recent-card h3 .view-all {
+    font-size: 11px; color: var(--accent); cursor: pointer;
+    text-transform: none; letter-spacing: 0; font-weight: 700;
+    background: none; border: none; font-family: inherit;
+  }
+  .recent-card h3 .view-all:hover { text-decoration: underline; }
+  .recent-card ul { list-style: none; display: flex; flex-direction: column; gap: 8px; }
+  .recent-card li {
+    padding: 8px 10px; background: #f6faff; border-radius: 8px;
+    font-size: 13px;
+    display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  }
+  .recent-card li .item-title {
+    font-weight: 600; flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .recent-card li .item-sub {
+    color: var(--muted); font-size: 11.5px; white-space: nowrap; flex-shrink: 0;
+  }
+  .recent-card .empty { color: var(--muted); font-size: 12.5px; font-style: italic; padding: 6px 4px; }
+  .sla-pill {
+    display: inline-flex; align-items: center;
+    padding: 1px 7px; border-radius: 999px;
+    font-size: 10.5px; font-weight: 700; white-space: nowrap; flex-shrink: 0;
+  }
+  .sla-pill.green  { background: #d4f4dd; color: #1d6f3a; }
+  .sla-pill.amber  { background: #fdf0c8; color: #8a5a00; }
+  .sla-pill.orange { background: #fde0c1; color: #92400e; }
+  .sla-pill.red    { background: #fdd6d6; color: #8a1d1d; }
+  .sla-pill.gray   { background: #e8e8ec; color: var(--muted); }
+</style>
 </head>
-<body></body>
+<body>
+
+<!-- ══════ LOGIN ══════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <h1>DependableCare</h1>
+      <p>Portal Home</p>
+    </div>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-error" class="login-error"></div>
+  </div>
+</div>
+
+<!-- ══════ APP ══════ -->
+<div id="app">
+  <header>
+    <div class="header-brand" onclick="shellSwitchTab('home')">
+      <h1>DependableCare</h1>
+      <span class="tag">Portal</span>
+    </div>
+    <nav class="shell-tabs">
+      <button class="shell-tab" data-tab="home">🏠 Home</button>
+      <button class="shell-tab" data-tab="map">🗺️ Map</button>
+      <button class="shell-tab" data-tab="referrals">📋 Referrals</button>
+      <button class="shell-tab" data-tab="time">⏱️ Time</button>
+      <button class="shell-tab" data-tab="compliance">✅ Compliance</button>
+      <button class="shell-tab" data-tab="kanban">🗂️ Kanban</button>
+    </nav>
+    <div class="header-right">
+      <span class="header-user" id="header-user"></span>
+      <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+    </div>
+  </header>
+
+  <div id="shell-main">
+    <!-- Home pane (dashboard) -->
+    <div id="pane-home" data-pane="home">
+      <div class="home-content">
+        <div class="hero">
+          <h1 id="hero-greeting">Welcome back</h1>
+          <p>Quick links to your tools and what needs attention.</p>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-icon">📋</div>
+            <div>
+              <div class="stat-value" id="stat-open-referrals">—</div>
+              <div class="stat-label">Open referrals</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">🗂️</div>
+            <div>
+              <div class="stat-value" id="stat-my-tasks">—</div>
+              <div class="stat-label">My open tasks</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div>
+              <div class="stat-value" id="stat-active-clinicians">—</div>
+              <div class="stat-label">Active clinicians</div>
+            </div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon">⚠️</div>
+            <div>
+              <div class="stat-value" id="stat-overdue-tasks">—</div>
+              <div class="stat-label">Overdue tasks</div>
+            </div>
+          </div>
+        </div>
+
+        <h2 class="section-title">Tools</h2>
+        <div class="tools-grid">
+          <button type="button" class="tool-card" onclick="shellSwitchTab('map')">
+            <div class="tool-icon">🗺️</div>
+            <h3>Clinician Map</h3>
+            <p>Clinician locations, ZIP coverage, referral overlay, AI assistant.</p>
+            <span class="open-link">Open →</span>
+          </button>
+          <button type="button" class="tool-card" onclick="shellSwitchTab('referrals')">
+            <div class="tool-icon">📋</div>
+            <h3>Referrals Board</h3>
+            <p>Track and respond to open referrals. Log contacts and audit history.</p>
+            <span class="open-link">Open →</span>
+          </button>
+          <button type="button" class="tool-card" onclick="shellSwitchTab('time')">
+            <div class="tool-icon">⏱️</div>
+            <h3>Time Tracker</h3>
+            <p>Clock in/out, pay periods, approvals.</p>
+            <span class="open-link">Open →</span>
+          </button>
+          <button type="button" class="tool-card" onclick="shellSwitchTab('compliance')">
+            <div class="tool-icon">✅</div>
+            <h3>Compliance</h3>
+            <p>Compliance items and renewals.</p>
+            <span class="open-link">Open →</span>
+          </button>
+          <button type="button" class="tool-card" onclick="shellSwitchTab('kanban')">
+            <div class="tool-icon">🗂️</div>
+            <h3>Kanban</h3>
+            <p>Task board with SLAs, multi-board, drag/drop.</p>
+            <span class="open-link">Open →</span>
+          </button>
+        </div>
+
+        <h2 class="section-title">Activity</h2>
+        <div class="recent-row">
+          <div class="recent-card">
+            <h3>
+              My open tasks
+              <button class="view-all" onclick="shellSwitchTab('kanban', 'filter=mine')">View all →</button>
+            </h3>
+            <ul id="my-tasks-list"></ul>
+          </div>
+          <div class="recent-card">
+            <h3>
+              Recent open referrals
+              <button class="view-all" onclick="shellSwitchTab('referrals')">View all →</button>
+            </h3>
+            <ul id="recent-referrals-list"></ul>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tool iframes (lazy: src set on first activation) -->
+    <iframe id="frame-map"        data-src="clinician-map.html" data-pane="map"        title="Clinician Map" hidden></iframe>
+    <iframe id="frame-referrals"  data-src="referrals.html"     data-pane="referrals"  title="Referrals"     hidden></iframe>
+    <iframe id="frame-time"       data-src="time-tracker.html"  data-pane="time"       title="Time Tracker"  hidden></iframe>
+    <iframe id="frame-compliance" data-src="compliance.html"    data-pane="compliance" title="Compliance"    hidden></iframe>
+    <iframe id="frame-kanban"     data-src="kanban.html"        data-pane="kanban"     title="Kanban"        hidden></iframe>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+  });
+
+  let currentUser = null;
+
+  // Tab IDs that map to iframes (home is a static pane)
+  const TAB_IDS = ["home", "map", "referrals", "time", "compliance", "kanban"];
+  const FRAME_BY_TAB = {
+    map: "frame-map", referrals: "frame-referrals", time: "frame-time",
+    compliance: "frame-compliance", kanban: "frame-kanban"
+  };
+
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+      return ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" })[c];
+    });
+  }
+  function fmtDate(iso) {
+    if (!iso) return "";
+    const d = new Date(iso); if (Number.isNaN(d.getTime())) return "";
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  function relativeTime(iso) {
+    if (!iso) return "";
+    const ms = new Date(iso).getTime() - Date.now();
+    const abs = Math.abs(ms);
+    const mins = Math.round(abs / 60000), hrs = Math.round(abs / 3600000), days = Math.round(abs / 86400000);
+    let s;
+    if (abs < 3600000)       s = mins + (mins === 1 ? " min" : " mins");
+    else if (abs < 86400000) s = hrs  + (hrs  === 1 ? " hr"  : " hrs");
+    else                     s = days + (days === 1 ? " day" : " days");
+    return ms < 0 ? s + " ago" : "in " + s;
+  }
+  function slaPillForTask(task) {
+    if (!task.due_at) return "";
+    const due = new Date(task.due_at).getTime();
+    const created = new Date(task.created_at).getTime();
+    const now = Date.now();
+    if (task.completed_at) return "<span class='sla-pill gray'>Done</span>";
+    const total = due - created;
+    const remaining = due - now;
+    if (remaining <= 0) return "<span class='sla-pill red'>⚠ Overdue</span>";
+    const pct = total > 0 ? remaining / total : 1;
+    let tier;
+    if (pct > 0.5) tier = "green";
+    else if (pct > 0.25) tier = "amber";
+    else tier = "orange";
+    return "<span class='sla-pill " + tier + "'>" + escHtml(relativeTime(task.due_at)) + "</span>";
+  }
+
+  // ── Tab switching ──────────────────────────────────────────────────────
+  function shellSwitchTab(tabId, queryString) {
+    if (!TAB_IDS.includes(tabId)) tabId = "home";
+    const main = document.getElementById("shell-main");
+    Array.from(main.children).forEach(el => el.hidden = true);
+
+    if (tabId === "home") {
+      document.getElementById("pane-home").hidden = false;
+    } else {
+      const frame = document.getElementById(FRAME_BY_TAB[tabId]);
+      if (!frame.src) {
+        // First time: set src from data-src + any query params
+        const base = frame.dataset.src;
+        frame.src = queryString ? base + "?" + queryString : base;
+      } else if (queryString) {
+        // Already loaded; if we have new params, navigate the iframe to them
+        const base = frame.dataset.src;
+        frame.src = base + "?" + queryString;
+      }
+      frame.hidden = false;
+    }
+
+    document.querySelectorAll(".shell-tab").forEach(btn =>
+      btn.classList.toggle("active", btn.dataset.tab === tabId)
+    );
+
+    // Update URL
+    const desiredSearch = tabId === "home" && !queryString
+      ? ""
+      : "?tab=" + tabId + (queryString ? "&" + queryString : "");
+    if (location.search !== desiredSearch) {
+      history.pushState({ tab: tabId, qs: queryString || "" }, "", desiredSearch || location.pathname);
+    }
+  }
+  // Expose so iframes can call: parent.shellSwitchTab("kanban", "link_type=...")
+  window.shellSwitchTab = shellSwitchTab;
+
+  window.addEventListener("popstate", function(e) {
+    const params = new URLSearchParams(location.search);
+    const tab = params.get("tab") || "home";
+    params.delete("tab");
+    const qs = params.toString();
+    shellSwitchTab(tab, qs || undefined);
+  });
+
+  // Wire tab buttons
+  document.querySelectorAll(".shell-tab").forEach(btn => {
+    btn.onclick = function() { shellSwitchTab(btn.dataset.tab); };
+  });
+
+  // ── Auth ──
+  async function doSignIn() {
+    const email = document.getElementById("login-email").value.trim();
+    const password = document.getElementById("login-password").value;
+    const btn = document.getElementById("login-btn");
+    const err = document.getElementById("login-error");
+    err.textContent = "";
+    btn.disabled = true; btn.textContent = "Signing in…";
+    const { data, error } = await db.auth.signInWithPassword({ email, password });
+    btn.disabled = false; btn.textContent = "Sign in";
+    if (error) { err.textContent = error.message || "Incorrect email or password."; return; }
+    await launchApp(data.session.user);
+  }
+
+  async function doSignOut() {
+    // Reset all iframe sources so they don't stay logged in to their own
+    // Supabase clients with old sessions after we clear localStorage.
+    Object.values(FRAME_BY_TAB).forEach(id => {
+      const f = document.getElementById(id);
+      if (f) f.removeAttribute("src");
+    });
+    await db.auth.signOut();
+    location.reload();
+  }
+
+  async function checkSession() {
+    const { data } = await db.auth.getSession();
+    if (data && data.session && data.session.user) {
+      await launchApp(data.session.user);
+    } else {
+      document.getElementById("login-screen").style.display = "flex";
+    }
+  }
+
+  async function launchApp(user) {
+    currentUser = user;
+    document.getElementById("login-screen").style.display = "none";
+    document.getElementById("app").style.display = "flex";
+    document.getElementById("header-user").textContent = user.email || "";
+
+    // Activate initial tab based on URL
+    const params = new URLSearchParams(location.search);
+    const initialTab = params.get("tab") || "home";
+    params.delete("tab");
+    const initialQs = params.toString();
+    shellSwitchTab(initialTab, initialQs || undefined);
+
+    // Greeting + dashboard data (in parallel, all best-effort)
+    let greetName = (user.email || "").split("@")[0];
+    try {
+      const { data: staff } = await db.rpc("list_staff");
+      if (staff) {
+        const me = staff.find(s => s.user_id === user.id);
+        if (me && me.display_name) greetName = me.display_name;
+      }
+    } catch (e) {}
+    document.getElementById("hero-greeting").textContent = "Welcome back, " + greetName;
+
+    Promise.all([
+      loadOpenReferralsCount(),
+      loadMyTasksAndCount(),
+      loadActiveCliniciansCount(),
+      loadOverdueTasksCount(),
+      loadRecentReferrals()
+    ]);
+  }
+
+  async function loadOpenReferralsCount() {
+    const { count, error } = await db.from("referrals")
+      .select("*", { count: "exact", head: true }).eq("status", "open");
+    document.getElementById("stat-open-referrals").textContent = error ? "—" : (count || 0);
+  }
+
+  async function loadMyTasksAndCount() {
+    if (!currentUser) return;
+    const { data, error } = await db.from("tasks")
+      .select("id, title, due_at, created_at, completed_at, assigned_to, created_by, linked_entity_label, linked_entity_type")
+      .eq("is_archived", false)
+      .or("assigned_to.eq." + currentUser.id + ",created_by.eq." + currentUser.id)
+      .order("due_at", { ascending: true, nullsFirst: false }).limit(50);
+    if (error) {
+      document.getElementById("stat-my-tasks").textContent = "—";
+      document.getElementById("my-tasks-list").innerHTML = "<li class='empty'>Failed to load tasks.</li>";
+      return;
+    }
+    const open = (data || []).filter(t => !t.completed_at);
+    document.getElementById("stat-my-tasks").textContent = open.length;
+    const top5 = open.slice(0, 5);
+    const listEl = document.getElementById("my-tasks-list");
+    if (!top5.length) { listEl.innerHTML = "<li class='empty'>No open tasks. Nice.</li>"; return; }
+    listEl.innerHTML = top5.map(function(t) {
+      const sub = t.linked_entity_label ? escHtml(t.linked_entity_label) : (t.due_at ? "Due " + escHtml(fmtDate(t.due_at)) : "");
+      return "<li>" +
+               "<span class='item-title'>" + escHtml(t.title) + "</span>" +
+               (sub ? "<span class='item-sub'>" + sub + "</span>" : "") +
+               slaPillForTask(t) +
+             "</li>";
+    }).join("");
+  }
+
+  async function loadActiveCliniciansCount() {
+    const { count, error } = await db.from("clinician_v2")
+      .select("*", { count: "exact", head: true }).eq("active", true);
+    document.getElementById("stat-active-clinicians").textContent = error ? "—" : (count || 0);
+  }
+
+  async function loadOverdueTasksCount() {
+    const nowIso = new Date().toISOString();
+    const { count, error } = await db.from("tasks")
+      .select("*", { count: "exact", head: true })
+      .eq("is_archived", false).is("completed_at", null).lt("due_at", nowIso);
+    document.getElementById("stat-overdue-tasks").textContent = error ? "—" : (count || 0);
+  }
+
+  async function loadRecentReferrals() {
+    const { data, error } = await db.from("referrals")
+      .select("id, patient_name, agency, referral_date, status")
+      .eq("status", "open").order("referral_date", { ascending: false }).limit(5);
+    const listEl = document.getElementById("recent-referrals-list");
+    if (error) { listEl.innerHTML = "<li class='empty'>Failed to load referrals.</li>"; return; }
+    if (!data || !data.length) { listEl.innerHTML = "<li class='empty'>No open referrals.</li>"; return; }
+    listEl.innerHTML = data.map(function(r) {
+      const title = r.patient_name || "(no patient name)";
+      const sub = [r.agency, fmtDate(r.referral_date)].filter(Boolean).join("  ·  ");
+      return "<li>" +
+               "<span class='item-title'>" + escHtml(title) + "</span>" +
+               (sub ? "<span class='item-sub'>" + escHtml(sub) + "</span>" : "") +
+             "</li>";
+    }).join("");
+  }
+
+  // Wire login form
+  document.getElementById("login-btn").onclick = doSignIn;
+  document.getElementById("login-email").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("login-password").focus();
+  });
+  document.getElementById("login-password").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") doSignIn();
+  });
+
+  db.auth.onAuthStateChange(function(event, session) {
+    if (!session) {
+      document.getElementById("login-screen").style.display = "flex";
+      document.getElementById("app").style.display = "none";
+    }
+  });
+
+  checkSession();
+</script>
+<script src="chat-widget.js"></script>
+</body>
 </html>

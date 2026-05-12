@@ -5780,7 +5780,19 @@
       }
       .map-overlay { top: auto; bottom: 14px; width: min(480px, calc(100% - 32px)); }
     }
+    /* When loaded inside the iframe shell (index.html), hide elements the
+       shell already provides: the portal-nav strip and the duplicate user
+       chip + sign-out + realtime dot. The admin "👥 Users" button stays in
+       its toolbar cell (it's tool-specific functionality, not duplicated
+       by the shell). Search, filters, layer toggles, etc. all stay visible. */
+    html.in-iframe-shell .portal-nav,
+    html.in-iframe-shell #toolbar-user-chip,
+    html.in-iframe-shell #toolbar-logout,
+    html.in-iframe-shell #realtime-dot { display: none !important; }
   </style>
+  <script>
+    if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+  </script>
 </head>
 <body>
 
@@ -23847,7 +23859,7 @@
           "<div class='ref-log-ok' id='rqlo-" + rid + "'>✓ Logged</div>" +
         "</div>" +
 
-        "<a class='ref-overlay-link' href='referrals.html'>Open Referral Board ↗</a>" +
+        "<a class='ref-overlay-link' href='referrals.html' onclick='return openReferralBoardLink(event)'>Open Referral Board ↗</a>" +
       "</div>";
 
     // Inject HTML into the fixed panel and show it
@@ -24378,11 +24390,64 @@
 
   var _reactivationClinician = null;
 
+  // Shell-aware navigation to the Referrals tab from the OPRB overlay link.
+  // When inside the iframe shell, switch tabs cleanly so the map iframe's
+  // state is preserved. Standalone: let the default <a href> navigation run.
+  // Ctrl/Cmd+click is also respected — those open in a new tab regardless.
+  function openReferralBoardLink(e) {
+    // Let modifier-clicks (new tab, new window) and middle-clicks pass through
+    if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) return true;
+    if (window.parent && window.parent !== window &&
+        typeof window.parent.shellSwitchTab === "function") {
+      e.preventDefault();
+      window.parent.shellSwitchTab("referrals");
+      return false;
+    }
+    return true;
+  }
+
   // Open the kanban with a pre-filled task linked to the currently-open clinician.
+  // Three modes:
+  //   1. Inside the iframe shell + kanban already loaded → postMessage to it,
+  //      preserves kanban state (active board, scroll, etc.).
+  //   2. Inside the iframe shell + kanban NOT loaded yet → shellSwitchTab to
+  //      kanban with deep-link params (which loads the kanban iframe and
+  //      auto-opens the modal via its existing URL-param flow).
+  //   3. Standalone (no shell) → open new browser tab.
   function openKanbanTaskForCurrentClinician() {
     var c = getCurrentProfileClinicianRecord();
     if (!c) { showToast("Open a clinician profile first.", "warning"); return; }
     var label = c.name || "Clinician";
+
+    var inShell = (window.parent && window.parent !== window &&
+                   typeof window.parent.shellSwitchTab === "function");
+    if (inShell) {
+      try {
+        var parentDoc = window.parent.document;
+        var kanbanFrame = parentDoc.getElementById("frame-kanban");
+        if (kanbanFrame && kanbanFrame.src) {
+          // Already loaded — switch tab, then postMessage (no reload, state preserved)
+          window.parent.shellSwitchTab("kanban");
+          if (kanbanFrame.contentWindow) {
+            kanbanFrame.contentWindow.postMessage({
+              type: "kanban:openTaskModal",
+              link: { type: "clinician", id: c.id, label: label }
+            }, "*");
+          }
+        } else {
+          // Not loaded yet — shellSwitchTab with deep-link params; the kanban's
+          // own URL-param handler will auto-open the modal once it loads.
+          var qs = "link_type=clinician&link_id=" + encodeURIComponent(c.id) +
+                   "&link_label=" + encodeURIComponent(label);
+          window.parent.shellSwitchTab("kanban", qs);
+        }
+        return;
+      } catch (e) {
+        // Cross-origin or other access error — fall through to new-tab fallback
+      }
+    }
+
+    // Standalone fallback
     var url = "kanban.html?link_type=clinician&link_id=" + encodeURIComponent(c.id) +
               "&link_label=" + encodeURIComponent(label);
     window.open(url, "_blank");

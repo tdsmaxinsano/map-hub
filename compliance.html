@@ -376,7 +376,17 @@
     .toast-msg.error   { background: var(--red); }
     .toast-msg.info    { background: #555; }
     @keyframes toastIn { from { opacity:0; transform: translateY(10px); } to { opacity:1; transform: translateY(0); } }
+    /* In iframe shell: hide the brand + duplicate user/signout chrome.
+       Keep the view-tabs (Active Queue / Resolved Log) and the +Add Item /
+       ↑Import TB buttons since those are tool-specific functionality, NOT
+       duplicates of the shell header. */
+    html.in-iframe-shell .header-brand,
+    html.in-iframe-shell #hdr-user,
+    html.in-iframe-shell #hdr-user + .btn-hdr { display: none !important; }
   </style>
+  <script>
+    if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+  </script>
 </head>
 <body>
 
