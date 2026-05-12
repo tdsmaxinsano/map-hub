@@ -31,10 +31,16 @@ This document gives Claude full context to continue development on `time-tracker
 
 | Table | Purpose |
 |---|---|
-| `staff_config` | Staff records (name, role, pay_type, hourly_rate, photo_url, active, pin) |
-| `time_entries` | Clock in/out records (staff_id, clock_in, clock_out, duration_minutes, notes, is_manual, approved) |
+| `staff_config` | Staff records — `user_id, display_name, hourly_rate, pay_type, timezone, is_active, photo_url, display_color, wise_recipient_id, wise_name, wise_email`. Auto-populated on signup by `06_auto_staff_config.sql` trigger (defaults: `is_active=false`, `hourly_rate=0`, `pay_type='philippines'`, `timezone='Asia/Manila'`, `display_name = SPLIT_PART(email, '@', 1)`). |
+| `time_entries` | Clock in/out records (`user_id, clock_in, clock_out` — `clock_out IS NULL` means actively clocked in. Also `notes, is_manual, approved, duration_minutes`). |
 | `time_edit_requests` | Edit requests from staff (entry_id, staff_id, requested_clock_in, requested_clock_out, reason, status: pending/approved/rejected) |
-| `user_roles` | Role assignments (user_id, role: admin/editor/readonly) |
+| `user_roles` | Role assignments (user_id, role: admin/editor/readonly). Auto-populated on signup by `05_auto_user_role.sql` trigger (default: `readonly`). |
+
+## SQL migrations relevant to Time Tracker
+
+- **`03_staff_directory.sql`** — adds `display_name`, `display_color`, `photo_url` columns; creates `upsert_staff_profile()` (admin-only RPC used for renames).
+- **`05_auto_user_role.sql`** — every new auth signup gets a `user_roles(role='readonly')` row.
+- **`06_auto_staff_config.sql`** — every new auth signup gets a `staff_config` row with safe inactive defaults. Time tracker's admin dashboard surfaces these in a "Needs setup" section.
 
 ---
 
@@ -43,7 +49,7 @@ This document gives Claude full context to continue development on `time-tracker
 | Function | Purpose |
 |---|---|
 | `handleSession(session)` | Runs after auth; determines role and loads appropriate view |
-| `loadStaffConfig()` | Fetches all staff from `staff_config` |
+| `loadStaffConfig()` | Fetches all staff from `staff_config` and updates the global `staffConfig` array. Called at login and on Settings tab entry (`switchTab`). |
 | `loadStaffView()` | Renders the staff clock-in/out grid |
 | `toggleClock(staffId)` | Clocks a staff member in or out; writes to `time_entries` |
 | `startHardStopMonitor()` | Polls active clock-ins; warns at 9.5h, forces clock-out at 10h |
@@ -53,18 +59,21 @@ This document gives Claude full context to continue development on `time-tracker
 | `rejectRequest(requestId)` | Admin rejects an edit request; sets status to "rejected" |
 | `approveAll()` | Bulk-approves all pending edit requests |
 | `renderApprovals()` | Renders the pending approvals tab |
-| `renderDashboard()` | Renders admin dashboard with hours summary per staff |
-| `renderPayPeriod()` | Renders pay period view for the current user |
-| `renderSettings()` | Renders staff settings management tab |
-| `saveStaffConfig(staffId)` | Saves edits to a staff record in `staff_config` |
+| `renderDashboard()` | Renders admin dashboard. **Two sections**: active staff cards on the bottom + a "Needs setup" group on top (yellow banner + dashed-border cards) for any staff where `is_active = false`. Click **Set up** → switches to Settings tab and highlights the row. |
+| `renderPayPeriod()` | Renders pay period view for the current user. Still filters `is_active = true` — inactive auto-created staff don't pollute payroll. |
+| `renderSettings()` | Renders staff settings management tab. **Display name is now an editable `<input class="s-name-input">`** with `data-orig` snapshot for skip-if-unchanged saves. |
+| `saveStaffConfig(uid, btn)` | Saves edits to a staff row. **Two writes**: (a) if the name changed, calls `db.rpc('upsert_staff_profile', { p_user_id, p_display_name })` — the SAME admin-gated RPC that Kanban Manage Staff uses; (b) operational fields (rate / tz / active / pay_type / wise_*) via direct table UPDATE as before. Skipped name RPC keeps unchanged-name saves at exactly one DB call. |
+| `openStaffSetup(userId)` | Switches to the Settings tab and scrolls + briefly highlights the matching `.setting-row[data-uid="…"]` so admin can fill in rate / tz / activation for a newly-signed-up staff member. Called from the "Set up" button on a "Needs setup" dashboard card. |
 | `renderHUD()` | Renders the live HUD bar showing clocked-in staff with photos and elapsed time |
 | `uploadPhoto(staffId)` | Handles photo upload for a staff member |
 | `openManualModal(staffId)` | Opens modal for admin to manually create a time entry |
 | `saveManualEntry()` | Saves a manually created time entry |
 | `openAdjModal(entryId)` | Opens adjustment modal for an existing entry |
 | `saveAdjustment()` | Saves an adjusted time entry |
-| `openAddStaffModal()` | Opens modal to add a new staff member |
-| `saveNewStaff()` | Creates a new staff record in `staff_config` |
+| `openAddStaffModal()` | Opens modal to add a new staff member (manual UUID entry). Rarely needed since `06_auto_staff_config.sql` auto-creates rows on signup, but kept as an escape hatch. |
+| `saveNewStaff()` | Creates / upserts a new staff record in `staff_config` (direct table write, not the RPC — sets all fields at once including the operational ones the RPC doesn't touch). |
+| `switchTab(name)` | Tab switcher. **When entering Settings**, awaits `loadStaffConfig()` then re-renders — picks up name changes from Kanban Manage Staff or direct Supabase edits without a page refresh. |
+| `escAttr(s)` | One-line HTML-attribute escape helper; used in the editable name input. |
 
 ---
 
@@ -133,6 +142,11 @@ This document gives Claude full context to continue development on `time-tracker
 - **Photo upload** — goes to Supabase Storage; `photo_url` is saved back to `staff_config`
 - **Manual entries** — `is_manual: true` flag on `time_entries`; display differently in pay period view
 - **PIN auth** — staff may use a PIN (stored in `staff_config.pin`) rather than email login for clock-in
+- **Display name is now editable in Settings** — admins can rename inline; the rename goes through the same `upsert_staff_profile` RPC as Kanban → Manage Staff (single source of truth, admin-gated). Editing only the rate (not the name) still triggers exactly ONE DB call because the name RPC is skipped when unchanged.
+- **Settings tab refreshes `staffConfig` on entry** — if you renamed someone in Kanban and switch to Time → Settings, you'll see the new name without a page refresh. Dashboard tab still uses the cached array, so if you need a fully fresh dashboard, click Settings then back to Dashboard.
+- **Auto-created staff are `is_active = false`** — payroll math + pay period view continue to filter active-only, so an un-set-up signup never appears in totals. They only show up in the Dashboard tab's "Needs setup" banner until admin flips Active to true.
+- **The "+ Add Staff Member" modal is still there** — for edge cases where admin needs to seed a row with a known UUID. Day-to-day, signups handle it.
+- **The old "Database Setup" SQL block was removed from the Settings tab** (it was just a placeholder pointing to a non-existent `time-tracker-setup.sql` file).
 
 ---
 

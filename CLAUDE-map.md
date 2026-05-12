@@ -27,8 +27,17 @@ The main dashboard. Everything lives in this single file (HTML + CSS + JS).
 - Bulk import system (TherapyBoss CSV imports for clinicians, services, referrals)
 - Territory drawing tool
 - Ruler/distance measurement tool
-- User management modal (admin only)
+- User management modal (admin only) — see "Manage Users modal" note below
 - Onboarding tour
+
+**Iframe shell awareness (May 2026):**
+- A tiny `<script>` in `<head>` adds `html.in-iframe-shell` when `window.self !== window.top`.
+- CSS rules then hide the in-tool portal nav strip, brand, user chip, sign-out button, and realtime dot when running inside `index.html`'s shell — the shell's own header is the source of truth there. Standalone visits still show the full chrome.
+- Admin **👥 Users** toolbar button stays visible in both modes.
+
+**Manage Users modal (admin only):**
+- `umLoadUsers()` (around line 7534) — switched from a direct `from("user_roles").select(...)` to `db.rpc("list_staff")`. Reason: `list_staff()` does a LEFT JOIN `auth.users` → `user_roles` (and `staff_config`), so users with no `user_roles` row yet (orphans before the `05_auto_user_role.sql` trigger was applied) still appear in the modal — admin can promote them.
+- `umChangeRole(userId, newRole)` (both copies, around lines 7587 and 7605) — switched from `update().eq()` to `upsert({ user_id, role }, { onConflict: 'user_id' })`. Lets an admin promote a user who doesn't have a `user_roles` row yet. Belt and suspenders alongside the auto-trigger.
 
 **Two script blocks:**
 - Script 1 (line ~6007–20502): Main app — `const elements`, `const appState`, `const map`, all core functions
