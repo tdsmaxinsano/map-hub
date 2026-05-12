@@ -63,6 +63,10 @@
   let originalTitle = document.title;
   let oldestLoaded = null;            // ISO timestamp of oldest message in cache (for paging)
   let audioCtx = null;                // lazy-init on first user interaction
+  let pendingLeaveTimers = {};        // {user_id: timeoutId} — debounce leave announcements
+  let recentlyAnnouncedJoin = {};     // {user_id: timestamp} — suppress duplicate join spam
+  const LEAVE_DEBOUNCE_MS = 25000;    // if user rejoins within 25s, treat as a refresh, no announcement
+  const JOIN_COOLDOWN_MS = 60000;     // don't re-announce "X joined" more than once per minute
 
   // ── Boot when page is ready and Supabase JS is loaded
   function boot() {
@@ -546,15 +550,33 @@
       })
       .on("presence", { event: "join" }, function(p) {
         const newUser = (p.newPresences && p.newPresences[0]) || null;
-        if (newUser && newUser.user_id && newUser.user_id !== currentUser.id) {
-          appendSystemMessage(nameFor(newUser.user_id) + " joined");
+        if (!newUser || !newUser.user_id || newUser.user_id === currentUser.id) return;
+        const uid = newUser.user_id;
+        // If they had a pending "left" announcement, it was just a refresh — cancel it silently.
+        if (pendingLeaveTimers[uid]) {
+          clearTimeout(pendingLeaveTimers[uid]);
+          delete pendingLeaveTimers[uid];
+          return; // no "joined" either — they never really left
         }
+        // Cooldown: don't re-announce a user who joined recently (handles initial sync echoes)
+        const last = recentlyAnnouncedJoin[uid] || 0;
+        if (Date.now() - last < JOIN_COOLDOWN_MS) return;
+        recentlyAnnouncedJoin[uid] = Date.now();
+        appendSystemMessage(nameFor(uid) + " joined");
       })
       .on("presence", { event: "leave" }, function(p) {
         const goneUser = (p.leftPresences && p.leftPresences[0]) || null;
-        if (goneUser && goneUser.user_id && goneUser.user_id !== currentUser.id) {
-          appendSystemMessage(nameFor(goneUser.user_id) + " left");
-        }
+        if (!goneUser || !goneUser.user_id || goneUser.user_id === currentUser.id) return;
+        const uid = goneUser.user_id;
+        // Don't stack timers
+        if (pendingLeaveTimers[uid]) clearTimeout(pendingLeaveTimers[uid]);
+        // Wait LEAVE_DEBOUNCE_MS; if they rejoin in that window, the join handler cancels this.
+        pendingLeaveTimers[uid] = setTimeout(function() {
+          delete pendingLeaveTimers[uid];
+          // Also clear their recent-join marker so a future genuine reconnect can announce again
+          delete recentlyAnnouncedJoin[uid];
+          appendSystemMessage(nameFor(uid) + " left");
+        }, LEAVE_DEBOUNCE_MS);
       })
       .subscribe(async function(status) {
         if (status === "SUBSCRIBED") {
@@ -571,6 +593,9 @@
   }
 
   function appendSystemMessage(text) {
+    // Coalesce: skip if the most recent message is an identical system message
+    const last = messages[messages.length - 1];
+    if (last && last._system && last.content === text) return;
     messages.push({ id: "sys-" + Date.now() + "-" + Math.random(), _system: true, content: text, created_at: new Date().toISOString() });
     if (messages.length > 200) messages = messages.slice(-200);
     renderMessages();
