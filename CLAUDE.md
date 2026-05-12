@@ -10,11 +10,15 @@ All files are standalone HTML/CSS/JS — no framework, no build step. They share
 
 | File | Purpose | Reference Doc |
 |---|---|---|
-| `clinician-map.html` | Main map dashboard — clinician locations, filters, referral overlay, AI assistant (~21,000 lines) | `CLAUDE-map.md` |
+| `clinician-map.html` | Main map dashboard — clinician locations, filters, referral overlay, AI assistant (~24,000+ lines) | `CLAUDE-map.md` |
 | `referrals.html` | Referral board — table view, contacts, audit, new referral form | `CLAUDE-referrals.md` |
 | `time-tracker.html` | Time tracking — clock in/out, pay periods, approvals, HUD | `CLAUDE-timetracker.md` |
 | `compliance.html` | Compliance dashboard — not yet fully documented | (read the file directly) |
-| `index.html` | Portal home / nav hub | (simple file, read directly if needed) |
+| `kanban.html` | Portal-wide kanban task board — multiple boards, SLAs, drag/drop, admin board management, staff profiles | `CLAUDE-kanban.md` |
+| `chat-widget.js` | Shared team-chat widget — included on every portal page; old-school single-channel team chat with presence + sound + tab-flash | `CLAUDE-kanban.md` (chat section) |
+| `index.html` | Portal home — redirects to clinician-map.html | (simple file, read directly if needed) |
+
+**Portal nav strip** (Map / Referrals / Time / Compliance / Kanban) is on every portal page; uses real `<a href>` links so Ctrl/Cmd+click → new tab works for free. All pages use `localStorage` auth → SSO across the portal, no re-login when switching tabs.
 
 ---
 
@@ -33,8 +37,27 @@ All files are standalone HTML/CSS/JS — no framework, no build step. They share
 | `send-reactivation-email` | Emails hiring manager when staff requests reactivation of an Inactive clinician | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `HIRING_MANAGER_EMAIL` |
 | `send-import-report` | After successful Sync Update or ZIP coverage import, emails change report to logged-in user (CC list optional) | `SENDGRID_API_KEY`, `SENDGRID_FROM_EMAIL`, `IMPORT_REPORT_CC_EMAIL` (optional, comma-separated) |
 | `tb-scan-image` | Proxies TherapyBoss screenshot scan to OpenAI gpt-4o vision; key never leaves Supabase | `OPENAI_API_KEY` |
+| `tasks-auto-archive` | Daily cron — flips `is_archived = true` on kanban tasks completed 7+ days ago | (uses default `SUPABASE_SERVICE_ROLE_KEY`) |
 
 All functions have CORS headers and use JWT verification (signed-in users only). Deploy via Supabase Dashboard → Edge Functions or CLI (`supabase functions deploy <name> --project-ref jpemlcuxjvynlbeygukb`).
+
+**Note on `tb-scan-image` API key**: The OpenAI key for the AI scanner ("Scan with AI" in TB Import modal) lives in Supabase Edge Function secrets (`OPENAI_API_KEY`). If staff see "Missing scopes: model.request" — that's OpenAI's restricted-key error, not Anthropic. Fix: create a new OpenAI key with **All / Default permissions** (NOT "Restricted") and update the secret.
+
+### Supabase Storage Buckets
+| Bucket | Purpose | Access |
+|---|---|---|
+| `clinician-photos` | Clinician headshots (existing) | Per-clinician RLS — needs follow-up review |
+| `staff-photos` | Portal user headshots used by chat + kanban + future avatars | Public-read, admin-write (`03_staff_directory.sql`) |
+
+### Supabase SQL migrations (in `supabase/policies/`)
+Run from Supabase Dashboard → SQL Editor in numerical order. All idempotent — safe to re-run.
+
+| File | Purpose |
+|---|---|
+| `01_phase1_enable_rls.sql` / `01_phase1_rollback.sql` | Phase 1 RLS — locks 23 core tables to `authenticated` only |
+| `02_kanban_tables.sql` | Kanban schema: `boards`, `board_columns`, `tasks` + RLS + seed data for 3 default boards |
+| `03_staff_directory.sql` | Adds `display_name`, `display_color`, `photo_url` cols to `staff_config`; creates `list_staff()` and `upsert_staff_profile()` SECURITY DEFINER RPCs; creates `staff-photos` storage bucket |
+| `04_chat_messages.sql` | Team chat schema + RLS + adds the table to `supabase_realtime` publication so realtime broadcasts work |
 
 ### Mapbox
 - **Access token:** `pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A`
@@ -44,20 +67,31 @@ All functions have CORS headers and use JWT verification (signed-in users only).
 
 ## Shared Supabase Tables
 
-| Table | Used By |
-|---|---|
-| `clinician_v2` | clinician-map |
-| `clinician_profiles` | clinician-map, referrals (audit) |
-| `clinician_zip_coverages` | clinician-map |
-| `home_health_agencies` | clinician-map, referrals |
-| `referrals` | clinician-map (overlay), referrals |
-| `referral_contacts` | clinician-map (overlay), referrals |
-| `staff_config` | time-tracker |
-| `time_entries` | time-tracker |
-| `time_edit_requests` | time-tracker |
-| `user_roles` | all files |
-| `language_options` | clinician-map |
-| `therapy_boss_*` | clinician-map (bulk import) |
+| Table | Used By | Notes |
+|---|---|---|
+| `clinician_v2` | clinician-map | |
+| `clinician_profiles` | clinician-map, referrals (audit) | |
+| `clinician_zip_coverages` | clinician-map | |
+| `home_health_agencies` | clinician-map, referrals | |
+| `referrals` | clinician-map (overlay), referrals, kanban (linked entity) | |
+| `referral_contacts` | clinician-map (overlay), referrals | |
+| `staff_config` | time-tracker, kanban, chat | Now has `display_name`, `display_color`, `photo_url` columns used portal-wide for the staff directory |
+| `time_entries` | time-tracker | |
+| `time_edit_requests` | time-tracker | |
+| `user_roles` | all files | Drives admin gates (board management, staff profiles, etc.) |
+| `language_options` | clinician-map | |
+| `therapy_boss_*` | clinician-map (bulk import) | |
+| `boards` | kanban | Top-level workflows; admin-edit only |
+| `board_columns` | kanban | Per-board columns; admin-edit only |
+| `tasks` | kanban | Tasks; all auth users can CRUD; can link to clinician/referral/compliance_item/agency |
+| `chat_messages` | chat-widget.js (all pages) | Single team channel; SELECT for all auth users; INSERT only as self |
+
+### Database functions (RPCs)
+| RPC | Purpose | Caller |
+|---|---|---|
+| `list_staff()` | Returns user_id, email, display_name, display_color, photo_url, role for all users. SECURITY DEFINER bypasses auth.users RLS. | kanban, chat-widget |
+| `upsert_staff_profile(user_id, name, color, photo_url)` | Admin-only — sets display fields. NULL leaves a field unchanged. | kanban Manage Staff modal |
+| `clear_staff_field(user_id, field)` | Admin-only — explicitly NULLs `display_name` / `display_color` / `photo_url` | kanban Manage Staff modal |
 
 ---
 
@@ -82,10 +116,13 @@ Three roles stored in `user_roles` (user_id, role):
 
 ## Pending Work (as of last update)
 
-- **Phase 1 RLS** — SQL ready in `supabase/policies/01_phase1_enable_rls.sql`; auth/loading hardening landed; awaiting re-apply + verification
+- **Phase 1 RLS** — applied (May 2026); 23 tables locked. Three tables still UNRESTRICTED (`clinician_referrals`, `clinician_territory_versions`, `pay_period_adjustments`) — easy follow-up SQL to bring under Phase 1.
 - **Phase 2 RLS** — per-role policies (admin/editor/readonly) tied to `user_roles`
-- **Storage bucket RLS** — `clinician-photos` bucket needs its own policy review
+- **Storage bucket RLS** — `clinician-photos` bucket needs its own policy review (`staff-photos` is already locked down per `03_staff_directory.sql`)
+- **`tasks-auto-archive`** Edge Function — written, not yet deployed. Optional; Done-column bloat over time is the only consequence of skipping. Deploy via `supabase functions deploy tasks-auto-archive --project-ref jpemlcuxjvynlbeygukb` then schedule cron `0 3 * * *`.
 - **clinician-map.html** — performance optimizations discussed (GeoJSON layers, virtual scroll, staggered data load) — partially landed
 - **time-tracker.html** — Task #4: time edit approval system + 10hr hard stop (partially built, needs testing/polish)
 - **compliance.html** — not yet explored or documented
 - **Portal shell** — eventual goal is a unified iframe shell in `index.html` so all tools feel like one app
+- **Kanban v2 ideas** — auto-tasks (new referral → "staff this" task; nearing compliance renewal → auto-task; inactive 60+ days → reach-out task), task comments, file attachments, @mentions, recurring tasks. See `CLAUDE-kanban.md` "Out of scope" section.
+- **Chat v2 ideas** — multiple channels, DMs, file/image uploads, @mentions, read receipts, edit/delete UI (DB supports edit/delete via RLS already)
