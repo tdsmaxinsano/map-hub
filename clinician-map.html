@@ -7536,9 +7536,20 @@
       if (!content) return;
       content.innerHTML = '<div class="um-loading">Loading users…</div>';
       try {
-        var result = await supabaseClient.from("user_roles").select("user_id, role, email, created_at").order("created_at", { ascending: true });
+        // Use list_staff() RPC so we see EVERY auth.users row, including users
+        // who signed up but don't yet have a user_roles entry (orphans appear
+        // with role=null, treated as "readonly" in the UI). Falls back to the
+        // older direct user_roles select if the RPC is unavailable.
+        var result = await supabaseClient.rpc("list_staff");
         if (result.error) throw result.error;
-        var rows = result.data || [];
+        var rows = (result.data || []).map(function(r) {
+          return {
+            user_id:    r.user_id,
+            role:       r.role,                  // may be null for un-rolled users
+            email:      r.email,
+            created_at: null                      // list_staff doesn't return this — accept that
+          };
+        });
         if (rows.length === 0) {
           content.innerHTML = '<div class="um-empty">No users found.</div>';
           return;
@@ -7575,7 +7586,10 @@
 
     async function umChangeRole(userId, newRole) {
       try {
-        var result = await supabaseClient.from("user_roles").update({ role: newRole }).eq("user_id", userId);
+        // Upsert so we can promote users who don't have a user_roles row yet
+        // (orphans from before the auto-trigger migration was run).
+        var result = await supabaseClient.from("user_roles")
+          .upsert({ user_id: userId, role: newRole }, { onConflict: "user_id" });
         if (result.error) throw result.error;
         await umLoadUsers(); // refresh the list
       } catch (e) {
@@ -7593,7 +7607,8 @@
 
     window.umChangeRole = async function(userId, newRole) {
       try {
-        var result = await supabaseClient.from("user_roles").update({ role: newRole }).eq("user_id", userId);
+        var result = await supabaseClient.from("user_roles")
+          .upsert({ user_id: userId, role: newRole }, { onConflict: "user_id" });
         if (result.error) throw result.error;
         await umLoadUsers();
         showToast("Role updated to " + newRole, "success");
