@@ -313,8 +313,6 @@
     .photo-initials-sm { width: 36px; height: 36px; border-radius: 50%; background: var(--blue-light); display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 800; color: var(--blue); vertical-align: middle; }
 
     /* ── SQL SETUP BOX ── */
-    .sql-box { background: #1E2A3A; color: #A8D8A8; border-radius: 10px; padding: 16px 20px; font-family: 'Courier New', monospace; font-size: 12px; white-space: pre-wrap; overflow-x: auto; margin-top: 10px; line-height: 1.6; }
-    .copy-sql-btn { padding: 7px 16px; background: var(--gold); border: none; color: var(--white); border-radius: 6px; font-size: 12px; font-weight: 700; cursor: pointer; margin-top: 10px; }
 
     /* ── MISC ── */
     .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,0.4); border-top-color: var(--white); border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; }
@@ -563,20 +561,11 @@
       <div class="tab-panel" id="tab-settings">
         <div class="section-hdr">Staff Profiles</div>
         <p style="font-size:13px; color:var(--gray); margin-bottom:16px;">
-          Add each staff member's display name, hourly rate, and timezone. You'll need their Supabase User ID — find it in your Supabase dashboard under Authentication → Users.
+          When someone signs up to the portal, they appear here automatically. Set their rate, timezone, and flip Active to add them to payroll. Use the button below only if you need to seed a staff row manually with a known UUID.
         </p>
         <div class="settings-grid" id="settings-grid"></div>
         <div style="margin-top:20px;">
           <button class="btn-gold" onclick="openAddStaffModal()">+ Add Staff Member</button>
-        </div>
-
-        <div style="margin-top:36px;">
-          <div class="section-hdr">Database Setup</div>
-          <p style="font-size:13px; color:var(--gray); margin-bottom:10px;">
-            Run this SQL in your Supabase SQL Editor if you haven't already:
-          </p>
-          <div class="sql-box" id="sql-display">-- See time-tracker-setup.sql in the Map Project folder</div>
-          <button class="copy-sql-btn" onclick="copySQL()">Copy SQL</button>
         </div>
       </div>
     </div>
@@ -2290,11 +2279,6 @@ function showToast(msg) {
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 3000);
-}
-
-function copySQL() {
-  const sql = `-- Run in Supabase SQL Editor (see time-tracker-setup.sql)`;
-  navigator.clipboard.writeText(sql).then(() => showToast('SQL copied!'));
 }
 
 // Enter key on login
