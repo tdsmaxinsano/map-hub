@@ -90,10 +90,11 @@ right before `</body>`. The Supabase JS library must already be loaded (it is �
 ### Self-injection
 The widget is wrapped in an IIFE that:
 1. Guards against double-injection (`window.__dcsChatWidgetLoaded`)
-2. Waits for both `DOMContentLoaded` and `supabase.createClient` to be available
-3. Creates its OWN Supabase client (does not rely on each page's variable name) using the same URL/key + `localStorage` storage → shares the SSO session
-4. Injects a `<style>` block + `#dcs-chat-widget` div into the page
-5. If the user isn't authenticated, the widget renders nothing (and listens via `onAuthStateChange` for sign-in)
+2. **Iframe-shell guard:** if `window.self !== window.top` it returns immediately. The shell's chat widget is the canonical one — tools inside iframes don't get a second copy. Tools accessed standalone still inject normally.
+3. Waits for both `DOMContentLoaded` and `supabase.createClient` to be available
+4. Creates its OWN Supabase client (does not rely on each page's variable name) using the same URL/key + `localStorage` storage → shares the SSO session
+5. Injects a `<style>` block + `#dcs-chat-widget` div into the page
+6. If the user isn't authenticated, the widget renders nothing (and listens via `onAuthStateChange` for sign-in)
 
 ### Key state
 - `currentUser` — Supabase auth user
@@ -106,6 +107,14 @@ The widget is wrapped in an IIFE that:
 ### Channels used
 - **`team-chat-v1`** — postgres_changes on `chat_messages` (INSERT and DELETE)
 - **`team-chat-presence`** — Supabase Presence for online users; each client `track()`s `{ user_id, email, name, online_at }`
+
+### Presence join/leave debounce (refresh-spam fix)
+Supabase Presence fires `leave` then `join` on every page refresh, iframe-tab-switch, or quick reload — which originally caused a flood of `— X joined —` / `— X left —` system messages in every other user's chat panel. The widget now:
+1. On `leave`, schedules the "X left" message after a **25-second** debounce (`LEAVE_DEBOUNCE_MS`). If the same user rejoins inside that window, the timer is cleared and BOTH messages are suppressed → a refresh is invisible.
+2. On `join`, a **60-second** per-user cooldown (`JOIN_COOLDOWN_MS`) suppresses initial-sync echo joins (Supabase fires `join` for already-present users when you first subscribe).
+3. `appendSystemMessage` coalesces consecutive identical system messages — belt and suspenders against any race.
+
+State variables: `pendingLeaveTimers` (`{user_id: timeoutId}`) and `recentlyAnnouncedJoin` (`{user_id: timestamp}`).
 
 ### Tab title flash + sound
 - `setupTabVisibility()` — when document is hidden and a new message arrives (not from self), prefix `document.title` with `(N) `. Strip on focus.
@@ -197,10 +206,12 @@ Both the kanban and chat use the same `avatarHtml(user_id, size)` helper:
    - `02_kanban_tables.sql`
    - `03_staff_directory.sql`
    - `04_chat_messages.sql`
+   - `05_auto_user_role.sql` — auto-creates `user_roles(readonly)` on every signup
+   - `06_auto_staff_config.sql` — auto-creates `staff_config(is_active=false)` on every signup
 2. Optional: deploy `tasks-auto-archive` Edge Function and schedule it
-3. Hard-refresh any portal page and sign in — chat widget appears bottom-left
-4. As an admin, open kanban → 👥 Names → set display names + colors + upload photos for the team
-5. Test: open in two browsers as different users → both see chat messages and presence in real time
+3. Hard-refresh any portal page and sign in — chat widget appears bottom-left (only on the shell; iframes don't get a duplicate)
+4. As an admin, open kanban → 👥 Names → set display names + colors + upload photos for the team. (Or use Time Tracker → Settings — names are editable there too; same RPC, same effect.)
+5. Test: open in two browsers as different users → both see chat messages and presence in real time. Quick refreshes should NOT produce join/leave spam thanks to the 25s debounce.
 
 ## Where else to look
 
