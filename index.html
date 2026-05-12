@@ -257,13 +257,39 @@
       <p>Portal Home</p>
     </div>
     <div id="login-mode-title" class="login-mode-title">Sign in to continue</div>
-    <label for="login-email">Email</label>
-    <input id="login-email" type="email" autocomplete="username" />
-    <label for="login-password">Password</label>
-    <input id="login-password" type="password" autocomplete="current-password" />
+
+    <!-- Sign-in / Sign-up share these two fields -->
+    <div id="login-fields-primary">
+      <label for="login-email">Email</label>
+      <input id="login-email" type="email" autocomplete="username" />
+      <label for="login-password">Password</label>
+      <input id="login-password" type="password" autocomplete="current-password" />
+    </div>
+
+    <!-- Forgot password mode shows just the email -->
+    <div id="login-fields-forgot" style="display:none;">
+      <label for="login-forgot-email">Email</label>
+      <input id="login-forgot-email" type="email" autocomplete="username" placeholder="you@dependablecare.com" />
+    </div>
+
+    <!-- Set-new-password mode (after clicking reset link) -->
+    <div id="login-fields-setpassword" style="display:none;">
+      <label for="login-new-password">New password</label>
+      <input id="login-new-password" type="password" autocomplete="new-password" placeholder="At least 6 characters" />
+      <label for="login-new-password2">Confirm password</label>
+      <input id="login-new-password2" type="password" autocomplete="new-password" placeholder="Same password again" />
+    </div>
+
     <button id="login-btn" type="button">Sign in</button>
     <div id="login-error" class="login-error"></div>
     <div id="login-success" class="login-success"></div>
+
+    <!-- Forgot link (visible only in signin mode) -->
+    <div id="login-forgot-row" class="login-toggle-row">
+      <a id="login-forgot-link">Forgot password?</a>
+    </div>
+
+    <!-- Mode toggle: signin ↔ signup, or back-to-signin from forgot -->
     <div class="login-toggle-row">
       <span id="login-toggle-prompt">New to the portal?</span>
       <a id="login-toggle-link">Create account</a>
@@ -396,12 +422,23 @@
 </div>
 
 <script>
+  // CAPTURE the URL hash/search BEFORE Supabase initializes — Supabase clears
+  // the hash on init, but we need to detect password-recovery links and expired
+  // OTP errors before that happens.
+  const PAGE_INITIAL_HASH = window.location.hash || "";
+  const PAGE_INITIAL_SEARCH = window.location.search || "";
+
   const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
   const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
 
   const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
   });
+
+  // True if we landed here via a password reset email — used to suppress
+  // SIGNED_IN auth events until the user actually sets a new password.
+  let inPasswordRecovery = PAGE_INITIAL_HASH.includes("type=recovery") ||
+                           PAGE_INITIAL_SEARCH.includes("type=recovery");
 
   let currentUser = null;
 
@@ -501,7 +538,7 @@
   });
 
   // ── Auth ──
-  let loginMode = "signin"; // "signin" | "signup"
+  let loginMode = "signin"; // "signin" | "signup" | "forgot" | "setpassword"
 
   function setLoginMode(mode) {
     loginMode = mode;
@@ -512,27 +549,105 @@
     const pw = document.getElementById("login-password");
     const err = document.getElementById("login-error");
     const ok = document.getElementById("login-success");
+    const primaryFields = document.getElementById("login-fields-primary");
+    const forgotFields  = document.getElementById("login-fields-forgot");
+    const setpwFields   = document.getElementById("login-fields-setpassword");
+    const forgotRow     = document.getElementById("login-forgot-row");
     err.textContent = ""; ok.textContent = "";
+
+    // Hide all field groups first
+    primaryFields.style.display = "none";
+    forgotFields.style.display = "none";
+    setpwFields.style.display = "none";
+
     if (mode === "signup") {
+      primaryFields.style.display = "";
+      forgotRow.style.display = "none";
       btn.textContent = "Create account";
       title.textContent = "Create your account";
       prompt.textContent = "Already have an account?";
       link.textContent = "Sign in";
+      link.dataset.target = "signin";
       pw.setAttribute("autocomplete", "new-password");
       pw.setAttribute("placeholder", "Choose a password (min 6 chars)");
+    } else if (mode === "forgot") {
+      forgotFields.style.display = "";
+      forgotRow.style.display = "none";
+      btn.textContent = "Send reset link";
+      title.textContent = "Reset your password";
+      prompt.textContent = "Remembered it?";
+      link.textContent = "Back to sign in";
+      link.dataset.target = "signin";
+    } else if (mode === "setpassword") {
+      setpwFields.style.display = "";
+      forgotRow.style.display = "none";
+      btn.textContent = "Set password & sign in";
+      title.textContent = "Choose a new password";
+      // Hide the bottom toggle row entirely in this mode — there's no "back"
+      prompt.textContent = "";
+      link.textContent = "";
+      link.dataset.target = "";
     } else {
+      // signin (default)
+      primaryFields.style.display = "";
+      forgotRow.style.display = "";
       btn.textContent = "Sign in";
       title.textContent = "Sign in to continue";
       prompt.textContent = "New to the portal?";
       link.textContent = "Create account";
+      link.dataset.target = "signup";
       pw.setAttribute("autocomplete", "current-password");
       pw.removeAttribute("placeholder");
     }
   }
 
   async function doSubmit() {
-    if (loginMode === "signup") return doSignUp();
+    if (loginMode === "signup")       return doSignUp();
+    if (loginMode === "forgot")       return doForgotPassword();
+    if (loginMode === "setpassword")  return doSetNewPassword();
     return doSignIn();
+  }
+
+  async function doForgotPassword() {
+    const email = document.getElementById("login-forgot-email").value.trim();
+    const btn = document.getElementById("login-btn");
+    const err = document.getElementById("login-error");
+    const ok = document.getElementById("login-success");
+    err.textContent = ""; ok.textContent = "";
+    if (!email) { err.textContent = "Enter your email."; return; }
+    btn.disabled = true; btn.textContent = "Sending…";
+    // Redirect to wherever this index.html lives, so PASSWORD_RECOVERY fires
+    // on the shell and we can show the set-password UI.
+    const redirectTo = window.location.origin + window.location.pathname;
+    const { error } = await db.auth.resetPasswordForEmail(email, { redirectTo });
+    btn.disabled = false; btn.textContent = "Send reset link";
+    if (error) { err.textContent = error.message || "Could not send reset email."; return; }
+    ok.textContent = "Reset link sent! Check your email and click the link.";
+  }
+
+  async function doSetNewPassword() {
+    const p1 = document.getElementById("login-new-password").value;
+    const p2 = document.getElementById("login-new-password2").value;
+    const btn = document.getElementById("login-btn");
+    const err = document.getElementById("login-error");
+    const ok = document.getElementById("login-success");
+    err.textContent = ""; ok.textContent = "";
+    if (!p1 || !p2) { err.textContent = "Enter your new password twice."; return; }
+    if (p1.length < 6) { err.textContent = "Password must be at least 6 characters."; return; }
+    if (p1 !== p2)     { err.textContent = "Passwords don't match."; return; }
+    btn.disabled = true; btn.textContent = "Saving…";
+    const { error } = await db.auth.updateUser({ password: p1 });
+    btn.disabled = false; btn.textContent = "Set password & sign in";
+    if (error) { err.textContent = error.message || "Could not set password."; return; }
+    // Clear the recovery suppression and continue with whatever session we have
+    inPasswordRecovery = false;
+    const { data: sess } = await db.auth.getSession();
+    if (sess && sess.session && sess.session.user) {
+      await launchApp(sess.session.user);
+    } else {
+      ok.textContent = "Password updated. Please sign in.";
+      setLoginMode("signin");
+    }
   }
 
   async function doSignIn() {
@@ -700,18 +815,59 @@
   document.getElementById("login-password").addEventListener("keydown", function(e) {
     if (e.key === "Enter") doSubmit();
   });
+  document.getElementById("login-forgot-email").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") doSubmit();
+  });
+  document.getElementById("login-new-password").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("login-new-password2").focus();
+  });
+  document.getElementById("login-new-password2").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") doSubmit();
+  });
   document.getElementById("login-toggle-link").addEventListener("click", function() {
-    setLoginMode(loginMode === "signup" ? "signin" : "signup");
+    const target = this.dataset.target || (loginMode === "signup" ? "signin" : "signup");
+    setLoginMode(target);
+  });
+  document.getElementById("login-forgot-link").addEventListener("click", function() {
+    // Prefill the email from the signin field if they already typed it
+    const email = (document.getElementById("login-email").value || "").trim();
+    if (email) document.getElementById("login-forgot-email").value = email;
+    setLoginMode("forgot");
   });
 
   db.auth.onAuthStateChange(function(event, session) {
+    // Recovery flow: Supabase fires PASSWORD_RECOVERY when the user lands here
+    // via a reset link. Show the set-new-password UI and don't auto-launch app.
+    if (event === "PASSWORD_RECOVERY") {
+      inPasswordRecovery = true;
+      document.getElementById("login-screen").style.display = "flex";
+      document.getElementById("app").style.display = "none";
+      setLoginMode("setpassword");
+      return;
+    }
+    // While in recovery, suppress everything else — including the SIGNED_IN
+    // event Supabase fires before PASSWORD_RECOVERY — until the user sets
+    // a new password.
+    if (inPasswordRecovery) return;
     if (!session) {
       document.getElementById("login-screen").style.display = "flex";
       document.getElementById("app").style.display = "none";
     }
   });
 
-  checkSession();
+  // Handle expired/invalid reset link errors in the URL hash
+  if (PAGE_INITIAL_HASH.includes("error=access_denied") || PAGE_INITIAL_HASH.includes("otp_expired")) {
+    history.replaceState(null, "", window.location.pathname);
+    setLoginMode("forgot");
+    document.getElementById("login-error").textContent = "That reset link expired. Enter your email to get a fresh one.";
+    document.getElementById("login-screen").style.display = "flex";
+  } else if (inPasswordRecovery) {
+    // Landed via reset link — show the set-password form immediately and skip session check
+    setLoginMode("setpassword");
+    document.getElementById("login-screen").style.display = "flex";
+  } else {
+    checkSession();
+  }
 </script>
 <script src="chat-widget.js"></script>
 </body>
