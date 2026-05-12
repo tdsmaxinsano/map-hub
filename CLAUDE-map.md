@@ -50,8 +50,8 @@ refPanelDisciplineSnapshot — Set — discipline filters before panel opened
 ```
 
 **Key functions (Script 1):**
-- `handleAuthSession(session)` — runs after login, loads all data
-- `loadClinicians()` — fetches clinician_v2 + clinician_profiles, merges, renders; calls `showClinicianLoadBar()` at start, `hideClinicianLoadBar()` on finish/error
+- `handleAuthSession(session)` — runs after login, fetches user role, applies role mode. **`finally` block** also force-reloads clinicians (`appState.hasLoadedClinicians = false; await loadClinicians();`) when `map.isStyleLoaded()` is true so first-time logins on a new browser populate the map even though `map.on("style.load")` already fired with anon
+- `loadClinicians()` — fetches clinician_v2 + clinician_profiles, merges, renders. Guarded by module-scoped `_cliniciansLoading` flag to prevent the double-call (from `authSignIn` + `onAuthStateChange(SIGNED_IN)`) from racing. Wrapped in `try { ... } finally { hideClinicianLoadBar(); _cliniciansLoading = false; }` so the green load bar always hides — even if `applyFilters()` throws downstream
 - `applyFilters()` — re-filters sidebar + map markers based on appState
 - `syncDisciplineToggleState()` — syncs filter button UI to appState.disciplineFilters
 - `runZipCoverageCheck()` — ZIP coverage lookup
@@ -76,7 +76,7 @@ refPanelDisciplineSnapshot — Set — discipline filters before panel opened
 
 **Key functions (Script 2):**
 - `toggleReferralOverlay()` — load/clear referral pins
-- `loadReferralOverlay()` — fetches referrals + ALL contacts, has 3× retry for Supabase lock errors
+- `loadReferralOverlay()` — fetches referrals + ALL contacts. Each Supabase query is wrapped in a local `rejectOnTimeout(promise, 10000, label)` helper so a stalled query throws `TimeoutError` instead of hanging the button on "Loading…" forever. Retry classifier accepts `AbortError`, `TimeoutError`, "steal" lock errors, and any error mentioning "fetch"; up to 3 attempts with 1.2s × attempt backoff
 - `renderReferralOverlay()` — calls `rebuildReferralGeoJSON()` + `startReferralSonarTick()` to show pins via WebGL; also binds one-time ZIP capture-phase intercept
 - `openRefPanel(rid, r)` — opens fixed referral panel at top-left of map (left: 422px, top: 16px)
 - `closeRefPanel()` — closes panel, restores discipline filters
@@ -133,8 +133,8 @@ The referral board. Separate standalone file.
 ### Supabase
 - **URL:** `https://jpemlcuxjvynlbeygukb.supabase.co`
 - **Anon key:** hardcoded in both files (search `supabaseKey` or `SUPABASE_KEY`)
-- **Auth:** Cookie-based storage via custom `cookieAuthStorage` object in clinician-map.html (survives refresh, not blocked by tracking prevention)
-- **RLS:** Enabled. DELETE policies exist on `referrals` and `referral_contacts` using `auth.role() = 'authenticated'`
+- **Auth:** `localStorage`-based via Supabase JS default `storage: window.localStorage`. Sessions persist across tab closes and browser restarts. (A vestigial `cookieAuthStorage` object is still defined in the file but **not used** — `createClient()` passes `window.localStorage`. The custom cookie storage was abandoned because Supabase's localStorage path handles all the same edge cases.)
+- **RLS:** Phase 1 SQL written but currently **rolled back / OFF**. DELETE policies exist on `referrals` and `referral_contacts` using `auth.role() = 'authenticated'`
 - **Realtime:** Clinician updates use Supabase realtime subscription (`setupClinicianRealtime()`)
 
 ### Mapbox
@@ -208,8 +208,12 @@ The referral overlay shows open referrals as sonar (pulsing) pins on the map.
 - 🟡 Pending / 🟢 Accepted / 🔴 Declined
 - Live updates after Quick Log (updates local state first, then refreshes DOM)
 
-**Known issue — Supabase lock conflicts:**
-On page load, the auth token refresh uses a "steal" lock that aborts concurrent Supabase requests. `loadReferralOverlay()` handles this with 3× retry logic (1.2s, 2.4s delays). Other loaders (clinicians, agencies) may also show AbortErrors on first load — refreshing the page resolves this.
+**Supabase lock conflicts (mitigated):**
+On page load, the Supabase auth token refresh uses a "steal" lock that can abort OR silently stall concurrent requests. `loadReferralOverlay()` handles both modes:
+- **Aborts** — caught by the retry classifier (`AbortError` or message containing "steal")
+- **Stalls** — wrapped each query in `rejectOnTimeout(..., 10000, ...)`; if the request hasn't settled in 10s it rejects with a `TimeoutError`, also retry-able
+
+The retry budget is 3 attempts with 1.2s × attempt backoff. Other loaders (`loadClinicians`, agencies) don't currently have this wrapper — they typically run early enough that the lock isn't yet contended. If you see them fail under RLS or on slow connections, copy the same `rejectOnTimeout` pattern.
 
 **Referral pins are GeoJSON WebGL layers (not DOM markers):**
 `renderReferralOverlay()` no longer creates DOM markers. Pins render via source `"referral-pins"` and 5 WebGL layers set up by `ensureReferralLayer()`. This permanently eliminates zoom-drift — DOM markers reposition via JS rAF and can lag behind the WebGL canvas during zoom; GeoJSON layers render inside the canvas and scale natively. The pulse animation is driven by `startReferralSonarTick()` using `setPaintProperty` each frame. Click handling is via `map.on("click", "referral-dot")` in `bindEvents()`.
@@ -258,6 +262,87 @@ body (flex column)
 - **Referral pins are also GeoJSON WebGL layers** — not DOM markers. 5 layers on source `"referral-pins"`: `referral-sonar-2`, `referral-sonar-1`, `referral-dot`, `referral-badge-bg`, `referral-badge-text`. Pulse animation driven by `startReferralSonarTick()` rAF loop via `setPaintProperty`. Click via `map.on("click","referral-dot")`. Badge updates via `rebuildReferralGeoJSON()` in `refreshRefPanelContacts()`.
 - **Toolbar load bars** — `.layer-btn-wrap` wraps each toggle button as a column; `.layer-load-bar` is a 3px green shimmer bar (CSS animation `layerBarSlide`). IDs: `#clinician-load-bar`, `#services-load-bar`. Add `.loading` class to show, remove to hide.
 - **User chip is first in toolbar** — `.toolbar-cell` with `#toolbar-user-chip`, `#toolbar-logout`, `#realtime-dot`, `#toolbar-manage-users` is the first child of `.toolbar-row`
+- **Auth uses `localStorage`** — `supabase.createClient(..., { auth: { storage: window.localStorage } })`. Sessions persist across tab closes. To force a fresh login (for testing or RLS verification), click **Sign out** or use Incognito. The vestigial `cookieAuthStorage` object is defined but **not** passed to `createClient`.
+- **`loadClinicians()` is guarded by `_cliniciansLoading`** — concurrent calls return early. The flag is reset in a `finally` block alongside `hideClinicianLoadBar()`, so the green load bar always disappears even if `applyFilters()` / `renderMarkers()` throws. Don't add early returns to `loadClinicians()` that bypass the `try { ... } finally`.
+- **Post-login data reload** — `handleAuthSession`'s `finally` block resets `appState.hasLoadedClinicians = false` and `await loadClinicians()` if `map.isStyleLoaded()`. This is critical for fresh-browser logins under RLS (otherwise the anon-session load that fires during Mapbox init leaves an empty `appState.clinicians`).
+- **`getFirstAvailableFieldValue(record, keys)` accepts null** — first line is `if (!record) return "";`. Same defensive pattern in `isCompletedServiceRowAllowedForClinicianCoverage` (`if (!clinician) return true;` after the `find()`). Don't remove these — completed-service rows can reference clinicians that aren't in the current `appState.clinicians` list, and the crash propagates up through `applyFilters()` → `loadClinicians()` and traps the load bar.
+- **Portal nav strip** — toolbar cell with `<a>` links to all 5 portal pages (Map / Referrals / Time / Compliance / Kanban). Real `<a href>` (not buttons) so Ctrl/Cmd+click → new tab works. Class `.portal-nav-link` shared across all portal pages.
+- **AI Assistant scaling + drag** — widget at bottom-right has its own `--tx`/`--ty` CSS vars and a `transform: translate(--tx, --ty) scale(var(--ui-scale, 1))` with `transform-origin: bottom right`. The map's UI zoom (`applyZoom`) sets `--ui-scale`, so the widget shrinks proportionally. The order matters: scale FIRST, translate AFTER, so a drag delta is in viewport pixels regardless of zoom. Drag is handled by a dedicated `⠿` button in the panel header AND clicking-then-moving on the rest of the header (4px threshold to disambiguate click-to-toggle from drag).
+
+---
+
+## ZIP Planning Section (Profile Shell)
+
+The profile card formerly labeled "Snapshot" is now **"ZIP Planning"**. It shows the clinician's home ZIP, address, Referral Zips (auto from completed-visit history), and TB Loaded Zips (from TherapyBoss imports — formerly "Preferred ZIPs").
+
+### Compare ZIPs button
+A "🔍 Compare ZIPs" button in this card opens a panel showing **ZIPs visited but NOT in TB-loaded coverage** — useful for staff to manually update TB so future visits route correctly.
+
+- `getClinicianZipCoverageGap(clinician)` — diffs `getClinicianReferralZips(clinician)` against `clinician.zip_coverages` (or `clinician.preferred_zips` fallback)
+- `openZipComparePanel()` — wires the button; populates `#profile-zip-compare-list` with `.zip-gap-chip` chips (just ZIPs, no counts per user request)
+- `copyCurrentZipGap()` — copies plain-text ZIPs (one per line) to clipboard via `navigator.clipboard.writeText`
+- `hideZipComparePanel()` — called from `closeClinicianProfile` and `openClinicianProfile` so stale gap data doesn't carry between profiles
+- **Ignore-History-Before respect** — when the clinician has `ignore_history_before` set, the panel shows a notice "ⓘ Filtered by Ignore History Before: …" because `getClinicianReferralZips` already applies that cutoff
+
+### Renamed labels (only display labels — DB columns unchanged)
+- "Preferred ZIPs" (display + form label) → "TB Loaded ZIPs"
+- The internal element ID `profile-preferred-zips`, JS variable `preferredZips`, and DB column `preferred_zips` were left as-is.
+
+---
+
+## Profile Header Quick-Facts
+
+The profile shell header now shows three at-a-glance facts under the badges row:
+
+1. **Inactive flag** — `⚠ N days` red pill next to the ACTIVE/Inactive status pill. Shown only when `latestServiceDate` is 90+ days old. Uses the same days-since-last-visit computation as the existing Last Active badge in the Field Intelligence card. Element id `#profile-header-inactive-flag`. Populated in `renderProfileHeaderQuickFacts(clinicianId, history)`.
+2. **📍 Travel** row — `Typical 7.7-11 mi · max 33 mi · 177 sites`. Mirrors Field Intel travel range; populated by `renderFieldIntelTravelRange()` writing to BOTH the Field Intel element and the header element.
+3. **🏥 EMR** chip row — pulls from `clinician.emrCapabilities`; chips for Strata / Therapy Boss / Axxess / Kinnser. Hidden if no EMRs are enabled.
+
+CSS classes: `.profile-header-quickfacts`, `.profile-header-quickfact-row`, `.profile-header-quickfact-label`, `.profile-header-quickfact-value`, `.profile-header-emr-chip`, `.profile-header-inactive-flag`. Render hook: `renderProfileHeaderQuickFacts()` is called from `renderClinicianFieldIntel()`, plus the async `renderFieldIntelTravelRange()` mirrors its result into the header travel row when the haversine-distance compute finishes.
+
+---
+
+## Pinned Notes
+
+The **NOTES textarea is pinned between the header and the scrolling body** so it's always visible while staff scroll through the rest of the profile. Element: `<div class="profile-notes-pinned">` with `<textarea id="profile-notes-input">` (same ID as before — no JS changes).
+
+CSS:
+- `.profile-notes-pinned` is `flex: 0 0 auto` between the header and the scrollable `.profile-panel-body`. Cream-tinted background (`#fffdf5`) + amber border to visually distinguish it as pinned.
+- The textarea has `min-height: 56px; max-height: 140px; resize: vertical` — staff can drag-resize within those bounds.
+
+The previous location (last field inside the "Profile Shell" form card) is gone; only one textarea with that ID exists in the DOM.
+
+---
+
+## Completed Services History (Collapsible + Compact Cards)
+
+The "Completed Services History" card uses `<details class="profile-card profile-card-collapsible" open>` with `<summary class="profile-card-title">` instead of `<section><h3>`, so the whole card is click-to-collapse. The chevron is added via CSS `::after` and rotates 90° when open. Default state is `open`.
+
+### Compact site cards
+Each completed-service site card is now ONE LINE:
+```
+11336 South Avenue G, Chicago, IL, 60617    1 services   1 patients   9 visits   Latest Apr 27, 2026
+```
+
+CSS class `.profile-history-site-compact` — `display: flex; flex-wrap: wrap` with the address using `flex: 1` + `text-overflow: ellipsis` if the row gets tight. Chips wrap to a second row on narrow screens.
+
+The previous discipline-name footer (e.g. "PTA Alexander Perteete") was REMOVED — redundant inside this clinician's own profile shell.
+
+The site card is still a `<button>` with `data-profile-history-site` so clicking flies the map to that location (existing event listener at line ~22220).
+
+---
+
+## Kanban Cross-Page Hook
+
+The clinician profile shell now has a **"🗂️ + Task on this clinician"** button (`#profile-add-task-btn`, in the same column as the Reactivation button). It calls `openKanbanTaskForCurrentClinician()` which opens `kanban.html` in a new tab with `?link_type=clinician&link_id=<id>&link_label=<name>` — the kanban auto-opens its modal pre-filled with the link.
+
+For the kanban itself, see `CLAUDE-kanban.md`.
+
+---
+
+## Team Chat Widget
+
+Every portal page (including this one) loads `chat-widget.js` at the bottom — a self-contained team chat widget that injects itself into the page. Bottom-LEFT (`left: 18px; bottom: 18px`); does not conflict with the AI Assistant (bottom-right). For details, see `CLAUDE-kanban.md` (chat-widget section).
 
 ---
 
@@ -374,6 +459,41 @@ Previously each user entered their own OpenAI key, ostensibly saved to a `staff_
 - The wipe issue (no browser storage involved)
 - Per-user billing fragmentation (one shared org key)
 - Key exposure to the browser (security win)
+
+---
+
+## Auth & Loading Hardening (May 2026 — prereq for RLS rollout)
+
+This section documents the design intent of five interlocking changes. Don't undo them piecemeal — they fix a chain of failure modes that emerged when we tried to enable RLS the first time.
+
+**Problem we hit:** Phase 1 RLS was applied, then rolled back because fresh-browser sign-ins showed an empty map. Root cause was a race: Mapbox `style.load` fires `loadClinicians()` as `anon` (returning `[]` under RLS) before the user has signed in. Sign-in then completes but doesn't reload data. On top of that, the completed-services pipeline crashed `applyFilters()` for clinicians not in the current list, leaving the load bar stuck.
+
+**The five fixes (all in clinician-map.html, all in commit `b742ca0`):**
+
+1. **`createClient` storage → `window.localStorage`** (was `sessionStorage`). Sessions now persist across tab closes / browser restarts. Without this, every fresh tab is an unauthenticated session at first paint, and RLS-protected queries return `[]`.
+
+2. **Post-login `loadClinicians()` in `handleAuthSession`'s `finally`.** When `session && session.user` and `map.isStyleLoaded()`, reset `appState.hasLoadedClinicians = false` and `await loadClinicians()`. This handles the case where Mapbox loaded with anon and the user signed in afterwards.
+
+3. **`_cliniciansLoading` guard + `try { ... } finally` on `loadClinicians`.** Module-scoped flag prevents the double-call from `authSignIn` + `onAuthStateChange(SIGNED_IN)` from racing. The `finally` block resets the flag AND calls `hideClinicianLoadBar()`, so a downstream throw never leaves the green bar stuck on.
+
+4. **Null guards in `getFirstAvailableFieldValue` and `isCompletedServiceRowAllowedForClinicianCoverage`.** The latter looked up a clinician by ID and passed `null` to the former when the ID wasn't in `appState.clinicians`. The crash propagated up through `applyFilters()` → `loadClinicians()` and was the actual cause of the stuck load bar in (3).
+
+5. **`rejectOnTimeout(promise, 10000, label)` wrapping the referral overlay queries.** The Supabase auth lock can leave concurrent queries _hanging_ (no error, no resolution). Without the timeout, the Referrals button was permanently stuck on "Loading…". The retry classifier was also broadened to `TimeoutError` and any error message mentioning "fetch".
+
+**Why these are interlocking:**
+- Fix 1 alone is not enough — first-time logins on a NEW browser still hit the race.
+- Fix 2 alone is not enough — under RLS the post-login reload throws inside `applyFilters()` (because of the bug fix 4 addresses).
+- Fix 4 alone is not enough — the load bar still gets stuck if any other downstream throw happens (which is what fix 3 protects against).
+- Fix 5 is independent but solves the same underlying class of problem (auth lock contention) for a different code path.
+
+**To verify after re-applying RLS:**
+1. Hard refresh in Incognito → sign in fresh → clinicians populate, load bar disappears
+2. Click Services → no `ignore_history_before` crash
+3. Click Referrals while clinicians are still loading → loads (with one "Retrying…" at worst)
+4. Close tab, reopen → still signed in
+5. Sign out → auth overlay demands a real password
+
+**Rollback:** if anything breaks under RLS, run `supabase/policies/01_phase1_rollback.sql` in the SQL editor — drops the policy and disables RLS on all 23 tables in one transaction.
 
 ---
 

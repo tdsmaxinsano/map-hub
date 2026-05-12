@@ -31,7 +31,9 @@
     /* ── Auth Overlay ── */
     #auth-overlay {
       position: fixed; inset: 0; background: #1a1a2e;
-      display: flex; align-items: center; justify-content: center; z-index: 1000;
+      /* Hidden by default to prevent flash on each page load.
+         JS explicitly sets display:flex when no session is present. */
+      display: none; align-items: center; justify-content: center; z-index: 1000;
     }
     .auth-box {
       background: #fff; border-radius: 12px; padding: 40px 36px; width: 360px;
@@ -443,9 +445,11 @@
   <div class="header-left">
     <div class="header-logo">DependableCare</div>
     <nav class="header-nav">
-      <a href="clinician-map.html">Map</a>
-      <a href="compliance.html">Compliance</a>
-      <a href="referrals.html" class="active">Referrals</a>
+      <a href="clinician-map.html">🗺️ Map</a>
+      <a href="referrals.html" class="active">📋 Referrals</a>
+      <a href="time-tracker.html">⏱️ Time</a>
+      <a href="compliance.html">✅ Compliance</a>
+      <a href="kanban.html">🗂️ Kanban</a>
     </nav>
   </div>
   <div class="header-right">
@@ -1789,5 +1793,6 @@
     }
   }
 </script>
+<script src="chat-widget.js"></script>
 </body>
 </html>

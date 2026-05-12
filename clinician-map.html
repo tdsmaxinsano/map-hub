@@ -10,6 +10,7 @@
   <script src="./supabase.js"></script>
   <style>
     :root {
+      --ui-scale: 1; /* Updated by applyZoom() so floating widgets can scale with the UI zoom */
       --bg: #edf1f8;
       --panel-border: #c8d5e8;
       --panel-shadow: 0 20px 60px rgba(12, 22, 50, 0.14);
@@ -64,7 +65,11 @@
       position: fixed;
       inset: 0;
       z-index: 9999;
-      display: flex;
+      /* Hidden by default to prevent the login form from flashing on every
+         page load between page-render and Supabase auth init. JS explicitly
+         sets style.display="flex" when there's no session, on password
+         recovery links, or on expired-link errors. */
+      display: none;
       align-items: center;
       justify-content: center;
       background: radial-gradient(circle at top left, #ffffff 0%, #edf1f8 58%, #d4dff0 100%);
@@ -1479,10 +1484,23 @@
       flex-direction: column;
       align-items: flex-end;
       gap: 10px;
+      /* --ui-scale is set by applyZoom() so the widget shrinks with UI zoom.
+         --tx / --ty are set by the drag handler (in viewport pixels) so the
+         widget moves cleanly regardless of the scale. Order matters: scale
+         first (around bottom-right corner so the anchor stays fixed when
+         shrinking), then translate by the drag delta in viewport coords. */
+      --tx: 0px;
+      --ty: 0px;
+      transform: translate(var(--tx), var(--ty)) scale(var(--ui-scale, 1));
+      transform-origin: bottom right;
     }
+    /* Wide pill — only shows when the panel has been fully closed (X) so the user
+       has a way to bring it back. Hidden in default flow because the panel itself
+       is always visible (in minimized form). */
     .dc-assistant-toggle {
-      display: flex;
+      display: none;
       align-items: center;
+      justify-content: center;
       gap: 7px;
       background: linear-gradient(135deg, #2463eb 0%, #1a4fc4 100%);
       color: #fff;
@@ -1495,8 +1513,20 @@
       box-shadow: 0 4px 18px rgba(36, 99, 235, 0.38);
       transition: transform 0.15s, box-shadow 0.15s;
     }
+    /* Show pill ONLY when panel is fully hidden (X-closed) */
+    #dc-assistant-widget:has(.dc-assistant-panel[hidden]) .dc-assistant-toggle {
+      display: flex;
+    }
     .dc-assistant-toggle:hover { transform: translateY(-1px); box-shadow: 0 6px 22px rgba(36, 99, 235, 0.48); }
-    .dc-assistant-toggle svg { width: 18px; height: 18px; }
+    .dc-assistant-toggle svg { width: 18px; height: 18px; flex-shrink: 0; }
+
+    /* Make the minimized panel header feel clickable (expandable) */
+    .dc-assistant-panel.minimized .dc-assistant-header {
+      cursor: pointer;
+    }
+    .dc-assistant-panel.minimized .dc-assistant-header:hover {
+      filter: brightness(1.05);
+    }
     .dc-assistant-panel {
       width: 340px;
       max-height: 480px;
@@ -1539,9 +1569,19 @@
     .dc-assistant-panel.minimized .dc-assistant-messages,
     .dc-assistant-panel.minimized .dc-assistant-input-row { display: none; }
     .dc-assistant-panel.minimized { max-height: none; }
-    /* Draggable cursor on header */
-    .dc-assistant-header { cursor: grab; user-select: none; }
-    .dc-assistant-header:active { cursor: grabbing; }
+    /* Header is now click-to-toggle (no drag from the header itself) */
+    .dc-assistant-header { cursor: pointer; user-select: none; }
+
+    /* Drag handle — the ONLY place that initiates a drag */
+    .dc-assistant-drag-handle {
+      background: rgba(255,255,255,0.15); border: none; color: #fff;
+      width: 26px; height: 26px; border-radius: 50%;
+      font-size: 14px; line-height: 1;
+      display: flex; align-items: center; justify-content: center;
+      cursor: grab; user-select: none;
+    }
+    .dc-assistant-drag-handle:hover { background: rgba(255,255,255,0.28); }
+    .dc-assistant-drag-handle:active { cursor: grabbing; }
     /* Override absolute positioning when dragged */
     #dc-assistant-widget.dragged { position: fixed; bottom: auto; right: auto; }
     .dc-assistant-messages {
@@ -2194,6 +2234,38 @@
       min-width: 130px;
     }
 
+    /* ── Portal nav (Map / Referrals / Time / Compliance) ── */
+    .portal-nav {
+      display: inline-flex;
+      align-items: center;
+      gap: 2px;
+      flex-shrink: 0;
+    }
+    .portal-nav-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 6px 11px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+      color: var(--muted);
+      background: transparent;
+      white-space: nowrap;
+      transition: background 0.15s, color 0.15s;
+      line-height: 1;
+    }
+    .portal-nav-link:hover {
+      background: rgba(190, 210, 235, 0.35);
+      color: var(--text);
+    }
+    .portal-nav-link.active {
+      background: var(--accent);
+      color: #fff;
+      box-shadow: 0 1px 3px rgba(12, 22, 50, 0.15);
+    }
+
     .toolbar-sep {
       display: none; /* hidden — cells use padding for spacing when wrapping */
       width: 1px;
@@ -2501,6 +2573,9 @@
       flex-direction: column; overflow: hidden;
       z-index: 600; user-select: none;
       will-change: transform;
+      /* Isolate layout/style recalcs so the panel's contents can't trigger
+         relayouts in neighbors (the map under it). Big win during drag. */
+      contain: layout style;
     }
     .ref-jump-header {
       display: flex; align-items: center; justify-content: space-between;
@@ -3886,6 +3961,67 @@
       color: #6d4400;
     }
 
+    /* ── Inactive 3+ months warning flag (shown next to ACTIVE pill) ── */
+    .profile-header-inactive-flag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      border: 1px solid #d68a8a;
+      background: linear-gradient(180deg, #fdecec 0%, #f8d4d4 100%);
+      color: #8a1d1d;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    /* ── Profile header quick-facts (Travel + EMR) ── */
+    .profile-header-quickfacts {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .profile-header-quickfact-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .profile-header-quickfact-label {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+      white-space: nowrap;
+      flex-shrink: 0;
+      min-width: 60px;
+    }
+    .profile-header-quickfact-value {
+      font-size: 12.5px;
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .profile-header-emr-chips .profile-header-emr-chip {
+      display: inline-flex;
+      align-items: center;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: #f1f6ff;
+      border: 1px solid #c9d6ea;
+      color: var(--accent-strong);
+      font-size: 11px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
     .profile-dnr-row {
       display: flex;
       flex-direction: column;
@@ -4075,6 +4211,43 @@
       gap: 14px;
     }
 
+    /* ── Pinned Notes (always visible between header and scrolling body) ── */
+    .profile-notes-pinned {
+      flex: 0 0 auto;
+      padding: 10px 16px 12px;
+      background: #fffdf5;
+      border-bottom: 1px solid #c8d5e8;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .profile-notes-pinned-label {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+    .profile-notes-pinned textarea {
+      width: 100%;
+      min-height: 56px;
+      max-height: 140px;
+      resize: vertical;
+      border: 1px solid #d4cea4;
+      border-radius: 10px;
+      padding: 8px 10px;
+      background: #fff;
+      color: var(--text);
+      font: inherit;
+      font-size: 12.5px;
+      line-height: 1.4;
+    }
+    .profile-notes-pinned textarea:focus {
+      outline: none;
+      border-color: #c0a85a;
+      box-shadow: 0 0 0 3px rgba(192, 168, 90, 0.15);
+    }
+
     .profile-hero {
       display: grid;
       grid-template-columns: minmax(0, 1fr) 96px;
@@ -4199,6 +4372,42 @@
       color: var(--muted);
     }
 
+    /* ── Collapsible profile cards (using <details>/<summary>) ── */
+    .profile-card-collapsible {
+      /* Inherit the existing .profile-card visual (border, padding, bg).
+         When closed, only the summary shows. */
+    }
+    .profile-card-collapsible > summary {
+      list-style: none;       /* hide default disclosure triangle */
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      user-select: none;
+      outline-offset: 4px;
+    }
+    .profile-card-collapsible > summary::-webkit-details-marker {
+      display: none;          /* Safari/Chrome legacy hide */
+    }
+    .profile-card-collapsible > summary::after {
+      content: "▸";
+      font-size: 14px;
+      line-height: 1;
+      color: var(--muted);
+      transition: transform 0.15s ease;
+      display: inline-block;
+    }
+    .profile-card-collapsible[open] > summary::after {
+      transform: rotate(90deg);
+    }
+    .profile-card-collapsible > summary:hover {
+      color: var(--text);
+    }
+    .profile-card-collapsible > summary:hover::after {
+      color: var(--text);
+    }
+
     .profile-chip-row {
       display: flex;
       flex-wrap: wrap;
@@ -4297,6 +4506,35 @@
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
+    }
+
+    /* ── Compact one-line site card (no discipline-name footer) ── */
+    .profile-history-site-compact {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px 10px;
+      padding: 8px 12px;
+    }
+    .profile-history-site-compact .profile-history-site-name {
+      flex: 1 1 220px;
+      min-width: 0;
+      font-size: 13px;
+      line-height: 1.3;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .profile-history-site-compact .profile-history-site-chips {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .profile-history-site-compact .meta-chip {
+      font-size: 11px;
+      padding: 2px 7px;
     }
 
     .profile-history-note {
@@ -4594,6 +4832,86 @@
     .referral-zip-chip .zip-count {
       font-weight: 400;
       opacity: 0.7;
+    }
+
+    /* ── ZIP Coverage Gap comparator (profile shell) ── */
+    .zip-compare-row {
+      margin: 8px 0 0 0;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .btn-zip-compare {
+      font-size: 12px;
+      padding: 5px 10px;
+    }
+    .zip-compare-panel {
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-top: 6px;
+      background: rgba(190, 210, 235, 0.15);
+    }
+    .zip-compare-header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .zip-compare-title {
+      font-weight: 700;
+      font-size: 12px;
+      flex: 1;
+    }
+    .btn-zip-compare-copy {
+      font-size: 11px;
+      padding: 4px 8px;
+    }
+    .btn-icon-close {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--muted);
+      padding: 2px 6px;
+      line-height: 1;
+    }
+    .btn-icon-close:hover {
+      color: var(--text);
+      background: rgba(0,0,0,0.05);
+      border-radius: 4px;
+    }
+    .zip-compare-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      font-size: 12px;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+    .zip-compare-list .zip-gap-chip {
+      background: #fff7e6;
+      border: 1px solid #f0c060;
+      color: #8a5a00;
+      padding: 2px 8px;
+      border-radius: 12px;
+      white-space: nowrap;
+    }
+    .zip-compare-list .zip-gap-chip .zip-count {
+      opacity: 0.7;
+      font-weight: 400;
+    }
+    .zip-compare-list .zip-gap-empty {
+      color: var(--muted);
+      font-style: italic;
+      padding: 4px;
+    }
+    .zip-compare-notice {
+      font-size: 11px;
+      color: var(--muted);
+      font-style: italic;
+      padding: 2px 0 6px 0;
+      border-bottom: 1px dashed rgba(0,0,0,0.08);
+      margin-bottom: 6px;
     }
 
     .preferred-zips-stale-warning {
@@ -5783,6 +6101,17 @@
 
           <div class="toolbar-sep"></div>
 
+          <!-- ── Portal nav (Map / Referrals / Time / Compliance / Kanban) ── -->
+          <nav class="toolbar-cell portal-nav" aria-label="Portal navigation">
+            <a href="clinician-map.html" class="portal-nav-link active">🗺️ Map</a>
+            <a href="referrals.html"     class="portal-nav-link">📋 Referrals</a>
+            <a href="time-tracker.html"  class="portal-nav-link">⏱️ Time</a>
+            <a href="compliance.html"    class="portal-nav-link">✅ Compliance</a>
+            <a href="kanban.html"        class="portal-nav-link">🗂️ Kanban</a>
+          </nav>
+
+          <div class="toolbar-sep"></div>
+
           <!-- ── Cell 1: Find Clinician ── -->
           <div id="clinician-search-shell" class="toolbar-cell toolbar-cell-grow" style="position:relative">
             <input id="clinician-search" class="toolbar-input" type="text" placeholder="Find clinician by name" autocomplete="off" aria-label="Find clinician by name">
@@ -6086,6 +6415,7 @@
             <div class="profile-panel-meta">
               <div class="profile-header-badges">
                 <span id="profile-header-status" class="profile-header-status active">Active</span>
+                <span id="profile-header-inactive-flag" class="profile-header-inactive-flag" style="display:none;"></span>
                 <span id="profile-header-new-badge" class="profile-header-new-badge">New</span>
                 <span id="profile-unsaved-badge" class="profile-unsaved-badge">Unsaved Changes</span>
               </div>
@@ -6094,6 +6424,16 @@
               <div class="profile-header-start-date">
                 <label for="profile-start-date">Start Date</label>
                 <input id="profile-start-date" type="date">
+              </div>
+              <div class="profile-header-quickfacts">
+                <div class="profile-header-quickfact-row" id="profile-header-travel-row" style="display:none;">
+                  <span class="profile-header-quickfact-label">📍 Travel</span>
+                  <span id="profile-header-travel" class="profile-header-quickfact-value"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-emr-row" style="display:none;">
+                  <span class="profile-header-quickfact-label">🏥 EMR</span>
+                  <span id="profile-header-emr" class="profile-header-quickfact-value profile-header-emr-chips"></span>
+                </div>
               </div>
               <div class="profile-header-actions">
                 <button id="profile-isolate-clinician" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Clinician</button>
@@ -6119,6 +6459,11 @@
               <button type="button" class="rating-star" data-profile-rating-star="5" aria-label="5 stars" aria-pressed="false">&#9733;</button>
             </div>
           </div>
+        </div>
+        <!-- Pinned Notes — always visible above the scrolling body -->
+        <div class="profile-notes-pinned">
+          <label for="profile-notes-input" class="profile-notes-pinned-label">📝 Notes</label>
+          <textarea id="profile-notes-input" placeholder="Coordinator notes, fit guidance, or special coverage instructions"></textarea>
         </div>
         <div class="profile-panel-body">
           <section class="profile-card">
@@ -6150,12 +6495,12 @@
                   </div>
                   <input id="profile-core-radius-input" type="hidden" value="">
                   <div class="profile-field full">
-                    <label for="profile-core-preferred-zips-input">Preferred ZIPs</label>
-                    <input id="profile-core-preferred-zips-input" type="text" placeholder="Optional preferred ZIP list">
+                    <label for="profile-core-preferred-zips-input">TB Loaded ZIPs</label>
+                    <input id="profile-core-preferred-zips-input" type="text" placeholder="Optional TB-loaded ZIP list">
                     <div class="helper-text">Maintain ZIP coverage in TherapyBoss first, then use the ZIP Coverage import here to sync this list.</div>
                     <div id="preferred-zips-stale-warning" class="preferred-zips-stale-warning" hidden>
                       <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-                      Ignore History Before is set — these Preferred ZIPs may be outdated. Please update this clinician's ZIP coverage in TherapyBoss and re-import.
+                      Ignore History Before is set — these TB Loaded ZIPs may be outdated. Please update this clinician's ZIP coverage in TherapyBoss and re-import.
                     </div>
                   </div>
                   <div class="profile-field full">
@@ -6192,6 +6537,9 @@
               <div id="profile-reactivation-stamp" style="display:none; font-size:11px; color:#718096; margin-top:4px; padding-left:2px;">
                 📨 Last requested: <span id="profile-reactivation-stamp-date"></span>
               </div>
+              <button id="profile-add-task-btn" type="button" class="btn-secondary" style="margin-top:6px;font-size:12px;" onclick="openKanbanTaskForCurrentClinician()">
+                🗂️ + Task on this clinician
+              </button>
               <input id="profile-rating-input" type="hidden" value="">
               <div id="profile-pause-row" class="profile-pause-row full">
                 <div class="profile-field">
@@ -6302,20 +6650,11 @@
                   </div>
                 </div>
               </div>
-              <div class="profile-field full">
-                <label for="profile-notes-input">Notes</label>
-                <textarea id="profile-notes-input" placeholder="Coordinator notes, fit guidance, or special coverage instructions"></textarea>
-              </div>
             </div>
           </section>
 
           <section class="profile-card">
-            <h3 class="profile-card-title">Snapshot</h3>
-            <div class="profile-chip-row">
-              <span class="legend-item">Active</span>
-              <span class="legend-item">Preferred</span>
-              <span class="legend-item">Profile Draft</span>
-            </div>
+            <h3 class="profile-card-title">ZIP Planning</h3>
             <div class="profile-grid">
               <div class="profile-kv">
                 <div class="profile-kv-label">ZIP</div>
@@ -6330,9 +6669,23 @@
                 <div id="profile-address" class="profile-kv-value">No address</div>
               </div>
               <div class="profile-kv">
-                <div class="profile-kv-label">Preferred ZIPs</div>
+                <div class="profile-kv-label">TB Loaded ZIPs</div>
                 <div id="profile-preferred-zips" class="profile-kv-value">None</div>
               </div>
+            </div>
+            <div class="zip-compare-row">
+              <button type="button" id="profile-zip-compare-btn" class="btn-secondary btn-zip-compare" onclick="openZipComparePanel()">
+                🔍 Compare ZIPs
+              </button>
+            </div>
+            <div id="profile-zip-compare-panel" class="zip-compare-panel" style="display:none;">
+              <div class="zip-compare-header">
+                <span class="zip-compare-title">ZIPs visited but not in TB</span>
+                <button type="button" class="btn-secondary btn-zip-compare-copy" onclick="copyCurrentZipGap()">📋 Copy to clipboard</button>
+                <button type="button" class="btn-icon-close" title="Close" onclick="hideZipComparePanel()">✕</button>
+              </div>
+              <div id="profile-zip-compare-notice" class="zip-compare-notice" style="display:none;"></div>
+              <div id="profile-zip-compare-list" class="zip-compare-list"></div>
             </div>
             <div class="helper-text">ZIP coverage is synced from TherapyBoss. Enter or update clinician ZIPs there first, then run the ZIP Coverage import here.</div>
           </section>
@@ -6355,12 +6708,12 @@
             </div>
           </section>
 
-          <section class="profile-card">
-            <h3 class="profile-card-title">Completed Services History</h3>
+          <details class="profile-card profile-card-collapsible" id="profile-completed-history-card" open>
+            <summary class="profile-card-title">Completed Services History</summary>
             <div id="profile-completed-history" class="profile-history-shell">
               <div class="profile-placeholder">Latest completed-service matches will appear here once the TherapyBoss history import is loaded.</div>
             </div>
-          </section>
+          </details>
 
           <section class="profile-card">
             <h3 class="profile-card-title">Territory Shell</h3>
@@ -6573,7 +6926,7 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
       <span class="dc-assistant-toggle-label">AI Assistant</span>
     </button>
-    <div id="dc-assistant-panel" class="dc-assistant-panel" hidden>
+    <div id="dc-assistant-panel" class="dc-assistant-panel minimized">
       <div class="dc-assistant-header">
         <div class="dc-assistant-header-info">
           <div class="dc-assistant-avatar">DC</div>
@@ -6583,6 +6936,7 @@
           </div>
         </div>
         <div class="dc-assistant-header-actions">
+          <button id="dc-assistant-drag-handle" class="dc-assistant-drag-handle" title="Drag to move" aria-label="Drag to move">⠿</button>
           <button id="dc-assistant-minimize" class="dc-assistant-minimize" title="Minimize">—</button>
           <button id="dc-assistant-close" class="dc-assistant-close" title="Close">✕</button>
         </div>
@@ -7000,6 +7354,31 @@
         return;
       }
       var authOverlay = document.getElementById("auth-overlay");
+
+      // ── Defensive auth recovery ──
+      // If we got null but localStorage still holds a session token, give
+      // Supabase one more chance before kicking the user back to login.
+      // Handles transient init failures and multi-tab token-refresh stalls
+      // (which were the cause of the "sometimes makes me re-login" bug).
+      if (!session || !session.user) {
+        var hasStoredToken = false;
+        try {
+          hasStoredToken = !!localStorage.getItem("sb-jpemlcuxjvynlbeygukb-auth-token");
+        } catch(e) {}
+        if (hasStoredToken) {
+          try {
+            await new Promise(function(r) { setTimeout(r, 600); });
+            var retry = await supabaseClient.auth.getSession();
+            if (retry && retry.data && retry.data.session && retry.data.session.user) {
+              console.log("[Auth] recovered session from localStorage on retry");
+              session = retry.data.session;
+            }
+          } catch(e) {
+            console.warn("[Auth] retry getSession failed:", e);
+          }
+        }
+      }
+
       if (!session || !session.user) {
         appCurrentUser = null; appUserRole = "readonly";
         applyUserToToolbar(null, "readonly");
@@ -7038,10 +7417,16 @@
           try {
             if (typeof map !== "undefined" && map && typeof map.isStyleLoaded === "function" && map.isStyleLoaded()) {
               appState.hasLoadedClinicians = false;
-              await loadClinicians();
+              // Fire-and-forget — do NOT await. Awaiting here serializes
+              // every concurrent user action (e.g. clicking Referrals)
+              // behind the clinician load and was the cause of the
+              // "Referrals hangs after navigating back to map" bug.
+              loadClinicians().catch(function(e) {
+                console.warn("post-login loadClinicians failed:", e);
+              });
             }
           } catch(e) {
-            console.warn("post-login loadClinicians failed:", e);
+            console.warn("post-login loadClinicians scheduling failed:", e);
           }
         }
         // Launch tour on first login only
@@ -7055,6 +7440,16 @@
 
     /* ── Sign out ── */
     document.getElementById("toolbar-logout").addEventListener("click", async function() {
+      // Defensive: tear down any live realtime channels so they don't leak
+      // across re-login as a different user.
+      if (appState.referralRealtimeChannel) {
+        try { supabaseClient.removeChannel(appState.referralRealtimeChannel); } catch(e) {}
+        appState.referralRealtimeChannel = null;
+      }
+      if (appState.realtimeChannel) {
+        try { supabaseClient.removeChannel(appState.realtimeChannel); } catch(e) {}
+        appState.realtimeChannel = null;
+      }
       await supabaseClient.auth.signOut();
       appCurrentUser = null; appUserRole = "readonly";
       applyUserToToolbar(null, "readonly");
@@ -7711,6 +8106,7 @@
       territorySourceId: "territory-source",
       hasLoadedClinicians: false,
       realtimeChannel: null,
+      referralRealtimeChannel: null,
       hasLoadedAgencies: false,
       hasLoadedCompletedServices: false,
       clinicianCompletedServiceHistoryByClinicianId: new Map(),
@@ -11328,6 +11724,97 @@
       }).join("") + (referralZips.length > 8 ? "<span class='referral-zip-chip'>+" + (referralZips.length - 8) + " more</span>" : "");
     }
 
+    /* ── ZIP Coverage Gap comparator ──
+       Returns visited ZIPs (from completed-service history) that are NOT
+       present in the clinician's TB-loaded coverage. Used by the "Compare
+       ZIPs" button in the profile shell. */
+    function getClinicianZipCoverageGap(clinician) {
+      if (!clinician) return [];
+      var visited = getClinicianReferralZips(clinician); // [{zip_code, service_count}, ...]
+      var tbLoaded = new Set();
+      (clinician.zip_coverages || []).forEach(function(row) {
+        if (row && row.zip_code) tbLoaded.add(String(row.zip_code).trim());
+      });
+      // Fallback: if zip_coverages array isn't populated, parse the flat preferred_zips string
+      if (tbLoaded.size === 0 && clinician.preferred_zips) {
+        String(clinician.preferred_zips).split(",").forEach(function(z) {
+          var zz = z.trim();
+          if (zz) tbLoaded.add(zz);
+        });
+      }
+      return visited.filter(function(entry) {
+        return !tbLoaded.has(String(entry.zip_code).trim());
+      });
+    }
+
+    function renderZipCompareResult(gap) {
+      var listEl = document.getElementById("profile-zip-compare-list");
+      if (!listEl) return;
+      if (!gap.length) {
+        listEl.innerHTML = "<span class='zip-gap-empty'>✓ All visited ZIPs are loaded in TB.</span>";
+        return;
+      }
+      listEl.innerHTML = gap.map(function(entry) {
+        return "<span class='zip-gap-chip'>" + escapeHtml(entry.zip_code) + "</span>";
+      }).join("");
+    }
+
+    async function copyZipGapToClipboard(gap) {
+      var text = gap.map(function(e) { return e.zip_code; }).join("\n");
+      if (!text) {
+        showToast("No missing ZIPs to copy.", "info");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast("Copied " + gap.length + " ZIP" + (gap.length === 1 ? "" : "s") + " to clipboard.", "success");
+      } catch (err) {
+        window.prompt("Copy these ZIPs:", text);
+      }
+    }
+
+    function hideZipComparePanel() {
+      var panel = document.getElementById("profile-zip-compare-panel");
+      if (panel) panel.style.display = "none";
+      var listEl = document.getElementById("profile-zip-compare-list");
+      if (listEl) listEl.innerHTML = "";
+      var noticeEl = document.getElementById("profile-zip-compare-notice");
+      if (noticeEl) { noticeEl.textContent = ""; noticeEl.style.display = "none"; }
+    }
+
+    function openZipComparePanel() {
+      var clinician = getCurrentProfileClinicianRecord();
+      if (!clinician) return;
+      var gap = getClinicianZipCoverageGap(clinician);
+      renderZipCompareResult(gap);
+
+      // If Ignore History Before is set, surface it inline so staff know
+      // the gap excludes pre-cutoff visits.
+      var noticeEl = document.getElementById("profile-zip-compare-notice");
+      if (noticeEl) {
+        var cutoff = (typeof getClinicianIgnoreHistoryBeforeValue === "function")
+          ? getClinicianIgnoreHistoryBeforeValue(clinician) : "";
+        if (cutoff) {
+          noticeEl.textContent = "ⓘ Filtered by Ignore History Before: "
+            + (typeof formatAcceptedDate === "function" ? formatAcceptedDate(cutoff) : cutoff)
+            + " — visits before this date are excluded.";
+          noticeEl.style.display = "block";
+        } else {
+          noticeEl.textContent = "";
+          noticeEl.style.display = "none";
+        }
+      }
+
+      var panel = document.getElementById("profile-zip-compare-panel");
+      if (panel) panel.style.display = "block";
+    }
+
+    function copyCurrentZipGap() {
+      var clinician = getCurrentProfileClinicianRecord();
+      if (!clinician) return;
+      copyZipGapToClipboard(getClinicianZipCoverageGap(clinician));
+    }
+
     function getZipCoverageHistoryStatsByClinician(zipCode) {
       const normalizedZip = getNormalizedZip(zipCode);
       const statsByClinicianId = new Map();
@@ -12180,10 +12667,18 @@
       }).join("");
     }
 
+    function _hideHeaderTravelRow() {
+      var row = document.getElementById("profile-header-travel-row");
+      var el  = document.getElementById("profile-header-travel");
+      if (row) row.style.display = "none";
+      if (el)  el.textContent = "";
+    }
+
     async function renderFieldIntelTravelRange(clinicianId, history) {
       if (!elements.profileTravelRange) return;
       if (!history || !history.sites || !history.sites.length) {
         elements.profileTravelRange.innerHTML = "<span class='field-intel-badge gray'>No sites</span>";
+        _hideHeaderTravelRow();
         return;
       }
 
@@ -12205,6 +12700,7 @@
 
       if (!origin) {
         elements.profileTravelRange.innerHTML = "<span class='field-intel-badge gray'>No home ZIP</span>";
+        _hideHeaderTravelRow();
         return;
       }
 
@@ -12216,6 +12712,7 @@
 
       if (!distances.length) {
         elements.profileTravelRange.innerHTML = "<span class='field-intel-badge gray'>No mapped sites</span>";
+        _hideHeaderTravelRow();
         return;
       }
 
@@ -12231,6 +12728,12 @@
       elements.profileTravelRange.innerHTML =
         "<span class='field-intel-badge blue'>Typical " + fmt(p25) + "–" + fmt(p75) + " mi</span>" +
         "<span style='font-size:11.5px;color:var(--muted);margin-left:6px;'>max " + fmt(max) + " mi · " + distances.length + " sites</span>";
+
+      // Mirror into the header quick-facts row (compact format, no badge box)
+      var headerTravel = document.getElementById("profile-header-travel");
+      if (headerTravel) {
+        headerTravel.textContent = "Typical " + fmt(p25) + "–" + fmt(p75) + " mi · max " + fmt(max) + " mi · " + distances.length + " sites";
+      }
     }
 
     function renderClinicianFieldIntel(clinicianId) {
@@ -12243,6 +12746,79 @@
       renderFieldIntelLastActive(history);
       renderFieldIntelAgencyRelationships(history);
       renderFieldIntelTravelRange(clinicianId, history); // async — updates when ready
+      renderProfileHeaderQuickFacts(clinicianId, history); // also async (travel)
+    }
+
+    /* ── Header quick-facts: inactive flag + travel + EMR chips ──
+       Mirrors the data the Field Intelligence card uses, but renders into
+       the profile header for at-a-glance scanning. */
+    function renderProfileHeaderQuickFacts(clinicianId, history) {
+      // 1) Inactive 3+ months flag
+      var flagEl = document.getElementById("profile-header-inactive-flag");
+      if (flagEl) {
+        if (history && history.latestServiceDate) {
+          var last = new Date(history.latestServiceDate);
+          var days = Math.floor((new Date() - last) / 86400000);
+          if (days >= 90) {
+            flagEl.textContent = "⚠ " + days + " days";
+            flagEl.title = "Last visit: " + (typeof formatAcceptedDate === "function" ? formatAcceptedDate(history.latestServiceDate) : history.latestServiceDate);
+            flagEl.style.display = "inline-flex";
+          } else {
+            flagEl.style.display = "none";
+            flagEl.textContent = "";
+          }
+        } else {
+          flagEl.style.display = "none";
+          flagEl.textContent = "";
+        }
+      }
+
+      // 2) Travel range row — synchronous fast path; renderFieldIntelTravelRange
+      //    will overwrite the Field Intel card asynchronously, so we mirror its
+      //    output into the header by reading the same DOM element when ready.
+      //    For the immediate sync render here, we compute a quick summary from
+      //    the history's site count + max distance hint if available.
+      var travelRow = document.getElementById("profile-header-travel-row");
+      var travelEl = document.getElementById("profile-header-travel");
+      if (travelEl && travelRow) {
+        if (history && history.sites && history.sites.length) {
+          // Show "computing..." placeholder; the async travel render will
+          // populate the Field Intel card and we'll sync from there.
+          travelEl.textContent = "Computing…";
+          travelRow.style.display = "flex";
+        } else {
+          travelRow.style.display = "none";
+          travelEl.textContent = "";
+        }
+      }
+
+      // 3) EMR capabilities chips
+      var emrRow = document.getElementById("profile-header-emr-row");
+      var emrEl = document.getElementById("profile-header-emr");
+      if (emrEl && emrRow) {
+        var clinician = clinicianId
+          ? appState.clinicians.find(function(c) { return c.id === clinicianId; })
+          : null;
+        if (clinician) {
+          var caps = (typeof normalizeProfileEmrCapabilities === "function")
+            ? normalizeProfileEmrCapabilities(clinician.emrCapabilities || clinician.emr_capabilities || {})
+            : (clinician.emrCapabilities || clinician.emr_capabilities || {});
+          var labels = profileEmrOptions.filter(function(opt) { return caps && caps[opt.key]; })
+            .map(function(opt) { return opt.label; });
+          if (labels.length) {
+            emrEl.innerHTML = labels.map(function(l) {
+              return "<span class='profile-header-emr-chip'>" + escapeHtml(l) + "</span>";
+            }).join("");
+            emrRow.style.display = "flex";
+          } else {
+            emrRow.style.display = "none";
+            emrEl.innerHTML = "";
+          }
+        } else {
+          emrRow.style.display = "none";
+          emrEl.innerHTML = "";
+        }
+      }
     }
 
     function renderClinicianCompletedServiceHistory() {
@@ -12298,23 +12874,18 @@
       ].join("");
 
       const siteCardsHtml = visibleSites.map(function(site) {
-        const groupHtml = buildCompletedServiceDisciplineGroupsHtml(site.disciplineGroups, {
-          compact: true,
-          maxNamesPerGroup: 3
-        });
-
+        // Compact one-line layout: address + meta chips inline.
+        // Removed the discipline+clinician-name footer (e.g. "PTA Alexander Perteete")
+        // since we're already inside this clinician's profile — the name is redundant.
         return [
-          "<button type='button' class='profile-history-site' data-profile-history-site='" + escapeHtml(site.key) + "' data-profile-history-lat='" + escapeHtml(String(site.lat ?? "")) + "' data-profile-history-lng='" + escapeHtml(String(site.lng ?? "")) + "'>",
-          "<div class='profile-history-site-topline'>",
+          "<button type='button' class='profile-history-site profile-history-site-compact' data-profile-history-site='" + escapeHtml(site.key) + "' data-profile-history-lat='" + escapeHtml(String(site.lat ?? "")) + "' data-profile-history-lng='" + escapeHtml(String(site.lng ?? "")) + "'>",
           "<div class='profile-history-site-name'>" + escapeHtml(site.fullAddress || "Completed service site") + "</div>",
+          "<div class='profile-history-site-chips'>",
           site.serviceRowsCount ? "<span class='meta-chip'>" + site.serviceRowsCount + " services</span>" : "",
-          "</div>",
-          "<div class='profile-history-site-meta'>",
           site.uniquePatientCount ? "<span class='meta-chip'>" + site.uniquePatientCount + " patients</span>" : "",
           site.totalServiceVisits ? "<span class='meta-chip'>" + site.totalServiceVisits + " visits</span>" : "",
           site.latestServiceDate ? "<span class='meta-chip'>Latest " + escapeHtml(formatAcceptedDate(site.latestServiceDate)) + "</span>" : "",
           "</div>",
-          groupHtml,
           "</button>"
         ].join("");
       }).join("");
@@ -16084,6 +16655,9 @@
         if (!window.confirm("You have unsaved changes on the current profile. Switch clinicians without saving?")) return;
       }
 
+      // Hide ZIP compare panel so stale gap from prior clinician doesn't show
+      if (typeof hideZipComparePanel === "function") hideZipComparePanel();
+
       closeAgencyProfile();
       persistCurrentProfileDraft();
       persistCurrentTerritoryDraft();
@@ -16136,6 +16710,8 @@
         persistCurrentProfileDraft();
       }
       persistCurrentTerritoryDraft();
+      // Hide the ZIP compare panel so stale gap data doesn't carry between profiles
+      if (typeof hideZipComparePanel === "function") hideZipComparePanel();
       appState.currentProfileClinicianId = null;
       appState.profileCreateMode = false;
       appState.addClinicianMode = false;
@@ -20280,6 +20856,116 @@
       appState.realtimeChannel = channel;
     }
 
+    /* ── Referral overlay realtime: listens to referrals + referral_contacts
+       so deletes/edits made on referrals.html (or by a coworker) reflect on
+       the map's OPRB overlay within ~1 second, without a manual refresh.
+       Subscribed only while the overlay is active. ── */
+    function setupReferralRealtime() {
+      // Teardown any prior channel
+      if (appState.referralRealtimeChannel) {
+        try { supabaseClient.removeChannel(appState.referralRealtimeChannel); } catch(e) {}
+        appState.referralRealtimeChannel = null;
+      }
+
+      var pendingRender = null;
+      function scheduleRender() {
+        if (pendingRender) return;
+        pendingRender = setTimeout(function() {
+          pendingRender = null;
+          try { rebuildReferralGeoJSON(); } catch(e) { console.warn("[ref-rt] rebuildReferralGeoJSON:", e); }
+          try { populateReferralDropdown(); } catch(e) { console.warn("[ref-rt] populateReferralDropdown:", e); }
+          // If a ref panel is open, refresh its contact list from local state
+          if (appState.refPanelOpenId) {
+            try { refreshRefPanelContacts(appState.refPanelOpenId); } catch(e) { console.warn("[ref-rt] refreshRefPanelContacts:", e); }
+          }
+        }, 400);
+      }
+
+      function isRowEligibleForOverlay(row) {
+        // Mirror loadReferralOverlay's filter: status === "open" AND has coords
+        return row && row.status === "open"
+            && row.lat !== null && row.lat !== undefined
+            && row.lng !== null && row.lng !== undefined;
+      }
+
+      function applyReferralEvent(payload) {
+        var newRow = payload.new || null;
+        var oldRow = payload.old || null;
+        var list   = appState.referralOverlayData || [];
+
+        if (payload.eventType === "INSERT") {
+          if (isRowEligibleForOverlay(newRow)) {
+            // Avoid duplicate if INSERT echoes our own write
+            var existsIdx = list.findIndex(function(r) { return r.id === newRow.id; });
+            if (existsIdx < 0) list.unshift(newRow);
+          }
+        } else if (payload.eventType === "UPDATE") {
+          var idx = list.findIndex(function(r) { return r.id === newRow.id; });
+          if (isRowEligibleForOverlay(newRow)) {
+            if (idx >= 0) list[idx] = newRow; else list.unshift(newRow);
+          } else {
+            // Status flipped to staffed/cancelled, or coords removed — drop it
+            if (idx >= 0) list.splice(idx, 1);
+            if (appState.refPanelOpenId === newRow.id && typeof closeRefPanel === "function") {
+              try { closeRefPanel(); } catch(e) {}
+            }
+          }
+        } else if (payload.eventType === "DELETE") {
+          var delId = (oldRow && oldRow.id) || null;
+          if (delId) {
+            var di = list.findIndex(function(r) { return r.id === delId; });
+            if (di >= 0) list.splice(di, 1);
+            if (appState.refPanelOpenId === delId && typeof closeRefPanel === "function") {
+              try { closeRefPanel(); } catch(e) {}
+            }
+            // Also drop any contacts for this referral
+            appState.referralOverlayContacts = (appState.referralOverlayContacts || []).filter(function(c) {
+              return c.referral_id !== delId;
+            });
+          }
+        }
+        appState.referralOverlayData = list;
+        scheduleRender();
+      }
+
+      function applyContactEvent(payload) {
+        var contacts = appState.referralOverlayContacts || [];
+        var newRow = payload.new || null;
+        var oldRow = payload.old || null;
+
+        if (payload.eventType === "INSERT") {
+          var existsIdx = contacts.findIndex(function(c) { return c.id === newRow.id; });
+          if (existsIdx < 0) contacts.push(newRow);
+        } else if (payload.eventType === "UPDATE") {
+          var idx = contacts.findIndex(function(c) { return c.id === newRow.id; });
+          if (idx >= 0) contacts[idx] = newRow; else contacts.push(newRow);
+        } else if (payload.eventType === "DELETE") {
+          var delId = (oldRow && oldRow.id) || null;
+          if (delId) {
+            var di = contacts.findIndex(function(c) { return c.id === delId; });
+            if (di >= 0) contacts.splice(di, 1);
+          }
+        }
+        appState.referralOverlayContacts = contacts;
+        scheduleRender();
+      }
+
+      var channel = supabaseClient
+        .channel("map-referral-realtime-v1")
+        .on("postgres_changes", { event: "*", schema: "public", table: "referrals"         }, applyReferralEvent)
+        .on("postgres_changes", { event: "*", schema: "public", table: "referral_contacts" }, applyContactEvent)
+        .subscribe(function(status) {
+          if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+            // Reconnect after a short delay (only if overlay is still active)
+            setTimeout(function() {
+              if (appState.referralOverlayActive) setupReferralRealtime();
+            }, 5000);
+          }
+        });
+
+      appState.referralRealtimeChannel = channel;
+    }
+
     function fitMapToVisibleClinicians(includeHiddenClinicians) {
       const allowHiddenClinicians = includeHiddenClinicians === true;
       if (!appState.showClinicians && !allowHiddenClinicians) return;
@@ -20556,12 +21242,15 @@
         var EDGE_FN_URL = "https://jpemlcuxjvynlbeygukb.supabase.co/functions/v1/dcs-assistant-";
         var SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
         var conversationHistory = [];
-        var isOpen = false;
+        // Panel is visible+minimized by default (docked small at bottom-right);
+        // user can click the header to expand, click - to minimize, X to fully close.
+        var isOpen = true;
 
         var toggleBtn   = document.getElementById("dc-assistant-toggle");
         var panel       = document.getElementById("dc-assistant-panel");
         var closeBtn    = document.getElementById("dc-assistant-close");
         var minimizeBtn = document.getElementById("dc-assistant-minimize");
+        var dragHandle  = document.getElementById("dc-assistant-drag-handle");
         var header      = panel.querySelector(".dc-assistant-header");
         var widget      = document.getElementById("dc-assistant-widget");
         var input       = document.getElementById("dc-assistant-input");
@@ -20826,45 +21515,97 @@
           sendBtn.disabled = false;
         }
 
+        // Wide pill (only shown when panel is X-closed) — click brings panel back in minimized docked state
         toggleBtn.addEventListener("click", function() {
-          isOpen = !isOpen;
-          panel.hidden = !isOpen;
-          panel.classList.remove("minimized");
-          if (isOpen) { input.focus(); msgList.scrollTop = msgList.scrollHeight; }
+          isOpen = true;
+          panel.hidden = false;
+          panel.classList.add("minimized");
         });
 
-        closeBtn.addEventListener("click", function() {
+        // X — fully close the panel; pill button reappears via CSS :has() rule
+        closeBtn.addEventListener("click", function(e) {
+          e.stopPropagation();
           isOpen = false;
           panel.hidden = true;
           panel.classList.remove("minimized");
         });
 
+        // - button — toggles minimized state without fully hiding the panel
         minimizeBtn.addEventListener("click", function(e) {
           e.stopPropagation();
           panel.classList.toggle("minimized");
+          if (!panel.classList.contains("minimized")) {
+            // Just expanded — focus input and scroll messages
+            try { input.focus(); msgList.scrollTop = msgList.scrollHeight; } catch(err) {}
+          }
         });
 
-        // ── Drag to reposition ──
+        // ── Drag from header (anywhere) OR drag handle (instant). Click without
+        //    movement on the header toggles minimize. Uses CSS vars --tx/--ty
+        //    on the widget which feed into:
+        //      transform: translate(var(--tx), var(--ty)) scale(var(--ui-scale))
+        //    Translate runs AFTER scale, so mouse delta == visual pixels at any zoom.
         (function() {
-          var dragging = false, startX, startY, origLeft, origTop;
-          header.addEventListener("mousedown", function(e) {
-            if (e.target === closeBtn || e.target === minimizeBtn) return;
-            dragging = true;
-            var rect = widget.getBoundingClientRect();
+          var DRAG_THRESHOLD = 4;     // px before a header click becomes a drag
+          var armed = false;          // mousedown happened, watching for movement
+          var dragging = false;       // a drag is now in progress
+          var fromHandle = false;     // mousedown was on the dedicated drag handle (drag instantly)
+          var startX, startY;         // mouse position at mousedown
+          var origTx, origTy;         // widget translate at mousedown
+
+          function readPx(prop) {
+            var v = getComputedStyle(widget).getPropertyValue(prop).trim();
+            var n = parseFloat(v);
+            return isFinite(n) ? n : 0;
+          }
+
+          function startArm(e, instant) {
+            armed = true;
+            dragging = !!instant;
+            fromHandle = !!instant;
             startX = e.clientX; startY = e.clientY;
-            origLeft = rect.left; origTop = rect.top;
-            widget.classList.add("dragged");
-            widget.style.left = origLeft + "px";
-            widget.style.top  = origTop  + "px";
+            origTx = readPx("--tx");
+            origTy = readPx("--ty");
             e.preventDefault();
+            e.stopPropagation();
+          }
+
+          // Drag handle = instant drag, no threshold
+          dragHandle.addEventListener("mousedown", function(e) { startArm(e, true); });
+
+          // Header anywhere = potential drag (or click-to-toggle if no movement)
+          header.addEventListener("mousedown", function(e) {
+            if (e.target === closeBtn    || closeBtn.contains(e.target))    return;
+            if (e.target === minimizeBtn || minimizeBtn.contains(e.target)) return;
+            if (e.target === dragHandle  || dragHandle.contains(e.target))  return;
+            startArm(e, false);
           });
+
           document.addEventListener("mousemove", function(e) {
-            if (!dragging) return;
-            var dx = e.clientX - startX, dy = e.clientY - startY;
-            widget.style.left = (origLeft + dx) + "px";
-            widget.style.top  = (origTop  + dy) + "px";
+            if (!armed) return;
+            var dx = e.clientX - startX;
+            var dy = e.clientY - startY;
+            if (!dragging && (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD)) {
+              dragging = true;
+            }
+            if (dragging) {
+              widget.style.setProperty("--tx", (origTx + dx) + "px");
+              widget.style.setProperty("--ty", (origTy + dy) + "px");
+            }
           });
-          document.addEventListener("mouseup", function() { dragging = false; });
+
+          document.addEventListener("mouseup", function() {
+            if (armed && !dragging && !fromHandle) {
+              // Header click without drag → toggle minimize/expand
+              panel.classList.toggle("minimized");
+              if (!panel.classList.contains("minimized")) {
+                try { input.focus(); msgList.scrollTop = msgList.scrollHeight; } catch(err) {}
+              }
+            }
+            armed = false;
+            dragging = false;
+            fromHandle = false;
+          });
         })();
 
         sendBtn.addEventListener("click", sendMessage);
@@ -20891,6 +21632,9 @@
         function applyZoom(pct) {
           currentZoom = pct;
           var scale = pct / 100;
+          // Expose the current scale as a CSS variable so floating widgets
+          // (AI Assistant, etc.) outside #zoom-root can scale proportionally.
+          document.documentElement.style.setProperty("--ui-scale", scale);
           var root = document.getElementById("zoom-root");
           if (root) {
             if (scale === 1) {
@@ -22478,7 +23222,7 @@
             .not("lat", "is", null)
             .not("lng", "is", null)
             .order("referral_date", { ascending: false }),
-          10000,
+          6000,
           "referrals query"
         );
         var refs = refsResp.data;
@@ -22496,7 +23240,7 @@
               .select("referral_id, clinician_name, discipline, response")
               .in("referral_id", refIds)
               .order("created_at", { ascending: false }),
-            10000,
+            6000,
             "referral_contacts query"
           );
           contacts = cResp.data || [];
@@ -22509,6 +23253,7 @@
         renderReferralOverlay();
         updateReferralOverlayBtn();
         populateReferralDropdown();
+        setupReferralRealtime(); // live-sync edits/deletes from referrals.html
         return; // success — exit the retry loop
 
       } catch (err) {
@@ -22574,6 +23319,11 @@
     appState.referralOverlayActive  = false;
     appState.referralOverlayData    = [];
     appState.referralOverlayContacts = [];
+    // Tear down the realtime subscription (we re-subscribe on next overlay load)
+    if (appState.referralRealtimeChannel) {
+      try { supabaseClient.removeChannel(appState.referralRealtimeChannel); } catch(e) {}
+      appState.referralRealtimeChannel = null;
+    }
     // Clear the GeoJSON source — sonar tick will self-terminate next frame
     var src = map.getSource("referral-pins");
     if (src) src.setData({ type: "FeatureCollection", features: [] });
@@ -22607,14 +23357,54 @@
   var _refDragOffY  = 0;
   var _refFloatLeft = null;
   var _refFloatTop  = null;
+  // Cached during a single drag so mousemove doesn't have to query the DOM
+  // or force layout reads on every event. We work in CSS-pixel coords (NOT
+  // viewport-pixel) so the math is invariant to the UI zoom (--ui-scale).
+  var _refDragPanelEl = null;
+  var _refDragPanelW  = 0;     // CSS pixels (pre-scale)
+  var _refDragPanelH  = 0;
+  var _refDragStartX  = 0;     // viewport pixels at mousedown
+  var _refDragStartY  = 0;
+  var _refDragOrigTx  = 0;     // panel's transform tx at mousedown (CSS pixels)
+  var _refDragOrigTy  = 0;
+
+  // Read the UI scale exposed by applyZoom() on the root. Default 1.
+  function _currentUiScale() {
+    var raw = getComputedStyle(document.documentElement).getPropertyValue("--ui-scale");
+    var s = parseFloat(raw);
+    return (isFinite(s) && s > 0) ? s : 1;
+  }
+
+  // Read the panel's current transform translate values in CSS pixels.
+  function _readPanelTranslate(panel) {
+    var t = getComputedStyle(panel).transform;
+    if (!t || t === "none") return { tx: 0, ty: 0 };
+    var m = t.match(/matrix\(([^)]+)\)/);
+    if (m) {
+      var n = m[1].split(",").map(parseFloat);
+      return { tx: n[4] || 0, ty: n[5] || 0 };
+    }
+    // matrix3d() fallback
+    var m3 = t.match(/matrix3d\(([^)]+)\)/);
+    if (m3) {
+      var n3 = m3[1].split(",").map(parseFloat);
+      return { tx: n3[12] || 0, ty: n3[13] || 0 };
+    }
+    return { tx: 0, ty: 0 };
+  }
 
   function startRefPanelDrag(e) {
     var panel = document.getElementById("ref-jump-panel");
     if (!panel) return;
+    _refDragPanelEl = panel;
+    _refDragPanelW  = panel.offsetWidth;
+    _refDragPanelH  = panel.offsetHeight;
+    _refDragStartX  = e.clientX;
+    _refDragStartY  = e.clientY;
+    var orig = _readPanelTranslate(panel);
+    _refDragOrigTx = orig.tx;
+    _refDragOrigTy = orig.ty;
     _refDragging = true;
-    var rect = panel.getBoundingClientRect();
-    _refDragOffX = e.clientX - rect.left;
-    _refDragOffY = e.clientY - rect.top;
     e.preventDefault();
   }
 
@@ -22877,18 +23667,40 @@
     }, 400);
   }
 
-  // Drag move + release for floating panel
-  document.addEventListener("mousemove", function(e) {
-    if (!_refDragging) return;
-    var panel = document.getElementById("ref-jump-panel");
-    if (!panel) return;
-    var x = Math.max(0, Math.min(window.innerWidth  - panel.offsetWidth,  e.clientX - _refDragOffX));
-    var y = Math.max(0, Math.min(window.innerHeight - panel.offsetHeight, e.clientY - _refDragOffY));
-    panel.style.transform = "translate(" + x + "px," + y + "px)";
-    _refFloatLeft = x;
-    _refFloatTop  = y;
-  });
-  document.addEventListener("mouseup", function() { _refDragging = false; });
+  // Drag move + release for floating panel.
+  // Math is delta-based in CSS pixels, compensating for any active UI zoom
+  // (zoom-root's transform: scale). Without this, dragging at non-100% UI zoom
+  // would jump the panel to the wrong visual position because the panel's
+  // `style.transform` is in CSS coords while `e.clientX/Y` are viewport coords.
+  (function() {
+    var pendingX = 0, pendingY = 0, dragRaf = null;
+    document.addEventListener("mousemove", function(e) {
+      if (!_refDragging || !_refDragPanelEl) return;
+      var scale = _currentUiScale();
+      // Convert viewport deltas to CSS-pixel deltas (cursor moved 10px on screen
+      // at 70% UI zoom = 14.3px in CSS coords).
+      var deltaCssX = (e.clientX - _refDragStartX) / scale;
+      var deltaCssY = (e.clientY - _refDragStartY) / scale;
+      var maxX = window.innerWidth  / scale - _refDragPanelW;
+      var maxY = window.innerHeight / scale - _refDragPanelH;
+      pendingX = Math.max(0, Math.min(maxX, _refDragOrigTx + deltaCssX));
+      pendingY = Math.max(0, Math.min(maxY, _refDragOrigTy + deltaCssY));
+      if (!dragRaf) {
+        dragRaf = requestAnimationFrame(function() {
+          dragRaf = null;
+          if (!_refDragPanelEl) return;
+          _refDragPanelEl.style.transform = "translate(" + pendingX + "px," + pendingY + "px)";
+          _refFloatLeft = pendingX;
+          _refFloatTop  = pendingY;
+        });
+      }
+    });
+    document.addEventListener("mouseup", function() {
+      _refDragging = false;
+      _refDragPanelEl = null;
+      if (dragRaf) { cancelAnimationFrame(dragRaf); dragRaf = null; }
+    });
+  })();
 
   // ── Referral panel helpers ──
 
@@ -23035,7 +23847,7 @@
           "<div class='ref-log-ok' id='rqlo-" + rid + "'>✓ Logged</div>" +
         "</div>" +
 
-        "<a class='ref-overlay-link' href='referrals.html' target='_blank'>Open Referral Board ↗</a>" +
+        "<a class='ref-overlay-link' href='referrals.html'>Open Referral Board ↗</a>" +
       "</div>";
 
     // Inject HTML into the fixed panel and show it
@@ -23566,6 +24378,16 @@
 
   var _reactivationClinician = null;
 
+  // Open the kanban with a pre-filled task linked to the currently-open clinician.
+  function openKanbanTaskForCurrentClinician() {
+    var c = getCurrentProfileClinicianRecord();
+    if (!c) { showToast("Open a clinician profile first.", "warning"); return; }
+    var label = c.name || "Clinician";
+    var url = "kanban.html?link_type=clinician&link_id=" + encodeURIComponent(c.id) +
+              "&link_label=" + encodeURIComponent(label);
+    window.open(url, "_blank");
+  }
+
   function openReactivationModal() {
     var c = getCurrentProfileClinicianRecord();
     if (!c) return;
@@ -23937,5 +24759,6 @@
   }
 
   </script>
+  <script src="chat-widget.js"></script>
 </body>
 </html>

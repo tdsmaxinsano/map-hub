@@ -1,0 +1,2107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>DCS Kanban</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<style>
+  :root {
+    --blue: #18274a;
+    --blue-mid: #2a4477;
+    --accent: #2463eb;
+    --accent-strong: #1a4fc4;
+    --gold: #e2b44b;
+    --bg: #edf1f8;
+    --card: #ffffff;
+    --text: #18274a;
+    --muted: #6b7894;
+    --white: #ffffff;
+    --border: #c8d5e8;
+    --shadow: 0 8px 30px rgba(12, 22, 50, 0.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.4;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+
+  /* ── Header ── */
+  header {
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+    color: var(--white);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .header-brand h1 { font-size: 17px; font-weight: 800; }
+  .header-brand span.tag {
+    font-size: 10px; background: var(--gold); color: var(--blue);
+    font-weight: 800; padding: 2px 8px; border-radius: 20px;
+    text-transform: uppercase;
+  }
+  /* Portal nav (matches other portal pages) */
+  .portal-nav { display: flex; gap: 2px; align-items: center; }
+  .portal-nav-link {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 6px 11px; border-radius: 6px;
+    font-size: 12px; font-weight: 700; text-decoration: none;
+    color: rgba(255,255,255,0.75); background: transparent;
+    white-space: nowrap; transition: background 0.15s, color 0.15s;
+  }
+  .portal-nav-link:hover { background: rgba(255,255,255,0.15); color: #fff; }
+  .portal-nav-link.active {
+    background: var(--white); color: var(--blue);
+    box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+  }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .header-user { font-size: 13px; opacity: 0.85; }
+  .btn-signout {
+    background: rgba(255,255,255,0.15); color: #fff; border: none;
+    padding: 7px 14px; border-radius: 8px; font-size: 12px;
+    font-weight: 800; cursor: pointer;
+  }
+  .btn-signout:hover { background: rgba(255,255,255,0.25); }
+
+  /* ── Login ── */
+  #login-screen {
+    display: none;
+    align-items: center; justify-content: center;
+    min-height: 100vh;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+  }
+  .login-card {
+    background: var(--white); border-radius: 16px; padding: 40px 36px;
+    width: 360px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .login-logo { text-align: center; margin-bottom: 28px; }
+  .login-logo h1 { font-size: 22px; color: var(--blue); font-weight: 800; }
+  .login-logo p { font-size: 13px; color: var(--gold); font-weight: 600; margin-top: 4px; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input {
+    width: 100%; border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 14px; margin-bottom: 12px;
+    background: #fff; color: var(--text);
+  }
+  .login-card button {
+    width: 100%; background: var(--accent); color: #fff; border: none;
+    border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700;
+    cursor: pointer; margin-top: 8px;
+  }
+  .login-card button:disabled { opacity: 0.5; }
+  .login-error { color: #c0392b; font-size: 12px; margin-top: 8px; min-height: 16px; }
+
+  /* ── App layout ── */
+  #app {
+    display: none;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  /* ── Board tabs ── */
+  .board-tabs-row {
+    background: var(--white);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .board-tabs {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+  }
+  .board-tab {
+    background: transparent;
+    border: none;
+    padding: 12px 16px;
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--muted);
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 3px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .board-tab:hover { color: var(--text); }
+  .board-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .board-manage-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 10px;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .board-manage-btn:hover { background: rgba(0,0,0,0.04); color: var(--text); }
+  .board-manage-btn.admin-only-hidden { display: none; }
+
+  /* ── Toolbar ── */
+  .kanban-toolbar {
+    background: var(--white);
+    padding: 10px 20px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+    flex-shrink: 0;
+  }
+  .btn-primary {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .btn-primary:hover { background: var(--accent-strong); }
+  .btn-secondary {
+    background: var(--white);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-secondary:hover { background: #f3f6fc; }
+  .toolbar-input {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 7px 10px;
+    font-size: 12px;
+    min-width: 180px;
+    background: #fff;
+  }
+  .toolbar-spacer { flex: 1; }
+
+  /* ── Filter pills ── */
+  .filter-pill {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 5px 11px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .filter-pill:hover { background: rgba(0,0,0,0.04); }
+  .filter-pill.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+
+  /* ── Board ── */
+  #board {
+    flex: 1;
+    overflow-x: auto;
+    overflow-y: hidden;
+    display: flex;
+    gap: 12px;
+    padding: 16px 20px;
+    min-height: 0;
+  }
+  .kanban-column {
+    background: rgba(232, 238, 246, 0.6);
+    border-radius: 12px;
+    width: 300px;
+    min-width: 300px;
+    display: flex;
+    flex-direction: column;
+    max-height: 100%;
+  }
+  .kanban-column-header {
+    padding: 10px 12px 8px;
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .kanban-column-header .col-count {
+    background: var(--white);
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .kanban-column-list {
+    padding: 0 8px 8px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 30px;
+  }
+  .kanban-column-list::-webkit-scrollbar { width: 6px; }
+  .kanban-column-list::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.1);
+    border-radius: 3px;
+  }
+
+  /* ── Card ── */
+  .kanban-card {
+    background: var(--white);
+    border-radius: 8px;
+    padding: 10px 11px;
+    margin-bottom: 8px;
+    box-shadow: 0 1px 3px rgba(12, 22, 50, 0.07);
+    cursor: grab;
+    border: 1px solid var(--border);
+    transition: box-shadow 0.15s, transform 0.05s;
+  }
+  .kanban-card:hover { box-shadow: 0 4px 12px rgba(12, 22, 50, 0.12); }
+  .kanban-card:active { cursor: grabbing; }
+  .kanban-card.sortable-ghost { opacity: 0.4; }
+  .kanban-card.sortable-chosen { box-shadow: 0 6px 18px rgba(36, 99, 235, 0.25); }
+
+  .kanban-card-title {
+    font-weight: 700;
+    font-size: 13px;
+    line-height: 1.3;
+    margin-bottom: 6px;
+    color: var(--text);
+  }
+  .kanban-card-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-bottom: 4px;
+  }
+  .kanban-card-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    background: rgba(36, 99, 235, 0.08);
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .kanban-card-chip.linked {
+    background: rgba(140, 200, 140, 0.15);
+    color: #2a6f3f;
+    cursor: pointer;
+  }
+  .kanban-card-chip.linked:hover { background: rgba(140, 200, 140, 0.3); }
+  .kanban-card-sla {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+  .kanban-card-sla.green  { background: #d4f4dd; color: #1d6f3a; }
+  .kanban-card-sla.amber  { background: #fdf0c8; color: #8a5a00; }
+  .kanban-card-sla.orange { background: #fde0c1; color: #92400e; }
+  .kanban-card-sla.red    { background: #fdd6d6; color: #8a1d1d; }
+  .kanban-card-sla.gray   { background: #e8e8ec; color: var(--muted); }
+
+  .kanban-card-attrib {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+  .kanban-card-desc {
+    font-size: 11.5px;
+    color: var(--muted);
+    line-height: 1.35;
+    margin-top: 5px;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+  }
+
+  /* ── User avatar (photo or colored initial) ── */
+  .kanban-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    overflow: hidden;
+    font-size: 11px;
+    font-weight: 800;
+    flex-shrink: 0;
+    line-height: 1;
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+  .kanban-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  /* Color swatches in the manage-staff modal */
+  .color-swatch-row {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .color-swatch {
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    transition: transform 0.1s, border-color 0.15s;
+  }
+  .color-swatch:hover { transform: scale(1.1); }
+  .color-swatch.selected { border-color: var(--text); }
+  .color-swatch.unset {
+    background: #fff;
+    border: 1px dashed var(--muted);
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+    line-height: 18px;
+  }
+
+  /* ── Empty state ── */
+  .kanban-empty {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+    padding: 8px;
+    text-align: center;
+  }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    position: fixed; inset: 0;
+    background: rgba(12, 22, 50, 0.5);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+    padding: 20px;
+  }
+  .modal-overlay.hidden { display: none; }
+  .modal-card {
+    background: var(--white);
+    border-radius: 14px;
+    width: 100%;
+    max-width: 480px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+  }
+  .modal-header {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .modal-header h3 { font-size: 15px; font-weight: 800; }
+  .modal-header .modal-close {
+    background: transparent; border: none; cursor: pointer;
+    color: var(--muted); font-size: 18px; padding: 4px 8px;
+  }
+  .modal-body {
+    padding: 16px 18px;
+    overflow-y: auto;
+    flex: 1;
+  }
+  .modal-footer {
+    padding: 12px 18px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .modal-field { margin-bottom: 12px; }
+  .modal-field label {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    margin-bottom: 5px;
+  }
+  .modal-field input[type="text"],
+  .modal-field textarea,
+  .modal-field input[type="datetime-local"] {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 9px 11px;
+    font-size: 13px;
+    font: inherit;
+    color: var(--text);
+    background: #fff;
+  }
+  .modal-field textarea { min-height: 70px; resize: vertical; }
+  .modal-field-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .sla-presets { display: flex; gap: 4px; flex-wrap: wrap; }
+  .sla-preset-btn {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    cursor: pointer;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .sla-preset-btn:hover { background: rgba(0,0,0,0.04); }
+  .sla-preset-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .linked-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(140, 200, 140, 0.15);
+    color: #2a6f3f;
+    font-size: 12px;
+    font-weight: 700;
+  }
+  .linked-chip button {
+    background: transparent; border: none; cursor: pointer;
+    color: inherit; font-weight: 700; padding: 0 2px;
+  }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed;
+    bottom: 22px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--blue);
+    color: #fff;
+    padding: 10px 18px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+    z-index: 200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+  }
+  #toast.show { opacity: 1; }
+  #toast.error { background: #8a1d1d; }
+
+  /* ── Manage Boards Modal ── */
+  .board-list-item {
+    display: flex;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    gap: 10px;
+    background: #fafbfd;
+  }
+  .board-list-item .board-icon { font-size: 18px; }
+  .board-list-item .board-name {
+    flex: 1;
+    font-weight: 700;
+  }
+  .board-list-item .board-cols {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 400;
+    margin-top: 2px;
+  }
+  .board-edit-col-list .col-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: 6px;
+    background: #fff;
+  }
+  .board-edit-col-list .col-row input[type="text"] {
+    flex: 1;
+    border: none;
+    background: transparent;
+    font-size: 12px;
+    padding: 2px 4px;
+  }
+  .board-edit-col-list .col-row input[type="text"]:focus {
+    outline: none;
+    background: #fffbe7;
+    border-radius: 4px;
+  }
+  .col-row .is-done-badge {
+    font-size: 10px;
+    background: #d4f4dd;
+    color: #1d6f3a;
+    padding: 1px 6px;
+    border-radius: 999px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+  .col-row .is-done-badge.inactive { background: #eee; color: var(--muted); }
+  .col-row .col-delete-btn {
+    background: transparent; border: none;
+    color: #c0392b; cursor: pointer; font-size: 14px;
+    padding: 2px 6px;
+  }
+  .warn {
+    background: #fff3cd;
+    border: 1px solid #e6c547;
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #6d4400;
+    margin-top: 10px;
+  }
+
+  /* ── Empty board state ── */
+  .board-empty {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 20px;
+    width: 100%;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════ LOGIN ══════ -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-logo">
+      <h1>DependableCare</h1>
+      <p>Kanban Task Board</p>
+    </div>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-error" class="login-error"></div>
+  </div>
+</div>
+
+<!-- ══════ APP ══════ -->
+<div id="app">
+  <header>
+    <div class="header-brand">
+      <h1>DCS Kanban</h1>
+      <span class="tag">Tasks</span>
+    </div>
+    <nav class="portal-nav">
+      <a href="clinician-map.html" class="portal-nav-link">🗺️ Map</a>
+      <a href="referrals.html"     class="portal-nav-link">📋 Referrals</a>
+      <a href="time-tracker.html"  class="portal-nav-link">⏱️ Time</a>
+      <a href="compliance.html"    class="portal-nav-link">✅ Compliance</a>
+      <a href="kanban.html"        class="portal-nav-link active">🗂️ Kanban</a>
+    </nav>
+    <div class="header-right">
+      <span class="header-user" id="header-user"></span>
+      <button class="btn-signout" onclick="doSignOut()">Sign out</button>
+    </div>
+  </header>
+
+  <!-- Board tabs -->
+  <div class="board-tabs-row">
+    <div class="board-tabs" id="board-tabs"></div>
+    <div style="display:flex; gap:6px;">
+      <button class="board-manage-btn admin-only-hidden" id="manage-names-btn" title="Manage staff names (admin)">👥 Names</button>
+      <button class="board-manage-btn admin-only-hidden" id="board-manage-btn" title="Manage boards (admin)">⚙ Boards</button>
+    </div>
+  </div>
+
+  <!-- Toolbar -->
+  <div class="kanban-toolbar">
+    <button class="btn-primary" id="new-task-btn">+ New Task</button>
+    <button class="filter-pill active" data-filter="all">All</button>
+    <button class="filter-pill" data-filter="mine">Mine</button>
+    <button class="filter-pill" data-filter="overdue">Overdue</button>
+    <button class="filter-pill" data-filter="due-today">Due today</button>
+    <input type="text" class="toolbar-input" id="search-input" placeholder="Search title…" />
+    <span class="toolbar-spacer"></span>
+    <button class="btn-secondary" id="archive-toggle-btn" title="Show/hide archived tasks">Show archived</button>
+  </div>
+
+  <!-- Board -->
+  <div id="board"></div>
+</div>
+
+<!-- ══════ NEW/EDIT TASK MODAL ══════ -->
+<div class="modal-overlay hidden" id="task-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="task-modal-title">New Task</h3>
+      <button class="modal-close" onclick="closeTaskModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label for="task-title">Title</label>
+        <input id="task-title" type="text" placeholder="What needs to be done?" />
+      </div>
+      <div class="modal-field">
+        <label for="task-description">Description (optional)</label>
+        <textarea id="task-description" placeholder="Notes, context…"></textarea>
+      </div>
+      <div class="modal-field">
+        <label>SLA / Due By</label>
+        <div class="sla-presets" id="sla-presets">
+          <button class="sla-preset-btn" data-sla="1h">1 h</button>
+          <button class="sla-preset-btn" data-sla="4h">4 h</button>
+          <button class="sla-preset-btn" data-sla="24h">24 h</button>
+          <button class="sla-preset-btn" data-sla="3d">3 d</button>
+          <button class="sla-preset-btn" data-sla="1w">1 w</button>
+          <button class="sla-preset-btn" data-sla="custom">📅 Custom</button>
+          <button class="sla-preset-btn" data-sla="">None</button>
+        </div>
+        <div id="sla-custom-input" style="display:none; margin-top:8px;">
+          <input type="datetime-local" id="task-due-at" />
+        </div>
+        <div id="sla-preview" style="font-size:11px; color:var(--muted); margin-top:6px;"></div>
+      </div>
+      <div class="modal-field">
+        <label>Linked to (optional)</label>
+        <div id="task-linked-area">
+          <span style="color:var(--muted); font-size:12px;">No link</span>
+        </div>
+      </div>
+      <div class="modal-field">
+        <label>Assign to</label>
+        <select id="task-assigned-to" style="width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 11px; font-size:13px; background:#fff;"></select>
+      </div>
+      <div class="modal-field">
+        <label>Board</label>
+        <select id="task-board-select" style="width:100%; border:1px solid var(--border); border-radius:8px; padding:9px 11px; font-size:13px; background:#fff;"></select>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="task-delete-btn" style="margin-right:auto;display:none;">Delete</button>
+      <button class="btn-secondary" onclick="closeTaskModal()">Cancel</button>
+      <button class="btn-primary" id="task-save-btn">Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ MANAGE BOARDS MODAL ══════ -->
+<div class="modal-overlay hidden" id="manage-boards-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>Manage Boards</h3>
+      <button class="modal-close" onclick="closeManageBoards()">✕</button>
+    </div>
+    <div class="modal-body" id="manage-boards-body"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="add-board-btn">+ Add Board</button>
+      <button class="btn-primary" onclick="closeManageBoards()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ EDIT BOARD SUB-MODAL ══════ -->
+<div class="modal-overlay hidden" id="edit-board-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3 id="edit-board-modal-title">Edit Board</h3>
+      <button class="modal-close" onclick="closeEditBoard()">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="modal-field">
+        <label>Name</label>
+        <input type="text" id="edit-board-name" />
+      </div>
+      <div class="modal-field-row" style="gap:12px;">
+        <div class="modal-field" style="flex:0 0 auto;">
+          <label>Icon</label>
+          <input type="text" id="edit-board-icon" maxlength="3" style="width:60px;" />
+        </div>
+        <div class="modal-field" style="flex:1;">
+          <label>Slug (URL)</label>
+          <input type="text" id="edit-board-slug" />
+        </div>
+        <div class="modal-field" style="flex:0 0 auto; padding-top:18px;">
+          <label style="display:inline-flex; align-items:center; gap:6px; text-transform:none; font-size:12px;">
+            <input type="checkbox" id="edit-board-default" />
+            Default
+          </label>
+        </div>
+      </div>
+      <div class="modal-field">
+        <label>Columns (drag the row to reorder; click name to rename)</label>
+        <div id="edit-board-cols" class="board-edit-col-list"></div>
+        <button class="btn-secondary" id="add-column-btn" style="margin-top:6px;">+ Add Column</button>
+      </div>
+      <div class="warn">
+        ⚠ Deleting a column with tasks moves them to the leftmost column — no task is lost.
+        Marking a column as Done starts the 7-day archive timer for tasks placed in it.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="delete-board-btn" style="margin-right:auto; color:#c0392b;">Delete Board</button>
+      <button class="btn-secondary" onclick="closeEditBoard()">Cancel</button>
+      <button class="btn-primary" id="edit-board-save-btn">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ MANAGE STAFF MODAL ══════ -->
+<div class="modal-overlay hidden" id="manage-names-modal">
+  <div class="modal-card" style="max-width:640px;">
+    <div class="modal-header">
+      <h3>Manage Staff Profiles</h3>
+      <button class="modal-close" onclick="closeManageNames()">✕</button>
+    </div>
+    <div class="modal-body" id="manage-names-body">
+      <p style="font-size:12px; color:var(--muted); margin-bottom:14px;">
+        Set a display name, accent color, and headshot for each staff member.
+        These appear in the "Assign to" dropdown, on cards, and anywhere a user is shown.
+      </p>
+      <div id="manage-names-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeManageNames()">Done</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ TOAST ══════ -->
+<div id="toast"></div>
+
+<script>
+  const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+  const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+
+  const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+  });
+
+  // ── State ──
+  let currentUser = null;
+  let isAdmin = false;
+  let boards = [];           // [{id, name, slug, icon, position, is_default}]
+  let columnsByBoardId = {}; // {boardId: [{id, name, position, is_done}]}
+  let tasks = [];            // all non-archived tasks
+  let archivedTasks = [];    // archived tasks (loaded on toggle)
+  let staffList = [];        // [{user_id, email, role}] for "Assign to" dropdown
+  let staffByUserId = {};    // quick lookup
+  let activeBoardId = null;
+  let activeFilter = "all";
+  let searchQuery = "";
+  let showArchived = false;
+  let realtimeChannel = null;
+
+  // Editing state
+  let editingTaskId = null;
+  let editingBoardId = null;       // board being edited in the sub-modal
+  let editingBoardCols = [];       // local working copy during edit
+  let modalLinkedEntityType = null;
+  let modalLinkedEntityId = null;
+  let modalLinkedEntityLabel = null;
+  let modalSlaPreset = "";
+  let modalDueAt = null;
+
+  // ── Auth flow ──
+  async function checkSession() {
+    const { data } = await db.auth.getSession();
+    if (data && data.session && data.session.user) {
+      await launchApp(data.session.user);
+    } else {
+      document.getElementById("login-screen").style.display = "flex";
+    }
+  }
+
+  async function doSignIn() {
+    const email = document.getElementById("login-email").value.trim();
+    const password = document.getElementById("login-password").value;
+    const btn = document.getElementById("login-btn");
+    const err = document.getElementById("login-error");
+    err.textContent = "";
+    btn.disabled = true; btn.textContent = "Signing in…";
+    const { data, error } = await db.auth.signInWithPassword({ email, password });
+    btn.disabled = false; btn.textContent = "Sign in";
+    if (error) { err.textContent = error.message || "Incorrect email or password."; return; }
+    document.getElementById("login-screen").style.display = "none";
+    await launchApp(data.session.user);
+  }
+
+  async function doSignOut() {
+    if (realtimeChannel) { try { db.removeChannel(realtimeChannel); } catch(e){} }
+    await db.auth.signOut();
+    location.reload();
+  }
+
+  async function launchApp(user) {
+    currentUser = user;
+    document.getElementById("header-user").textContent = user.email || "";
+    document.getElementById("app").style.display = "flex";
+    document.getElementById("login-screen").style.display = "none";
+
+    // Check admin
+    try {
+      const { data: roleData } = await db.from("user_roles").select("role").eq("user_id", user.id).single();
+      isAdmin = roleData && roleData.role === "admin";
+    } catch (e) { isAdmin = false; }
+    if (isAdmin) {
+      document.getElementById("board-manage-btn").classList.remove("admin-only-hidden");
+      document.getElementById("manage-names-btn").classList.remove("admin-only-hidden");
+    }
+
+    await loadBoardsAndColumns();
+    await loadStaffDirectory();
+    await loadTasks();
+    setupRealtime();
+    startSlaTicker();
+    applyURLState();
+  }
+
+  // Loads the list of all portal users so we can populate the "Assign to" dropdown.
+  // Calls the list_staff() RPC (SECURITY DEFINER) which bypasses auth.users RLS.
+  // Returns user_id + email + display_name + role.
+  // Falls back gracefully if the function doesn't exist yet (SQL migration not run).
+  async function loadStaffDirectory() {
+    const { data, error } = await db.rpc("list_staff");
+    if (error) {
+      console.warn("list_staff() not available:", error.message);
+      staffList = currentUser ? [{ user_id: currentUser.id, email: currentUser.email, display_name: null, role: null }] : [];
+    } else {
+      staffList = data || [];
+    }
+    staffByUserId = {};
+    staffList.forEach(function(s) { staffByUserId[s.user_id] = s; });
+  }
+
+  function shortEmail(email) {
+    if (!email) return "";
+    const at = email.indexOf("@");
+    return at > 0 ? email.substring(0, at) : email;
+  }
+
+  // Preset color palette — admins pick one of these per user.
+  const PRESET_COLORS = [
+    { hex: "#2463eb", emoji: "🔵", name: "blue" },
+    { hex: "#7c3aed", emoji: "🟣", name: "purple" },
+    { hex: "#ef4444", emoji: "🔴", name: "red" },
+    { hex: "#f97316", emoji: "🟠", name: "orange" },
+    { hex: "#eab308", emoji: "🟡", name: "yellow" },
+    { hex: "#22c55e", emoji: "🟢", name: "green" },
+    { hex: "#92400e", emoji: "🟤", name: "brown" },
+    { hex: "#1e293b", emoji: "⚫", name: "slate" }
+  ];
+
+  // Deterministic fallback color from user_id (so unset users still differ visually)
+  function fallbackColorFor(userId) {
+    if (!userId) return "#6b7280";
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) hash = (hash * 31 + userId.charCodeAt(i)) | 0;
+    return PRESET_COLORS[Math.abs(hash) % PRESET_COLORS.length].hex;
+  }
+
+  function colorEmojiFor(hex) {
+    const found = PRESET_COLORS.find(function(p) { return p.hex.toLowerCase() === (hex || "").toLowerCase(); });
+    return found ? found.emoji : "⚪";
+  }
+
+  // Display name for a user — display_name from staff_config, else email username.
+  function displayNameFor(userId) {
+    if (!userId) return "Anyone";
+    const s = staffByUserId[userId];
+    if (!s) return "Unknown";
+    if (s.display_name && s.display_name.trim()) return s.display_name.trim();
+    return shortEmail(s.email);
+  }
+
+  // Color for a user — saved in staff_config or deterministic fallback.
+  function colorFor(userId) {
+    if (!userId) return "#6b7280";
+    const s = staffByUserId[userId];
+    if (s && s.display_color) return s.display_color;
+    return fallbackColorFor(userId);
+  }
+
+  function photoUrlFor(userId) {
+    const s = userId ? staffByUserId[userId] : null;
+    return (s && s.photo_url) || null;
+  }
+
+  // Renders a small avatar (photo if set, else colored circle with initial)
+  function avatarHtml(userId, size) {
+    if (!userId) return "";
+    const px = size || 24;
+    const photo = photoUrlFor(userId);
+    if (photo) {
+      return "<span class='kanban-avatar' style='width:" + px + "px;height:" + px + "px;'>" +
+             "<img src='" + escapeHtml(photo) + "' alt='' /></span>";
+    }
+    const color = colorFor(userId);
+    const name = displayNameFor(userId);
+    const initial = (name || "?").charAt(0).toUpperCase();
+    return "<span class='kanban-avatar' style='width:" + px + "px;height:" + px + "px;background:" + color + ";color:#fff;'>" +
+           escapeHtml(initial) + "</span>";
+  }
+
+  function staffLabelFor(userId) {
+    if (!userId) return "Anyone";
+    if (currentUser && userId === currentUser.id) {
+      return "Me (" + displayNameFor(userId) + ")";
+    }
+    return displayNameFor(userId);
+  }
+
+  // ── Data loading ──
+  async function loadBoardsAndColumns() {
+    const { data: boardData, error: be } = await db
+      .from("boards")
+      .select("*")
+      .order("position", { ascending: true });
+    if (be) { showToast("Failed to load boards: " + be.message, true); boards = []; return; }
+    boards = boardData || [];
+
+    const { data: colData, error: ce } = await db
+      .from("board_columns")
+      .select("*")
+      .order("position", { ascending: true });
+    if (ce) { showToast("Failed to load columns: " + ce.message, true); return; }
+    columnsByBoardId = {};
+    (colData || []).forEach(function(col) {
+      if (!columnsByBoardId[col.board_id]) columnsByBoardId[col.board_id] = [];
+      columnsByBoardId[col.board_id].push(col);
+    });
+
+    // Pick active board: URL ?board=slug → default → first
+    const params = new URLSearchParams(window.location.search);
+    const slugFromUrl = params.get("board");
+    let active = null;
+    if (slugFromUrl) active = boards.find(function(b){ return b.slug === slugFromUrl; });
+    if (!active) active = boards.find(function(b){ return b.is_default; });
+    if (!active && boards.length) active = boards[0];
+    activeBoardId = active ? active.id : null;
+
+    renderBoardTabs();
+  }
+
+  async function loadTasks() {
+    const { data, error } = await db
+      .from("tasks")
+      .select("*")
+      .eq("is_archived", false)
+      .order("position", { ascending: true });
+    if (error) { showToast("Failed to load tasks: " + error.message, true); tasks = []; return; }
+    tasks = data || [];
+    renderBoard();
+  }
+
+  async function loadArchivedTasks() {
+    const { data, error } = await db
+      .from("tasks")
+      .select("*")
+      .eq("is_archived", true)
+      .order("archived_at", { ascending: false })
+      .limit(200);
+    if (error) { showToast("Failed to load archived: " + error.message, true); archivedTasks = []; return; }
+    archivedTasks = data || [];
+  }
+
+  // ── Render board tabs ──
+  function renderBoardTabs() {
+    const el = document.getElementById("board-tabs");
+    el.innerHTML = "";
+    boards.forEach(function(b) {
+      const btn = document.createElement("button");
+      btn.className = "board-tab" + (b.id === activeBoardId ? " active" : "");
+      btn.textContent = (b.icon || "") + " " + b.name;
+      btn.onclick = function() { switchToBoard(b.id); };
+      el.appendChild(btn);
+    });
+  }
+
+  function switchToBoard(boardId) {
+    activeBoardId = boardId;
+    const b = boards.find(function(x){ return x.id === boardId; });
+    if (b) {
+      const url = new URL(window.location);
+      url.searchParams.set("board", b.slug);
+      window.history.replaceState({}, "", url);
+    }
+    renderBoardTabs();
+    renderBoard();
+  }
+
+  // ── Filter tasks for the active board ──
+  function getVisibleTasks() {
+    let list = showArchived ? archivedTasks.slice() : tasks.slice();
+    list = list.filter(function(t) { return t.board_id === activeBoardId; });
+
+    if (activeFilter === "mine") {
+      list = list.filter(function(t) {
+        return t.created_by === currentUser.id || t.assigned_to === currentUser.id;
+      });
+    } else if (activeFilter === "overdue") {
+      const now = Date.now();
+      list = list.filter(function(t) {
+        return t.due_at && new Date(t.due_at).getTime() < now && !t.completed_at;
+      });
+    } else if (activeFilter === "due-today") {
+      const start = new Date(); start.setHours(0,0,0,0);
+      const end   = new Date(); end.setHours(23,59,59,999);
+      list = list.filter(function(t) {
+        if (!t.due_at) return false;
+        const d = new Date(t.due_at).getTime();
+        return d >= start.getTime() && d <= end.getTime();
+      });
+    }
+
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      list = list.filter(function(t) {
+        return (t.title || "").toLowerCase().includes(q) ||
+               (t.description || "").toLowerCase().includes(q) ||
+               (t.linked_entity_label || "").toLowerCase().includes(q);
+      });
+    }
+
+    return list;
+  }
+
+  // ── Render board ──
+  function renderBoard() {
+    const boardEl = document.getElementById("board");
+    boardEl.innerHTML = "";
+
+    if (!activeBoardId) {
+      boardEl.innerHTML = "<div class='board-empty'>No boards yet. Ask an admin to add one.</div>";
+      return;
+    }
+
+    const cols = columnsByBoardId[activeBoardId] || [];
+    if (!cols.length) {
+      boardEl.innerHTML = "<div class='board-empty'>This board has no columns. Open the gear icon to add some.</div>";
+      return;
+    }
+
+    const visible = getVisibleTasks();
+    const tasksByCol = {};
+    cols.forEach(function(c) { tasksByCol[c.id] = []; });
+    visible.forEach(function(t) {
+      if (tasksByCol[t.column_id]) tasksByCol[t.column_id].push(t);
+    });
+    Object.keys(tasksByCol).forEach(function(cid) {
+      tasksByCol[cid].sort(function(a, b) { return a.position - b.position; });
+    });
+
+    cols.forEach(function(col) {
+      const colEl = document.createElement("div");
+      colEl.className = "kanban-column";
+      colEl.dataset.columnId = col.id;
+      colEl.innerHTML =
+        "<div class='kanban-column-header'>" +
+          "<span>" + escapeHtml(col.name) + (col.is_done ? " ✓" : "") + "</span>" +
+          "<span class='col-count'>" + tasksByCol[col.id].length + "</span>" +
+        "</div>" +
+        "<div class='kanban-column-list' data-column-id='" + col.id + "'></div>";
+      const listEl = colEl.querySelector(".kanban-column-list");
+      tasksByCol[col.id].forEach(function(t) {
+        listEl.appendChild(buildCardEl(t));
+      });
+      if (!tasksByCol[col.id].length) {
+        listEl.innerHTML = "<div class='kanban-empty'>—</div>";
+      }
+      boardEl.appendChild(colEl);
+
+      // Wire up sortable for this column (drag/drop)
+      new Sortable(listEl, {
+        group: "kanban",
+        animation: 150,
+        ghostClass: "sortable-ghost",
+        chosenClass: "sortable-chosen",
+        onEnd: handleCardDrop,
+        filter: ".kanban-empty",
+        preventOnFilter: false
+      });
+    });
+  }
+
+  function buildCardEl(task) {
+    const card = document.createElement("div");
+    card.className = "kanban-card";
+    card.dataset.taskId = task.id;
+    if (task.is_archived) card.style.opacity = "0.6";
+
+    const sla = computeSla(task);
+    const slaHtml = sla ? "<span class='kanban-card-sla " + sla.tier + "'>" + escapeHtml(sla.label) + "</span>" : "";
+
+    const linkedHtml = task.linked_entity_type
+      ? "<span class='kanban-card-chip linked' data-linked='" + escapeHtml(task.linked_entity_type) + ":" + escapeHtml(task.linked_entity_id) + "'>" +
+          linkedIconFor(task.linked_entity_type) + " " + escapeHtml(task.linked_entity_label || task.linked_entity_type) +
+        "</span>"
+      : "";
+
+    // Creator → assignee attribution with avatars.
+    const creatorAvatar = avatarHtml(task.created_by, 22);
+    const creatorLabel  = staffLabelFor(task.created_by);
+    let attribHtml = creatorAvatar + "<span style='vertical-align:middle;'>by " + escapeHtml(creatorLabel) + "</span>";
+    if (task.assigned_to) {
+      const assigneeAvatar = avatarHtml(task.assigned_to, 22);
+      const assigneeLabel  = staffLabelFor(task.assigned_to);
+      attribHtml += " <span style='vertical-align:middle;'>→</span> " + assigneeAvatar +
+                    "<span style='vertical-align:middle;'>" + escapeHtml(assigneeLabel) + "</span>";
+    }
+
+    // If assigned to current user, show a subtle highlight
+    const mineChip = (task.assigned_to === currentUser.id)
+      ? "<span class='kanban-card-chip' style='background:#fff3cd;color:#8a5a00;'>👤 Mine</span>"
+      : "";
+
+    // Tint the card's left edge with the creator's color
+    card.style.borderLeft = "3px solid " + colorFor(task.created_by);
+
+    card.innerHTML =
+      "<div class='kanban-card-title'>" + escapeHtml(task.title) + "</div>" +
+      "<div class='kanban-card-meta'>" + slaHtml + mineChip + linkedHtml + "</div>" +
+      (task.description ? "<div class='kanban-card-desc'>" + escapeHtml(task.description) + "</div>" : "") +
+      "<div class='kanban-card-attrib' style='display:flex;align-items:center;gap:2px;flex-wrap:wrap;'>" + attribHtml + "</div>";
+
+    card.onclick = function(e) {
+      // If clicked on the linked-entity chip, navigate to that entity
+      const linked = e.target.closest("[data-linked]");
+      if (linked) {
+        e.stopPropagation();
+        navigateToLinked(linked.dataset.linked);
+        return;
+      }
+      openTaskModal(task);
+    };
+
+    return card;
+  }
+
+  function linkedIconFor(type) {
+    return ({clinician:"👤", referral:"📋", compliance_item:"✅", agency:"🏢"})[type] || "🔗";
+  }
+
+  function navigateToLinked(linkedStr) {
+    const parts = linkedStr.split(":");
+    const type = parts[0]; const id = parts[1];
+    if (type === "clinician") window.location.href = "clinician-map.html?clinician=" + id;
+    else if (type === "referral") window.location.href = "referrals.html?ref=" + id;
+    else if (type === "compliance_item") window.location.href = "compliance.html?item=" + id;
+    else if (type === "agency") window.location.href = "clinician-map.html?agency=" + id;
+  }
+
+  // ── SLA calculation ──
+  function computeSla(task) {
+    if (!task.due_at) return null;
+    const due = new Date(task.due_at).getTime();
+    const created = new Date(task.created_at).getTime();
+    const now = Date.now();
+
+    if (task.completed_at) {
+      const compMs = new Date(task.completed_at).getTime();
+      const onTime = compMs <= due;
+      return {
+        tier: onTime ? "gray" : "red",
+        label: "Done " + relativeTime(compMs - now)
+      };
+    }
+
+    const totalMs = due - created;
+    const remaining = due - now;
+    if (remaining <= 0) {
+      return { tier: "red", label: "⚠ Overdue " + relativeTime(remaining) };
+    }
+    const pct = totalMs > 0 ? remaining / totalMs : 1;
+    let tier;
+    if (pct > 0.5) tier = "green";
+    else if (pct > 0.25) tier = "amber";
+    else tier = "orange";
+    return { tier: tier, label: "⏰ " + relativeTime(remaining) + " left" };
+  }
+
+  function relativeTime(ms) {
+    const abs = Math.abs(ms);
+    const mins = Math.round(abs / 60000);
+    const hrs  = Math.round(abs / 3600000);
+    const days = Math.round(abs / 86400000);
+    let s;
+    if (abs < 3600000)        s = mins + (mins === 1 ? " min" : " min");
+    else if (abs < 86400000)  s = hrs  + (hrs  === 1 ? " hr"  : " hrs");
+    else                      s = days + (days === 1 ? " day" : " days");
+    return ms < 0 ? s + " ago" : s;
+  }
+
+  // Tick every 30s to refresh SLA pills without re-fetching
+  function startSlaTicker() {
+    setInterval(function() {
+      // Just re-render; data is already in memory
+      renderBoard();
+    }, 30000);
+  }
+
+  // ── Drag/drop handler ──
+  async function handleCardDrop(evt) {
+    const taskId = evt.item.dataset.taskId;
+    const newColId = evt.to.dataset.columnId;
+    const newPosition = evt.newIndex;
+
+    const task = tasks.find(function(t) { return t.id === taskId; });
+    if (!task) return;
+
+    // Figure out the column (for is_done detection)
+    const cols = columnsByBoardId[activeBoardId] || [];
+    const targetCol = cols.find(function(c) { return c.id === newColId; });
+    const isDoneCol = targetCol && targetCol.is_done;
+
+    // Optimistic local update
+    task.column_id = newColId;
+    task.position  = newPosition;
+    if (isDoneCol && !task.completed_at) {
+      task.completed_at = new Date().toISOString();
+    } else if (!isDoneCol && task.completed_at) {
+      task.completed_at = null;
+    }
+
+    // Persist
+    const update = {
+      column_id: newColId,
+      position: newPosition,
+      updated_at: new Date().toISOString(),
+      completed_at: task.completed_at
+    };
+    const { error } = await db.from("tasks").update(update).eq("id", taskId);
+    if (error) {
+      showToast("Failed to save move: " + error.message, true);
+      // Reload to reset
+      await loadTasks();
+      return;
+    }
+
+    // Reflow positions in the affected column server-side (best-effort)
+    await reflowColumn(newColId);
+
+    // Re-render for column counts
+    renderBoard();
+  }
+
+  async function reflowColumn(columnId) {
+    const cardsInCol = Array.from(document.querySelectorAll(
+      "[data-column-id='" + columnId + "'] .kanban-card"
+    ));
+    const updates = cardsInCol.map(function(el, idx) {
+      const id = el.dataset.taskId;
+      const t = tasks.find(function(tt) { return tt.id === id; });
+      if (t) t.position = idx;
+      return { id: id, position: idx };
+    });
+    // Send a small batch update; one query per row is fine for typical board sizes
+    for (const u of updates) {
+      await db.from("tasks").update({ position: u.position }).eq("id", u.id);
+    }
+  }
+
+  // ── Task modal ──
+  function openTaskModal(task) {
+    editingTaskId = task ? task.id : null;
+    document.getElementById("task-modal-title").textContent = task ? "Edit Task" : "New Task";
+    document.getElementById("task-save-btn").textContent = task ? "Save" : "Create";
+    document.getElementById("task-delete-btn").style.display = task ? "" : "none";
+
+    document.getElementById("task-title").value = task ? (task.title || "") : "";
+    document.getElementById("task-description").value = task ? (task.description || "") : "";
+    document.getElementById("task-due-at").value = "";
+    document.getElementById("sla-custom-input").style.display = "none";
+    document.getElementById("sla-preview").textContent = "";
+    modalSlaPreset = task ? (task.sla_preset || "") : "";
+    modalDueAt = task ? (task.due_at || null) : null;
+
+    // SLA preset highlighting
+    document.querySelectorAll(".sla-preset-btn").forEach(function(b) { b.classList.remove("active"); });
+    if (modalSlaPreset) {
+      const btn = document.querySelector(".sla-preset-btn[data-sla='" + modalSlaPreset + "']");
+      if (btn) btn.classList.add("active");
+    }
+    if (modalSlaPreset === "custom" && modalDueAt) {
+      document.getElementById("sla-custom-input").style.display = "block";
+      document.getElementById("task-due-at").value = isoToLocal(modalDueAt);
+    }
+    refreshSlaPreview();
+
+    // Linked
+    modalLinkedEntityType  = task ? task.linked_entity_type  : null;
+    modalLinkedEntityId    = task ? task.linked_entity_id    : null;
+    modalLinkedEntityLabel = task ? task.linked_entity_label : null;
+    refreshLinkedDisplay();
+
+    // Board select
+    const sel = document.getElementById("task-board-select");
+    sel.innerHTML = "";
+    boards.forEach(function(b) {
+      const opt = document.createElement("option");
+      opt.value = b.id;
+      opt.textContent = (b.icon || "") + " " + b.name;
+      sel.appendChild(opt);
+    });
+    sel.value = task ? task.board_id : activeBoardId;
+
+    // Assigned-to select
+    const assignSel = document.getElementById("task-assigned-to");
+    assignSel.innerHTML = "";
+    const anyoneOpt = document.createElement("option");
+    anyoneOpt.value = "";
+    anyoneOpt.textContent = "— Anyone —";
+    assignSel.appendChild(anyoneOpt);
+    // Put current user first for convenience
+    if (currentUser) {
+      const meOpt = document.createElement("option");
+      meOpt.value = currentUser.id;
+      const meEmoji = colorEmojiFor(colorFor(currentUser.id));
+      meOpt.textContent = meEmoji + "  Me (" + displayNameFor(currentUser.id) + ")";
+      assignSel.appendChild(meOpt);
+    }
+    // Other staff — color emoji + display name + role badge
+    staffList.forEach(function(s) {
+      if (currentUser && s.user_id === currentUser.id) return; // already added as "Me"
+      const opt = document.createElement("option");
+      opt.value = s.user_id;
+      const name = (s.display_name && s.display_name.trim()) || shortEmail(s.email);
+      const trail = s.role ? "  ·  " + s.role : "";
+      const emoji = colorEmojiFor(colorFor(s.user_id));
+      opt.textContent = emoji + "  " + name + trail;
+      assignSel.appendChild(opt);
+    });
+    assignSel.value = (task && task.assigned_to) ? task.assigned_to : "";
+
+    document.getElementById("task-modal").classList.remove("hidden");
+    setTimeout(function(){ document.getElementById("task-title").focus(); }, 50);
+  }
+
+  function closeTaskModal() {
+    document.getElementById("task-modal").classList.add("hidden");
+    editingTaskId = null;
+  }
+
+  function isoToLocal(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    const pad = function(n){ return String(n).padStart(2, "0"); };
+    return d.getFullYear() + "-" + pad(d.getMonth()+1) + "-" + pad(d.getDate())
+         + "T" + pad(d.getHours()) + ":" + pad(d.getMinutes());
+  }
+
+  function refreshSlaPreview() {
+    const el = document.getElementById("sla-preview");
+    if (!modalSlaPreset && !modalDueAt) { el.textContent = "No SLA — task has no due date."; return; }
+    let due;
+    if (modalSlaPreset === "custom") {
+      const input = document.getElementById("task-due-at").value;
+      due = input ? new Date(input) : null;
+    } else if (modalSlaPreset) {
+      due = computePresetDue(modalSlaPreset);
+    }
+    modalDueAt = due ? due.toISOString() : null;
+    el.textContent = due
+      ? "Due " + due.toLocaleString("en-US", {month:"short", day:"numeric", hour:"numeric", minute:"2-digit"})
+      : "";
+  }
+
+  function computePresetDue(preset) {
+    const d = new Date();
+    if (preset === "1h") d.setHours(d.getHours() + 1);
+    else if (preset === "4h") d.setHours(d.getHours() + 4);
+    else if (preset === "24h") d.setHours(d.getHours() + 24);
+    else if (preset === "3d") d.setDate(d.getDate() + 3);
+    else if (preset === "1w") d.setDate(d.getDate() + 7);
+    return d;
+  }
+
+  function refreshLinkedDisplay() {
+    const area = document.getElementById("task-linked-area");
+    if (modalLinkedEntityType && modalLinkedEntityId) {
+      area.innerHTML = "<span class='linked-chip'>" +
+        linkedIconFor(modalLinkedEntityType) + " " +
+        escapeHtml((modalLinkedEntityLabel || modalLinkedEntityType)) +
+        " <button onclick='clearLink()'>×</button></span>";
+    } else {
+      area.innerHTML = "<span style='color:var(--muted); font-size:12px;'>No link (standalone task)</span>";
+    }
+  }
+
+  function clearLink() {
+    modalLinkedEntityType = null;
+    modalLinkedEntityId = null;
+    modalLinkedEntityLabel = null;
+    refreshLinkedDisplay();
+  }
+
+  async function saveTask() {
+    const title = document.getElementById("task-title").value.trim();
+    if (!title) { showToast("Title is required.", true); return; }
+
+    const description = document.getElementById("task-description").value.trim();
+    const boardId = document.getElementById("task-board-select").value;
+    const assignedTo = document.getElementById("task-assigned-to").value || null;
+
+    // Default to leftmost column on this board for new tasks
+    const cols = columnsByBoardId[boardId] || [];
+    if (!cols.length) { showToast("Selected board has no columns.", true); return; }
+    const firstCol = cols[0];
+
+    const payload = {
+      title: title,
+      description: description || null,
+      board_id: boardId,
+      assigned_to: assignedTo,
+      sla_preset: modalSlaPreset || null,
+      due_at: modalDueAt || null,
+      linked_entity_type: modalLinkedEntityType || null,
+      linked_entity_id: modalLinkedEntityId || null,
+      linked_entity_label: modalLinkedEntityLabel || null,
+      updated_at: new Date().toISOString()
+    };
+
+    if (editingTaskId) {
+      const { error } = await db.from("tasks").update(payload).eq("id", editingTaskId);
+      if (error) { showToast("Save failed: " + error.message, true); return; }
+      showToast("Task updated.");
+    } else {
+      // Insert: figure out next position in the target column
+      const existingInCol = tasks.filter(function(t) {
+        return t.board_id === boardId && t.column_id === firstCol.id;
+      });
+      payload.column_id = firstCol.id;
+      payload.position = existingInCol.length;
+      payload.created_by = currentUser.id;
+      const { error } = await db.from("tasks").insert(payload);
+      if (error) { showToast("Create failed: " + error.message, true); return; }
+      showToast("Task created.");
+    }
+
+    closeTaskModal();
+    await loadTasks();
+  }
+
+  async function deleteTask() {
+    if (!editingTaskId) return;
+    if (!window.confirm("Delete this task? This cannot be undone.")) return;
+    const { error } = await db.from("tasks").delete().eq("id", editingTaskId);
+    if (error) { showToast("Delete failed: " + error.message, true); return; }
+    showToast("Task deleted.");
+    closeTaskModal();
+    await loadTasks();
+  }
+
+  // ── Manage Boards modal ──
+  function openManageBoards() {
+    if (!isAdmin) return;
+    renderManageBoards();
+    document.getElementById("manage-boards-modal").classList.remove("hidden");
+  }
+  function closeManageBoards() {
+    document.getElementById("manage-boards-modal").classList.add("hidden");
+  }
+
+  function renderManageBoards() {
+    const body = document.getElementById("manage-boards-body");
+    body.innerHTML = "";
+    boards.forEach(function(b) {
+      const cols = columnsByBoardId[b.id] || [];
+      const colNames = cols.map(function(c) { return c.name; }).join(" · ");
+      const item = document.createElement("div");
+      item.className = "board-list-item";
+      item.innerHTML =
+        "<span class='board-icon'>" + escapeHtml(b.icon || "•") + "</span>" +
+        "<div style='flex:1;'>" +
+          "<div class='board-name'>" + escapeHtml(b.name) + (b.is_default ? " <span style='font-size:10px;color:var(--accent);font-weight:700;'>DEFAULT</span>" : "") + "</div>" +
+          "<div class='board-cols'>" + escapeHtml(colNames || "(no columns)") + "</div>" +
+        "</div>" +
+        "<button class='btn-secondary' data-edit-board='" + b.id + "'>Edit</button>";
+      body.appendChild(item);
+    });
+
+    // Wire up Edit buttons
+    body.querySelectorAll("[data-edit-board]").forEach(function(btn) {
+      btn.onclick = function() { openEditBoard(btn.dataset.editBoard); };
+    });
+  }
+
+  function openEditBoard(boardId) {
+    editingBoardId = boardId;
+    let b = boardId ? boards.find(function(x) { return x.id === boardId; }) : null;
+    if (!b) {
+      // New board
+      b = { id: null, name: "", slug: "", icon: "📁", position: boards.length, is_default: false };
+      editingBoardCols = [
+        { id: null, name: "To Do", position: 0, is_done: false },
+        { id: null, name: "Doing", position: 1, is_done: false },
+        { id: null, name: "Done",  position: 2, is_done: true  }
+      ];
+    } else {
+      editingBoardCols = (columnsByBoardId[b.id] || []).map(function(c) { return Object.assign({}, c); });
+    }
+    document.getElementById("edit-board-modal-title").textContent = b.id ? ("Edit Board: " + b.name) : "New Board";
+    document.getElementById("edit-board-name").value = b.name || "";
+    document.getElementById("edit-board-icon").value = b.icon || "";
+    document.getElementById("edit-board-slug").value = b.slug || "";
+    document.getElementById("edit-board-default").checked = !!b.is_default;
+    document.getElementById("delete-board-btn").style.display = b.id ? "" : "none";
+    renderEditBoardCols();
+    closeManageBoards();
+    document.getElementById("edit-board-modal").classList.remove("hidden");
+  }
+  function closeEditBoard() {
+    document.getElementById("edit-board-modal").classList.add("hidden");
+    editingBoardId = null;
+    editingBoardCols = [];
+    openManageBoards();
+  }
+
+  function renderEditBoardCols() {
+    const list = document.getElementById("edit-board-cols");
+    list.innerHTML = "";
+    editingBoardCols.forEach(function(c, idx) {
+      const row = document.createElement("div");
+      row.className = "col-row";
+      row.dataset.idx = idx;
+      row.innerHTML =
+        "<span style='cursor:grab;color:var(--muted);'>⋮⋮</span>" +
+        "<input type='text' value='" + escapeHtml(c.name) + "' />" +
+        "<span class='is-done-badge " + (c.is_done ? "" : "inactive") + "' title='Click to toggle Done column'>" + (c.is_done ? "● Done" : "○") + "</span>" +
+        "<button class='col-delete-btn' title='Delete column'>✕</button>";
+
+      // Rename
+      row.querySelector("input").onchange = function(e) {
+        editingBoardCols[idx].name = e.target.value.trim();
+      };
+      // Toggle is_done
+      row.querySelector(".is-done-badge").onclick = function() {
+        editingBoardCols.forEach(function(cc, i) { cc.is_done = (i === idx) ? !cc.is_done : false; });
+        renderEditBoardCols();
+      };
+      // Delete
+      row.querySelector(".col-delete-btn").onclick = function() {
+        editingBoardCols.splice(idx, 1);
+        editingBoardCols.forEach(function(cc, i) { cc.position = i; });
+        renderEditBoardCols();
+      };
+
+      list.appendChild(row);
+    });
+
+    // Drag-reorder
+    new Sortable(list, {
+      animation: 150,
+      handle: "span:first-child",
+      onEnd: function(evt) {
+        const [moved] = editingBoardCols.splice(evt.oldIndex, 1);
+        editingBoardCols.splice(evt.newIndex, 0, moved);
+        editingBoardCols.forEach(function(c, i) { c.position = i; });
+        renderEditBoardCols();
+      }
+    });
+  }
+
+  function addColumnToEdit() {
+    editingBoardCols.push({
+      id: null,
+      name: "New Column",
+      position: editingBoardCols.length,
+      is_done: false
+    });
+    renderEditBoardCols();
+  }
+
+  async function saveEditBoard() {
+    const name = document.getElementById("edit-board-name").value.trim();
+    if (!name) { showToast("Board name is required.", true); return; }
+    let slug = (document.getElementById("edit-board-slug").value.trim() ||
+                name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""));
+    const icon = document.getElementById("edit-board-icon").value.trim() || "📁";
+    const isDefault = document.getElementById("edit-board-default").checked;
+
+    if (!editingBoardCols.length) { showToast("Add at least one column.", true); return; }
+
+    const cleanCols = editingBoardCols.map(function(c, i) {
+      return { id: c.id, name: (c.name || "").trim() || "Column " + (i+1), position: i, is_done: !!c.is_done };
+    });
+
+    // Ensure exactly one is_done column (mark the last one if none set)
+    const doneCount = cleanCols.filter(function(c) { return c.is_done; }).length;
+    if (doneCount === 0) cleanCols[cleanCols.length - 1].is_done = true;
+
+    let boardId = editingBoardId;
+    try {
+      if (boardId) {
+        // Update existing
+        if (isDefault) {
+          // Clear other defaults first
+          await db.from("boards").update({ is_default: false }).neq("id", boardId);
+        }
+        const { error } = await db.from("boards").update({
+          name: name, slug: slug, icon: icon, is_default: isDefault,
+          updated_at: new Date().toISOString()
+        }).eq("id", boardId);
+        if (error) throw error;
+
+        // Diff columns
+        const existingCols = columnsByBoardId[boardId] || [];
+        const existingIds  = existingCols.map(function(c){ return c.id; });
+        const keptIds      = cleanCols.filter(function(c){ return c.id; }).map(function(c){ return c.id; });
+        const toDelete     = existingIds.filter(function(id){ return keptIds.indexOf(id) < 0; });
+
+        // For deleted columns: move their tasks to the LEFTMOST remaining column.
+        if (toDelete.length) {
+          const leftmost = cleanCols[0];
+          // Need leftmost to have an ID — if it's new, insert it first
+          let leftmostId = leftmost.id;
+          if (!leftmostId) {
+            const { data: newCol, error: ncErr } = await db.from("board_columns")
+              .insert({ board_id: boardId, name: leftmost.name, position: 0, is_done: leftmost.is_done })
+              .select().single();
+            if (ncErr) throw ncErr;
+            leftmost.id = newCol.id;
+            leftmostId = newCol.id;
+          }
+          // Move tasks
+          await db.from("tasks").update({ column_id: leftmostId }).in("column_id", toDelete);
+          // Delete columns
+          await db.from("board_columns").delete().in("id", toDelete);
+        }
+
+        // Upsert kept/new columns
+        for (let i = 0; i < cleanCols.length; i++) {
+          const c = cleanCols[i];
+          if (c.id) {
+            await db.from("board_columns").update({
+              name: c.name, position: i, is_done: c.is_done
+            }).eq("id", c.id);
+          } else {
+            const { data: ins, error: insErr } = await db.from("board_columns")
+              .insert({ board_id: boardId, name: c.name, position: i, is_done: c.is_done })
+              .select().single();
+            if (insErr) throw insErr;
+            c.id = ins.id;
+          }
+        }
+      } else {
+        // New board
+        if (isDefault) {
+          await db.from("boards").update({ is_default: false }).neq("id", "00000000-0000-0000-0000-000000000000");
+        }
+        const { data: nb, error: bErr } = await db.from("boards").insert({
+          name: name, slug: slug, icon: icon, position: boards.length, is_default: isDefault
+        }).select().single();
+        if (bErr) throw bErr;
+        boardId = nb.id;
+
+        // Insert columns
+        for (let i = 0; i < cleanCols.length; i++) {
+          const c = cleanCols[i];
+          await db.from("board_columns").insert({
+            board_id: boardId, name: c.name, position: i, is_done: c.is_done
+          });
+        }
+      }
+
+      showToast("Board saved.");
+      document.getElementById("edit-board-modal").classList.add("hidden");
+      await loadBoardsAndColumns();
+      await loadTasks();
+      activeBoardId = boardId;
+      renderBoardTabs();
+      renderBoard();
+      // Re-open manage list
+      openManageBoards();
+    } catch (err) {
+      showToast("Save failed: " + (err.message || err), true);
+    }
+  }
+
+  async function deleteBoard() {
+    if (!editingBoardId) return;
+    const tasksOnBoard = tasks.filter(function(t) { return t.board_id === editingBoardId; });
+    const msg = tasksOnBoard.length
+      ? "This board has " + tasksOnBoard.length + " task(s). Deleting will permanently remove them. Continue?"
+      : "Delete this board?";
+    if (!window.confirm(msg)) return;
+    // Tasks first (ON DELETE CASCADE on board_columns handles columns; tasks have FK to boards but no cascade)
+    if (tasksOnBoard.length) {
+      await db.from("tasks").delete().eq("board_id", editingBoardId);
+    }
+    await db.from("board_columns").delete().eq("board_id", editingBoardId);
+    const { error } = await db.from("boards").delete().eq("id", editingBoardId);
+    if (error) { showToast("Delete failed: " + error.message, true); return; }
+    showToast("Board deleted.");
+    document.getElementById("edit-board-modal").classList.add("hidden");
+    await loadBoardsAndColumns();
+    await loadTasks();
+    if (activeBoardId === editingBoardId) {
+      activeBoardId = boards[0] ? boards[0].id : null;
+    }
+    renderBoardTabs();
+    renderBoard();
+    openManageBoards();
+  }
+
+  // ── Manage Staff Names (admin only) ──
+  function openManageNames() {
+    if (!isAdmin) return;
+    renderManageNamesList();
+    document.getElementById("manage-names-modal").classList.remove("hidden");
+  }
+  function closeManageNames() {
+    document.getElementById("manage-names-modal").classList.add("hidden");
+  }
+  function renderManageNamesList() {
+    const list = document.getElementById("manage-names-list");
+    list.innerHTML = "";
+    staffList.forEach(function(s) {
+      const row = document.createElement("div");
+      row.style.cssText = "padding:10px 0; border-bottom:1px solid #eee; display:grid; grid-template-columns: 44px 1fr; gap:10px; align-items:start;";
+
+      // Avatar preview (left column)
+      const avatar = document.createElement("div");
+      avatar.style.cssText = "padding-top:2px;";
+      avatar.innerHTML = avatarHtml(s.user_id, 40);
+
+      // Right column: email subtitle + name input + color swatches + photo upload
+      const right = document.createElement("div");
+      right.style.cssText = "display:flex; flex-direction:column; gap:6px;";
+      right.innerHTML =
+        "<div style='font-size:10.5px; color:var(--muted);'>" + escapeHtml(s.email) + (s.role ? "  ·  " + escapeHtml(s.role) : "") + "</div>" +
+        "<input type='text' class='ms-name' style='border:1px solid var(--border); border-radius:6px; padding:6px 9px; font-size:12.5px;' " +
+              "placeholder='Display name (e.g. Maria Lopez)' value='" + escapeHtml(s.display_name || "") + "' />" +
+        "<div class='color-swatch-row ms-colors'></div>" +
+        "<div style='display:flex; gap:6px; align-items:center; flex-wrap:wrap;'>" +
+          "<input type='file' class='ms-photo' accept='image/*' style='font-size:11px;' />" +
+          "<button class='btn-secondary ms-clear-photo' style='font-size:10px; padding:3px 7px;' " +
+                  (s.photo_url ? "" : "disabled") + ">Clear photo</button>" +
+          "<span style='flex:1;'></span>" +
+          "<button class='btn-primary ms-save' style='font-size:11px; padding:5px 12px;'>Save</button>" +
+        "</div>";
+
+      row.appendChild(avatar);
+      row.appendChild(right);
+      list.appendChild(row);
+
+      // Color swatches
+      const colorsEl = right.querySelector(".ms-colors");
+      const unsetSwatch = document.createElement("div");
+      unsetSwatch.className = "color-swatch unset";
+      unsetSwatch.title = "Auto (no color)";
+      unsetSwatch.textContent = "✕";
+      unsetSwatch.dataset.hex = "";
+      colorsEl.appendChild(unsetSwatch);
+      PRESET_COLORS.forEach(function(p) {
+        const sw = document.createElement("div");
+        sw.className = "color-swatch";
+        sw.style.background = p.hex;
+        sw.dataset.hex = p.hex;
+        sw.title = p.name;
+        colorsEl.appendChild(sw);
+      });
+      // Highlight selected
+      const currentColor = (s.display_color || "").toLowerCase();
+      colorsEl.querySelectorAll(".color-swatch").forEach(function(sw) {
+        if (sw.dataset.hex.toLowerCase() === currentColor) sw.classList.add("selected");
+      });
+      colorsEl.addEventListener("click", function(e) {
+        const sw = e.target.closest(".color-swatch");
+        if (!sw) return;
+        colorsEl.querySelectorAll(".color-swatch").forEach(function(x) { x.classList.remove("selected"); });
+        sw.classList.add("selected");
+      });
+
+      // Wire up Save
+      right.querySelector(".ms-save").onclick = async function(e) {
+        const btn = e.currentTarget;
+        const newName = right.querySelector(".ms-name").value.trim();
+        const selectedSwatch = colorsEl.querySelector(".color-swatch.selected");
+        const newColor = selectedSwatch ? selectedSwatch.dataset.hex : "";
+        const fileInput = right.querySelector(".ms-photo");
+        const file = fileInput.files && fileInput.files[0];
+
+        btn.disabled = true; btn.textContent = "Saving…";
+
+        let newPhotoUrl = null; // null = unchanged
+        if (file) {
+          // Upload to staff-photos bucket
+          const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
+          const path = s.user_id + "." + ext;
+          const { error: upErr } = await db.storage.from("staff-photos").upload(path, file, {
+            cacheControl: "3600",
+            upsert: true,
+            contentType: file.type || "image/jpeg"
+          });
+          if (upErr) {
+            btn.disabled = false; btn.textContent = "Save";
+            showToast("Photo upload failed: " + upErr.message, true);
+            return;
+          }
+          // Public URL (bucket is public-read)
+          const { data: pubData } = db.storage.from("staff-photos").getPublicUrl(path);
+          // Cache-bust so the new image appears even if URL is the same as before
+          newPhotoUrl = pubData.publicUrl + "?t=" + Date.now();
+        }
+
+        // Save profile fields. Color: empty string means clear it (handled
+        // by NULLIF in the SQL function). Same for name.
+        const { error } = await db.rpc("upsert_staff_profile", {
+          p_user_id:        s.user_id,
+          p_display_name:   newName,        // empty trims to NULL via SQL
+          p_display_color:  newColor,       // empty trims to NULL via SQL
+          p_photo_url:      newPhotoUrl     // null = unchanged
+        });
+        btn.disabled = false; btn.textContent = "Save";
+        if (error) {
+          showToast("Save failed: " + error.message, true);
+          return;
+        }
+
+        // If user explicitly cleared display_name with empty string, also call clear_staff_field
+        // (the upsert function uses COALESCE so an explicit clear needs special handling)
+        if (newName === "" && s.display_name) {
+          await db.rpc("clear_staff_field", { p_user_id: s.user_id, p_field: "display_name" });
+        }
+        if (newColor === "" && s.display_color) {
+          await db.rpc("clear_staff_field", { p_user_id: s.user_id, p_field: "display_color" });
+        }
+
+        // Update local cache so dropdowns/cards re-render correctly
+        s.display_name  = newName  || null;
+        s.display_color = newColor || null;
+        if (newPhotoUrl) s.photo_url = newPhotoUrl;
+        staffByUserId[s.user_id] = s;
+
+        // Update avatar preview in this row
+        avatar.innerHTML = avatarHtml(s.user_id, 40);
+        right.querySelector(".ms-clear-photo").disabled = !s.photo_url;
+        fileInput.value = "";
+
+        showToast("Saved.");
+        renderBoard();
+      };
+
+      // Clear photo
+      right.querySelector(".ms-clear-photo").onclick = async function(e) {
+        if (!s.photo_url) return;
+        if (!window.confirm("Remove this user's photo?")) return;
+        const btn = e.currentTarget;
+        btn.disabled = true; btn.textContent = "Clearing…";
+        // Best-effort delete file (ignore errors — old extensions may differ)
+        ["jpg","jpeg","png","webp","gif"].forEach(function(ext) {
+          db.storage.from("staff-photos").remove([s.user_id + "." + ext]);
+        });
+        await db.rpc("clear_staff_field", { p_user_id: s.user_id, p_field: "photo_url" });
+        s.photo_url = null;
+        staffByUserId[s.user_id] = s;
+        avatar.innerHTML = avatarHtml(s.user_id, 40);
+        btn.disabled = true; btn.textContent = "Clear photo";
+        showToast("Photo removed.");
+        renderBoard();
+      };
+    });
+    if (!staffList.length) {
+      list.innerHTML = "<div style='color:var(--muted); padding:20px; text-align:center;'>No staff loaded.</div>";
+    }
+  }
+
+  // ── Realtime ──
+  function setupRealtime() {
+    if (realtimeChannel) { try { db.removeChannel(realtimeChannel); } catch(e){} }
+    realtimeChannel = db
+      .channel("kanban-realtime-v1")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks" }, function(payload) {
+        // Re-fetch tasks (cheap; small dataset)
+        loadTasks();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "boards" }, function(payload) {
+        loadBoardsAndColumns();
+      })
+      .on("postgres_changes", { event: "*", schema: "public", table: "board_columns" }, function(payload) {
+        loadBoardsAndColumns().then(function() { renderBoard(); });
+      })
+      .subscribe();
+  }
+
+  // ── URL state on load ──
+  function applyURLState() {
+    const params = new URLSearchParams(window.location.search);
+    const filter = params.get("filter");
+    if (filter && ["all","mine","overdue","due-today"].indexOf(filter) >= 0) {
+      activeFilter = filter;
+      document.querySelectorAll(".filter-pill").forEach(function(b) {
+        b.classList.toggle("active", b.dataset.filter === filter);
+      });
+    }
+    const linked = params.get("linked");
+    if (linked) {
+      // Filter to only tasks linked to this entity (advanced filter)
+      // For v1: show all and rely on user search
+    }
+  }
+
+  // ── Helpers ──
+  function escapeHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+      return ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" })[c];
+    });
+  }
+  function showToast(msg, isError) {
+    const t = document.getElementById("toast");
+    t.textContent = msg;
+    t.className = "show" + (isError ? " error" : "");
+    setTimeout(function(){ t.className = ""; }, isError ? 4000 : 2200);
+  }
+
+  // ── Wire-up ──
+  document.getElementById("login-btn").onclick = doSignIn;
+  document.getElementById("login-password").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") doSignIn();
+  });
+  document.getElementById("login-email").addEventListener("keydown", function(e) {
+    if (e.key === "Enter") document.getElementById("login-password").focus();
+  });
+
+  document.getElementById("new-task-btn").onclick = function() { openTaskModal(null); };
+
+  document.querySelectorAll(".filter-pill").forEach(function(b) {
+    b.onclick = function() {
+      activeFilter = b.dataset.filter;
+      document.querySelectorAll(".filter-pill").forEach(function(x) { x.classList.toggle("active", x === b); });
+      const url = new URL(window.location);
+      url.searchParams.set("filter", activeFilter);
+      window.history.replaceState({}, "", url);
+      renderBoard();
+    };
+  });
+
+  document.getElementById("search-input").addEventListener("input", function(e) {
+    searchQuery = e.target.value;
+    renderBoard();
+  });
+
+  document.getElementById("archive-toggle-btn").onclick = async function() {
+    showArchived = !showArchived;
+    document.getElementById("archive-toggle-btn").textContent = showArchived ? "Hide archived" : "Show archived";
+    if (showArchived && !archivedTasks.length) await loadArchivedTasks();
+    renderBoard();
+  };
+
+  document.getElementById("board-manage-btn").onclick = openManageBoards;
+  document.getElementById("manage-names-btn").onclick = openManageNames;
+  document.getElementById("add-board-btn").onclick = function() { openEditBoard(null); };
+  document.getElementById("add-column-btn").onclick = addColumnToEdit;
+  document.getElementById("edit-board-save-btn").onclick = saveEditBoard;
+  document.getElementById("delete-board-btn").onclick = deleteBoard;
+  document.getElementById("task-save-btn").onclick = saveTask;
+  document.getElementById("task-delete-btn").onclick = deleteTask;
+
+  // SLA preset buttons
+  document.querySelectorAll(".sla-preset-btn").forEach(function(btn) {
+    btn.onclick = function() {
+      modalSlaPreset = btn.dataset.sla;
+      document.querySelectorAll(".sla-preset-btn").forEach(function(b) { b.classList.remove("active"); });
+      btn.classList.add("active");
+      const customInput = document.getElementById("sla-custom-input");
+      if (modalSlaPreset === "custom") {
+        customInput.style.display = "block";
+        if (!modalDueAt) modalDueAt = new Date(Date.now() + 86400000).toISOString();
+        document.getElementById("task-due-at").value = isoToLocal(modalDueAt);
+      } else if (modalSlaPreset) {
+        customInput.style.display = "none";
+        const due = computePresetDue(modalSlaPreset);
+        modalDueAt = due.toISOString();
+      } else {
+        customInput.style.display = "none";
+        modalDueAt = null;
+      }
+      refreshSlaPreview();
+    };
+  });
+  document.getElementById("task-due-at").addEventListener("change", function() {
+    if (modalSlaPreset === "custom") refreshSlaPreview();
+  });
+
+  // Auth state listener
+  db.auth.onAuthStateChange(function(event, session) {
+    if (!session) document.getElementById("login-screen").style.display = "flex";
+  });
+
+  // Pre-fill linked entity from URL (when arriving via "+ Task" from another portal page)
+  (function() {
+    const params = new URLSearchParams(window.location.search);
+    const linkType = params.get("link_type");
+    const linkId   = params.get("link_id");
+    const linkLabel = params.get("link_label");
+    if (linkType && linkId) {
+      // Stash and apply when modal opens; for now, auto-open the new-task modal
+      window._pendingLink = { type: linkType, id: linkId, label: linkLabel || "" };
+    }
+  })();
+
+  // If there's a pending link from URL, open the modal automatically once we're loaded
+  function maybeOpenWithPendingLink() {
+    if (window._pendingLink) {
+      modalLinkedEntityType  = window._pendingLink.type;
+      modalLinkedEntityId    = window._pendingLink.id;
+      modalLinkedEntityLabel = window._pendingLink.label;
+      window._pendingLink = null;
+      // Strip from URL
+      const url = new URL(window.location);
+      url.searchParams.delete("link_type");
+      url.searchParams.delete("link_id");
+      url.searchParams.delete("link_label");
+      window.history.replaceState({}, "", url);
+      openTaskModal(null);
+      // Override link area now that the modal is open
+      refreshLinkedDisplay();
+    }
+  }
+
+  // Hook into launchApp
+  const origLaunchApp = launchApp;
+  launchApp = async function(user) {
+    await origLaunchApp(user);
+    setTimeout(maybeOpenWithPendingLink, 200);
+  };
+
+  // ── Boot ──
+  checkSession();
+</script>
+<script src="chat-widget.js"></script>
+</body>
+</html>
