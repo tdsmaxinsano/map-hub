@@ -28,6 +28,11 @@
   if (window.__dcsChatWidgetLoaded) return;
   window.__dcsChatWidgetLoaded = true;
 
+  // ── If we're inside the iframe shell, the shell-level chat widget is the
+  // canonical instance. Don't inject a second copy inside each iframe.
+  // (Tools accessed standalone — not inside the shell — still get the widget.)
+  if (window.self !== window.top) return;
+
   // ── Config (mirrors other portal pages)
   const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
   const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
