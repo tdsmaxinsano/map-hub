@@ -607,7 +607,7 @@ async function loadRoster() {
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
-      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, derived_start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags")
       .limit(5000)
   ]);
 
@@ -636,7 +636,9 @@ async function loadRoster() {
       last_reviewed_by: p.last_reviewed_by || null,
       // Newly-exposed profile fields
       start_date: p.start_date || null,
-      derived_start_date: p.derived_start_date || null,
+      // derived_start_date is stored inside the tags JSONB (tags.derivedStartDate)
+      // — same place the map's persistClinicianDerivedStartDates() writes it.
+      derived_start_date: (p.tags && typeof p.tags === "object" && (p.tags.derivedStartDate || p.tags.derived_start_date)) || null,
       internal_rating: typeof p.internal_rating === "number" ? p.internal_rating : (p.internal_rating ? Number(p.internal_rating) : null),
       phone: p.phone || "",
       email: p.email || "",
