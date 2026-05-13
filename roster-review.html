@@ -130,6 +130,15 @@
   }
   .date-input:focus { border-color: var(--accent); }
   .date-input:disabled { background: #f3f4f6; color: #cbd5e1; }
+  /* Derived hire date (came from earliest service, no explicit start_date yet) */
+  .date-input.derived { color: var(--muted); font-style: italic; border-style: dashed; }
+  .derived-tag {
+    display: inline-block; margin-left: 4px;
+    font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+    color: var(--muted); letter-spacing: 0.4px;
+    background: #f1f5f9; padding: 1px 5px; border-radius: 8px;
+    vertical-align: middle;
+  }
   .reason-input {
     width: 100%; padding: 4px 7px; border-radius: 5px;
     border: 1px solid var(--border); font-size: 12px; outline: none;
@@ -598,7 +607,7 @@ async function loadRoster() {
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
-      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, derived_start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable")
       .limit(5000)
   ]);
 
@@ -627,6 +636,7 @@ async function loadRoster() {
       last_reviewed_by: p.last_reviewed_by || null,
       // Newly-exposed profile fields
       start_date: p.start_date || null,
+      derived_start_date: p.derived_start_date || null,
       internal_rating: typeof p.internal_rating === "number" ? p.internal_rating : (p.internal_rating ? Number(p.internal_rating) : null),
       phone: p.phone || "",
       email: p.email || "",
@@ -793,10 +803,25 @@ function buildRow(r) {
         placeholder="${r.status === "Paused" ? "Why paused?" : "—"}"
         ${r.status !== "Paused" ? "disabled" : ""}${dis} />
     </td>`,
-    hireDate: `<td data-col="hireDate">
-      <input type="date" class="date-input start-date" data-cid="${cid}"
-        value="${escAttr(fmtDateInput(r.start_date))}"${dis} />
-    </td>`,
+    hireDate: (() => {
+      // Same logic as the map's getStartDateValue: explicit start_date wins,
+      // else fall back to derived_start_date (computed from earliest completed
+      // service). When the user edits, we always save to start_date — that
+      // promotes a derived value to an explicit one (same as the map).
+      const effective = r.start_date || r.derived_start_date || null;
+      const isDerived = !r.start_date && !!r.derived_start_date;
+      const tip = isDerived
+        ? "Derived from earliest completed service. Edit to set an explicit hire date."
+        : (r.start_date ? "Explicit hire date" : "No hire date set");
+      return `<td data-col="hireDate">
+        <input type="date"
+          class="date-input start-date${isDerived ? " derived" : ""}"
+          data-cid="${cid}"
+          title="${escAttr(tip)}"
+          value="${escAttr(fmtDateInput(effective))}"${dis} />
+        ${isDerived ? '<span class="derived-tag" title="Derived from earliest visit">derived</span>' : ""}
+      </td>`;
+    })(),
     rating: `<td data-col="rating">
       <input type="number" class="num-input rating-input" data-cid="${cid}"
         min="0" max="5" step="1"
@@ -974,7 +999,10 @@ async function saveStartDate(cid, dateStr) {
   row.start_date = dateStr || null;
   try { await saveProfileField(cid, "start_date", dateStr || null); }
   catch (e) { return; }
-  showToast("Hire date saved");
+  // Re-render so the "derived" indicator updates (explicit start_date now
+  // outranks any derived_start_date; clearing falls back to derived if any).
+  renderTable();
+  showToast(dateStr ? "Hire date saved" : "Hire date cleared (falling back to derived)");
 }
 
 async function saveRating(cid, val) {
@@ -1251,7 +1279,7 @@ function exportCsv(onlySelected) {
   const headers = [
     "name", "discipline", "status",
     "pause_start", "pause_end", "pause_reason",
-    "hire_date", "rating", "phone", "email",
+    "hire_date", "hire_date_source", "rating", "phone", "email",
     "emr_strata", "emr_therapy_boss", "emr_axxess", "emr_kinnser",
     "restricted_agencies", "restricted_clinicians",
     "notes", "do_not_rehire",
@@ -1276,7 +1304,8 @@ function exportCsv(onlySelected) {
       r.pause_start_date || "",
       r.pause_end_date || "",
       r.pause_reason || "",
-      r.start_date || "",
+      r.start_date || r.derived_start_date || "",
+      r.start_date ? "explicit" : (r.derived_start_date ? "derived" : ""),
       r.internal_rating != null ? r.internal_rating : "",
       r.phone || "",
       r.email || "",
