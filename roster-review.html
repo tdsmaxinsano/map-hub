@@ -172,6 +172,36 @@
   .sel-cell { width: 28px; text-align: center; }
   .sel-cell input { accent-color: var(--accent); cursor: pointer; }
 
+  .num-input { width: 56px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; outline: none; }
+  .num-input:focus { border-color: var(--accent); }
+  .text-input { width: 100%; min-width: 110px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; outline: none; }
+  .text-input:focus { border-color: var(--accent); }
+  .emr-chips { display: flex; flex-wrap: wrap; gap: 3px; max-width: 160px; }
+  .emr-chip {
+    display: inline-block; padding: 1px 6px; border-radius: 8px;
+    font-size: 10px; font-weight: 700;
+    background: #ecfeff; color: #155e75; border: 1px solid #a5f3fc;
+  }
+  .emr-chip.off { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; opacity: 0.5; }
+
+  /* Column picker */
+  .col-picker-wrap { position: relative; }
+  .col-picker-menu {
+    position: absolute; right: 0; top: calc(100% + 4px);
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+    padding: 8px 4px; min-width: 180px; z-index: 30;
+    display: none;
+  }
+  .col-picker-menu.open { display: block; }
+  .col-picker-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 5px 12px; font-size: 12px; cursor: pointer;
+    border-radius: 5px;
+  }
+  .col-picker-item:hover { background: #f1f5f9; }
+  .col-picker-item input { accent-color: var(--accent); }
+
   /* ── Drawer (right slide-over) ── */
   .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.32); display: none; z-index: 60; }
   .drawer-overlay.open { display: block; }
@@ -311,6 +341,10 @@
       <span class="chip preset" id="preset-paused-long">💤 Paused 30d+</span>
     </div>
     <input type="text" class="filter-search" id="search-input" placeholder="Search by name…" />
+    <div class="col-picker-wrap">
+      <button class="btn-export" id="col-picker-btn">Columns ▾</button>
+      <div class="col-picker-menu" id="col-picker-menu"></div>
+    </div>
     <button class="btn-export" id="csv-btn">⬇ CSV</button>
   </div>
 
@@ -319,21 +353,26 @@
     <table class="roster" id="roster-table">
       <thead>
         <tr>
-          <th class="sel-cell"><input type="checkbox" id="select-all" /></th>
-          <th>Name</th>
-          <th>Disc</th>
-          <th>Status</th>
-          <th>Pause Start</th>
-          <th>Pause End</th>
-          <th>Reason</th>
-          <th>Restrictions</th>
-          <th>Notes</th>
-          <th>DNR</th>
-          <th>✓ Reviewed</th>
+          <th class="sel-cell" data-col="select"><input type="checkbox" id="select-all" /></th>
+          <th data-col="name">Name</th>
+          <th data-col="disc">Disc</th>
+          <th data-col="status">Status</th>
+          <th data-col="pauseStart">Pause Start</th>
+          <th data-col="pauseEnd">Pause End</th>
+          <th data-col="reason">Reason</th>
+          <th data-col="hireDate">Hire Date</th>
+          <th data-col="rating">Rating</th>
+          <th data-col="phone">Phone</th>
+          <th data-col="email">Email</th>
+          <th data-col="emr">EMR</th>
+          <th data-col="restrictions">Restrictions</th>
+          <th data-col="notes">Notes</th>
+          <th data-col="dnr">DNR</th>
+          <th data-col="reviewed">✓ Reviewed</th>
         </tr>
       </thead>
       <tbody id="roster-body">
-        <tr class="loading-row"><td colspan="11">Loading…</td></tr>
+        <tr class="loading-row"><td colspan="16">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -386,6 +425,32 @@ const DISC_COLOR = {
 };
 const STATUS_VALUES = ["Active", "Paused", "Inactive"];
 
+// Column definitions for the visibility picker. Order = render order.
+const COLUMNS = [
+  { key: "select",       label: "Select",       always: true,  defaultOn: true  },
+  { key: "name",         label: "Name",         always: true,  defaultOn: true  },
+  { key: "disc",         label: "Discipline",   defaultOn: true  },
+  { key: "status",       label: "Status",       defaultOn: true  },
+  { key: "pauseStart",   label: "Pause Start",  defaultOn: true  },
+  { key: "pauseEnd",     label: "Pause End",    defaultOn: true  },
+  { key: "reason",       label: "Pause Reason", defaultOn: true  },
+  { key: "hireDate",     label: "Hire Date",    defaultOn: true  },
+  { key: "rating",       label: "Rating",       defaultOn: true  },
+  { key: "phone",        label: "Phone",        defaultOn: false },
+  { key: "email",        label: "Email",        defaultOn: false },
+  { key: "emr",          label: "EMR",          defaultOn: false },
+  { key: "restrictions", label: "Restrictions", defaultOn: true  },
+  { key: "notes",        label: "Notes",        defaultOn: true  },
+  { key: "dnr",          label: "DNR flag",     defaultOn: true  },
+  { key: "reviewed",     label: "✓ Reviewed",   defaultOn: true  }
+];
+const EMR_KEYS = [
+  { key: "strata",      label: "Strata" },
+  { key: "therapyBoss", label: "TB" },
+  { key: "axxess",      label: "Axxess" },
+  { key: "kinnser",     label: "Kinnser" }
+];
+
 // ══════════════════════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════════════════════
@@ -403,6 +468,21 @@ let filters = {
   pausedLong: false
 };
 let realtimeChannel = null;
+let visibleCols = loadVisibleCols(); // {key: bool}
+
+function loadVisibleCols() {
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem("dcs_roster_columns") || "null"); } catch (e) {}
+  const out = {};
+  COLUMNS.forEach(c => {
+    if (c.always) { out[c.key] = true; return; }
+    out[c.key] = stored && typeof stored[c.key] === "boolean" ? stored[c.key] : !!c.defaultOn;
+  });
+  return out;
+}
+function saveVisibleCols() {
+  try { localStorage.setItem("dcs_roster_columns", JSON.stringify(visibleCols)); } catch (e) {}
+}
 
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
@@ -486,6 +566,8 @@ async function launchApp(user) {
 
   // Load staff directory for "reviewed by" display
   loadStaffDirectory();
+  // Build the column picker (uses current visibleCols from localStorage)
+  renderColumnPicker();
   // Load the roster and render
   await loadRoster();
   setupRealtime();
@@ -516,7 +598,7 @@ async function loadRoster() {
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
-      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable")
       .limit(5000)
   ]);
 
@@ -542,7 +624,14 @@ async function loadRoster() {
       restrictions: normRestrictions(p.restrictions),
       notes: p.notes || "",
       last_reviewed_at: p.last_reviewed_at || null,
-      last_reviewed_by: p.last_reviewed_by || null
+      last_reviewed_by: p.last_reviewed_by || null,
+      // Newly-exposed profile fields
+      start_date: p.start_date || null,
+      internal_rating: typeof p.internal_rating === "number" ? p.internal_rating : (p.internal_rating ? Number(p.internal_rating) : null),
+      phone: p.phone || "",
+      email: p.email || "",
+      emr_capabilities: p.emr_capabilities || null,
+      therapy_boss_unavailable: !!p.therapy_boss_unavailable
     };
   });
 
@@ -623,13 +712,35 @@ function passesFilters(r) {
 }
 
 function renderTable() {
+  // Sync <th> visibility with current column choices
+  document.querySelectorAll("#roster-table thead th[data-col]").forEach(th => {
+    th.style.display = visibleCols[th.dataset.col] === false ? "none" : "";
+  });
+  const visibleColCount = COLUMNS.filter(c => visibleCols[c.key]).length;
   const body = document.getElementById("roster-body");
   const visible = rosterRows.filter(passesFilters);
   if (!visible.length) {
-    body.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--muted);">No clinicians match the current filters.</td></tr>';
+    body.innerHTML = '<tr><td colspan="' + visibleColCount + '" style="text-align:center;padding:30px;color:var(--muted);">No clinicians match the current filters.</td></tr>';
     return;
   }
   body.innerHTML = visible.map(buildRow).join("");
+}
+
+function renderColumnPicker() {
+  const menu = document.getElementById("col-picker-menu");
+  menu.innerHTML = COLUMNS.filter(c => !c.always).map(c => `
+    <label class="col-picker-item">
+      <input type="checkbox" data-col-key="${escAttr(c.key)}" ${visibleCols[c.key] ? "checked" : ""} />
+      ${escHtml(c.label)}
+    </label>
+  `).join("");
+  menu.querySelectorAll("input[data-col-key]").forEach(cb => {
+    cb.addEventListener("change", () => {
+      visibleCols[cb.dataset.colKey] = cb.checked;
+      saveVisibleCols();
+      renderTable();
+    });
+  });
 }
 
 function buildRow(r) {
@@ -647,59 +758,105 @@ function buildRow(r) {
   const rowClass = "row-" + r.status.toLowerCase() + (isSel ? " selected" : "");
   const canEdit = currentRole === "admin" || currentRole === "editor";
   const dis = canEdit ? "" : " disabled";
+  const cid = escAttr(r.id);
 
-  return `
-    <tr class="${rowClass}" data-cid="${escAttr(r.id)}">
-      <td class="sel-cell">
-        <input type="checkbox" class="row-sel" data-cid="${escAttr(r.id)}" ${isSel ? "checked" : ""} />
-      </td>
-      <td class="name-cell">
-        <a href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(r.name)}</a>
-      </td>
-      <td><span class="disc-pill" style="background:${discColor};">${escHtml(r.discipline || "—")}</span></td>
-      <td class="status-cell">
-        <select class="status-select status-${r.status}" data-cid="${escAttr(r.id)}"${dis}>
-          ${STATUS_VALUES.map(s => `<option value="${s}" ${s === r.status ? "selected" : ""}>${s}</option>`).join("")}
-        </select>
-      </td>
-      <td>
-        <input type="date" class="date-input pause-start" data-cid="${escAttr(r.id)}"
-               value="${escAttr(fmtDateInput(r.pause_start_date))}"
-               ${r.status !== "Paused" ? "disabled" : ""}${dis} />
-      </td>
-      <td>
-        <input type="date" class="date-input pause-end" data-cid="${escAttr(r.id)}"
-               value="${escAttr(fmtDateInput(r.pause_end_date))}"
-               ${r.status !== "Paused" ? "disabled" : ""}${dis} />
-      </td>
-      <td>
-        <input type="text" class="reason-input" data-cid="${escAttr(r.id)}"
-               value="${escAttr(r.pause_reason)}"
-               maxlength="120"
-               placeholder="${r.status === "Paused" ? "Why paused?" : "—"}"
-               ${r.status !== "Paused" ? "disabled" : ""}${dis} />
-      </td>
-      <td>
-        <div class="restr-cell${restrictionsCellHtml === "" ? " empty" : ""}" data-cid="${escAttr(r.id)}" data-edit="restrictions">
-          ${restrictionsCellHtml || "Click to add"}
-        </div>
-      </td>
-      <td>
-        <div class="notes-cell${(r.notes || "").trim() === "" ? " empty" : ""}" data-cid="${escAttr(r.id)}" data-edit="notes" title="${escAttr(r.notes || "")}">
-          ${escHtml(notesPreview) || "Click to add"}
-        </div>
-      </td>
-      <td class="dnr-cell">
-        ${r.status === "Inactive"
-          ? `<input type="checkbox" class="dnr-check" data-cid="${escAttr(r.id)}" ${r.do_not_rehire ? "checked" : ""}${dis} title="Do Not Rehire" />`
-          : `<span style="color:#cbd5e1;font-size:11px;">—</span>`}
-      </td>
-      <td class="review-cell" title="${escAttr(reviewTitle)}">
-        <input type="checkbox" class="review-check" data-cid="${escAttr(r.id)}" ${r.last_reviewed_at ? "checked" : ""}${dis} />
-        ${r.last_reviewed_at ? `<span class="review-stamp">${escHtml(fmtDate(r.last_reviewed_at))}</span>` : ""}
-      </td>
-    </tr>
-  `;
+  const emrChips = renderEmrChips(r.emr_capabilities);
+
+  // Build all cells indexed by column key — we'll join only the visible ones
+  const cells = {
+    select: `<td class="sel-cell" data-col="select">
+      <input type="checkbox" class="row-sel" data-cid="${cid}" ${isSel ? "checked" : ""} />
+    </td>`,
+    name: `<td class="name-cell" data-col="name">
+      <a href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(r.name)}</a>
+    </td>`,
+    disc: `<td data-col="disc"><span class="disc-pill" style="background:${discColor};">${escHtml(r.discipline || "—")}</span></td>`,
+    status: `<td class="status-cell" data-col="status">
+      <select class="status-select status-${r.status}" data-cid="${cid}"${dis}>
+        ${STATUS_VALUES.map(s => `<option value="${s}" ${s === r.status ? "selected" : ""}>${s}</option>`).join("")}
+      </select>
+    </td>`,
+    pauseStart: `<td data-col="pauseStart">
+      <input type="date" class="date-input pause-start" data-cid="${cid}"
+        value="${escAttr(fmtDateInput(r.pause_start_date))}"
+        ${r.status !== "Paused" ? "disabled" : ""}${dis} />
+    </td>`,
+    pauseEnd: `<td data-col="pauseEnd">
+      <input type="date" class="date-input pause-end" data-cid="${cid}"
+        value="${escAttr(fmtDateInput(r.pause_end_date))}"
+        ${r.status !== "Paused" ? "disabled" : ""}${dis} />
+    </td>`,
+    reason: `<td data-col="reason">
+      <input type="text" class="reason-input" data-cid="${cid}"
+        value="${escAttr(r.pause_reason)}"
+        maxlength="120"
+        placeholder="${r.status === "Paused" ? "Why paused?" : "—"}"
+        ${r.status !== "Paused" ? "disabled" : ""}${dis} />
+    </td>`,
+    hireDate: `<td data-col="hireDate">
+      <input type="date" class="date-input start-date" data-cid="${cid}"
+        value="${escAttr(fmtDateInput(r.start_date))}"${dis} />
+    </td>`,
+    rating: `<td data-col="rating">
+      <input type="number" class="num-input rating-input" data-cid="${cid}"
+        min="0" max="5" step="1"
+        value="${r.internal_rating != null ? escAttr(r.internal_rating) : ""}"${dis} />
+    </td>`,
+    phone: `<td data-col="phone">
+      <input type="text" class="text-input phone-input" data-cid="${cid}"
+        value="${escAttr(r.phone)}" placeholder="Phone"${dis} />
+    </td>`,
+    email: `<td data-col="email">
+      <input type="text" class="text-input email-input" data-cid="${cid}"
+        value="${escAttr(r.email)}" placeholder="Email"${dis} />
+    </td>`,
+    emr: `<td data-col="emr"><div class="emr-chips">${emrChips}</div></td>`,
+    restrictions: `<td data-col="restrictions">
+      <div class="restr-cell${restrictionsCellHtml === "" ? " empty" : ""}" data-cid="${cid}" data-edit="restrictions">
+        ${restrictionsCellHtml || "Click to add"}
+      </div>
+    </td>`,
+    notes: `<td data-col="notes">
+      <div class="notes-cell${(r.notes || "").trim() === "" ? " empty" : ""}" data-cid="${cid}" data-edit="notes" title="${escAttr(r.notes || "")}">
+        ${escHtml(notesPreview) || "Click to add"}
+      </div>
+    </td>`,
+    dnr: `<td class="dnr-cell" data-col="dnr">
+      ${r.status === "Inactive"
+        ? `<input type="checkbox" class="dnr-check" data-cid="${cid}" ${r.do_not_rehire ? "checked" : ""}${dis} title="Do Not Rehire" />`
+        : `<span style="color:#cbd5e1;font-size:11px;">—</span>`}
+    </td>`,
+    reviewed: `<td class="review-cell" data-col="reviewed" title="${escAttr(reviewTitle)}">
+      <input type="checkbox" class="review-check" data-cid="${cid}" ${r.last_reviewed_at ? "checked" : ""}${dis} />
+      ${r.last_reviewed_at ? `<span class="review-stamp">${escHtml(fmtDate(r.last_reviewed_at))}</span>` : ""}
+    </td>`
+  };
+
+  const orderedHtml = COLUMNS
+    .filter(c => visibleCols[c.key])
+    .map(c => cells[c.key])
+    .join("");
+
+  return `<tr class="${rowClass}" data-cid="${cid}">${orderedHtml}</tr>`;
+}
+
+function renderEmrChips(caps) {
+  if (!caps || typeof caps !== "object") {
+    return EMR_KEYS.map(k => `<span class="emr-chip off">${escHtml(k.label)}</span>`).join("");
+  }
+  return EMR_KEYS.map(k => {
+    const aliases = {
+      strata:      ["strata", "uses_strata", "can_use_strata"],
+      therapyBoss: ["therapyBoss", "therapy_boss", "therapyboss", "uses_therapy_boss", "can_use_therapy_boss"],
+      axxess:      ["axxess", "uses_axxess", "can_use_axxess"],
+      kinnser:     ["kinnser", "uses_kinnser", "can_use_kinnser"]
+    }[k.key] || [k.key];
+    let on = false;
+    for (const a of aliases) {
+      if (Object.prototype.hasOwnProperty.call(caps, a)) { on = !!caps[a]; break; }
+    }
+    return `<span class="emr-chip${on ? "" : " off"}" title="${k.label} ${on ? "✓" : "—"}">${escHtml(k.label)}</span>`;
+  }).join("");
 }
 
 function renderRestrictionsCell(restr) {
@@ -809,6 +966,51 @@ async function saveNotes(cid, text) {
   try { await saveProfileField(cid, "notes", text || null); }
   catch (e) { return; }
   showToast("Notes saved");
+}
+
+async function saveStartDate(cid, dateStr) {
+  const row = getRow(cid);
+  if (!row) return;
+  row.start_date = dateStr || null;
+  try { await saveProfileField(cid, "start_date", dateStr || null); }
+  catch (e) { return; }
+  showToast("Hire date saved");
+}
+
+async function saveRating(cid, val) {
+  const row = getRow(cid);
+  if (!row) return;
+  let num = val === "" || val == null ? null : Number(val);
+  if (num != null) {
+    if (isNaN(num)) num = null;
+    else if (num < 0) num = 0;
+    else if (num > 5) num = 5;
+    else num = Math.round(num);
+  }
+  row.internal_rating = num;
+  try { await saveProfileField(cid, "internal_rating", num); }
+  catch (e) { return; }
+  showToast("Rating saved");
+}
+
+async function savePhone(cid, text) {
+  const row = getRow(cid);
+  if (!row) return;
+  const v = (text || "").trim();
+  row.phone = v;
+  try { await saveProfileField(cid, "phone", v || null); }
+  catch (e) { return; }
+  showToast("Phone saved");
+}
+
+async function saveEmail(cid, text) {
+  const row = getRow(cid);
+  if (!row) return;
+  const v = (text || "").trim();
+  row.email = v;
+  try { await saveProfileField(cid, "email", v || null); }
+  catch (e) { return; }
+  showToast("Email saved");
 }
 
 async function saveRestrictions(cid, restr) {
@@ -1049,10 +1251,19 @@ function exportCsv(onlySelected) {
   const headers = [
     "name", "discipline", "status",
     "pause_start", "pause_end", "pause_reason",
+    "hire_date", "rating", "phone", "email",
+    "emr_strata", "emr_therapy_boss", "emr_axxess", "emr_kinnser",
     "restricted_agencies", "restricted_clinicians",
     "notes", "do_not_rehire",
     "last_reviewed_at", "last_reviewed_by_email"
   ];
+  function emrOn(caps, aliases) {
+    if (!caps || typeof caps !== "object") return "";
+    for (const a of aliases) {
+      if (Object.prototype.hasOwnProperty.call(caps, a)) return caps[a] ? "Y" : "";
+    }
+    return "";
+  }
   const lines = [headers.join(",")];
   rows.forEach(r => {
     const reviewerEmail = r.last_reviewed_by && staffByUserId[r.last_reviewed_by]
@@ -1065,6 +1276,14 @@ function exportCsv(onlySelected) {
       r.pause_start_date || "",
       r.pause_end_date || "",
       r.pause_reason || "",
+      r.start_date || "",
+      r.internal_rating != null ? r.internal_rating : "",
+      r.phone || "",
+      r.email || "",
+      emrOn(r.emr_capabilities, ["strata", "uses_strata", "can_use_strata"]),
+      emrOn(r.emr_capabilities, ["therapyBoss", "therapy_boss", "therapyboss", "uses_therapy_boss", "can_use_therapy_boss"]),
+      emrOn(r.emr_capabilities, ["axxess", "uses_axxess", "can_use_axxess"]),
+      emrOn(r.emr_capabilities, ["kinnser", "uses_kinnser", "can_use_kinnser"]),
       (r.restrictions.agencies || []).join("; "),
       (r.restrictions.clinicians || []).join("; "),
       (r.notes || "").replace(/\r?\n/g, " "),
@@ -1209,6 +1428,19 @@ document.getElementById("search-input").addEventListener("input", e => {
 document.getElementById("csv-btn").addEventListener("click", () => exportCsv(false));
 document.getElementById("bulk-csv").addEventListener("click", () => exportCsv(true));
 
+// Column picker
+document.getElementById("col-picker-btn").addEventListener("click", e => {
+  e.stopPropagation();
+  document.getElementById("col-picker-menu").classList.toggle("open");
+});
+document.addEventListener("click", e => {
+  const menu = document.getElementById("col-picker-menu");
+  const btn  = document.getElementById("col-picker-btn");
+  if (menu && menu.classList.contains("open") && !menu.contains(e.target) && e.target !== btn) {
+    menu.classList.remove("open");
+  }
+});
+
 // Select-all checkbox
 document.getElementById("select-all").addEventListener("change", e => {
   selectAllVisible(e.target.checked);
@@ -1227,23 +1459,32 @@ document.getElementById("roster-body").addEventListener("change", async e => {
     await savePauseStart(t.dataset.cid, t.value);
   } else if (t.classList.contains("pause-end")) {
     await savePauseEnd(t.dataset.cid, t.value);
-  } else if (t.classList.contains("reason-input")) {
-    // blur, not change — handled below
+  } else if (t.classList.contains("start-date")) {
+    await saveStartDate(t.dataset.cid, t.value);
   } else if (t.classList.contains("dnr-check")) {
     await saveDnr(t.dataset.cid, t.checked);
   } else if (t.classList.contains("review-check")) {
     await toggleReviewed(t.dataset.cid, t.checked);
   }
+  // reason / rating / phone / email all save on blur (handled below)
 });
 
-// Reason input — save on blur
+// Text-style inputs — save on blur (skip-if-unchanged)
 document.getElementById("roster-body").addEventListener("blur", async e => {
   const t = e.target;
-  if (t.classList.contains("reason-input")) {
-    const row = getRow(t.dataset.cid);
-    if (row && row.pause_reason !== t.value) {
-      await savePauseReason(t.dataset.cid, t.value.trim());
-    }
+  const cid = t.dataset.cid;
+  if (!cid) return;
+  const row = getRow(cid);
+  if (!row) return;
+  if (t.classList.contains("reason-input") && row.pause_reason !== t.value.trim()) {
+    await savePauseReason(cid, t.value.trim());
+  } else if (t.classList.contains("rating-input")) {
+    const newVal = t.value === "" ? null : Number(t.value);
+    if (newVal !== row.internal_rating) await saveRating(cid, t.value);
+  } else if (t.classList.contains("phone-input") && (row.phone || "") !== t.value.trim()) {
+    await savePhone(cid, t.value);
+  } else if (t.classList.contains("email-input") && (row.email || "") !== t.value.trim()) {
+    await saveEmail(cid, t.value);
   }
 }, true);
 
