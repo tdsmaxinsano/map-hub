@@ -1,0 +1,1284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roster Review — DependableCare</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --blue: #0b1f44;
+    --blue-mid: #163172;
+    --gold: #c79a26;
+    --accent: #2463eb;
+    --green: #22c55e;
+    --amber: #eab308;
+    --red:   #ef4444;
+    --slate: #64748b;
+    --bg:    #f4f6fa;
+    --card:  #ffffff;
+    --border:#e2e8f0;
+    --text:  #1f2937;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* ── Login overlay ── */
+  #login-screen {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+  }
+  .login-card { background: #fff; border-radius: 16px; padding: 36px 32px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .login-card h1 { margin: 0 0 4px; color: var(--blue); font-size: 22px; font-weight: 800; text-align: center; }
+  .login-card p  { margin: 0 0 22px; color: var(--gold); font-size: 13px; font-weight: 600; text-align: center; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .login-card button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  .login-err { color: #b91c1c; font-size: 12px; margin-top: 8px; min-height: 14px; text-align: center; }
+
+  /* ── Header ── */
+  .header { background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); color: #fff; padding: 12px 22px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .header-brand h1 { margin: 0; font-size: 18px; font-weight: 800; }
+  .header-brand p  { margin: 0; font-size: 11px; color: var(--gold); font-weight: 600; }
+  .header-nav { display: flex; gap: 4px; flex: 1; }
+  .header-nav a { color: rgba(255,255,255,0.7); text-decoration: none; padding: 7px 11px; border-radius: 6px; font-size: 12px; font-weight: 600; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+  .header-nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .header-nav a.active { color: #fff; background: rgba(255,255,255,0.15); }
+  .header-user { font-size: 11px; color: rgba(255,255,255,0.85); }
+  .header-signout { background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .header-signout:hover { background: rgba(255,255,255,0.22); }
+
+  /* In iframe shell: shell already has brand/nav/user/signout */
+  html.in-iframe-shell .header { display: none !important; }
+
+  /* ── Main content ── */
+  .container { max-width: 1600px; margin: 0 auto; padding: 18px 22px 80px; }
+  .hero-row { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin-bottom: 14px; flex-wrap: wrap; }
+  .hero-row h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--blue); }
+  .hero-counts { font-size: 13px; color: var(--muted); }
+  .hero-counts strong { color: var(--text); font-weight: 700; }
+
+  /* ── Filter strip ── */
+  .filters { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+  .filter-group { display: flex; align-items: center; gap: 6px; }
+  .filter-group .lbl { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; margin-right: 4px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 11px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    background: #f1f5f9; color: var(--text); border: 1.5px solid transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+  .chip:hover { background: #e2e8f0; }
+  .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .chip .count { opacity: 0.75; font-size: 11px; font-weight: 600; }
+  .chip.preset { background: #fdf0c8; color: #8a5a00; border-color: #f0c060; }
+  .chip.preset.active { background: #c79a26; color: #fff; border-color: #c79a26; }
+  .filter-search { padding: 7px 11px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; min-width: 180px; outline: none; }
+  .filter-search:focus { border-color: var(--accent); }
+  .btn-export {
+    padding: 6px 11px; font-size: 12px; font-weight: 700;
+    background: #fff; border: 1.5px solid var(--border); border-radius: 7px;
+    color: var(--text); cursor: pointer;
+  }
+  .btn-export:hover { background: #f1f5f9; }
+
+  /* ── Table ── */
+  .table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  table.roster { width: 100%; border-collapse: collapse; }
+  table.roster th {
+    background: #f1f5f9; color: var(--muted); font-size: 10.5px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+    text-align: left; padding: 10px 10px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2;
+  }
+  table.roster td {
+    padding: 8px 10px; font-size: 13px; vertical-align: middle;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  table.roster tr:hover td { background: #f9fafb; }
+  table.roster tr.selected td { background: #eff6ff !important; }
+  table.roster tr.row-paused   td { background: #fffbea; }
+  table.roster tr.row-inactive td { color: var(--muted); }
+
+  .name-cell { font-weight: 700; }
+  .name-cell a { color: var(--blue); text-decoration: none; }
+  .name-cell a:hover { text-decoration: underline; }
+
+  .disc-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 10.5px; font-weight: 700; color: #fff;
+    min-width: 30px; text-align: center;
+  }
+
+  .status-cell select {
+    padding: 4px 6px; border-radius: 6px; border: 1.5px solid var(--border);
+    font-size: 12px; font-weight: 700; background: #fff;
+    cursor: pointer; min-width: 92px;
+  }
+  .status-cell select.status-Active   { color: #15803d; border-color: #86efac; background: #f0fdf4; }
+  .status-cell select.status-Paused   { color: #92400e; border-color: #fcd34d; background: #fffbeb; }
+  .status-cell select.status-Inactive { color: #6b7280; border-color: #cbd5e1; background: #f8fafc; }
+
+  .date-input {
+    width: 110px; padding: 4px 6px; border-radius: 5px;
+    border: 1px solid var(--border); font-size: 12px; outline: none;
+  }
+  .date-input:focus { border-color: var(--accent); }
+  .date-input:disabled { background: #f3f4f6; color: #cbd5e1; }
+  .reason-input {
+    width: 100%; padding: 4px 7px; border-radius: 5px;
+    border: 1px solid var(--border); font-size: 12px; outline: none;
+  }
+  .reason-input:focus { border-color: var(--accent); }
+  .reason-input:disabled { background: #f3f4f6; }
+
+  .restr-cell {
+    cursor: pointer; min-width: 140px;
+    padding: 4px 6px; border-radius: 5px;
+    border: 1px dashed transparent;
+  }
+  .restr-cell:hover { border-color: var(--accent); background: #eff6ff; }
+  .restr-chip {
+    display: inline-block; background: #fee2e2; color: #991b1b;
+    padding: 1px 7px; border-radius: 10px; font-size: 10.5px; font-weight: 700;
+    margin-right: 4px;
+  }
+  .restr-chip.clin { background: #fef3c7; color: #92400e; }
+  .restr-cell.empty { color: var(--muted); font-style: italic; font-size: 11px; }
+
+  .notes-cell {
+    cursor: pointer; max-width: 230px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    padding: 4px 6px; border-radius: 5px;
+    border: 1px dashed transparent;
+    font-size: 12px; color: var(--text);
+  }
+  .notes-cell:hover { border-color: var(--accent); background: #eff6ff; }
+  .notes-cell.empty { color: var(--muted); font-style: italic; }
+
+  .dnr-cell { text-align: center; }
+  .dnr-cell input { accent-color: #b91c1c; cursor: pointer; }
+  .dnr-cell input:not(:checked) { opacity: 0.4; }
+
+  .review-cell { text-align: center; cursor: pointer; }
+  .review-cell input { accent-color: var(--green); cursor: pointer; width: 16px; height: 16px; }
+  .review-stamp { font-size: 10px; color: var(--muted); display: block; margin-top: 1px; }
+
+  .sel-cell { width: 28px; text-align: center; }
+  .sel-cell input { accent-color: var(--accent); cursor: pointer; }
+
+  /* ── Drawer (right slide-over) ── */
+  .drawer-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.32); display: none; z-index: 60; }
+  .drawer-overlay.open { display: block; }
+  .drawer {
+    position: fixed; top: 0; right: 0; height: 100vh; width: 440px; max-width: 95vw;
+    background: #fff; box-shadow: -8px 0 30px rgba(0,0,0,0.18);
+    transform: translateX(110%); transition: transform 0.2s ease;
+    z-index: 61; display: flex; flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-header { padding: 14px 18px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+  .drawer-header h3 { margin: 0; font-size: 16px; font-weight: 800; color: var(--blue); }
+  .drawer-header .x-btn { background: transparent; border: none; font-size: 20px; cursor: pointer; color: var(--muted); }
+  .drawer-body { flex: 1; overflow-y: auto; padding: 16px 18px; }
+  .drawer-sub { font-size: 12px; color: var(--muted); margin-bottom: 14px; }
+
+  .chip-section { margin-bottom: 18px; }
+  .chip-section-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 7px; }
+  .chip-list { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; min-height: 24px; }
+  .chip-item { display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; border-radius: 12px; font-size: 12px; font-weight: 700; }
+  .chip-item.agency { background: #fee2e2; color: #991b1b; }
+  .chip-item.clin   { background: #fef3c7; color: #92400e; }
+  .chip-item .x { cursor: pointer; opacity: 0.6; font-weight: 800; padding-left: 2px; }
+  .chip-item .x:hover { opacity: 1; }
+  .chip-empty { font-size: 12px; color: var(--muted); font-style: italic; }
+  .chip-input { display: flex; gap: 6px; }
+  .chip-input input { flex: 1; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; outline: none; }
+  .chip-input input:focus { border-color: var(--accent); }
+  .chip-input button { padding: 6px 12px; background: var(--accent); color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .chip-input button:hover { background: var(--blue-mid); }
+
+  .notes-textarea {
+    width: 100%; min-height: 200px; padding: 10px 12px;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 13px; font-family: inherit; outline: none; resize: vertical;
+  }
+  .notes-textarea:focus { border-color: var(--accent); }
+
+  /* ── Bulk action floating bar ── */
+  .bulk-bar {
+    position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%);
+    background: var(--blue); color: #fff;
+    padding: 12px 22px; border-radius: 50px;
+    display: none; align-items: center; gap: 14px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.3);
+    z-index: 50;
+  }
+  .bulk-bar.show { display: flex; }
+  .bulk-bar .count { font-size: 13px; font-weight: 800; }
+  .bulk-bar button, .bulk-bar select {
+    background: rgba(255,255,255,0.18); color: #fff; border: 1px solid rgba(255,255,255,0.3);
+    padding: 6px 11px; border-radius: 7px; font-size: 12px; font-weight: 700;
+    cursor: pointer;
+  }
+  .bulk-bar button:hover { background: rgba(255,255,255,0.28); }
+  .bulk-bar select option { color: var(--text); }
+  .bulk-bar .x-btn { background: transparent; border: none; font-size: 18px; padding: 0 4px; opacity: 0.8; }
+  .bulk-bar .x-btn:hover { opacity: 1; }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 80px; left: 50%; transform: translateX(-50%);
+    background: var(--blue); color: #fff; padding: 9px 18px;
+    border-radius: 20px; font-size: 13px; opacity: 0;
+    transition: opacity 0.25s; pointer-events: none;
+    z-index: 70; box-shadow: 0 4px 18px rgba(0,0,0,0.25);
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #b91c1c; }
+
+  .loading-row td { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
+</style>
+<script>
+  if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+</script>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>DependableCare</h1>
+    <p>Roster Review</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-err" class="login-err"></div>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="header" id="app-header" style="display:none;">
+  <div class="header-brand">
+    <h1>DependableCare</h1>
+    <p>Roster Review</p>
+  </div>
+  <nav class="header-nav">
+    <a href="clinician-map.html">🗺️ Map</a>
+    <a href="referrals.html">📋 Referrals</a>
+    <a href="time-tracker.html">⏱️ Time</a>
+    <a href="compliance.html">✅ Compliance</a>
+    <a href="kanban.html">🗂️ Kanban</a>
+    <a href="roster-review.html" class="active">📋 Roster</a>
+  </nav>
+  <span class="header-user" id="header-user"></span>
+  <button class="header-signout" id="signout-btn">Sign out</button>
+</header>
+
+<!-- Main content -->
+<div class="container" id="app-container" style="display:none;">
+  <div class="hero-row">
+    <h2>Roster Review</h2>
+    <div class="hero-counts" id="hero-counts">—</div>
+  </div>
+
+  <!-- Filters -->
+  <div class="filters" id="filter-strip">
+    <div class="filter-group">
+      <span class="lbl">Status</span>
+      <span class="chip active" data-status="Active">Active <span class="count" id="cnt-Active">0</span></span>
+      <span class="chip active" data-status="Paused">Paused <span class="count" id="cnt-Paused">0</span></span>
+      <span class="chip" data-status="Inactive">Inactive <span class="count" id="cnt-Inactive">0</span></span>
+    </div>
+    <div class="filter-group">
+      <span class="lbl">Disc</span>
+      <span class="chip active" data-disc="PT">PT</span>
+      <span class="chip active" data-disc="PTA">PTA</span>
+      <span class="chip active" data-disc="OT">OT</span>
+      <span class="chip active" data-disc="OTA">OTA</span>
+      <span class="chip active" data-disc="ST">ST</span>
+    </div>
+    <div class="filter-group">
+      <span class="chip preset" id="preset-need-review">🔍 Need Review</span>
+      <span class="chip preset" id="preset-returning">🏖 Returning &lt;14d</span>
+      <span class="chip preset" id="preset-paused-long">💤 Paused 30d+</span>
+    </div>
+    <input type="text" class="filter-search" id="search-input" placeholder="Search by name…" />
+    <button class="btn-export" id="csv-btn">⬇ CSV</button>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrap">
+    <table class="roster" id="roster-table">
+      <thead>
+        <tr>
+          <th class="sel-cell"><input type="checkbox" id="select-all" /></th>
+          <th>Name</th>
+          <th>Disc</th>
+          <th>Status</th>
+          <th>Pause Start</th>
+          <th>Pause End</th>
+          <th>Reason</th>
+          <th>Restrictions</th>
+          <th>Notes</th>
+          <th>DNR</th>
+          <th>✓ Reviewed</th>
+        </tr>
+      </thead>
+      <tbody id="roster-body">
+        <tr class="loading-row"><td colspan="11">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Drawer (Restrictions + Notes editor) -->
+<div class="drawer-overlay" id="drawer-overlay"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-header">
+    <h3 id="drawer-title">—</h3>
+    <button class="x-btn" id="drawer-close">✕</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</aside>
+
+<!-- Bulk-action floating bar -->
+<div class="bulk-bar" id="bulk-bar">
+  <span class="count" id="bulk-count">0 selected</span>
+  <select id="bulk-status-select">
+    <option value="">Set status…</option>
+    <option value="Active">Active</option>
+    <option value="Paused">Paused</option>
+    <option value="Inactive">Inactive</option>
+  </select>
+  <button id="bulk-review-set">✓ Mark Reviewed</button>
+  <button id="bulk-review-clear">Clear Review</button>
+  <button id="bulk-csv">⬇ CSV (selected)</button>
+  <button class="x-btn" id="bulk-clear-sel" title="Clear selection">✕</button>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+});
+
+// Discipline colors (match clinician-map.html palette)
+const DISC_COLOR = {
+  PT:   "#2463eb",
+  PTA:  "#7c3aed",
+  OT:   "#22c55e",
+  OTA:  "#16a34a",
+  ST:   "#f97316"
+};
+const STATUS_VALUES = ["Active", "Paused", "Inactive"];
+
+// ══════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════
+let currentUser = null;
+let currentRole = "readonly";
+let rosterRows = []; // {clinician_v2 cols + profile cols merged}
+let staffByUserId = {}; // for reviewed-by display
+let selected = new Set(); // clinician ids
+let filters = {
+  statuses: new Set(["Active", "Paused"]),
+  disciplines: new Set(["PT", "PTA", "OT", "OTA", "ST"]),
+  search: "",
+  needReview: false,
+  returningSoon: false,
+  pausedLong: false
+};
+let realtimeChannel = null;
+
+// ══════════════════════════════════════════════════════════════════
+// HELPERS
+// ══════════════════════════════════════════════════════════════════
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c =>
+    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escAttr(s) { return escHtml(s); }
+function showToast(msg, type) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.toggle("error", type === "error");
+  t.classList.add("show");
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => t.classList.remove("show"), 2400);
+}
+function fmtDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-US", { month:"short", day:"numeric", year:"numeric" });
+}
+function fmtDateInput(iso) {
+  // YYYY-MM-DD for <input type=date>
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toISOString().slice(0, 10);
+}
+function normName(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
+
+// Restrictions structure: { clinicians: [names], agencies: [names] }
+function normRestrictions(r) {
+  if (!r || typeof r !== "object") return { clinicians: [], agencies: [] };
+  return {
+    clinicians: Array.isArray(r.clinicians) ? r.clinicians.map(normName).filter(Boolean) : [],
+    agencies:   Array.isArray(r.agencies)   ? r.agencies.map(normName).filter(Boolean)   : []
+  };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════════════
+async function checkSession() {
+  const { data } = await db.auth.getSession();
+  if (data?.session?.user) await launchApp(data.session.user);
+  else document.getElementById("login-screen").style.display = "flex";
+}
+
+async function doSignIn() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) { err.textContent = error.message || "Incorrect credentials."; return; }
+  await launchApp(data.session.user);
+}
+
+async function doSignOut() {
+  await db.auth.signOut();
+  location.reload();
+}
+
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("app-container").style.display = "block";
+  document.getElementById("header-user").textContent = user.email || "";
+
+  // Get role for permission gating
+  try {
+    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    currentRole = (roleRow && roleRow.role) || "readonly";
+  } catch (e) { currentRole = "readonly"; }
+
+  // Load staff directory for "reviewed by" display
+  loadStaffDirectory();
+  // Load the roster and render
+  await loadRoster();
+  setupRealtime();
+  parseUrlFilters();
+}
+
+async function loadStaffDirectory() {
+  try {
+    const { data } = await db.rpc("list_staff");
+    staffByUserId = {};
+    (data || []).forEach(s => { staffByUserId[s.user_id] = s; });
+  } catch (e) { /* non-fatal */ }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DATA LOAD
+// ══════════════════════════════════════════════════════════════════
+async function loadRoster() {
+  document.getElementById("roster-body").innerHTML =
+    '<tr class="loading-row"><td colspan="11">Loading…</td></tr>';
+
+  // Pull clinicians + their profile rows in two queries, then merge.
+  // Using a left join via two fetches avoids assumptions about Supabase's
+  // implicit-join behavior here.
+  const [vRes, pRes] = await Promise.all([
+    db.from("clinician_v2")
+      .select("id, name, discipline, status, active")
+      .order("name", { ascending: true })
+      .limit(5000),
+    db.from("clinician_profiles")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by")
+      .limit(5000)
+  ]);
+
+  if (vRes.error) { showToast("Failed to load clinicians: " + vRes.error.message, "error"); return; }
+  if (pRes.error) { showToast("Failed to load profiles: "  + pRes.error.message,  "error"); return; }
+
+  const profilesByCid = {};
+  (pRes.data || []).forEach(p => { profilesByCid[p.clinician_id] = p; });
+
+  rosterRows = (vRes.data || []).map(c => {
+    const p = profilesByCid[c.id] || {};
+    // Profile.status takes precedence over clinician_v2.status if both exist
+    const status = p.status || c.status || (c.active === false ? "Inactive" : "Active");
+    return {
+      id: c.id,
+      name: c.name || "",
+      discipline: c.discipline || "",
+      status: status,
+      pause_start_date: p.pause_start_date || null,
+      pause_end_date: p.pause_end_date || null,
+      pause_reason: p.pause_reason || "",
+      do_not_rehire: !!p.do_not_rehire,
+      restrictions: normRestrictions(p.restrictions),
+      notes: p.notes || "",
+      last_reviewed_at: p.last_reviewed_at || null,
+      last_reviewed_by: p.last_reviewed_by || null
+    };
+  });
+
+  renderAll();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RENDER
+// ══════════════════════════════════════════════════════════════════
+function renderAll() {
+  updateCounts();
+  renderTable();
+  updateBulkBar();
+}
+
+function updateCounts() {
+  // Status counts (apply only discipline + search filters; not the status filter itself)
+  const byStatus = { Active: 0, Paused: 0, Inactive: 0 };
+  rosterRows.forEach(r => {
+    if (!filters.disciplines.has(r.discipline)) return;
+    if (filters.search && !r.name.toLowerCase().includes(filters.search)) return;
+    byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+  });
+  document.getElementById("cnt-Active").textContent   = byStatus.Active   || 0;
+  document.getElementById("cnt-Paused").textContent   = byStatus.Paused   || 0;
+  document.getElementById("cnt-Inactive").textContent = byStatus.Inactive || 0;
+
+  // Hero counts
+  const total = rosterRows.length;
+  const reviewedThisQuarter = countReviewedThisQuarter();
+  const pct = total ? Math.round((reviewedThisQuarter / total) * 100) : 0;
+  document.getElementById("hero-counts").innerHTML =
+    "<strong>" + total + "</strong> clinicians · <strong>" + reviewedThisQuarter +
+    "</strong> reviewed this quarter (" + pct + "%)";
+}
+
+function countReviewedThisQuarter() {
+  const cutoff = startOfCurrentQuarter();
+  return rosterRows.filter(r => r.last_reviewed_at && new Date(r.last_reviewed_at) >= cutoff).length;
+}
+
+function startOfCurrentQuarter() {
+  const now = new Date();
+  const m = now.getMonth();
+  const qStartMonth = m - (m % 3); // 0, 3, 6, 9
+  return new Date(now.getFullYear(), qStartMonth, 1);
+}
+
+function passesFilters(r) {
+  if (!filters.statuses.has(r.status)) return false;
+  if (!filters.disciplines.has(r.discipline)) return false;
+  if (filters.search && !r.name.toLowerCase().includes(filters.search)) return false;
+
+  if (filters.needReview) {
+    const cutoff = startOfCurrentQuarter();
+    if (r.last_reviewed_at && new Date(r.last_reviewed_at) >= cutoff) return false;
+  }
+
+  if (filters.returningSoon) {
+    if (r.status !== "Paused") return false;
+    if (!r.pause_end_date) return false;
+    const end = new Date(r.pause_end_date);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const cutoff = new Date(today.getTime() + 14 * 86400000);
+    if (end < today || end > cutoff) return false;
+  }
+
+  if (filters.pausedLong) {
+    if (r.status !== "Paused") return false;
+    if (!r.pause_start_date) return false;
+    const start = new Date(r.pause_start_date);
+    const today = new Date(); today.setHours(0,0,0,0);
+    const cutoff = new Date(today.getTime() - 30 * 86400000);
+    if (start > cutoff) return false;
+  }
+
+  return true;
+}
+
+function renderTable() {
+  const body = document.getElementById("roster-body");
+  const visible = rosterRows.filter(passesFilters);
+  if (!visible.length) {
+    body.innerHTML = '<tr><td colspan="11" style="text-align:center;padding:30px;color:var(--muted);">No clinicians match the current filters.</td></tr>';
+    return;
+  }
+  body.innerHTML = visible.map(buildRow).join("");
+}
+
+function buildRow(r) {
+  const isSel = selected.has(r.id);
+  const discColor = DISC_COLOR[r.discipline] || "#94a3b8";
+  const restrictionsCellHtml = renderRestrictionsCell(r.restrictions);
+  const notesPreview = (r.notes || "").trim().slice(0, 60) + ((r.notes || "").length > 60 ? "…" : "");
+  const reviewerEmail = r.last_reviewed_by && staffByUserId[r.last_reviewed_by]
+    ? (staffByUserId[r.last_reviewed_by].display_name || (staffByUserId[r.last_reviewed_by].email || "").split("@")[0])
+    : "";
+  const reviewTitle = r.last_reviewed_at
+    ? "Reviewed " + fmtDate(r.last_reviewed_at) + (reviewerEmail ? " by " + reviewerEmail : "")
+    : "Not yet reviewed";
+
+  const rowClass = "row-" + r.status.toLowerCase() + (isSel ? " selected" : "");
+  const canEdit = currentRole === "admin" || currentRole === "editor";
+  const dis = canEdit ? "" : " disabled";
+
+  return `
+    <tr class="${rowClass}" data-cid="${escAttr(r.id)}">
+      <td class="sel-cell">
+        <input type="checkbox" class="row-sel" data-cid="${escAttr(r.id)}" ${isSel ? "checked" : ""} />
+      </td>
+      <td class="name-cell">
+        <a href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(r.name)}</a>
+      </td>
+      <td><span class="disc-pill" style="background:${discColor};">${escHtml(r.discipline || "—")}</span></td>
+      <td class="status-cell">
+        <select class="status-select status-${r.status}" data-cid="${escAttr(r.id)}"${dis}>
+          ${STATUS_VALUES.map(s => `<option value="${s}" ${s === r.status ? "selected" : ""}>${s}</option>`).join("")}
+        </select>
+      </td>
+      <td>
+        <input type="date" class="date-input pause-start" data-cid="${escAttr(r.id)}"
+               value="${escAttr(fmtDateInput(r.pause_start_date))}"
+               ${r.status !== "Paused" ? "disabled" : ""}${dis} />
+      </td>
+      <td>
+        <input type="date" class="date-input pause-end" data-cid="${escAttr(r.id)}"
+               value="${escAttr(fmtDateInput(r.pause_end_date))}"
+               ${r.status !== "Paused" ? "disabled" : ""}${dis} />
+      </td>
+      <td>
+        <input type="text" class="reason-input" data-cid="${escAttr(r.id)}"
+               value="${escAttr(r.pause_reason)}"
+               maxlength="120"
+               placeholder="${r.status === "Paused" ? "Why paused?" : "—"}"
+               ${r.status !== "Paused" ? "disabled" : ""}${dis} />
+      </td>
+      <td>
+        <div class="restr-cell${restrictionsCellHtml === "" ? " empty" : ""}" data-cid="${escAttr(r.id)}" data-edit="restrictions">
+          ${restrictionsCellHtml || "Click to add"}
+        </div>
+      </td>
+      <td>
+        <div class="notes-cell${(r.notes || "").trim() === "" ? " empty" : ""}" data-cid="${escAttr(r.id)}" data-edit="notes" title="${escAttr(r.notes || "")}">
+          ${escHtml(notesPreview) || "Click to add"}
+        </div>
+      </td>
+      <td class="dnr-cell">
+        ${r.status === "Inactive"
+          ? `<input type="checkbox" class="dnr-check" data-cid="${escAttr(r.id)}" ${r.do_not_rehire ? "checked" : ""}${dis} title="Do Not Rehire" />`
+          : `<span style="color:#cbd5e1;font-size:11px;">—</span>`}
+      </td>
+      <td class="review-cell" title="${escAttr(reviewTitle)}">
+        <input type="checkbox" class="review-check" data-cid="${escAttr(r.id)}" ${r.last_reviewed_at ? "checked" : ""}${dis} />
+        ${r.last_reviewed_at ? `<span class="review-stamp">${escHtml(fmtDate(r.last_reviewed_at))}</span>` : ""}
+      </td>
+    </tr>
+  `;
+}
+
+function renderRestrictionsCell(restr) {
+  const agencyChips = (restr.agencies || []).slice(0, 2).map(a =>
+    `<span class="restr-chip">${escHtml(a)}</span>`).join("");
+  const clinChips = (restr.clinicians || []).slice(0, 2).map(c =>
+    `<span class="restr-chip clin">${escHtml(c)}</span>`).join("");
+  const total = (restr.agencies || []).length + (restr.clinicians || []).length;
+  const shown = Math.min(2, (restr.agencies || []).length) + Math.min(2, (restr.clinicians || []).length);
+  const overflow = total > shown ? `<span class="restr-chip" style="background:#e5e7eb;color:#475569;">+${total - shown}</span>` : "";
+  return agencyChips + clinChips + overflow;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EDIT HANDLERS
+// ══════════════════════════════════════════════════════════════════
+function getRow(cid) { return rosterRows.find(r => r.id === cid); }
+
+async function saveStatus(cid, newStatus) {
+  const row = getRow(cid);
+  if (!row) return;
+  const oldStatus = row.status;
+  if (oldStatus === newStatus) return;
+  row.status = newStatus;
+  // If leaving Paused, clear pause-related fields locally so the UI re-disables them
+  if (newStatus !== "Paused") {
+    // Don't blank the dates server-side — they're history. But Reason gets cleared:
+    // user can choose to keep dates as a record or zero them via the inputs.
+  }
+  // Persist
+  try {
+    const upPayload = { clinician_id: cid, status: newStatus, updated_at: new Date().toISOString() };
+    const r1 = await db.from("clinician_profiles").upsert(upPayload, { onConflict: "clinician_id" });
+    if (r1.error) throw r1.error;
+    const r2 = await db.from("clinician_v2").update({
+      status: newStatus, active: newStatus !== "Inactive"
+    }).eq("id", cid);
+    if (r2.error) throw r2.error;
+    // Append to audit log
+    await db.from("clinician_profile_status_log").insert({
+      clinician_id: cid,
+      from_status: oldStatus,
+      to_status: newStatus,
+      reason: row.pause_reason || null,
+      changed_at: new Date().toISOString()
+    });
+    showToast("Status updated to " + newStatus);
+  } catch (e) {
+    row.status = oldStatus;
+    showToast("Could not save status: " + (e.message || e), "error");
+  }
+  renderAll();
+}
+
+async function saveProfileField(cid, fieldName, value) {
+  const payload = { clinician_id: cid, updated_at: new Date().toISOString() };
+  payload[fieldName] = value;
+  try {
+    const res = await db.from("clinician_profiles").upsert(payload, { onConflict: "clinician_id" });
+    if (res.error) throw res.error;
+  } catch (e) {
+    showToast("Save failed: " + (e.message || e), "error");
+    throw e;
+  }
+}
+
+async function savePauseStart(cid, dateStr) {
+  const row = getRow(cid);
+  if (!row) return;
+  row.pause_start_date = dateStr || null;
+  try { await saveProfileField(cid, "pause_start_date", dateStr || null); }
+  catch (e) { return; }
+  showToast("Pause start saved");
+}
+
+async function savePauseEnd(cid, dateStr) {
+  const row = getRow(cid);
+  if (!row) return;
+  row.pause_end_date = dateStr || null;
+  try { await saveProfileField(cid, "pause_end_date", dateStr || null); }
+  catch (e) { return; }
+  showToast("Pause end saved");
+}
+
+async function savePauseReason(cid, text) {
+  const row = getRow(cid);
+  if (!row) return;
+  row.pause_reason = text;
+  try { await saveProfileField(cid, "pause_reason", text || null); }
+  catch (e) { return; }
+  showToast("Reason saved");
+}
+
+async function saveDnr(cid, val) {
+  const row = getRow(cid);
+  if (!row) return;
+  row.do_not_rehire = val;
+  try { await saveProfileField(cid, "do_not_rehire", val); }
+  catch (e) { row.do_not_rehire = !val; renderAll(); return; }
+  showToast(val ? "Marked Do Not Rehire" : "DNR cleared");
+}
+
+async function saveNotes(cid, text) {
+  const row = getRow(cid);
+  if (!row) return;
+  row.notes = text;
+  try { await saveProfileField(cid, "notes", text || null); }
+  catch (e) { return; }
+  showToast("Notes saved");
+}
+
+async function saveRestrictions(cid, restr) {
+  const row = getRow(cid);
+  if (!row) return;
+  row.restrictions = restr;
+  try { await saveProfileField(cid, "restrictions", restr); }
+  catch (e) { return; }
+}
+
+async function toggleReviewed(cid, on) {
+  const row = getRow(cid);
+  if (!row) return;
+  const ts = on ? new Date().toISOString() : null;
+  const by = on ? currentUser.id : null;
+  row.last_reviewed_at = ts;
+  row.last_reviewed_by = by;
+  try {
+    const res = await db.from("clinician_profiles").upsert({
+      clinician_id: cid,
+      last_reviewed_at: ts,
+      last_reviewed_by: by,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "clinician_id" });
+    if (res.error) throw res.error;
+    showToast(on ? "✓ Reviewed" : "Review cleared");
+  } catch (e) {
+    // Revert
+    row.last_reviewed_at = on ? null : ts;
+    row.last_reviewed_by = on ? null : by;
+    showToast("Save failed: " + (e.message || e), "error");
+  }
+  renderAll();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DRAWER (Restrictions + Notes)
+// ══════════════════════════════════════════════════════════════════
+let drawerCid = null;
+let drawerMode = null; // "restrictions" or "notes"
+
+function openDrawer(cid, mode) {
+  const row = getRow(cid);
+  if (!row) return;
+  drawerCid = cid;
+  drawerMode = mode;
+  document.getElementById("drawer-title").textContent =
+    (mode === "restrictions" ? "Restrictions — " : "Notes — ") + row.name;
+  document.getElementById("drawer-body").innerHTML =
+    mode === "restrictions" ? renderRestrictionsDrawer(row) : renderNotesDrawer(row);
+  document.getElementById("drawer-overlay").classList.add("open");
+  document.getElementById("drawer").classList.add("open");
+  if (mode === "restrictions") {
+    wireRestrictionsDrawer();
+  } else {
+    wireNotesDrawer();
+  }
+}
+
+function closeDrawer() {
+  document.getElementById("drawer-overlay").classList.remove("open");
+  document.getElementById("drawer").classList.remove("open");
+  drawerCid = null;
+  drawerMode = null;
+}
+
+function renderRestrictionsDrawer(row) {
+  const r = normRestrictions(row.restrictions);
+  const canEdit = currentRole === "admin" || currentRole === "editor";
+  return `
+    <p class="drawer-sub">Bidirectional restrictions. Names are stored as-typed and persist to <code>clinician_profiles.restrictions</code> — the map's profile panel reads the same field.</p>
+
+    <div class="chip-section">
+      <div class="chip-section-label">🚫 Restricted Agencies (${r.agencies.length})</div>
+      <div class="chip-list" id="drawer-agencies-list">
+        ${r.agencies.length ? r.agencies.map(a =>
+          `<span class="chip-item agency">${escHtml(a)}<span class="x" data-rm-agency="${escAttr(a)}">✕</span></span>`
+        ).join("") : '<span class="chip-empty">No agency restrictions.</span>'}
+      </div>
+      ${canEdit ? `
+        <div class="chip-input">
+          <input type="text" id="drawer-agency-input" placeholder="Add agency name…" />
+          <button id="drawer-agency-add">+ Add</button>
+        </div>
+      ` : ""}
+    </div>
+
+    <div class="chip-section">
+      <div class="chip-section-label">🚫 Restricted Clinicians (${r.clinicians.length})</div>
+      <div class="chip-list" id="drawer-clins-list">
+        ${r.clinicians.length ? r.clinicians.map(c =>
+          `<span class="chip-item clin">${escHtml(c)}<span class="x" data-rm-clin="${escAttr(c)}">✕</span></span>`
+        ).join("") : '<span class="chip-empty">No clinician restrictions.</span>'}
+      </div>
+      ${canEdit ? `
+        <div class="chip-input">
+          <input type="text" id="drawer-clin-input" placeholder="Add clinician name…" />
+          <button id="drawer-clin-add">+ Add</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function renderNotesDrawer(row) {
+  const canEdit = currentRole === "admin" || currentRole === "editor";
+  return `
+    <p class="drawer-sub">Free-form notes about this clinician. Saves on blur or when you close the drawer.</p>
+    <textarea class="notes-textarea" id="drawer-notes-ta" ${canEdit ? "" : "readonly"}
+      placeholder="Notes…">${escHtml(row.notes || "")}</textarea>
+  `;
+}
+
+function wireRestrictionsDrawer() {
+  const row = getRow(drawerCid);
+  if (!row) return;
+  async function persist(updated) {
+    row.restrictions = updated;
+    await saveRestrictions(drawerCid, updated);
+    document.getElementById("drawer-body").innerHTML = renderRestrictionsDrawer(row);
+    wireRestrictionsDrawer();
+    renderAll();
+  }
+  const addA = document.getElementById("drawer-agency-add");
+  const inputA = document.getElementById("drawer-agency-input");
+  if (addA && inputA) {
+    addA.onclick = async () => {
+      const val = normName(inputA.value);
+      if (!val) return;
+      const r = normRestrictions(row.restrictions);
+      if (!r.agencies.includes(val)) r.agencies.push(val);
+      inputA.value = "";
+      await persist(r);
+    };
+    inputA.addEventListener("keydown", e => { if (e.key === "Enter") addA.click(); });
+  }
+  const addC = document.getElementById("drawer-clin-add");
+  const inputC = document.getElementById("drawer-clin-input");
+  if (addC && inputC) {
+    addC.onclick = async () => {
+      const val = normName(inputC.value);
+      if (!val) return;
+      const r = normRestrictions(row.restrictions);
+      if (!r.clinicians.includes(val)) r.clinicians.push(val);
+      inputC.value = "";
+      await persist(r);
+    };
+    inputC.addEventListener("keydown", e => { if (e.key === "Enter") addC.click(); });
+  }
+  document.querySelectorAll("[data-rm-agency]").forEach(el => {
+    el.onclick = async () => {
+      const name = el.dataset.rmAgency;
+      const r = normRestrictions(row.restrictions);
+      r.agencies = r.agencies.filter(a => a !== name);
+      await persist(r);
+    };
+  });
+  document.querySelectorAll("[data-rm-clin]").forEach(el => {
+    el.onclick = async () => {
+      const name = el.dataset.rmClin;
+      const r = normRestrictions(row.restrictions);
+      r.clinicians = r.clinicians.filter(c => c !== name);
+      await persist(r);
+    };
+  });
+}
+
+function wireNotesDrawer() {
+  const ta = document.getElementById("drawer-notes-ta");
+  if (!ta) return;
+  let last = ta.value;
+  ta.addEventListener("blur", async () => {
+    if (ta.value === last) return;
+    last = ta.value;
+    await saveNotes(drawerCid, ta.value);
+    renderAll();
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SELECTION + BULK BAR
+// ══════════════════════════════════════════════════════════════════
+function toggleSelect(cid, on) {
+  if (on) selected.add(cid); else selected.delete(cid);
+  updateBulkBar();
+}
+
+function selectAllVisible(on) {
+  const visible = rosterRows.filter(passesFilters);
+  if (on) visible.forEach(r => selected.add(r.id));
+  else    visible.forEach(r => selected.delete(r.id));
+  renderTable();
+  updateBulkBar();
+}
+
+function updateBulkBar() {
+  const bar = document.getElementById("bulk-bar");
+  if (selected.size === 0) {
+    bar.classList.remove("show");
+    return;
+  }
+  bar.classList.add("show");
+  document.getElementById("bulk-count").textContent =
+    selected.size + " selected";
+}
+
+async function bulkSetStatus(status) {
+  if (!status || !STATUS_VALUES.includes(status)) return;
+  const ids = Array.from(selected);
+  for (const cid of ids) {
+    const row = getRow(cid);
+    if (!row || row.status === status) continue;
+    await saveStatus(cid, status);
+  }
+  document.getElementById("bulk-status-select").value = "";
+}
+
+async function bulkReview(on) {
+  const ids = Array.from(selected);
+  for (const cid of ids) {
+    const row = getRow(cid);
+    if (!row) continue;
+    if (on && row.last_reviewed_at) continue; // already reviewed; skip
+    if (!on && !row.last_reviewed_at) continue;
+    await toggleReviewed(cid, on);
+  }
+  showToast((on ? "Marked " : "Cleared ") + ids.length + " review stamps");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CSV EXPORT
+// ══════════════════════════════════════════════════════════════════
+function exportCsv(onlySelected) {
+  const rows = onlySelected
+    ? rosterRows.filter(r => selected.has(r.id))
+    : rosterRows.filter(passesFilters);
+  if (!rows.length) { showToast("Nothing to export."); return; }
+  const headers = [
+    "name", "discipline", "status",
+    "pause_start", "pause_end", "pause_reason",
+    "restricted_agencies", "restricted_clinicians",
+    "notes", "do_not_rehire",
+    "last_reviewed_at", "last_reviewed_by_email"
+  ];
+  const lines = [headers.join(",")];
+  rows.forEach(r => {
+    const reviewerEmail = r.last_reviewed_by && staffByUserId[r.last_reviewed_by]
+      ? (staffByUserId[r.last_reviewed_by].email || "")
+      : "";
+    const fields = [
+      r.name,
+      r.discipline,
+      r.status,
+      r.pause_start_date || "",
+      r.pause_end_date || "",
+      r.pause_reason || "",
+      (r.restrictions.agencies || []).join("; "),
+      (r.restrictions.clinicians || []).join("; "),
+      (r.notes || "").replace(/\r?\n/g, " "),
+      r.do_not_rehire ? "Y" : "",
+      r.last_reviewed_at || "",
+      reviewerEmail
+    ].map(v => {
+      const s = String(v == null ? "" : v);
+      return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    });
+    lines.push(fields.join(","));
+  });
+  const csv  = lines.join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = "roster-review_" + new Date().toISOString().slice(0,10) + ".csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// REALTIME — patch on remote edits
+// ══════════════════════════════════════════════════════════════════
+function setupRealtime() {
+  if (realtimeChannel) { try { db.removeChannel(realtimeChannel); } catch(e){} }
+  let pending = null;
+  function schedule() {
+    if (pending) return;
+    pending = setTimeout(() => { pending = null; loadRoster(); }, 400);
+  }
+  realtimeChannel = db
+    .channel("roster-review-v1")
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "clinician_profiles" }, schedule)
+    .on("postgres_changes",
+      { event: "*", schema: "public", table: "clinician_v2" }, schedule)
+    .subscribe(status => {
+      if (status === "CLOSED" || status === "CHANNEL_ERROR") {
+        setTimeout(setupRealtime, 5000);
+      }
+    });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// URL FILTERS (deep-link / bookmark)
+// ══════════════════════════════════════════════════════════════════
+function parseUrlFilters() {
+  const params = new URLSearchParams(location.search);
+  if (params.has("status")) {
+    filters.statuses = new Set(params.get("status").split(",").filter(s => STATUS_VALUES.includes(s)));
+  }
+  if (params.has("disc")) {
+    filters.disciplines = new Set(params.get("disc").split(",").filter(d => ["PT","PTA","OT","OTA","ST"].includes(d)));
+  }
+  if (params.has("q")) {
+    filters.search = params.get("q").toLowerCase();
+    document.getElementById("search-input").value = params.get("q");
+  }
+  if (params.has("needReview")) filters.needReview = params.get("needReview") === "1";
+  syncFilterUI();
+  renderAll();
+}
+
+function syncFilterUI() {
+  document.querySelectorAll(".chip[data-status]").forEach(c => {
+    c.classList.toggle("active", filters.statuses.has(c.dataset.status));
+  });
+  document.querySelectorAll(".chip[data-disc]").forEach(c => {
+    c.classList.toggle("active", filters.disciplines.has(c.dataset.disc));
+  });
+  document.getElementById("preset-need-review").classList.toggle("active", filters.needReview);
+  document.getElementById("preset-returning").classList.toggle("active", filters.returningSoon);
+  document.getElementById("preset-paused-long").classList.toggle("active", filters.pausedLong);
+}
+
+function writeUrlFilters() {
+  const params = new URLSearchParams();
+  params.set("status", Array.from(filters.statuses).join(","));
+  params.set("disc", Array.from(filters.disciplines).join(","));
+  if (filters.search) params.set("q", filters.search);
+  if (filters.needReview) params.set("needReview", "1");
+  const qs = params.toString();
+  history.replaceState(null, "", qs ? "?" + qs : location.pathname);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EVENT WIRING
+// ══════════════════════════════════════════════════════════════════
+// Login
+document.getElementById("login-btn").addEventListener("click", doSignIn);
+document.getElementById("login-password").addEventListener("keydown", e => {
+  if (e.key === "Enter") doSignIn();
+});
+document.getElementById("signout-btn").addEventListener("click", doSignOut);
+
+// Filter chips
+document.querySelectorAll(".chip[data-status]").forEach(chip => {
+  chip.addEventListener("click", () => {
+    const s = chip.dataset.status;
+    if (filters.statuses.has(s)) filters.statuses.delete(s);
+    else                          filters.statuses.add(s);
+    chip.classList.toggle("active");
+    writeUrlFilters();
+    renderAll();
+  });
+});
+document.querySelectorAll(".chip[data-disc]").forEach(chip => {
+  chip.addEventListener("click", () => {
+    const d = chip.dataset.disc;
+    if (filters.disciplines.has(d)) filters.disciplines.delete(d);
+    else                             filters.disciplines.add(d);
+    chip.classList.toggle("active");
+    writeUrlFilters();
+    renderAll();
+  });
+});
+document.getElementById("preset-need-review").addEventListener("click", () => {
+  filters.needReview = !filters.needReview;
+  syncFilterUI(); writeUrlFilters(); renderAll();
+});
+document.getElementById("preset-returning").addEventListener("click", () => {
+  filters.returningSoon = !filters.returningSoon;
+  syncFilterUI(); writeUrlFilters(); renderAll();
+});
+document.getElementById("preset-paused-long").addEventListener("click", () => {
+  filters.pausedLong = !filters.pausedLong;
+  syncFilterUI(); writeUrlFilters(); renderAll();
+});
+let searchTimer = null;
+document.getElementById("search-input").addEventListener("input", e => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    filters.search = e.target.value.trim().toLowerCase();
+    writeUrlFilters();
+    renderAll();
+  }, 150);
+});
+
+// CSV
+document.getElementById("csv-btn").addEventListener("click", () => exportCsv(false));
+document.getElementById("bulk-csv").addEventListener("click", () => exportCsv(true));
+
+// Select-all checkbox
+document.getElementById("select-all").addEventListener("change", e => {
+  selectAllVisible(e.target.checked);
+});
+
+// Table delegation
+document.getElementById("roster-body").addEventListener("change", async e => {
+  const t = e.target;
+  if (t.classList.contains("row-sel")) {
+    toggleSelect(t.dataset.cid, t.checked);
+    const tr = t.closest("tr");
+    if (tr) tr.classList.toggle("selected", t.checked);
+  } else if (t.classList.contains("status-select")) {
+    await saveStatus(t.dataset.cid, t.value);
+  } else if (t.classList.contains("pause-start")) {
+    await savePauseStart(t.dataset.cid, t.value);
+  } else if (t.classList.contains("pause-end")) {
+    await savePauseEnd(t.dataset.cid, t.value);
+  } else if (t.classList.contains("reason-input")) {
+    // blur, not change — handled below
+  } else if (t.classList.contains("dnr-check")) {
+    await saveDnr(t.dataset.cid, t.checked);
+  } else if (t.classList.contains("review-check")) {
+    await toggleReviewed(t.dataset.cid, t.checked);
+  }
+});
+
+// Reason input — save on blur
+document.getElementById("roster-body").addEventListener("blur", async e => {
+  const t = e.target;
+  if (t.classList.contains("reason-input")) {
+    const row = getRow(t.dataset.cid);
+    if (row && row.pause_reason !== t.value) {
+      await savePauseReason(t.dataset.cid, t.value.trim());
+    }
+  }
+}, true);
+
+// Click on restrictions / notes cell → open drawer
+document.getElementById("roster-body").addEventListener("click", e => {
+  const cell = e.target.closest("[data-edit]");
+  if (!cell) return;
+  const mode = cell.dataset.edit;
+  const cid  = cell.dataset.cid;
+  if (mode === "restrictions" || mode === "notes") openDrawer(cid, mode);
+});
+
+// Drawer close
+document.getElementById("drawer-close").addEventListener("click", closeDrawer);
+document.getElementById("drawer-overlay").addEventListener("click", closeDrawer);
+
+// Bulk actions
+document.getElementById("bulk-status-select").addEventListener("change", e => bulkSetStatus(e.target.value));
+document.getElementById("bulk-review-set").addEventListener("click", () => bulkReview(true));
+document.getElementById("bulk-review-clear").addEventListener("click", () => bulkReview(false));
+document.getElementById("bulk-clear-sel").addEventListener("click", () => {
+  selected.clear(); renderTable(); updateBulkBar();
+});
+
+// Cleanup on sign out
+db.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT" || !session) {
+    if (realtimeChannel) { try { db.removeChannel(realtimeChannel); } catch(e){} realtimeChannel = null; }
+  }
+});
+
+// Boot
+checkSession();
+</script>
+<!-- Chat widget (no-op inside iframe shell since it guards window.self !== window.top) -->
+<script src="chat-widget.js"></script>
+</body>
+</html>

@@ -15,6 +15,7 @@ All files are standalone HTML/CSS/JS — no framework, no build step. They share
 | `time-tracker.html` | Time tracking — clock in/out, pay periods, approvals, HUD | `CLAUDE-timetracker.md` |
 | `compliance.html` | Compliance dashboard — not yet fully documented | (read the file directly) |
 | `kanban.html` | Portal-wide kanban task board — multiple boards, SLAs, drag/drop, admin board management, staff profiles | `CLAUDE-kanban.md` |
+| `roster-review.html` | **Bulk clinician editor for HR / coordinator review sessions** — table of every clinician with inline edits for status (Active/Paused/Inactive), pause dates + reason, DNR flag, notes, and a click-to-open side drawer for restrictions. ✓ Reviewed checkbox stamps `last_reviewed_at`/`last_reviewed_by` for audit trail of who reviewed whom and when. Filters: status / discipline / "Need Review" / "Returning soon" / "Paused 30d+". Multi-select bulk actions + CSV export. Admin + Editor write access. | (this file + comments in roster-review.html) |
 | `chat-widget.js` | Shared team-chat widget — included on every portal page; old-school single-channel team chat with presence + sound + tab-flash | `CLAUDE-kanban.md` (chat section) |
 | `index.html` | **Portal shell** — owns the login/signup/forgot-password screen, header tabs, and 5 lazy-loaded iframes (one per tool). Home pane is a stats dashboard. State preserves across tabs. | (this file + comments in index.html) |
 
@@ -65,6 +66,7 @@ Run from Supabase Dashboard → SQL Editor in numerical order. All idempotent �
 | `04_chat_messages.sql` | Team chat schema + RLS + adds the table to `supabase_realtime` publication so realtime broadcasts work |
 | `05_auto_user_role.sql` | Backfills `user_roles` for orphan auth users + adds `on_auth_user_created` trigger that auto-inserts a `readonly` user_roles row on every `auth.users` INSERT. SECURITY DEFINER. Idempotent. **Run this any time after a fresh DB or to catch up older orphan accounts.** |
 | `06_auto_staff_config.sql` | Backfills `staff_config` for orphan auth users + adds `on_auth_user_created_staff` trigger that auto-inserts an inactive `staff_config` row (`is_active=false`, `hourly_rate=0`, `pay_type='philippines'`, `timezone='Asia/Manila'`, `display_name = SPLIT_PART(email, '@', 1)`) on every signup. Lets new signups appear in the time-tracker admin dashboard "Needs setup" section without an admin having to copy UUIDs. SECURITY DEFINER. Idempotent. |
+| `07_roster_review_fields.sql` | Adds three columns to `clinician_profiles`: `pause_reason TEXT`, `last_reviewed_at TIMESTAMPTZ`, `last_reviewed_by UUID`. Plus an index on `last_reviewed_at` for the "Need Review since X" filter in `roster-review.html`. All nullable + additive. Idempotent. |
 
 ### Mapbox
 - **Access token:** `pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A`
