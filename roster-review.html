@@ -569,6 +569,31 @@ function escHtml(s) {
     ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function escAttr(s) { return escHtml(s); }
+
+// ── Display-name formatter (mirrors clinician-map.html:8270-8295) ──
+// Lowercases the whole string, then title-cases each whitespace/hyphen/
+// apostrophe token. Suffix tokens (II, III, IV, ... IX, Jr, Sr) get
+// fully uppercased. Stored DB values are NOT changed — this is purely
+// for display.
+function formatDisplayNameToken(value) {
+  const token = String(value || "");
+  if (!token) return "";
+  return token.split("-").map(function(hyphenPart) {
+    return hyphenPart.split("'").map(function(apostrophePart) {
+      const part = String(apostrophePart || "");
+      if (!part) return "";
+      if (/^(ii|iii|iv|v|vi|vii|viii|ix|jr|sr)\.?$/i.test(part)) {
+        return part.replace(/\.$/, "").toUpperCase();
+      }
+      return part.charAt(0).toUpperCase() + part.slice(1);
+    }).join("'");
+  }).join("-");
+}
+function formatName(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
+  return raw.toLowerCase().split(/\s+/).map(formatDisplayNameToken).join(" ");
+}
 function showToast(msg, type) {
   const t = document.getElementById("toast");
   t.textContent = msg;
@@ -855,7 +880,7 @@ function buildRow(r) {
       <input type="checkbox" class="row-sel" data-cid="${cid}" ${isSel ? "checked" : ""} />
     </td>`,
     name: `<td class="name-cell" data-col="name">
-      <a href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(r.name)}</a>
+      <a href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(formatName(r.name))}</a>
     </td>`,
     disc: `<td data-col="disc"><span class="disc-pill" style="background:${discColor};">${escHtml(r.discipline || "—")}</span></td>`,
     status: `<td class="status-cell" data-col="status">
@@ -963,9 +988,9 @@ function renderEmrChips(caps) {
 
 function renderRestrictionsCell(restr) {
   const agencyChips = (restr.agencies || []).slice(0, 2).map(a =>
-    `<span class="restr-chip">${escHtml(a)}</span>`).join("");
+    `<span class="restr-chip">${escHtml(formatName(a))}</span>`).join("");
   const clinChips = (restr.clinicians || []).slice(0, 2).map(c =>
-    `<span class="restr-chip clin">${escHtml(c)}</span>`).join("");
+    `<span class="restr-chip clin">${escHtml(formatName(c))}</span>`).join("");
   const total = (restr.agencies || []).length + (restr.clinicians || []).length;
   const shown = Math.min(2, (restr.agencies || []).length) + Math.min(2, (restr.clinicians || []).length);
   const overflow = total > shown ? `<span class="restr-chip" style="background:#e5e7eb;color:#475569;">+${total - shown}</span>` : "";
@@ -1163,7 +1188,7 @@ function openDrawer(cid, mode) {
   drawerCid = cid;
   drawerMode = mode;
   document.getElementById("drawer-title").textContent =
-    (mode === "restrictions" ? "Restrictions — " : "Notes — ") + row.name;
+    (mode === "restrictions" ? "Restrictions — " : "Notes — ") + formatName(row.name);
   document.getElementById("drawer-body").innerHTML =
     mode === "restrictions" ? renderRestrictionsDrawer(row) : renderNotesDrawer(row);
   document.getElementById("drawer-overlay").classList.add("open");
@@ -1192,7 +1217,7 @@ function renderRestrictionsDrawer(row) {
       <div class="chip-section-label">🚫 Restricted Agencies (${r.agencies.length})</div>
       <div class="chip-list" id="drawer-agencies-list">
         ${r.agencies.length ? r.agencies.map(a =>
-          `<span class="chip-item agency">${escHtml(a)}<span class="x" data-rm-agency="${escAttr(a)}">✕</span></span>`
+          `<span class="chip-item agency">${escHtml(formatName(a))}<span class="x" data-rm-agency="${escAttr(a)}">✕</span></span>`
         ).join("") : '<span class="chip-empty">No agency restrictions.</span>'}
       </div>
       ${canEdit ? `
@@ -1208,7 +1233,7 @@ function renderRestrictionsDrawer(row) {
       <div class="chip-section-label">🚫 Restricted Clinicians (${r.clinicians.length})</div>
       <div class="chip-list" id="drawer-clins-list">
         ${r.clinicians.length ? r.clinicians.map(c =>
-          `<span class="chip-item clin">${escHtml(c)}<span class="x" data-rm-clin="${escAttr(c)}">✕</span></span>`
+          `<span class="chip-item clin">${escHtml(formatName(c))}<span class="x" data-rm-clin="${escAttr(c)}">✕</span></span>`
         ).join("") : '<span class="chip-empty">No clinician restrictions.</span>'}
       </div>
       ${canEdit ? `
@@ -1305,7 +1330,7 @@ function wireRestrictionsDrawer() {
 
       dropEl.innerHTML = currentMatches.map((m, i) =>
         '<div class="restr-option' + (i === activeIdx ? " active" : "") + '" data-name="' + escAttr(m.name) + '">' +
-          '<span>' + escHtml(m.name) + '</span>' +
+          '<span>' + escHtml(formatName(m.name)) + '</span>' +
           (m.sub ? '<span class="meta">' + escHtml(m.sub) + '</span>' : '') +
         '</div>'
       ).join("");
