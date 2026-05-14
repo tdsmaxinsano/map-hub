@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance — DependableCare</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --blue: #0b1f44;
+    --blue-mid: #163172;
+    --gold: #c79a26;
+    --accent: #2463eb;
+    --green: #22c55e;
+    --amber: #eab308;
+    --red:   #ef4444;
+    --slate: #64748b;
+    --bg:    #f4f6fa;
+    --card:  #ffffff;
+    --border:#e2e8f0;
+    --text:  #1f2937;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Login overlay ── */
+  #login-screen {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+  }
+  .login-card { background: #fff; border-radius: 16px; padding: 36px 32px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .login-card h1 { margin: 0 0 4px; color: var(--blue); font-size: 22px; font-weight: 800; text-align: center; }
+  .login-card p  { margin: 0 0 22px; color: var(--gold); font-size: 13px; font-weight: 600; text-align: center; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .login-card button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  .login-err { color: #b91c1c; font-size: 12px; margin-top: 8px; min-height: 14px; text-align: center; }
+
+  /* ── Header ── */
+  .header { background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); color: #fff; padding: 12px 22px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .header-brand h1 { margin: 0; font-size: 18px; font-weight: 800; }
+  .header-brand p  { margin: 0; font-size: 11px; color: var(--gold); font-weight: 600; }
+  .header-nav { display: flex; gap: 4px; flex: 1; }
+  .header-nav a { color: rgba(255,255,255,0.7); text-decoration: none; padding: 7px 11px; border-radius: 6px; font-size: 12px; font-weight: 600; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+  .header-nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .header-nav a.active { color: #fff; background: rgba(255,255,255,0.15); }
+  .header-user { font-size: 11px; color: rgba(255,255,255,0.85); }
+  .header-signout { background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .header-signout:hover { background: rgba(255,255,255,0.22); }
+
+  html.in-iframe-shell .header { display: none !important; }
+
+  /* ── Main content ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 22px 22px 60px; }
+  .hero-row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 18px;
+    margin-bottom: 22px; flex-wrap: wrap;
+  }
+  .hero-row h2 { margin: 0; font-size: 24px; font-weight: 800; color: var(--blue); }
+  .admin-chip {
+    display: inline-block; background: var(--gold); color: #fff;
+    padding: 3px 10px; border-radius: 12px; font-size: 10.5px;
+    font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .hero-sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+  /* ── Sub-view nav (Landing / Billing / Payroll) ── */
+  .sub-nav {
+    display: flex; gap: 6px; margin-bottom: 22px;
+    border-bottom: 1.5px solid var(--border);
+  }
+  .sub-nav button {
+    background: transparent; border: none; cursor: pointer;
+    padding: 10px 18px; font-size: 14px; font-weight: 700;
+    color: var(--muted); border-bottom: 3px solid transparent;
+    margin-bottom: -1.5px;
+  }
+  .sub-nav button:hover { color: var(--text); }
+  .sub-nav button.active { color: var(--blue); border-bottom-color: var(--accent); }
+
+  /* ── Landing — two big tiles ── */
+  .tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px; margin-top: 6px;
+  }
+  .tile {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 28px 24px; cursor: pointer; transition: box-shadow 0.18s, transform 0.18s, border-color 0.18s;
+    text-align: left; display: flex; flex-direction: column; gap: 10px;
+    min-height: 180px;
+  }
+  .tile:hover { box-shadow: 0 10px 30px rgba(12,22,50,0.12); transform: translateY(-2px); border-color: var(--accent); }
+  .tile-icon { font-size: 36px; line-height: 1; }
+  .tile-title { font-size: 18px; font-weight: 800; color: var(--blue); }
+  .tile-desc { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .tile-cta {
+    margin-top: auto; font-size: 12px; font-weight: 700; color: var(--accent);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+
+  /* ── Sub-view containers ── */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── Card layout for sub-views ── */
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px 22px; margin-bottom: 16px;
+  }
+  .card h3 { margin: 0 0 12px; font-size: 16px; font-weight: 800; color: var(--blue); }
+  .card .row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .card .row:last-child { border-bottom: none; }
+  .card .row .lbl { color: var(--muted); }
+  .card .row .val { font-weight: 800; color: var(--text); }
+  .card .row .val.big { font-size: 18px; }
+  .card .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .card .actions button, .card .actions a {
+    background: var(--accent); color: #fff; border: none; border-radius: 7px;
+    padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  .card .actions button:hover, .card .actions a:hover { background: var(--blue-mid); }
+  .card .actions .btn-secondary {
+    background: #fff; color: var(--accent); border: 1.5px solid var(--accent);
+  }
+  .card .actions .btn-secondary:hover { background: #eff6ff; color: var(--accent); }
+
+  .empty-state {
+    background: #fffbea; border: 1px dashed #f0c060; color: #8a5a00;
+    border-radius: 10px; padding: 18px 22px; font-size: 13px; line-height: 1.6;
+  }
+  .empty-state strong { color: #6f4500; }
+
+  /* ── Gate screen for non-admins ── */
+  #gate-screen {
+    display: none; min-height: 100vh; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+  }
+  .gate-card {
+    background: #fff; border-radius: 14px; padding: 36px 32px; max-width: 420px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;
+  }
+  .gate-card h2 { margin: 0 0 8px; color: var(--blue); }
+  .gate-card p  { color: var(--muted); margin: 0 0 18px; font-size: 13px; line-height: 1.5; }
+  .gate-card button {
+    background: var(--accent); color: #fff; border: none; padding: 10px 18px;
+    border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;
+    margin: 0 4px;
+  }
+  .gate-card .btn-secondary {
+    background: #fff; color: var(--text); border: 1.5px solid var(--border);
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--blue); color: #fff; padding: 9px 18px;
+    border-radius: 20px; font-size: 13px; opacity: 0;
+    transition: opacity 0.25s; pointer-events: none;
+    z-index: 80;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #b91c1c; }
+</style>
+<script>
+  if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+</script>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>DependableCare</h1>
+    <p>Finance</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-err" class="login-err"></div>
+  </div>
+</div>
+
+<!-- Admin-only gate (rendered if signed-in user isn't admin) -->
+<div id="gate-screen">
+  <div class="gate-card">
+    <h2>🔒 Admin only</h2>
+    <p>The Finance area is restricted to administrators. If you need access for payroll or billing work, ask an admin to upgrade your role.</p>
+    <button class="btn-secondary" onclick="window.location.href='index.html'">← Back to portal</button>
+    <button onclick="doSignOut()">Sign out</button>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="header" id="app-header" style="display:none;">
+  <div class="header-brand">
+    <h1>DependableCare</h1>
+    <p>Finance</p>
+  </div>
+  <nav class="header-nav">
+    <a href="clinician-map.html">🗺️ Map</a>
+    <a href="referrals.html">📋 Referrals</a>
+    <a href="time-tracker.html">⏱️ Time</a>
+    <a href="compliance.html">✅ Compliance</a>
+    <a href="kanban.html">🗂️ Kanban</a>
+    <a href="roster-review.html">📋 Roster</a>
+    <a href="finance.html" class="active">💰 Finance</a>
+  </nav>
+  <span class="header-user" id="header-user"></span>
+  <button class="header-signout" id="signout-btn">Sign out</button>
+</header>
+
+<!-- Main content (admins only) -->
+<div class="container" id="app-container" style="display:none;">
+  <div class="hero-row">
+    <div>
+      <h2>💰 Finance</h2>
+      <div class="hero-sub" id="hero-sub">Payroll + billing for the staffing operation.</div>
+    </div>
+    <span class="admin-chip">Admin only</span>
+  </div>
+
+  <!-- Sub-view nav -->
+  <div class="sub-nav">
+    <button data-view="landing"  class="active">Overview</button>
+    <button data-view="payroll">💵 Payroll</button>
+    <button data-view="billing">🧾 Billing</button>
+  </div>
+
+  <!-- LANDING -->
+  <div class="view active" id="view-landing">
+    <div class="tile-grid">
+      <button type="button" class="tile" data-go="payroll">
+        <div class="tile-icon">💵</div>
+        <div class="tile-title">Payroll</div>
+        <div class="tile-desc">Current pay period, staff payouts, time-edit approvals, and the Wise CSV export.</div>
+        <span class="tile-cta">Open Payroll →</span>
+      </button>
+      <button type="button" class="tile" data-go="billing">
+        <div class="tile-icon">🧾</div>
+        <div class="tile-title">Billing</div>
+        <div class="tile-desc">Agency invoicing and revenue tracking. Placeholder for v1 — we'll build this out next.</div>
+        <span class="tile-cta">Open Billing →</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- PAYROLL -->
+  <div class="view" id="view-payroll">
+    <div class="card">
+      <h3>Current Pay Period</h3>
+      <div class="row"><span class="lbl">Period</span><span class="val" id="pp-period">—</span></div>
+      <div class="row"><span class="lbl">Active staff</span><span class="val" id="pp-active">—</span></div>
+      <div class="row"><span class="lbl">Estimated total payout</span><span class="val big" id="pp-payout">—</span></div>
+      <div class="row"><span class="lbl">Pending edit requests</span><span class="val" id="pp-pending">—</span></div>
+      <div class="actions">
+        <a id="pp-open-time" href="time-tracker.html">Open Time Tracker →</a>
+        <button class="btn-secondary" onclick="loadPayrollSummary()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Wise Export</h3>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 8px;">
+        Run the Wise payroll export directly from Time Tracker → Pay Period tab.
+        The CSV builds an upload-ready file (<code>Wise_Payroll_&lt;date&gt;.csv</code>)
+        using each staff's <code>wise_recipient_id</code>, hours, and rate.
+      </p>
+      <div class="actions">
+        <a id="pp-open-wise" href="time-tracker.html">Run from Time Tracker →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- BILLING -->
+  <div class="view" id="view-billing">
+    <div class="card">
+      <h3>🧾 Billing — Coming soon</h3>
+      <div class="empty-state">
+        <p style="margin:0 0 10px;">
+          <strong>We don't currently invoice agencies from this portal.</strong>
+          Clinicians get paid via Wise; agencies aren't yet billed through any system here.
+        </p>
+        <p style="margin:0;">
+          When you're ready to build this, options include:
+        </p>
+        <ul style="margin:6px 0 0;padding-left:22px;">
+          <li>Track billable referrals: mark each referral billed/unbilled, capture amount + invoice number.</li>
+          <li>Full invoicing module: <code>invoices</code> + <code>invoice_line_items</code> tables, PDF export, paid/unpaid status.</li>
+          <li>Rate cards per agency: standardized hourly rate × discipline.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+});
+
+let currentUser = null;
+let currentRole = "readonly";
+
+// ── Tiny helpers ──
+function showToast(msg, type) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.toggle("error", type === "error");
+  t.classList.add("show");
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => t.classList.remove("show"), 2400);
+}
+function fmtDate(d) {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function fmtUSD(n) {
+  if (n == null || isNaN(n)) return "$0.00";
+  return "$" + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// ── Pay-period helper (mirrors time-tracker.html bi-weekly logic) ──
+// Anchored to a Monday two weeks ago. Adjust the anchor if Time Tracker uses
+// a different start; the result here is purely the period label + bounds.
+function getCurrentPayPeriod() {
+  // Use the most recent Monday two weeks ago as a stable bi-weekly anchor.
+  // Aligning to Mondays so the period boundary is predictable.
+  const ANCHOR = new Date(Date.UTC(2026, 0, 5)); // 2026-01-05 = a Monday
+  const MS_DAY = 86400000;
+  const now = new Date();
+  const daysSinceAnchor = Math.floor((now.getTime() - ANCHOR.getTime()) / MS_DAY);
+  const periodsSince = Math.floor(daysSinceAnchor / 14);
+  const startMs = ANCHOR.getTime() + periodsSince * 14 * MS_DAY;
+  const start = new Date(startMs);
+  const end   = new Date(startMs + 14 * MS_DAY - 1);
+  return { start, end };
+}
+function fmtPeriod(p) {
+  return fmtDate(p.start) + " – " + fmtDate(p.end);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════════════
+async function checkSession() {
+  const { data } = await db.auth.getSession();
+  if (data?.session?.user) await launchApp(data.session.user);
+  else document.getElementById("login-screen").style.display = "flex";
+}
+
+async function doSignIn() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) { err.textContent = error.message || "Incorrect credentials."; return; }
+  await launchApp(data.session.user);
+}
+
+async function doSignOut() {
+  await db.auth.signOut();
+  location.reload();
+}
+
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+
+  // Role fetch — admin only gates
+  try {
+    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    currentRole = (roleRow && roleRow.role) || "readonly";
+  } catch (e) { currentRole = "readonly"; }
+
+  if (currentRole !== "admin") {
+    // Render gate screen, never load any finance data
+    document.getElementById("gate-screen").style.display = "flex";
+    return;
+  }
+
+  // Admin-only render
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("app-container").style.display = "block";
+  document.getElementById("header-user").textContent = user.email || "";
+
+  // Parse the deep-link view (?view=payroll|billing|landing)
+  const params = new URLSearchParams(location.search);
+  const initialView = params.get("view") || "landing";
+  switchView(initialView, true);
+
+  loadPayrollSummary();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SUB-VIEW SWITCHING
+// ══════════════════════════════════════════════════════════════════
+function switchView(viewName, skipPushState) {
+  const validViews = ["landing", "payroll", "billing"];
+  if (!validViews.includes(viewName)) viewName = "landing";
+
+  document.querySelectorAll(".view").forEach(v => {
+    v.classList.toggle("active", v.id === "view-" + viewName);
+  });
+  document.querySelectorAll(".sub-nav button").forEach(b => {
+    b.classList.toggle("active", b.dataset.view === viewName);
+  });
+
+  const subtitleMap = {
+    landing: "Payroll + billing for the staffing operation.",
+    payroll: "Current pay period totals and link to the Time Tracker pay period view.",
+    billing: "Agency invoicing — placeholder for v1."
+  };
+  document.getElementById("hero-sub").textContent = subtitleMap[viewName] || subtitleMap.landing;
+
+  if (!skipPushState) {
+    const newUrl = viewName === "landing"
+      ? location.pathname
+      : location.pathname + "?view=" + viewName;
+    history.pushState({ view: viewName }, "", newUrl);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PAYROLL SUMMARY
+// ══════════════════════════════════════════════════════════════════
+async function loadPayrollSummary() {
+  const period = getCurrentPayPeriod();
+  document.getElementById("pp-period").textContent = fmtPeriod(period);
+
+  // Active staff with rates
+  let activeStaff = [];
+  try {
+    const r = await db.from("staff_config").select("user_id, hourly_rate, is_active");
+    if (r.error) throw r.error;
+    activeStaff = (r.data || []).filter(s => s.is_active);
+  } catch (e) {
+    showToast("Could not load staff: " + (e.message || e), "error");
+    return;
+  }
+  document.getElementById("pp-active").textContent = activeStaff.length;
+
+  // Time entries within the period (use clock_in window)
+  let entries = [];
+  try {
+    const startIso = period.start.toISOString();
+    const endIso   = new Date(period.end.getTime() + 86400000).toISOString(); // buffer day
+    const r = await db.from("time_entries").select("user_id, clock_in, clock_out")
+      .gte("clock_in", startIso).lte("clock_in", endIso);
+    if (r.error) throw r.error;
+    entries = r.data || [];
+  } catch (e) {
+    showToast("Could not load time entries: " + (e.message || e), "error");
+    return;
+  }
+
+  // Compute hours by user_id (clock_out null = ongoing, skip for payroll est.)
+  const hoursByUid = {};
+  entries.forEach(e => {
+    if (!e.clock_in || !e.clock_out) return;
+    const ms = new Date(e.clock_out).getTime() - new Date(e.clock_in).getTime();
+    if (ms <= 0 || isNaN(ms)) return;
+    hoursByUid[e.user_id] = (hoursByUid[e.user_id] || 0) + ms / 3600000;
+  });
+
+  let total = 0;
+  activeStaff.forEach(s => {
+    const h = hoursByUid[s.user_id] || 0;
+    total += h * Number(s.hourly_rate || 0);
+  });
+  document.getElementById("pp-payout").textContent = fmtUSD(total);
+
+  // Pending edit requests
+  try {
+    const r = await db.from("time_edit_requests").select("id", { count: "exact", head: true }).eq("status", "pending");
+    if (r.error) throw r.error;
+    document.getElementById("pp-pending").textContent = r.count || 0;
+  } catch (e) {
+    document.getElementById("pp-pending").textContent = "—";
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SHELL-AWARE TIME TRACKER LINK
+// ══════════════════════════════════════════════════════════════════
+function openTimeTracker(e) {
+  // If we're inside the iframe shell, call up to switch tabs instead of
+  // opening a fresh tab. Modifier keys always fall through to <a href>.
+  if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) return; // let browser handle
+  if (window.parent && window.parent !== window && typeof window.parent.shellSwitchTab === "function") {
+    e.preventDefault();
+    window.parent.shellSwitchTab("time");
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EVENT WIRING
+// ══════════════════════════════════════════════════════════════════
+document.getElementById("login-btn").addEventListener("click", doSignIn);
+document.getElementById("login-password").addEventListener("keydown", e => {
+  if (e.key === "Enter") doSignIn();
+});
+document.getElementById("signout-btn").addEventListener("click", doSignOut);
+
+// Sub-view nav buttons
+document.querySelectorAll(".sub-nav button").forEach(btn => {
+  btn.addEventListener("click", () => switchView(btn.dataset.view));
+});
+// Tile clicks
+document.querySelectorAll(".tile[data-go]").forEach(tile => {
+  tile.addEventListener("click", () => switchView(tile.dataset.go));
+});
+// Time-tracker links — shell-aware
+document.getElementById("pp-open-time").addEventListener("click", openTimeTracker);
+document.getElementById("pp-open-wise").addEventListener("click", openTimeTracker);
+
+// Browser back/forward
+window.addEventListener("popstate", () => {
+  const params = new URLSearchParams(location.search);
+  switchView(params.get("view") || "landing", true);
+});
+
+// Cleanup on sign out
+db.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT" || !session) {
+    document.getElementById("app-header").style.display = "none";
+    document.getElementById("app-container").style.display = "none";
+    document.getElementById("gate-screen").style.display = "none";
+    document.getElementById("login-screen").style.display = "flex";
+  }
+});
+
+// Boot
+checkSession();
+</script>
+<script src="chat-widget.js"></script>
+</body>
+</html>

@@ -312,6 +312,7 @@
       <button class="shell-tab" data-tab="compliance">✅ Compliance</button>
       <button class="shell-tab" data-tab="kanban">🗂️ Kanban</button>
       <button class="shell-tab" data-tab="roster">📋 Roster</button>
+      <button class="shell-tab admin-only-tab" data-tab="finance" style="display:none;">💰 Finance</button>
     </nav>
     <div class="header-right">
       <span class="header-user" id="header-user"></span>
@@ -420,6 +421,7 @@
     <iframe id="frame-compliance" data-src="compliance.html"    data-pane="compliance" title="Compliance"    hidden></iframe>
     <iframe id="frame-kanban"     data-src="kanban.html"        data-pane="kanban"     title="Kanban"        hidden></iframe>
     <iframe id="frame-roster"     data-src="roster-review.html" data-pane="roster"     title="Roster Review" hidden></iframe>
+    <iframe id="frame-finance"    data-src="finance.html"       data-pane="finance"    title="Finance"       hidden></iframe>
   </div>
 </div>
 
@@ -445,10 +447,11 @@
   let currentUser = null;
 
   // Tab IDs that map to iframes (home is a static pane)
-  const TAB_IDS = ["home", "map", "referrals", "time", "compliance", "kanban", "roster"];
+  const TAB_IDS = ["home", "map", "referrals", "time", "compliance", "kanban", "roster", "finance"];
   const FRAME_BY_TAB = {
     map: "frame-map", referrals: "frame-referrals", time: "frame-time",
-    compliance: "frame-compliance", kanban: "frame-kanban", roster: "frame-roster"
+    compliance: "frame-compliance", kanban: "frame-kanban", roster: "frame-roster",
+    finance: "frame-finance"
   };
 
   function escHtml(s) {
@@ -735,6 +738,15 @@
       }
     } catch (e) {}
     document.getElementById("hero-greeting").textContent = "Welcome back, " + greetName;
+
+    // Reveal admin-only tabs (💰 Finance) if role === 'admin'
+    try {
+      const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+      const isAdmin = roleRow && roleRow.role === "admin";
+      document.querySelectorAll(".admin-only-tab").forEach(btn => {
+        btn.style.display = isAdmin ? "" : "none";
+      });
+    } catch (e) { /* keep hidden by default — fail closed */ }
 
     Promise.all([
       loadOpenReferralsCount(),
