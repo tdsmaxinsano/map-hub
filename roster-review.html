@@ -242,6 +242,45 @@
   .chip-input button { padding: 6px 12px; background: var(--accent); color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
   .chip-input button:hover { background: var(--blue-mid); }
 
+  /* Typeahead control for restriction add */
+  .chip-typeahead {
+    position: relative;
+    display: flex;
+    gap: 6px;
+  }
+  .chip-typeahead input {
+    flex: 1; padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px;
+    font-size: 12px; outline: none;
+  }
+  .chip-typeahead input:focus { border-color: var(--accent); }
+  .chip-typeahead button {
+    padding: 6px 12px; background: var(--accent); color: #fff; border: none;
+    border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer;
+  }
+  .chip-typeahead button:hover:not(:disabled) { background: var(--blue-mid); }
+  .chip-typeahead button:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+  .restr-dropdown {
+    position: absolute; top: calc(100% + 3px); left: 0; right: 0;
+    background: #fff; border: 1px solid var(--border); border-radius: 7px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.13);
+    max-height: 240px; overflow-y: auto;
+    z-index: 80;
+    display: none;
+  }
+  .restr-dropdown.open { display: block; }
+  .restr-option {
+    padding: 7px 10px; font-size: 12px; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; gap: 10px;
+    border-bottom: 1px solid #f1f5f9;
+  }
+  .restr-option:last-child { border-bottom: none; }
+  .restr-option:hover, .restr-option.active { background: #eff6ff; }
+  .restr-option .meta { color: var(--muted); font-size: 11px; font-weight: 600; }
+  .restr-empty {
+    padding: 8px 10px; color: var(--muted); font-size: 12px; font-style: italic;
+  }
+
   .notes-textarea {
     width: 100%; min-height: 200px; padding: 10px 12px;
     border: 1px solid var(--border); border-radius: 8px;
@@ -478,6 +517,35 @@ let filters = {
 };
 let realtimeChannel = null;
 let visibleCols = loadVisibleCols(); // {key: bool}
+let agenciesList = []; // [{id, name}] from home_health_agencies
+
+// ── Typeahead scoring (mirrors clinician-map.html:15465 getRestrictionSearchMatches) ──
+const RESTR_MAX_RESULTS = 8;
+function normRestrSearch(q) {
+  return String(q || "").toLowerCase().replace(/\s+/g, " ").trim();
+}
+function scoreRestrCandidate(candidateName, queryNorm) {
+  const cn = normRestrSearch(candidateName);
+  if (!cn || !queryNorm) return 0;
+  if (cn === queryNorm) return 1000;
+  if (cn.startsWith(queryNorm)) return 800;
+  if (cn.includes(queryNorm)) return 500;
+  return 0;
+}
+function getRestrMatches(type, rawQuery, excludeSet) {
+  const q = normRestrSearch(rawQuery);
+  if (!q) return [];
+  const pool = type === "agencies"
+    ? agenciesList.map(a => ({ name: a.name, sub: "Agency" }))
+    : rosterRows.map(c => ({ name: c.name, sub: c.discipline || "" }));
+  const ex = excludeSet || new Set();
+  return pool
+    .filter(p => p.name && !ex.has(normName(p.name)))
+    .map(p => ({ ...p, _score: scoreRestrCandidate(p.name, q) }))
+    .filter(p => p._score > 0)
+    .sort((a, b) => b._score - a._score || a.name.localeCompare(b.name))
+    .slice(0, RESTR_MAX_RESULTS);
+}
 
 function loadVisibleCols() {
   let stored = null;
@@ -598,21 +666,28 @@ async function loadRoster() {
   document.getElementById("roster-body").innerHTML =
     '<tr class="loading-row"><td colspan="11">Loading…</td></tr>';
 
-  // Pull clinicians + their profile rows in two queries, then merge.
-  // Using a left join via two fetches avoids assumptions about Supabase's
-  // implicit-join behavior here.
-  const [vRes, pRes] = await Promise.all([
+  // Pull clinicians + profiles + agencies in three parallel queries.
+  // Agencies feed the Restrictions typeahead (drawer); without it that
+  // dropdown would have no suggestions.
+  const [vRes, pRes, aRes] = await Promise.all([
     db.from("clinician_v2")
       .select("id, name, discipline, status, active")
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
       .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags")
+      .limit(5000),
+    db.from("home_health_agencies")
+      .select("id, name")
+      .order("name", { ascending: true })
       .limit(5000)
   ]);
 
   if (vRes.error) { showToast("Failed to load clinicians: " + vRes.error.message, "error"); return; }
   if (pRes.error) { showToast("Failed to load profiles: "  + pRes.error.message,  "error"); return; }
+  // Agencies fetch is non-blocking — typeahead just shows fewer suggestions if it fails.
+  if (aRes.error) { console.warn("[roster] agencies load failed:", aRes.error.message); agenciesList = []; }
+  else { agenciesList = (aRes.data || []).filter(a => a && a.name && String(a.name).trim()); }
 
   const profilesByCid = {};
   (pRes.data || []).forEach(p => { profilesByCid[p.clinician_id] = p; });
@@ -1111,7 +1186,7 @@ function renderRestrictionsDrawer(row) {
   const r = normRestrictions(row.restrictions);
   const canEdit = currentRole === "admin" || currentRole === "editor";
   return `
-    <p class="drawer-sub">Bidirectional restrictions. Names are stored as-typed and persist to <code>clinician_profiles.restrictions</code> — the map's profile panel reads the same field.</p>
+    <p class="drawer-sub">Bidirectional restrictions. Pick names from the dropdown — only entries from the loaded roster of agencies and clinicians can be added. Saves to <code>clinician_profiles.restrictions</code>; the map's profile panel reads the same field.</p>
 
     <div class="chip-section">
       <div class="chip-section-label">🚫 Restricted Agencies (${r.agencies.length})</div>
@@ -1121,9 +1196,10 @@ function renderRestrictionsDrawer(row) {
         ).join("") : '<span class="chip-empty">No agency restrictions.</span>'}
       </div>
       ${canEdit ? `
-        <div class="chip-input">
-          <input type="text" id="drawer-agency-input" placeholder="Add agency name…" />
-          <button id="drawer-agency-add">+ Add</button>
+        <div class="chip-typeahead" data-type="agencies">
+          <input type="text" id="drawer-agency-input" autocomplete="off" placeholder="Search agencies…" />
+          <button id="drawer-agency-add" disabled title="Pick a match from the dropdown">+ Add</button>
+          <div id="drawer-agency-dropdown" class="restr-dropdown"></div>
         </div>
       ` : ""}
     </div>
@@ -1136,9 +1212,10 @@ function renderRestrictionsDrawer(row) {
         ).join("") : '<span class="chip-empty">No clinician restrictions.</span>'}
       </div>
       ${canEdit ? `
-        <div class="chip-input">
-          <input type="text" id="drawer-clin-input" placeholder="Add clinician name…" />
-          <button id="drawer-clin-add">+ Add</button>
+        <div class="chip-typeahead" data-type="clinicians">
+          <input type="text" id="drawer-clin-input" autocomplete="off" placeholder="Search clinicians…" />
+          <button id="drawer-clin-add" disabled title="Pick a match from the dropdown">+ Add</button>
+          <div id="drawer-clin-dropdown" class="restr-dropdown"></div>
         </div>
       ` : ""}
     </div>
@@ -1157,6 +1234,7 @@ function renderNotesDrawer(row) {
 function wireRestrictionsDrawer() {
   const row = getRow(drawerCid);
   if (!row) return;
+
   async function persist(updated) {
     row.restrictions = updated;
     await saveRestrictions(drawerCid, updated);
@@ -1164,32 +1242,8 @@ function wireRestrictionsDrawer() {
     wireRestrictionsDrawer();
     renderAll();
   }
-  const addA = document.getElementById("drawer-agency-add");
-  const inputA = document.getElementById("drawer-agency-input");
-  if (addA && inputA) {
-    addA.onclick = async () => {
-      const val = normName(inputA.value);
-      if (!val) return;
-      const r = normRestrictions(row.restrictions);
-      if (!r.agencies.includes(val)) r.agencies.push(val);
-      inputA.value = "";
-      await persist(r);
-    };
-    inputA.addEventListener("keydown", e => { if (e.key === "Enter") addA.click(); });
-  }
-  const addC = document.getElementById("drawer-clin-add");
-  const inputC = document.getElementById("drawer-clin-input");
-  if (addC && inputC) {
-    addC.onclick = async () => {
-      const val = normName(inputC.value);
-      if (!val) return;
-      const r = normRestrictions(row.restrictions);
-      if (!r.clinicians.includes(val)) r.clinicians.push(val);
-      inputC.value = "";
-      await persist(r);
-    };
-    inputC.addEventListener("keydown", e => { if (e.key === "Enter") addC.click(); });
-  }
+
+  // ── Chip remove handlers ──
   document.querySelectorAll("[data-rm-agency]").forEach(el => {
     el.onclick = async () => {
       const name = el.dataset.rmAgency;
@@ -1206,6 +1260,118 @@ function wireRestrictionsDrawer() {
       await persist(r);
     };
   });
+
+  // ── Typeahead wiring ──
+  function wireOneTypeahead(type, inputId, dropdownId, addBtnId, listKey) {
+    const inputEl = document.getElementById(inputId);
+    const dropEl  = document.getElementById(dropdownId);
+    const addEl   = document.getElementById(addBtnId);
+    if (!inputEl || !dropEl || !addEl) return;
+
+    let activeIdx = -1;
+    let currentMatches = [];
+
+    function alreadyRestrictedSet() {
+      // Exclude entities the clinician is already restricted from so they
+      // don't reappear in the dropdown.
+      const cur = normRestrictions(row.restrictions);
+      const arr = cur[listKey] || [];
+      const s = new Set();
+      arr.forEach(n => s.add(normName(n)));
+      return s;
+    }
+
+    function render() {
+      const q = inputEl.value;
+      currentMatches = getRestrMatches(type, q, alreadyRestrictedSet());
+      if (!q.trim()) {
+        dropEl.classList.remove("open");
+        dropEl.innerHTML = "";
+        addEl.disabled = true;
+        return;
+      }
+      if (!currentMatches.length) {
+        dropEl.innerHTML = '<div class="restr-empty">No matching ' + (type === "agencies" ? "agencies" : "clinicians") + '</div>';
+        dropEl.classList.add("open");
+        addEl.disabled = true;
+        return;
+      }
+      // Determine whether the typed value exactly matches a candidate (enables Add btn)
+      const typedNorm = normRestrSearch(q);
+      const exact = currentMatches.find(m => normRestrSearch(m.name) === typedNorm);
+      addEl.disabled = !exact;
+      if (activeIdx >= currentMatches.length) activeIdx = currentMatches.length - 1;
+      if (activeIdx < 0 && currentMatches.length) activeIdx = 0;
+
+      dropEl.innerHTML = currentMatches.map((m, i) =>
+        '<div class="restr-option' + (i === activeIdx ? " active" : "") + '" data-name="' + escAttr(m.name) + '">' +
+          '<span>' + escHtml(m.name) + '</span>' +
+          (m.sub ? '<span class="meta">' + escHtml(m.sub) + '</span>' : '') +
+        '</div>'
+      ).join("");
+      dropEl.classList.add("open");
+    }
+
+    async function commit(name) {
+      if (!name) return;
+      const canonical = normName(name);
+      if (!canonical) return;
+      const r = normRestrictions(row.restrictions);
+      const targetArr = r[listKey] || [];
+      // Dedupe (case-insensitive)
+      const exists = targetArr.some(n => normRestrSearch(n) === normRestrSearch(canonical));
+      if (!exists) targetArr.push(canonical);
+      r[listKey] = targetArr;
+      inputEl.value = "";
+      dropEl.classList.remove("open");
+      activeIdx = -1;
+      await persist(r);
+    }
+
+    inputEl.addEventListener("input", () => { activeIdx = currentMatches.length ? 0 : -1; render(); });
+    inputEl.addEventListener("focus", () => { if (inputEl.value.trim()) render(); });
+    inputEl.addEventListener("blur",  () => {
+      // Delay so a mousedown on an option fires before close
+      setTimeout(() => { dropEl.classList.remove("open"); }, 200);
+    });
+    inputEl.addEventListener("keydown", (e) => {
+      if (!currentMatches.length && (e.key === "ArrowDown" || e.key === "ArrowUp" || e.key === "Enter")) return;
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        activeIdx = (activeIdx + 1) % currentMatches.length;
+        render();
+      } else if (e.key === "ArrowUp") {
+        e.preventDefault();
+        activeIdx = (activeIdx - 1 + currentMatches.length) % currentMatches.length;
+        render();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        if (activeIdx >= 0 && currentMatches[activeIdx]) {
+          commit(currentMatches[activeIdx].name);
+        } else {
+          // Try to match by exact normalized name
+          const exact = currentMatches.find(m => normRestrSearch(m.name) === normRestrSearch(inputEl.value));
+          if (exact) commit(exact.name);
+        }
+      } else if (e.key === "Escape") {
+        dropEl.classList.remove("open");
+      }
+    });
+    dropEl.addEventListener("mousedown", (e) => {
+      const opt = e.target.closest(".restr-option");
+      if (!opt) return;
+      e.preventDefault();
+      commit(opt.dataset.name);
+    });
+    addEl.addEventListener("click", () => {
+      // Only commits when Add is enabled (exact normalized match exists)
+      const exact = currentMatches.find(m => normRestrSearch(m.name) === normRestrSearch(inputEl.value));
+      if (exact) commit(exact.name);
+    });
+  }
+
+  wireOneTypeahead("agencies",   "drawer-agency-input", "drawer-agency-dropdown", "drawer-agency-add", "agencies");
+  wireOneTypeahead("clinicians", "drawer-clin-input",   "drawer-clin-dropdown",   "drawer-clin-add",   "clinicians");
 }
 
 function wireNotesDrawer() {
