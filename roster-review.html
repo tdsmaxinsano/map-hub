@@ -181,6 +181,12 @@
   .sel-cell { width: 28px; text-align: center; }
   .sel-cell input { accent-color: var(--accent); cursor: pointer; }
 
+  /* VDR metric tints — match the map's quick-fact chip palette */
+  .vdr-tint-green { color: #15803d; font-weight: 800; }
+  .vdr-tint-amber { color: #92400e; font-weight: 800; }
+  .vdr-tint-red   { color: #b91c1c; font-weight: 800; }
+  .vdr-cell-muted { color: var(--muted); font-size: 11px; }
+
   .num-input { width: 56px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; outline: none; }
   .num-input:focus { border-color: var(--accent); }
   .text-input { width: 100%; min-width: 110px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; outline: none; }
@@ -418,6 +424,8 @@
           <th data-col="notes">Notes</th>
           <th data-col="dnr">DNR</th>
           <th data-col="reviewed">✓ Reviewed</th>
+          <th data-col="avgSync" style="text-align:right;">Avg Sync Days</th>
+          <th data-col="avgVisits" style="text-align:right;">Avg Visits/Run</th>
         </tr>
       </thead>
       <tbody id="roster-body">
@@ -491,7 +499,9 @@ const COLUMNS = [
   { key: "restrictions", label: "Restrictions", defaultOn: true  },
   { key: "notes",        label: "Notes",        defaultOn: true  },
   { key: "dnr",          label: "DNR flag",     defaultOn: true  },
-  { key: "reviewed",     label: "✓ Reviewed",   defaultOn: true  }
+  { key: "reviewed",     label: "✓ Reviewed",   defaultOn: true  },
+  { key: "avgSync",      label: "Avg Sync Days",  defaultOn: false },
+  { key: "avgVisits",    label: "Avg Visits/Run", defaultOn: false }
 ];
 const EMR_KEYS = [
   { key: "strata",      label: "Strata" },
@@ -519,6 +529,35 @@ let filters = {
 let realtimeChannel = null;
 let visibleCols = loadVisibleCols(); // {key: bool}
 let agenciesList = []; // [{id, name}] from home_health_agencies
+let vdrLookup = { byId: {}, byName: {} }; // per-clinician VDR aggregates from list_clinician_vdr_summary()
+
+// ── Per-clinician VDR metrics lookup (Roster + Map share this pattern) ──
+async function loadVdrSummary() {
+  try {
+    const r = await db.rpc("list_clinician_vdr_summary");
+    if (r.error) return;
+    const byId = {}, byName = {};
+    (r.data || []).forEach(row => {
+      if (row.clinician_id) byId[row.clinician_id] = row;
+      if (row.clinician_name) byName[formatName(row.clinician_name).toLowerCase()] = row;
+    });
+    vdrLookup = { byId, byName };
+  } catch (e) { /* non-fatal */ }
+}
+
+function getVdrMetricsFor(clinicianObj) {
+  if (!vdrLookup) return null;
+  if (clinicianObj.id && vdrLookup.byId[clinicianObj.id]) return vdrLookup.byId[clinicianObj.id];
+  const key = formatName(clinicianObj.name || "").toLowerCase();
+  return vdrLookup.byName[key] || null;
+}
+
+function syncTimeTint(days) {
+  if (days == null || isNaN(days)) return "";
+  if (days <= 3) return "vdr-tint-green";
+  if (days <= 7) return "vdr-tint-amber";
+  return "vdr-tint-red";
+}
 
 // ── Typeahead scoring (mirrors clinician-map.html:15465 getRestrictionSearchMatches) ──
 const RESTR_MAX_RESULTS = 8;
@@ -669,6 +708,8 @@ async function launchApp(user) {
 
   // Load staff directory for "reviewed by" display
   loadStaffDirectory();
+  // Load VDR per-clinician aggregates (best-effort; non-blocking for the table)
+  loadVdrSummary().then(() => { if (rosterRows.length) renderTable(); });
   // Build the column picker (uses current visibleCols from localStorage)
   renderColumnPicker();
   // Load the roster and render
@@ -959,6 +1000,27 @@ function buildRow(r) {
       ${r.last_reviewed_at ? `<span class="review-stamp">${escHtml(fmtDate(r.last_reviewed_at))}</span>` : ""}
     </td>`
   };
+
+  // VDR metric cells — pull from the aggregate lookup
+  {
+    const m = getVdrMetricsFor(r);
+    const sharedTip = m ? "Based on " + m.run_count + " run" + (m.run_count === 1 ? "" : "s") +
+      " · latest " + fmtDate(m.latest_run_at) : "No VDR runs include this clinician yet";
+    cells.avgSync = m
+      ? `<td data-col="avgSync" style="text-align:right;" title="${escAttr(sharedTip)}">
+           <span class="${syncTimeTint(m.avg_sync_days)}">${escHtml(m.avg_sync_days)} d</span>
+         </td>`
+      : `<td data-col="avgSync" style="text-align:right;" title="${escAttr(sharedTip)}">
+           <span class="vdr-cell-muted">—</span>
+         </td>`;
+    cells.avgVisits = m
+      ? `<td data-col="avgVisits" style="text-align:right;" title="${escAttr(sharedTip + " · " + m.total_visits + " visits total")}">
+           ${escHtml(m.avg_visits_per_run)}
+         </td>`
+      : `<td data-col="avgVisits" style="text-align:right;" title="${escAttr(sharedTip)}">
+           <span class="vdr-cell-muted">—</span>
+         </td>`;
+  }
 
   const orderedHtml = COLUMNS
     .filter(c => visibleCols[c.key])
@@ -1477,7 +1539,8 @@ function exportCsv(onlySelected) {
     "emr_strata", "emr_therapy_boss", "emr_axxess", "emr_kinnser",
     "restricted_agencies", "restricted_clinicians",
     "notes", "do_not_rehire",
-    "last_reviewed_at", "last_reviewed_by_email"
+    "last_reviewed_at", "last_reviewed_by_email",
+    "avg_sync_days", "avg_visits_per_run", "vdr_run_count", "latest_vdr_at"
   ];
   function emrOn(caps, aliases) {
     if (!caps || typeof caps !== "object") return "";
@@ -1491,6 +1554,7 @@ function exportCsv(onlySelected) {
     const reviewerEmail = r.last_reviewed_by && staffByUserId[r.last_reviewed_by]
       ? (staffByUserId[r.last_reviewed_by].email || "")
       : "";
+    const m = getVdrMetricsFor(r);
     const fields = [
       r.name,
       r.discipline,
@@ -1512,7 +1576,11 @@ function exportCsv(onlySelected) {
       (r.notes || "").replace(/\r?\n/g, " "),
       r.do_not_rehire ? "Y" : "",
       r.last_reviewed_at || "",
-      reviewerEmail
+      reviewerEmail,
+      m && m.avg_sync_days != null ? m.avg_sync_days : "",
+      m && m.avg_visits_per_run != null ? m.avg_visits_per_run : "",
+      m && m.run_count != null ? m.run_count : "",
+      m && m.latest_run_at ? m.latest_run_at : ""
     ].map(v => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
