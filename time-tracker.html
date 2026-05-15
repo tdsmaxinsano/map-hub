@@ -510,6 +510,7 @@
           <div>
             <div class="period-label" id="pp-label">Loading...</div>
             <div class="period-sub" id="pp-sub"></div>
+            <div id="pp-debug" style="font-size:10.5px;color:var(--gray);margin-top:3px;font-family:ui-monospace,monospace;letter-spacing:0.2px;"></div>
           </div>
           <button class="btn-period" onclick="changePeriod(1)">Next ▶</button>
           <button class="btn-gold admin-only" onclick="openBulkHoursModal()">✏ Enter Hours</button>
@@ -1660,6 +1661,36 @@ async function renderPayPeriod() {
 
   const allEntries = entries || [];
   const allAdjs    = adjs    || [];
+
+  // ── Diagnostic strip — confirms what was queried vs what falls inside
+  //    the period after filtering. Helps reproduce period-nav bugs. ──
+  try {
+    const inPeriod = allEntries.filter(e => {
+      const ci = new Date(e.clock_in);
+      return ci >= period.start && ci <= period.end;
+    }).length;
+    const totalHrs = allEntries.reduce((s, e) => {
+      const ci = new Date(e.clock_in);
+      if (!(ci >= period.start && ci <= period.end)) return s;
+      const co = e.clock_out ? new Date(e.clock_out) : new Date();
+      return s + Math.max(0, (co - ci) / 3600000);
+    }, 0);
+    const dbg = document.getElementById('pp-debug');
+    if (dbg) dbg.textContent =
+      'Period UTC: ' + period.start.toISOString().slice(0,16) + 'Z – ' +
+      period.end.toISOString().slice(0,16) + 'Z · ' +
+      'Query window: ' + allEntries.length + ' rows · In-period: ' + inPeriod +
+      ' · Sum hrs: ' + totalHrs.toFixed(1) + 'h';
+    console.log('[PayPeriod]', {
+      offset: periodOffset,
+      label: fmtPeriod(period),
+      start_utc: period.start.toISOString(),
+      end_utc:   period.end.toISOString(),
+      query_window_rows: allEntries.length,
+      in_period_rows:    inPeriod,
+      sample_clock_ins:  allEntries.slice(0, 5).map(e => e.clock_in)
+    });
+  } catch (e) { /* non-fatal */ }
 
   let grandPhTotal = 0, grandUsTotal = 0, grandWise = 0;
   const tbody = document.getElementById('pay-table-body');
