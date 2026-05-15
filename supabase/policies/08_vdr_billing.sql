@@ -31,10 +31,18 @@ CREATE TABLE IF NOT EXISTS public.vdr_runs (
   visit_date_max           DATE,
   report_path              TEXT,
   source_filename          TEXT,
+  -- Compact JSON snapshot of every prepared row (with derived flag booleans)
+  -- so the Billing page can instantly rebuild the inline preview (charts +
+  -- discrepancy tables) when an admin clicks "View" on a history row,
+  -- without re-downloading + re-parsing the archived XLSX.
+  prepared_rows            JSONB NOT NULL DEFAULT '[]'::jsonb,
   extras                   JSONB NOT NULL DEFAULT '{}'::jsonb,
   notes                    TEXT
 );
 CREATE INDEX IF NOT EXISTS vdr_runs_ran_at_idx ON public.vdr_runs (ran_at DESC);
+
+-- If table already exists from a prior partial run, ensure the new column is added
+ALTER TABLE public.vdr_runs ADD COLUMN IF NOT EXISTS prepared_rows JSONB NOT NULL DEFAULT '[]'::jsonb;
 
 CREATE TABLE IF NOT EXISTS public.vdr_clinician_metrics (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),

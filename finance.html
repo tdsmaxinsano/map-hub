@@ -992,6 +992,11 @@ const VDR = (function() {
     t.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}${more}</tbody>`;
   }
 
+  function clearHistoricalBanner() {
+    const b = document.getElementById("vdr-historical-banner");
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+  }
+
   function showPreview() {
     document.getElementById("vdr-preview-card").style.display = "block";
     renderStats(); renderCharts(); renderTabs(); renderDiscrepancyTable();
@@ -1136,7 +1141,17 @@ const VDR = (function() {
         both:   rawRows.filter(r => r.OutOfRange && r.ShortAndBillable).length
       };
 
-      // 3. Insert vdr_runs row
+      // 3. Insert vdr_runs row — including the compact per-row snapshot
+      // so View-in-history can rebuild the inline preview instantly.
+      const preparedSnapshot = rawRows.map(r => ({
+        Date: r.Date instanceof Date ? r.Date.toISOString() : r.Date,
+        Submitted: r.Submitted instanceof Date ? r.Submitted.toISOString() : r.Submitted,
+        Type: r.Type, Clinician: r.Clinician, Payer: r.Payer,
+        Billable: r.Billable, Charge: r.Charge, Time: r.Time,
+        VTime: r.VTime, DaysBetween: r.DaysBetween,
+        OutOfRange: r.OutOfRange, ShortAndBillable: r.ShortAndBillable,
+        MissedVisit: r.MissedVisit, EvalTimeAlert: r.EvalTimeAlert
+      }));
       const runRow = {
         total_visits: summaries.totalVisits,
         total_charges: summaries.totalCharges,
@@ -1148,7 +1163,8 @@ const VDR = (function() {
         visit_date_min: summaries.dateMin ? summaries.dateMin.toISOString().slice(0, 10) : null,
         visit_date_max: summaries.dateMax ? summaries.dateMax.toISOString().slice(0, 10) : null,
         report_path: storagePath,
-        source_filename: document.getElementById("vdr-dz-title")._sourceName || null
+        source_filename: document.getElementById("vdr-dz-title")._sourceName || null,
+        prepared_rows: preparedSnapshot
       };
       const runIns = await db.from("vdr_runs").insert(runRow).select("id").single();
       if (runIns.error) throw runIns.error;
@@ -1212,6 +1228,58 @@ const VDR = (function() {
     }
   }
 
+  // ── View a historical run inline ──
+  async function viewHistoricalRun(runId) {
+    showToast("Loading run…");
+    try {
+      const r = await db.from("vdr_runs").select("*").eq("id", runId).single();
+      if (r.error) throw r.error;
+      const run = r.data;
+      const prep = Array.isArray(run.prepared_rows) ? run.prepared_rows : [];
+      if (!prep.length) {
+        showToast("This run has no row snapshot — only saved aggregates. Download the XLSX instead.", "error");
+        return;
+      }
+      // Revive dates from ISO strings
+      rawRows = prep.map(row => ({
+        ...row,
+        Date: row.Date ? new Date(row.Date) : null,
+        Submitted: row.Submitted ? new Date(row.Submitted) : null
+      })).filter(r => r.Date && r.Submitted);
+
+      summaries = buildSummaries(rawRows);
+      outputBlob = null; // user can re-download from history if they want the XLSX
+
+      // Render preview
+      showPreview();
+      // Banner so the user knows they're looking at a historical view
+      const card = document.getElementById("vdr-preview-card");
+      const dt = new Date(run.ran_at);
+      let banner = document.getElementById("vdr-historical-banner");
+      if (!banner) {
+        banner = document.createElement("div");
+        banner.id = "vdr-historical-banner";
+        banner.style.cssText = "background:#fdf0c8;color:#8a5a00;border:1px solid #f0c060;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between;";
+        card.insertBefore(banner, card.firstChild.nextSibling); // after <h3>
+      }
+      banner.innerHTML =
+        `📊 Viewing historical run from <strong>${escHtml(fmtDateShort(dt))}</strong> — ` +
+        `${run.total_visits} visits · ${fmtUsdInt(run.total_charges)}` +
+        ` <button id="vdr-close-historical" style="background:#fff;border:1px solid #f0c060;color:#8a5a00;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">✕ Close view</button>`;
+      document.getElementById("vdr-close-historical").addEventListener("click", () => {
+        // Reset the preview area back to empty (or to the user's current-run state if one is loaded)
+        document.getElementById("vdr-preview-card").style.display = "none";
+        if (banner.parentNode) banner.parentNode.removeChild(banner);
+        // Clear the historical data unless there's an in-flight current run
+        if (!outputBlob) { rawRows = []; summaries = null; }
+      });
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      console.error("[VDR] view failed:", e);
+      showToast("Could not load run: " + (e.message || e), "error");
+    }
+  }
+
   // ── History + Trends ──
   async function loadHistory() {
     const tbody = document.getElementById("vdr-history-body");
@@ -1263,16 +1331,21 @@ const VDR = (function() {
             <td style="text-align:right;">${totalDisc}</td>
             <td>${isPay ? '<span class="payroll-chip">PAY</span>' : ''}</td>
             <td>
-              ${row.report_path ? `<button class="dl-btn" data-path="${escHtml(row.report_path)}" data-run="${row.id}">⬇</button>` : '—'}
+              <button class="dl-btn" data-view="${row.id}" title="View charts inline">📊</button>
+              ${row.report_path ? `<button class="dl-btn" data-path="${escHtml(row.report_path)}" data-run="${row.id}" title="Download XLSX" style="margin-left:4px;">⬇</button>` : ''}
               <button class="delete-btn" data-del="${row.id}" title="Delete">🗑</button>
             </td>
           </tr>
         `;
       }).join("");
 
-      // Download handlers
+      // Download / view handlers
       tbody.querySelectorAll(".dl-btn").forEach(btn => {
         btn.addEventListener("click", async () => {
+          if (btn.dataset.view) {
+            await viewHistoricalRun(btn.dataset.view);
+            return;
+          }
           const path = btn.dataset.path;
           try {
             const r = await db.storage.from("vdr-reports").createSignedUrl(path, 60);
@@ -1352,6 +1425,7 @@ const VDR = (function() {
     el.style.color = kind === "error" ? "#b91c1c" : kind === "ok" ? "#15803d" : "var(--muted)";
   }
   function resetUI() {
+    clearHistoricalBanner();
     rawRows = []; summaries = null; outputBlob = null;
     document.getElementById("vdr-actions").style.display = "none";
     document.getElementById("vdr-preview-card").style.display = "none";
@@ -1364,6 +1438,7 @@ const VDR = (function() {
 
   async function processFile(file) {
     if (!file) return;
+    clearHistoricalBanner(); // we're working with a fresh file now, not a historical view
     document.getElementById("vdr-dz-title").textContent = "📄 " + file.name;
     document.getElementById("vdr-dz-title")._sourceName = file.name;
     document.getElementById("vdr-dz-sub").textContent = "Parsing…";
