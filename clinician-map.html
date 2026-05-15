@@ -4048,6 +4048,11 @@
       flex-shrink: 0;
       min-width: 60px;
     }
+    /* VDR metric tints (used in profile header quick-facts) */
+    .vdr-tint-green { color: #15803d; font-weight: 800; }
+    .vdr-tint-amber { color: #92400e; font-weight: 800; }
+    .vdr-tint-red   { color: #b91c1c; font-weight: 800; }
+
     .profile-header-quickfact-value {
       font-size: 12.5px;
       color: var(--text);
@@ -6169,6 +6174,7 @@
             <a href="compliance.html"    class="portal-nav-link">✅ Compliance</a>
             <a href="kanban.html"        class="portal-nav-link">🗂️ Kanban</a>
             <a href="roster-review.html" class="portal-nav-link">📋 Roster</a>
+            <a href="finance.html"       class="portal-nav-link admin-only-link" style="display:none;">💰 Finance</a>
           </nav>
 
           <div class="toolbar-sep"></div>
@@ -6494,6 +6500,18 @@
                 <div class="profile-header-quickfact-row" id="profile-header-emr-row" style="display:none;">
                   <span class="profile-header-quickfact-label">🏥 EMR</span>
                   <span id="profile-header-emr" class="profile-header-quickfact-value profile-header-emr-chips"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-vdr-sync-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">⏱ Sync</span>
+                  <span id="profile-header-vdr-sync" class="profile-header-quickfact-value"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-vdr-visits-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">📋 Visits/Run</span>
+                  <span id="profile-header-vdr-visits" class="profile-header-quickfact-value"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-vdr-visitmins-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">🕐 Avg Visit</span>
+                  <span id="profile-header-vdr-visitmins" class="profile-header-quickfact-value"></span>
                 </div>
               </div>
               <div class="profile-header-actions">
@@ -12895,6 +12913,98 @@
           emrEl.innerHTML = "";
         }
       }
+
+      // 4) VDR metrics — Avg Sync Days + Avg Visits/Run from the
+      //    list_clinician_vdr_summary RPC. Hidden if the clinician has
+      //    no VDR data yet.
+      renderVdrQuickFacts(clinicianId);
+    }
+
+    function renderVdrQuickFacts(clinicianId) {
+      var syncRow   = document.getElementById("profile-header-vdr-sync-row");
+      var syncEl    = document.getElementById("profile-header-vdr-sync");
+      var visRow    = document.getElementById("profile-header-vdr-visits-row");
+      var visEl     = document.getElementById("profile-header-vdr-visits");
+      var minsRow   = document.getElementById("profile-header-vdr-visitmins-row");
+      var minsEl    = document.getElementById("profile-header-vdr-visitmins");
+      if (!syncRow || !syncEl || !visRow || !visEl || !minsRow || !minsEl) return;
+
+      var clinician = clinicianId
+        ? appState.clinicians.find(function(c) { return c.id === clinicianId; })
+        : null;
+      var m = clinician ? getVdrMetricsForClinician(clinician) : null;
+      if (!m) {
+        syncRow.style.display = "none";
+        visRow.style.display = "none";
+        minsRow.style.display = "none";
+        return;
+      }
+
+      var basis = "Based on " + m.run_count + " run" + (m.run_count === 1 ? "" : "s") +
+        " · latest " + (typeof formatAcceptedDate === "function"
+          ? formatAcceptedDate(m.latest_run_at)
+          : new Date(m.latest_run_at).toLocaleDateString());
+
+      // Avg sync days — colored
+      var tintClass = "";
+      if (m.avg_sync_days != null) {
+        if (m.avg_sync_days <= 3) tintClass = "vdr-tint-green";
+        else if (m.avg_sync_days <= 7) tintClass = "vdr-tint-amber";
+        else tintClass = "vdr-tint-red";
+      }
+      syncEl.innerHTML = "<span class='" + tintClass + "'>" +
+        (m.avg_sync_days != null ? escapeHtml(m.avg_sync_days + " d") : "—") + "</span>";
+      syncRow.title = basis;
+      syncRow.style.display = "flex";
+
+      // Avg visits / run
+      visEl.textContent = m.avg_visits_per_run != null ? String(m.avg_visits_per_run) : "—";
+      visRow.title = basis + " · " + m.total_visits + " visits total";
+      visRow.style.display = "flex";
+
+      // Avg visit time (minutes) — hide row if older saves didn't capture it
+      if (m.avg_visit_minutes != null) {
+        minsEl.textContent = m.avg_visit_minutes + " min";
+        minsRow.title = basis + " · visit-weighted across all runs";
+        minsRow.style.display = "flex";
+      } else {
+        minsRow.style.display = "none";
+        minsEl.textContent = "";
+      }
+    }
+
+    // ── Per-clinician VDR aggregates lookup (powered by
+    //    list_clinician_vdr_summary() RPC). Loaded once at boot; cached
+    //    on appState. ──
+    async function loadVdrSummaryForMap() {
+      try {
+        var r = await supabaseClient.rpc("list_clinician_vdr_summary");
+        if (r.error) return;
+        var byId = {}, byName = {};
+        (r.data || []).forEach(function(row) {
+          if (row.clinician_id) byId[row.clinician_id] = row;
+          if (row.clinician_name) {
+            var key = (typeof formatClinicianDisplayName === "function"
+              ? formatClinicianDisplayName(row.clinician_name)
+              : String(row.clinician_name)).toLowerCase();
+            byName[key] = row;
+          }
+        });
+        appState.vdrLookup = { byId: byId, byName: byName };
+        // If a profile is already open, re-render its VDR chips
+        if (appState.currentProfileClinicianId) {
+          renderVdrQuickFacts(appState.currentProfileClinicianId);
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+    function getVdrMetricsForClinician(clinician) {
+      var lk = appState.vdrLookup;
+      if (!lk || !clinician) return null;
+      if (clinician.id && lk.byId[clinician.id]) return lk.byId[clinician.id];
+      var key = (typeof formatClinicianDisplayName === "function"
+        ? formatClinicianDisplayName(clinician.name || "")
+        : String(clinician.name || "")).toLowerCase();
+      return lk.byName[key] || null;
     }
 
     function renderClinicianCompletedServiceHistory() {
@@ -20780,6 +20890,8 @@
       updateSummary();
       setupClinicianRealtime();
       if (typeof setupSharedCursor === "function") setupSharedCursor();
+      // Best-effort per-clinician VDR aggregates for the profile header chips
+      if (typeof loadVdrSummaryForMap === "function") loadVdrSummaryForMap();
       } finally {
         hideClinicianLoadBar();
         _cliniciansLoading = false;

@@ -1,0 +1,1519 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Finance — DependableCare</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<!-- SheetJS (xlsx) — read .xlsx/.csv inputs in the browser -->
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<!-- ExcelJS — write multi-sheet XLSX output with bar charts -->
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<!-- Chart.js — inline preview + trend charts -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --blue: #0b1f44;
+    --blue-mid: #163172;
+    --gold: #c79a26;
+    --accent: #2463eb;
+    --green: #22c55e;
+    --amber: #eab308;
+    --red:   #ef4444;
+    --slate: #64748b;
+    --bg:    #f4f6fa;
+    --card:  #ffffff;
+    --border:#e2e8f0;
+    --text:  #1f2937;
+    --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* ── Login overlay ── */
+  #login-screen {
+    display: none; position: fixed; inset: 0; z-index: 100;
+    align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+  }
+  .login-card { background: #fff; border-radius: 16px; padding: 36px 32px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .login-card h1 { margin: 0 0 4px; color: var(--blue); font-size: 22px; font-weight: 800; text-align: center; }
+  .login-card p  { margin: 0 0 22px; color: var(--gold); font-size: 13px; font-weight: 600; text-align: center; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .login-card button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  .login-err { color: #b91c1c; font-size: 12px; margin-top: 8px; min-height: 14px; text-align: center; }
+
+  /* ── Header ── */
+  .header { background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); color: #fff; padding: 12px 22px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .header-brand h1 { margin: 0; font-size: 18px; font-weight: 800; }
+  .header-brand p  { margin: 0; font-size: 11px; color: var(--gold); font-weight: 600; }
+  .header-nav { display: flex; gap: 4px; flex: 1; }
+  .header-nav a { color: rgba(255,255,255,0.7); text-decoration: none; padding: 7px 11px; border-radius: 6px; font-size: 12px; font-weight: 600; transition: background 0.15s, color 0.15s; white-space: nowrap; }
+  .header-nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .header-nav a.active { color: #fff; background: rgba(255,255,255,0.15); }
+  .header-user { font-size: 11px; color: rgba(255,255,255,0.85); }
+  .header-signout { background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .header-signout:hover { background: rgba(255,255,255,0.22); }
+
+  html.in-iframe-shell .header { display: none !important; }
+
+  /* ── Main content ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 22px 22px 60px; }
+  .hero-row {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 18px;
+    margin-bottom: 22px; flex-wrap: wrap;
+  }
+  .hero-row h2 { margin: 0; font-size: 24px; font-weight: 800; color: var(--blue); }
+  .admin-chip {
+    display: inline-block; background: var(--gold); color: #fff;
+    padding: 3px 10px; border-radius: 12px; font-size: 10.5px;
+    font-weight: 800; text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .hero-sub { color: var(--muted); font-size: 14px; margin-top: 4px; }
+
+  /* ── Sub-view nav (Landing / Billing / Payroll) ── */
+  .sub-nav {
+    display: flex; gap: 6px; margin-bottom: 22px;
+    border-bottom: 1.5px solid var(--border);
+  }
+  .sub-nav button {
+    background: transparent; border: none; cursor: pointer;
+    padding: 10px 18px; font-size: 14px; font-weight: 700;
+    color: var(--muted); border-bottom: 3px solid transparent;
+    margin-bottom: -1.5px;
+  }
+  .sub-nav button:hover { color: var(--text); }
+  .sub-nav button.active { color: var(--blue); border-bottom-color: var(--accent); }
+
+  /* ── Landing — two big tiles ── */
+  .tile-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px; margin-top: 6px;
+  }
+  .tile {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 28px 24px; cursor: pointer; transition: box-shadow 0.18s, transform 0.18s, border-color 0.18s;
+    text-align: left; display: flex; flex-direction: column; gap: 10px;
+    min-height: 180px;
+  }
+  .tile:hover { box-shadow: 0 10px 30px rgba(12,22,50,0.12); transform: translateY(-2px); border-color: var(--accent); }
+  .tile-icon { font-size: 36px; line-height: 1; }
+  .tile-title { font-size: 18px; font-weight: 800; color: var(--blue); }
+  .tile-desc { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .tile-cta {
+    margin-top: auto; font-size: 12px; font-weight: 700; color: var(--accent);
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+
+  /* ── Sub-view containers ── */
+  .view { display: none; }
+  .view.active { display: block; }
+
+  /* ── Card layout for sub-views ── */
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 10px;
+    padding: 20px 22px; margin-bottom: 16px;
+  }
+  .card h3 { margin: 0 0 12px; font-size: 16px; font-weight: 800; color: var(--blue); }
+  .card .row { display: flex; justify-content: space-between; align-items: center; padding: 7px 0; border-bottom: 1px solid #f1f5f9; font-size: 13px; }
+  .card .row:last-child { border-bottom: none; }
+  .card .row .lbl { color: var(--muted); }
+  .card .row .val { font-weight: 800; color: var(--text); }
+  .card .row .val.big { font-size: 18px; }
+  .card .actions { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .card .actions button, .card .actions a {
+    background: var(--accent); color: #fff; border: none; border-radius: 7px;
+    padding: 8px 14px; font-size: 12px; font-weight: 700; cursor: pointer;
+    text-decoration: none; display: inline-block;
+  }
+  .card .actions button:hover, .card .actions a:hover { background: var(--blue-mid); }
+  .card .actions .btn-secondary {
+    background: #fff; color: var(--accent); border: 1.5px solid var(--accent);
+  }
+  .card .actions .btn-secondary:hover { background: #eff6ff; color: var(--accent); }
+
+  .empty-state {
+    background: #fffbea; border: 1px dashed #f0c060; color: #8a5a00;
+    border-radius: 10px; padding: 18px 22px; font-size: 13px; line-height: 1.6;
+  }
+  .empty-state strong { color: #6f4500; }
+
+  /* ── VDR runner UI ── */
+  .dropzone {
+    border: 2px dashed var(--border); border-radius: 12px;
+    padding: 28px; text-align: center; background: #fafbfc;
+    cursor: pointer; transition: border-color 0.2s, background 0.2s;
+  }
+  .dropzone:hover { border-color: var(--accent); background: #f0f6ff; }
+  .dropzone.dragover { border-color: var(--accent); background: #dbeafe; }
+  .dropzone .dz-icon { font-size: 36px; line-height: 1; margin-bottom: 8px; }
+  .dropzone .dz-title { font-size: 15px; font-weight: 800; color: var(--blue); margin: 0 0 4px; }
+  .dropzone .dz-sub { font-size: 12px; color: var(--muted); }
+  .dropzone input[type=file] { display: none; }
+
+  .stat-strip { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 16px; }
+  .stat-pill {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 16px; min-width: 140px; flex: 1;
+  }
+  .stat-pill .lbl { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+  .stat-pill .val { font-size: 20px; font-weight: 800; color: var(--blue); margin-top: 2px; }
+  .stat-pill.flag .val { color: #b91c1c; }
+
+  .charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .chart-wrap { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .chart-wrap h4 { margin: 0 0 8px; font-size: 13px; font-weight: 800; color: var(--blue); }
+  .chart-wrap canvas { max-height: 240px; }
+
+  .tab-bar {
+    display: flex; gap: 4px; border-bottom: 1.5px solid var(--border);
+    margin-bottom: 12px; flex-wrap: wrap;
+  }
+  .tab-bar button {
+    background: transparent; border: none; cursor: pointer;
+    padding: 7px 13px; font-size: 12px; font-weight: 700;
+    color: var(--muted); border-bottom: 2.5px solid transparent;
+    margin-bottom: -1.5px;
+  }
+  .tab-bar button:hover { color: var(--text); }
+  .tab-bar button.active { color: var(--blue); border-bottom-color: var(--accent); }
+  .tab-bar button .badge {
+    background: #fee2e2; color: #991b1b; border-radius: 8px;
+    padding: 1px 6px; font-size: 10px; margin-left: 4px;
+  }
+
+  .discrep-table-wrap {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    overflow: auto; max-height: 460px;
+  }
+  table.discrep { width: 100%; border-collapse: collapse; font-size: 12px; }
+  table.discrep th {
+    background: #f1f5f9; color: var(--muted); font-weight: 700; text-transform: uppercase;
+    font-size: 10.5px; letter-spacing: 0.3px;
+    padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+  }
+  table.discrep td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: top; }
+  table.discrep td.flagged { background: #fff8d4; font-weight: 700; }
+  table.discrep tr:hover td { background: #f9fafb; }
+  table.discrep tr:hover td.flagged { background: #fff3a8; }
+
+  .history-table-wrap {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    overflow: auto;
+  }
+  table.history { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.history th {
+    background: #f1f5f9; color: var(--muted); font-weight: 700; text-transform: uppercase;
+    font-size: 10.5px; letter-spacing: 0.3px;
+    padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border);
+  }
+  table.history td { padding: 8px 12px; border-bottom: 1px solid #f1f5f9; }
+  table.history tr.payroll td { background: #fff8d4; }
+  table.history .dl-btn {
+    background: transparent; border: 1px solid var(--accent); color: var(--accent);
+    border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 700; cursor: pointer;
+  }
+  table.history .dl-btn:hover { background: var(--accent); color: #fff; }
+  table.history .delete-btn {
+    background: transparent; border: 1px solid #e5e7eb; color: var(--muted);
+    border-radius: 5px; padding: 3px 8px; font-size: 11px; cursor: pointer; margin-left: 4px;
+  }
+  table.history .delete-btn:hover { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+
+  .payroll-chip {
+    display: inline-block; background: #fdf0c8; color: #8a5a00;
+    padding: 2px 7px; border-radius: 8px; font-size: 10.5px; font-weight: 800;
+  }
+  .delta-pos { color: #15803d; font-weight: 700; }
+  .delta-zero { color: var(--muted); }
+
+  .file-loaded-tag {
+    background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7;
+    padding: 4px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .file-loaded-tag .x { cursor: pointer; opacity: 0.7; }
+  .file-loaded-tag .x:hover { opacity: 1; }
+
+  /* ── Gate screen for non-admins ── */
+  #gate-screen {
+    display: none; min-height: 100vh; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%);
+  }
+  .gate-card {
+    background: #fff; border-radius: 14px; padding: 36px 32px; max-width: 420px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3); text-align: center;
+  }
+  .gate-card h2 { margin: 0 0 8px; color: var(--blue); }
+  .gate-card p  { color: var(--muted); margin: 0 0 18px; font-size: 13px; line-height: 1.5; }
+  .gate-card button {
+    background: var(--accent); color: #fff; border: none; padding: 10px 18px;
+    border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer;
+    margin: 0 4px;
+  }
+  .gate-card .btn-secondary {
+    background: #fff; color: var(--text); border: 1.5px solid var(--border);
+  }
+
+  /* ── Toast ── */
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--blue); color: #fff; padding: 9px 18px;
+    border-radius: 20px; font-size: 13px; opacity: 0;
+    transition: opacity 0.25s; pointer-events: none;
+    z-index: 80;
+  }
+  .toast.show { opacity: 1; }
+  .toast.error { background: #b91c1c; }
+</style>
+<script>
+  if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+</script>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>DependableCare</h1>
+    <p>Finance</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-err" class="login-err"></div>
+  </div>
+</div>
+
+<!-- Admin-only gate (rendered if signed-in user isn't admin) -->
+<div id="gate-screen">
+  <div class="gate-card">
+    <h2>🔒 Admin only</h2>
+    <p>The Finance area is restricted to administrators. If you need access for payroll or billing work, ask an admin to upgrade your role.</p>
+    <button class="btn-secondary" onclick="window.location.href='index.html'">← Back to portal</button>
+    <button onclick="doSignOut()">Sign out</button>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="header" id="app-header" style="display:none;">
+  <div class="header-brand">
+    <h1>DependableCare</h1>
+    <p>Finance</p>
+  </div>
+  <nav class="header-nav">
+    <a href="clinician-map.html">🗺️ Map</a>
+    <a href="referrals.html">📋 Referrals</a>
+    <a href="time-tracker.html">⏱️ Time</a>
+    <a href="compliance.html">✅ Compliance</a>
+    <a href="kanban.html">🗂️ Kanban</a>
+    <a href="roster-review.html">📋 Roster</a>
+    <a href="finance.html" class="active">💰 Finance</a>
+  </nav>
+  <span class="header-user" id="header-user"></span>
+  <button class="header-signout" id="signout-btn">Sign out</button>
+</header>
+
+<!-- Main content (admins only) -->
+<div class="container" id="app-container" style="display:none;">
+  <div class="hero-row">
+    <div>
+      <h2>💰 Finance</h2>
+      <div class="hero-sub" id="hero-sub">Payroll + billing for the staffing operation.</div>
+    </div>
+    <span class="admin-chip">Admin only</span>
+  </div>
+
+  <!-- Sub-view nav -->
+  <div class="sub-nav">
+    <button data-view="landing"  class="active">Overview</button>
+    <button data-view="payroll">💵 Payroll</button>
+    <button data-view="billing">🧾 Billing</button>
+  </div>
+
+  <!-- LANDING -->
+  <div class="view active" id="view-landing">
+    <div class="tile-grid">
+      <button type="button" class="tile" data-go="payroll">
+        <div class="tile-icon">💵</div>
+        <div class="tile-title">Payroll</div>
+        <div class="tile-desc">Current pay period, staff payouts, time-edit approvals, and the Wise CSV export.</div>
+        <span class="tile-cta">Open Payroll →</span>
+      </button>
+      <button type="button" class="tile" data-go="billing">
+        <div class="tile-icon">🧾</div>
+        <div class="tile-title">Billing</div>
+        <div class="tile-desc">Agency invoicing and revenue tracking. Placeholder for v1 — we'll build this out next.</div>
+        <span class="tile-cta">Open Billing →</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- PAYROLL -->
+  <div class="view" id="view-payroll">
+    <div class="card">
+      <h3>Current Pay Period</h3>
+      <div class="row"><span class="lbl">Period</span><span class="val" id="pp-period">—</span></div>
+      <div class="row"><span class="lbl">Active staff</span><span class="val" id="pp-active">—</span></div>
+      <div class="row"><span class="lbl">Estimated total payout</span><span class="val big" id="pp-payout">—</span></div>
+      <div class="row"><span class="lbl">Pending edit requests</span><span class="val" id="pp-pending">—</span></div>
+      <div class="actions">
+        <a id="pp-open-time" href="time-tracker.html">Open Time Tracker →</a>
+        <button class="btn-secondary" onclick="loadPayrollSummary()">Refresh</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Wise Export</h3>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 8px;">
+        Run the Wise payroll export directly from Time Tracker → Pay Period tab.
+        The CSV builds an upload-ready file (<code>Wise_Payroll_&lt;date&gt;.csv</code>)
+        using each staff's <code>wise_recipient_id</code>, hours, and rate.
+      </p>
+      <div class="actions">
+        <a id="pp-open-wise" href="time-tracker.html">Run from Time Tracker →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- BILLING -->
+  <div class="view" id="view-billing">
+    <!-- ① Run a VDR -->
+    <div class="card">
+      <h3>① Run a Visit Discrepancy Report (VDR)</h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;">
+        Drop your <code>Create bills.xlsx</code> (or <code>.csv</code>) export from TherapyBoss.
+        Processing runs entirely in your browser — flags out-of-range visits, short-billable, missed visits, and eval-time alerts. Then download the report or save it to history for trend tracking.
+      </p>
+
+      <label class="dropzone" id="vdr-dropzone" for="vdr-file-input">
+        <input type="file" id="vdr-file-input" accept=".xlsx,.xls,.csv" />
+        <div class="dz-icon">📤</div>
+        <div class="dz-title" id="vdr-dz-title">Drop file here, or click to choose</div>
+        <div class="dz-sub" id="vdr-dz-sub">Accepts .xlsx, .xls, .csv · "Create bills" export from TherapyBoss</div>
+      </label>
+
+      <div id="vdr-status" style="margin-top:12px;font-size:13px;color:var(--muted);min-height:18px;"></div>
+
+      <div class="actions" id="vdr-actions" style="display:none;">
+        <button id="vdr-download-btn">⬇ Download Report .xlsx</button>
+        <button id="vdr-save-history-btn" class="btn-secondary">💾 Save to History</button>
+        <button id="vdr-reset-btn" class="btn-secondary">Reset</button>
+      </div>
+    </div>
+
+    <!-- ② Inline preview -->
+    <div class="card" id="vdr-preview-card" style="display:none;">
+      <h3>② Preview</h3>
+
+      <div class="stat-strip" id="vdr-stats"></div>
+
+      <div class="charts-row">
+        <div class="chart-wrap"><h4>Visits per Clinician (top 10)</h4><canvas id="chart-visits"></canvas></div>
+        <div class="chart-wrap"><h4>Avg Days to Submit (asc)</h4><canvas id="chart-days"></canvas></div>
+        <div class="chart-wrap"><h4>Charges per Payer</h4><canvas id="chart-payer"></canvas></div>
+      </div>
+
+      <div class="tab-bar" id="vdr-tabs"></div>
+      <div class="discrep-table-wrap"><table class="discrep" id="vdr-discrep-table"></table></div>
+    </div>
+
+    <!-- ③ History + trends -->
+    <div class="card">
+      <h3>③ History &amp; Trends</h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;">
+        Past saved VDR runs. Cumulative chart marks payroll dates (bi-weekly).
+        Replaces the legacy Processed_VDR aggregator script.
+      </p>
+
+      <div class="chart-wrap" style="margin-bottom:14px;"><h4>Visits &amp; Charges Over Time</h4><canvas id="chart-trend"></canvas></div>
+
+      <div class="history-table-wrap">
+        <table class="history" id="vdr-history-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Ran by</th>
+              <th style="text-align:right;">Visits</th>
+              <th style="text-align:right;">Charges</th>
+              <th style="text-align:right;">Δ Visits</th>
+              <th style="text-align:right;">Discrep.</th>
+              <th>Payroll?</th>
+              <th>File</th>
+            </tr>
+          </thead>
+          <tbody id="vdr-history-body">
+            <tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">Loading history…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+});
+
+let currentUser = null;
+let currentRole = "readonly";
+
+// ── Tiny helpers ──
+function showToast(msg, type) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.classList.toggle("error", type === "error");
+  t.classList.add("show");
+  clearTimeout(t._tid);
+  t._tid = setTimeout(() => t.classList.remove("show"), 2400);
+}
+function fmtDate(d) {
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+function fmtUSD(n) {
+  if (n == null || isNaN(n)) return "$0.00";
+  return "$" + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+// ── Pay-period helper (mirrors time-tracker.html bi-weekly logic) ──
+// Anchored to a Monday two weeks ago. Adjust the anchor if Time Tracker uses
+// a different start; the result here is purely the period label + bounds.
+function getCurrentPayPeriod() {
+  // Use the most recent Monday two weeks ago as a stable bi-weekly anchor.
+  // Aligning to Mondays so the period boundary is predictable.
+  const ANCHOR = new Date(Date.UTC(2026, 0, 5)); // 2026-01-05 = a Monday
+  const MS_DAY = 86400000;
+  const now = new Date();
+  const daysSinceAnchor = Math.floor((now.getTime() - ANCHOR.getTime()) / MS_DAY);
+  const periodsSince = Math.floor(daysSinceAnchor / 14);
+  const startMs = ANCHOR.getTime() + periodsSince * 14 * MS_DAY;
+  const start = new Date(startMs);
+  const end   = new Date(startMs + 14 * MS_DAY - 1);
+  return { start, end };
+}
+function fmtPeriod(p) {
+  return fmtDate(p.start) + " – " + fmtDate(p.end);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════════════
+async function checkSession() {
+  const { data } = await db.auth.getSession();
+  if (data?.session?.user) await launchApp(data.session.user);
+  else document.getElementById("login-screen").style.display = "flex";
+}
+
+async function doSignIn() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) { err.textContent = error.message || "Incorrect credentials."; return; }
+  await launchApp(data.session.user);
+}
+
+async function doSignOut() {
+  await db.auth.signOut();
+  location.reload();
+}
+
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+
+  // Role fetch — admin only gates
+  try {
+    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    currentRole = (roleRow && roleRow.role) || "readonly";
+  } catch (e) { currentRole = "readonly"; }
+
+  if (currentRole !== "admin") {
+    // Render gate screen, never load any finance data
+    document.getElementById("gate-screen").style.display = "flex";
+    return;
+  }
+
+  // Admin-only render
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("app-container").style.display = "block";
+  document.getElementById("header-user").textContent = user.email || "";
+
+  // Parse the deep-link view (?view=payroll|billing|landing)
+  const params = new URLSearchParams(location.search);
+  const initialView = params.get("view") || "landing";
+  switchView(initialView, true);
+
+  loadPayrollSummary();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SUB-VIEW SWITCHING
+// ══════════════════════════════════════════════════════════════════
+function switchView(viewName, skipPushState) {
+  const validViews = ["landing", "payroll", "billing"];
+  if (!validViews.includes(viewName)) viewName = "landing";
+
+  document.querySelectorAll(".view").forEach(v => {
+    v.classList.toggle("active", v.id === "view-" + viewName);
+  });
+  document.querySelectorAll(".sub-nav button").forEach(b => {
+    b.classList.toggle("active", b.dataset.view === viewName);
+  });
+
+  const subtitleMap = {
+    landing: "Payroll + billing for the staffing operation.",
+    payroll: "Current pay period totals and link to the Time Tracker pay period view.",
+    billing: "Agency invoicing — placeholder for v1."
+  };
+  document.getElementById("hero-sub").textContent = subtitleMap[viewName] || subtitleMap.landing;
+
+  if (!skipPushState) {
+    const newUrl = viewName === "landing"
+      ? location.pathname
+      : location.pathname + "?view=" + viewName;
+    history.pushState({ view: viewName }, "", newUrl);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PAYROLL SUMMARY
+// ══════════════════════════════════════════════════════════════════
+async function loadPayrollSummary() {
+  const period = getCurrentPayPeriod();
+  document.getElementById("pp-period").textContent = fmtPeriod(period);
+
+  // Active staff with rates
+  let activeStaff = [];
+  try {
+    const r = await db.from("staff_config").select("user_id, hourly_rate, is_active");
+    if (r.error) throw r.error;
+    activeStaff = (r.data || []).filter(s => s.is_active);
+  } catch (e) {
+    showToast("Could not load staff: " + (e.message || e), "error");
+    return;
+  }
+  document.getElementById("pp-active").textContent = activeStaff.length;
+
+  // Time entries within the period (use clock_in window)
+  let entries = [];
+  try {
+    const startIso = period.start.toISOString();
+    const endIso   = new Date(period.end.getTime() + 86400000).toISOString(); // buffer day
+    const r = await db.from("time_entries").select("user_id, clock_in, clock_out")
+      .gte("clock_in", startIso).lte("clock_in", endIso);
+    if (r.error) throw r.error;
+    entries = r.data || [];
+  } catch (e) {
+    showToast("Could not load time entries: " + (e.message || e), "error");
+    return;
+  }
+
+  // Compute hours by user_id (clock_out null = ongoing, skip for payroll est.)
+  const hoursByUid = {};
+  entries.forEach(e => {
+    if (!e.clock_in || !e.clock_out) return;
+    const ms = new Date(e.clock_out).getTime() - new Date(e.clock_in).getTime();
+    if (ms <= 0 || isNaN(ms)) return;
+    hoursByUid[e.user_id] = (hoursByUid[e.user_id] || 0) + ms / 3600000;
+  });
+
+  let total = 0;
+  activeStaff.forEach(s => {
+    const h = hoursByUid[s.user_id] || 0;
+    total += h * Number(s.hourly_rate || 0);
+  });
+  document.getElementById("pp-payout").textContent = fmtUSD(total);
+
+  // Pending edit requests
+  try {
+    const r = await db.from("time_edit_requests").select("id", { count: "exact", head: true }).eq("status", "pending");
+    if (r.error) throw r.error;
+    document.getElementById("pp-pending").textContent = r.count || 0;
+  } catch (e) {
+    document.getElementById("pp-pending").textContent = "—";
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SHELL-AWARE TIME TRACKER LINK
+// ══════════════════════════════════════════════════════════════════
+function openTimeTracker(e) {
+  // If we're inside the iframe shell, call up to switch tabs instead of
+  // opening a fresh tab. Modifier keys always fall through to <a href>.
+  if (e && (e.ctrlKey || e.metaKey || e.shiftKey || e.button === 1)) return; // let browser handle
+  if (window.parent && window.parent !== window && typeof window.parent.shellSwitchTab === "function") {
+    e.preventDefault();
+    window.parent.shellSwitchTab("time");
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// EVENT WIRING
+// ══════════════════════════════════════════════════════════════════
+document.getElementById("login-btn").addEventListener("click", doSignIn);
+document.getElementById("login-password").addEventListener("keydown", e => {
+  if (e.key === "Enter") doSignIn();
+});
+document.getElementById("signout-btn").addEventListener("click", doSignOut);
+
+// Sub-view nav buttons
+document.querySelectorAll(".sub-nav button").forEach(btn => {
+  btn.addEventListener("click", () => switchView(btn.dataset.view));
+});
+// Tile clicks
+document.querySelectorAll(".tile[data-go]").forEach(tile => {
+  tile.addEventListener("click", () => switchView(tile.dataset.go));
+});
+// Time-tracker links — shell-aware
+document.getElementById("pp-open-time").addEventListener("click", openTimeTracker);
+document.getElementById("pp-open-wise").addEventListener("click", openTimeTracker);
+
+// Browser back/forward
+window.addEventListener("popstate", () => {
+  const params = new URLSearchParams(location.search);
+  switchView(params.get("view") || "landing", true);
+});
+
+// Cleanup on sign out
+db.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT" || !session) {
+    document.getElementById("app-header").style.display = "none";
+    document.getElementById("app-container").style.display = "none";
+    document.getElementById("gate-screen").style.display = "none";
+    document.getElementById("login-screen").style.display = "flex";
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// VDR — Visit Discrepancy Report (browser-side rewrite of the Python)
+// ══════════════════════════════════════════════════════════════════
+const VDR = (function() {
+  // ── State ──
+  let rawRows = [];          // validated + flagged rows from the input
+  let summaries = null;      // {avgDays, visitCount, payerCharges, totalVisits, totalCharges, dateMin, dateMax}
+  let clinicianRoster = [];  // [{id, name}] for name matching
+  let outputBlob = null;     // most recent generated XLSX
+  let activeTab = "both";    // discrepancy tab
+  let chartRefs = {};        // Chart.js instances, so we can destroy on rebuild
+  let initialized = false;
+
+  // ── Helpers ──
+  function escHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function fmtTime(d) {
+    // 12h with seconds (matches Python's "%I:%M:%S %p")
+    const h12 = ((d.getHours() + 11) % 12 + 1);
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    const ss = String(d.getSeconds()).padStart(2, "0");
+    const ampm = d.getHours() >= 12 ? "PM" : "AM";
+    return String(h12).padStart(2, "0") + ":" + mm + ":" + ss + " " + ampm;
+  }
+  function parseDateValue(val) {
+    if (val == null || val === "") return null;
+    if (val instanceof Date) return isNaN(val.getTime()) ? null : val;
+    if (typeof val === "number") {
+      // SheetJS gives Excel date serials as numbers when cellDates:false — fallback
+      const ms = (val - 25569) * 86400 * 1000;
+      const d = new Date(ms); return isNaN(d.getTime()) ? null : d;
+    }
+    const d = new Date(val);
+    return isNaN(d.getTime()) ? null : d;
+  }
+  function toNum(v) {
+    if (v == null || v === "") return NaN;
+    if (typeof v === "number") return v;
+    const s = String(v).replace(/[,$]/g, "").trim();
+    const n = Number(s);
+    return isNaN(n) ? NaN : n;
+  }
+  function fmtUsdInt(n) { return "$" + Math.round(Number(n) || 0).toLocaleString(); }
+  function fmtUsd(n) {
+    if (n == null || isNaN(n)) return "$0.00";
+    return "$" + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  }
+  function fmtDateShort(d) {
+    if (!(d instanceof Date)) d = new Date(d);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+  function formatName(value) {
+    // Mirrors the map's formatClinicianDisplayName for consistent matching
+    const raw = String(value == null ? "" : value).trim();
+    if (!raw) return "";
+    return raw.toLowerCase().split(/\s+/).map(tok => {
+      return tok.split("-").map(hpart => hpart.split("'").map(apart => {
+        if (!apart) return "";
+        if (/^(ii|iii|iv|v|vi|vii|viii|ix|jr|sr)\.?$/i.test(apart)) return apart.replace(/\.$/, "").toUpperCase();
+        return apart.charAt(0).toUpperCase() + apart.slice(1);
+      }).join("'")).join("-");
+    }).join(" ");
+  }
+
+  // ── Payroll-date rule (port of the Python aggregator) ──
+  function isPayrollDate(d) {
+    if (!(d instanceof Date)) d = new Date(d);
+    const threshold = new Date(2024, 9, 17); // 2024-10-17
+    const wedAnchor = new Date(2024, 7, 7);   // Wed
+    const thuAnchor = new Date(2024, 9, 17);  // Thu
+    const day = d.getDay(); // 0=Sun ... 3=Wed ... 4=Thu
+    if (d < threshold) {
+      if (day !== 3) return false;
+      const delta = Math.floor((d - wedAnchor) / 86400000);
+      return delta >= 0 && delta % 14 === 0;
+    }
+    if (day !== 4) return false;
+    const delta = Math.floor((d - thuAnchor) / 86400000);
+    return delta >= 0 && delta % 14 === 0;
+  }
+
+  // ── File parsing ──
+  async function readFile(file) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const sheetName = wb.SheetNames[0];
+    const ws = wb.Sheets[sheetName];
+    // defval:"" so missing cells become empty string (not undefined)
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    // Trim header keys (Python does .columns.str.strip())
+    return rows.map(r => {
+      const out = {};
+      for (const k of Object.keys(r)) out[String(k).trim()] = r[k];
+      return out;
+    });
+  }
+
+  function validateAndPrepare(rows) {
+    if (!rows.length) throw new Error("Input file is empty.");
+    const required = ["Date", "Submitted", "Type", "Clinician", "Payer", "Billable", "Charge"];
+    const headers = Object.keys(rows[0]);
+    const missing = required.filter(c => !headers.includes(c));
+    if (missing.length) throw new Error("Missing required columns: " + missing.join(", "));
+    const hasTime = headers.includes("Time");
+    const hasDuration = headers.includes("Duration");
+    if (!hasTime && !hasDuration) throw new Error("Expected a 'Time' or 'Duration' column.");
+
+    const startCutoff = { h: 7,  m: 0  };  // 07:00 AM
+    const endCutoff   = { h: 18, m: 0  };  // 06:00 PM
+
+    const prepared = [];
+    rows.forEach(r => {
+      const dateObj = parseDateValue(r["Date"]);
+      const submittedObj = parseDateValue(r["Submitted"]);
+      const timeVal = toNum(hasTime ? r["Time"] : r["Duration"]);
+      if (!dateObj || !submittedObj || isNaN(timeVal)) return; // dropna mirror
+
+      const charge = toNum(r["Charge"]); const chargeNum = isNaN(charge) ? 0 : charge;
+      const billable = String(r["Billable"] || "").trim().toUpperCase();
+      const type     = String(r["Type"]     || "").trim().toUpperCase();
+      const clinician= String(r["Clinician"]|| "").trim();
+      const payer    = String(r["Payer"]    || "").trim();
+      const daysBetween = Math.floor((submittedObj - dateObj) / 86400000);
+
+      const hour = dateObj.getHours(), minute = dateObj.getMinutes();
+      const minutesOfDay = hour * 60 + minute;
+      const outOfRange = (minutesOfDay < startCutoff.h * 60 + startCutoff.m) ||
+                         (minutesOfDay > endCutoff.h   * 60 + endCutoff.m);
+      const shortAndBillable = (timeVal < 45) && (billable === "Y");
+      const missedVisit = type.indexOf("V") >= 0;
+      const evalTimeAlert = ["STE","PTE","OTE"].includes(type) && (timeVal <= 59);
+
+      prepared.push({
+        Date: dateObj, Submitted: submittedObj, Type: type, Clinician: clinician, Payer: payer,
+        Billable: billable, Charge: chargeNum, Time: timeVal,
+        VTime: fmtTime(dateObj),
+        DaysBetween: daysBetween,
+        OutOfRange: outOfRange, ShortAndBillable: shortAndBillable,
+        MissedVisit: missedVisit, EvalTimeAlert: evalTimeAlert
+      });
+    });
+
+    if (!prepared.length) throw new Error("No valid rows remained after parsing Date / Submitted / Time.");
+    return prepared;
+  }
+
+  function buildSummaries(rows) {
+    // avg days per clinician (asc), visit count per clinician (desc), charge per payer (desc)
+    const byClinician = {};
+    const visitCount = {};
+    const payerCharges = {};
+    let totalCharges = 0, dateMin = null, dateMax = null;
+    rows.forEach(r => {
+      const c = r.Clinician || "(unknown)";
+      const p = r.Payer || "(unknown)";
+      if (!byClinician[c]) byClinician[c] = { sum: 0, n: 0 };
+      byClinician[c].sum += r.DaysBetween;
+      byClinician[c].n += 1;
+      visitCount[c] = (visitCount[c] || 0) + 1;
+      payerCharges[p] = (payerCharges[p] || 0) + r.Charge;
+      totalCharges += r.Charge;
+      if (!dateMin || r.Date < dateMin) dateMin = r.Date;
+      if (!dateMax || r.Date > dateMax) dateMax = r.Date;
+    });
+    const avgDays = Object.keys(byClinician).map(c => ({
+      Clinician: c, "Days Between": Math.round((byClinician[c].sum / byClinician[c].n) * 10) / 10
+    })).sort((a, b) => a["Days Between"] - b["Days Between"]);
+    const visitCountArr = Object.keys(visitCount).map(c => ({ Clinician: c, "Number of Visits": visitCount[c] }))
+      .sort((a, b) => b["Number of Visits"] - a["Number of Visits"]);
+    const payerArr = Object.keys(payerCharges).map(p => ({ Payer: p, Charge: payerCharges[p] }))
+      .sort((a, b) => b.Charge - a.Charge);
+
+    return {
+      avgDays, visitCount: visitCountArr, payerCharges: payerArr,
+      totalVisits: rows.length, totalCharges: Math.round(totalCharges),
+      dateMin, dateMax
+    };
+  }
+
+  // ── Inline preview rendering ──
+  function renderStats() {
+    const flaggedCount =
+      rawRows.filter(r => r.OutOfRange || r.ShortAndBillable || r.MissedVisit || r.EvalTimeAlert).length;
+    const avgDaysOverall = rawRows.length
+      ? (rawRows.reduce((s, r) => s + r.DaysBetween, 0) / rawRows.length).toFixed(1)
+      : "—";
+    document.getElementById("vdr-stats").innerHTML = `
+      <div class="stat-pill"><div class="lbl">Total Visits</div><div class="val">${summaries.totalVisits}</div></div>
+      <div class="stat-pill"><div class="lbl">Total Charges</div><div class="val">${fmtUsdInt(summaries.totalCharges)}</div></div>
+      <div class="stat-pill"><div class="lbl">Avg Days to Submit</div><div class="val">${avgDaysOverall}</div></div>
+      <div class="stat-pill flag"><div class="lbl">Flagged Rows</div><div class="val">${flaggedCount}</div></div>
+    `;
+  }
+
+  function renderCharts() {
+    Object.values(chartRefs).forEach(c => { try { c.destroy(); } catch(e){} });
+    chartRefs = {};
+    const top = (arr, n) => arr.slice(0, n);
+
+    // Visits per clinician (top 10, desc)
+    {
+      const data = top(summaries.visitCount, 10);
+      chartRefs.visits = new Chart(document.getElementById("chart-visits"), {
+        type: "bar",
+        data: {
+          labels: data.map(d => d.Clinician),
+          datasets: [{ label: "Visits", data: data.map(d => d["Number of Visits"]), backgroundColor: "#2463eb" }]
+        },
+        options: { plugins: { legend: { display: false } }, indexAxis: "y", scales: { x: { beginAtZero: true } } }
+      });
+    }
+    // Avg days to submit (asc — fastest first)
+    {
+      const data = top(summaries.avgDays, 10);
+      chartRefs.days = new Chart(document.getElementById("chart-days"), {
+        type: "bar",
+        data: {
+          labels: data.map(d => d.Clinician),
+          datasets: [{ label: "Avg days", data: data.map(d => d["Days Between"]), backgroundColor: "#22c55e" }]
+        },
+        options: { plugins: { legend: { display: false } }, indexAxis: "y", scales: { x: { beginAtZero: true } } }
+      });
+    }
+    // Payer charges (desc)
+    {
+      const data = top(summaries.payerCharges, 10);
+      chartRefs.payer = new Chart(document.getElementById("chart-payer"), {
+        type: "bar",
+        data: {
+          labels: data.map(d => d.Payer),
+          datasets: [{ label: "Charges", data: data.map(d => d.Charge), backgroundColor: "#c79a26" }]
+        },
+        options: { plugins: { legend: { display: false } }, indexAxis: "y", scales: { x: { beginAtZero: true } } }
+      });
+    }
+  }
+
+  function renderTabs() {
+    const bothN  = rawRows.filter(r => r.OutOfRange && r.ShortAndBillable).length;
+    const oorN   = rawRows.filter(r => r.OutOfRange && !r.ShortAndBillable).length;
+    const sbN    = rawRows.filter(r => !r.OutOfRange && r.ShortAndBillable).length;
+    const missN  = rawRows.filter(r => r.MissedVisit).length;
+    const evalN  = rawRows.filter(r => r.EvalTimeAlert).length;
+    const tabs = [
+      { id: "both",  label: "Both Conditions", n: bothN },
+      { id: "oor",   label: "OutOfRange Only", n: oorN },
+      { id: "short", label: "Short & Billable",n: sbN  },
+      { id: "miss",  label: "Missed Visit",    n: missN },
+      { id: "eval",  label: "Eval Time",       n: evalN }
+    ];
+    const bar = document.getElementById("vdr-tabs");
+    bar.innerHTML = tabs.map(t =>
+      `<button data-tab="${t.id}" class="${t.id === activeTab ? 'active' : ''}">${escHtml(t.label)}<span class="badge">${t.n}</span></button>`
+    ).join("");
+    bar.querySelectorAll("button").forEach(btn => {
+      btn.addEventListener("click", () => { activeTab = btn.dataset.tab; renderTabs(); renderDiscrepancyTable(); });
+    });
+  }
+
+  function getActiveRows() {
+    switch (activeTab) {
+      case "both":  return { rows: rawRows.filter(r => r.OutOfRange && r.ShortAndBillable),  highlight: ["VTime","Time"] };
+      case "oor":   return { rows: rawRows.filter(r => r.OutOfRange && !r.ShortAndBillable), highlight: ["VTime"]       };
+      case "short": return { rows: rawRows.filter(r => !r.OutOfRange && r.ShortAndBillable), highlight: ["Time"]        };
+      case "miss":  return { rows: rawRows.filter(r => r.MissedVisit),                        highlight: ["Type"]        };
+      case "eval":  return { rows: rawRows.filter(r => r.EvalTimeAlert),                      highlight: ["Time"]        };
+      default: return { rows: [], highlight: [] };
+    }
+  }
+
+  function renderDiscrepancyTable() {
+    const { rows, highlight } = getActiveRows();
+    const cols = ["Date", "VTime", "Clinician", "Payer", "Type", "Time", "Billable", "Charge", "DaysBetween"];
+    const t = document.getElementById("vdr-discrep-table");
+    if (!rows.length) {
+      t.innerHTML = `<thead><tr><th colspan="${cols.length}" style="text-align:center;padding:20px;color:var(--muted);">No rows in this category. 🎉</th></tr></thead>`;
+      return;
+    }
+    const head = cols.map(c => `<th>${escHtml(c)}</th>`).join("");
+    const body = rows.slice(0, 200).map(r => {
+      return "<tr>" + cols.map(c => {
+        const cls = highlight.includes(c) ? "flagged" : "";
+        let v = r[c];
+        if (c === "Date") v = fmtDateShort(r.Date);
+        else if (c === "Charge") v = fmtUsd(r.Charge);
+        return `<td class="${cls}">${escHtml(v)}</td>`;
+      }).join("") + "</tr>";
+    }).join("");
+    const more = rows.length > 200 ? `<tr><td colspan="${cols.length}" style="text-align:center;padding:10px;color:var(--muted);">… ${rows.length - 200} more rows. Download the .xlsx for the full list.</td></tr>` : "";
+    t.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}${more}</tbody>`;
+  }
+
+  function clearHistoricalBanner() {
+    const b = document.getElementById("vdr-historical-banner");
+    if (b && b.parentNode) b.parentNode.removeChild(b);
+  }
+
+  function showPreview() {
+    document.getElementById("vdr-preview-card").style.display = "block";
+    renderStats(); renderCharts(); renderTabs(); renderDiscrepancyTable();
+  }
+
+  // ── ExcelJS output (mirrors Python's three-sheet layout + bar charts) ──
+  async function generateOutput() {
+    const wb = new ExcelJS.Workbook();
+    const yellowFill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFF00" } };
+
+    // Sheet 1 — Highlighted Discrepancies
+    const s1 = wb.addWorksheet("Highlighted Discrepancies");
+    const sections = [
+      { title: "Both Conditions",      rows: rawRows.filter(r => r.OutOfRange &&  r.ShortAndBillable), highlight: ["VTime", "Time"] },
+      { title: "OutOfRange Only",      rows: rawRows.filter(r => r.OutOfRange && !r.ShortAndBillable), highlight: ["VTime"] },
+      { title: "ShortAndBillable Only",rows: rawRows.filter(r => !r.OutOfRange && r.ShortAndBillable), highlight: ["Time"] },
+      { title: "Missed Visit Alerts",  rows: rawRows.filter(r => r.MissedVisit), highlight: ["Type"] },
+      { title: "Eval Time Alerts",     rows: rawRows.filter(r => r.EvalTimeAlert), highlight: ["Time"] }
+    ];
+    const cols = ["Date", "VTime", "Clinician", "Payer", "Type", "Time", "Billable", "Charge", "DaysBetween", "Submitted", "OutOfRange", "ShortAndBillable", "MissedVisit", "EvalTimeAlert"];
+
+    sections.forEach(sec => {
+      s1.addRow([sec.title]);
+      const headerRowIdx = s1.lastRow.number + 1;
+      s1.addRow(cols);
+      sec.rows.forEach(r => {
+        const dateStr = r.Date.toISOString().slice(0, 10);
+        const subStr = r.Submitted.toISOString().slice(0, 10);
+        s1.addRow([dateStr, r.VTime, r.Clinician, r.Payer, r.Type, r.Time, r.Billable, r.Charge, r.DaysBetween, subStr, r.OutOfRange, r.ShortAndBillable, r.MissedVisit, r.EvalTimeAlert]);
+      });
+      // Yellow highlight on the flagged columns
+      if (sec.rows.length) {
+        const startRow = headerRowIdx + 1;
+        const endRow   = headerRowIdx + sec.rows.length;
+        sec.highlight.forEach(colName => {
+          const colIdx = cols.indexOf(colName) + 1;
+          if (colIdx <= 0) return;
+          for (let r = startRow; r <= endRow; r++) {
+            const cell = s1.getCell(r, colIdx);
+            cell.fill = yellowFill;
+          }
+        });
+      }
+      s1.addRow([]);
+    });
+
+    // Sheet 2 — Visit Statistics
+    const s2 = wb.addWorksheet("Visit Statistics");
+    s2.mergeCells("A1:E1");
+    s2.getCell("A1").value = `OVERALL SUMMARY: ${summaries.totalVisits} Visits | $${summaries.totalCharges} Total Charges`;
+    s2.getCell("A1").font = { bold: true, size: 14 };
+
+    s2.addRow([]);
+    s2.addRow(["Submission Speed (Avg Days)"]);
+    s2.addRow(["Clinician", "Days Between"]);
+    summaries.avgDays.forEach(r => s2.addRow([r.Clinician, r["Days Between"]]));
+
+    s2.addRow([]);
+    s2.addRow(["Total Visit Volume per Clinician"]);
+    s2.addRow(["Clinician", "Number of Visits"]);
+    summaries.visitCount.forEach(r => s2.addRow([r.Clinician, r["Number of Visits"]]));
+
+    // Sheet 3 — Financial Analytics
+    const s3 = wb.addWorksheet("Financial Analytics");
+    s3.addRow(["Payer", "Total Revenue Generated"]);
+    summaries.payerCharges.forEach(r => s3.addRow([r.Payer, r.Charge]));
+
+    // (Bar charts intentionally not added here — ExcelJS chart API is limited
+    // vs openpyxl, and the inline preview already provides charts. The output
+    // XLSX keeps the data tables intact; users can chart via PivotChart if needed.)
+
+    // Autosize columns
+    [s1, s2, s3].forEach(sheet => {
+      sheet.columns.forEach(col => {
+        let max = 8;
+        col.eachCell({ includeEmpty: false }, cell => {
+          const v = cell.value == null ? "" : String(cell.value);
+          if (v.length > max) max = v.length;
+        });
+        col.width = Math.min(max + 2, 40);
+      });
+    });
+
+    const buf = await wb.xlsx.writeBuffer();
+    return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  }
+
+  function buildFilename() {
+    const today = new Date();
+    const dateStr = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+    return `VDR_${dateStr}_${summaries.totalCharges}_${summaries.totalVisits}.xlsx`;
+  }
+
+  function downloadOutput() {
+    if (!outputBlob) { showToast("Process a file first.", "error"); return; }
+    const url = URL.createObjectURL(outputBlob);
+    const a = document.createElement("a");
+    a.href = url; a.download = buildFilename(); a.click();
+    URL.revokeObjectURL(url);
+    showToast("Downloaded " + buildFilename());
+  }
+
+  // ── Save to history (Supabase) ──
+  async function loadClinicianRoster() {
+    if (clinicianRoster.length) return;
+    try {
+      const r = await db.from("clinician_v2").select("id, name").order("name").limit(5000);
+      if (!r.error) clinicianRoster = (r.data || []);
+    } catch (e) { /* non-fatal */ }
+  }
+
+  function matchClinicianId(rawName) {
+    if (!rawName) return null;
+    const target = formatName(rawName).toLowerCase();
+    if (!target) return null;
+    const found = clinicianRoster.find(c => formatName(c.name).toLowerCase() === target);
+    return found ? found.id : null;
+  }
+
+  async function saveToHistory() {
+    if (!outputBlob) { showToast("Process a file first.", "error"); return; }
+    const btn = document.getElementById("vdr-save-history-btn");
+    btn.disabled = true; btn.textContent = "Saving…";
+    try {
+      await loadClinicianRoster();
+
+      // 1. Upload XLSX to storage
+      const runId = (crypto.randomUUID && crypto.randomUUID()) || (Date.now() + "-" + Math.random().toString(36).slice(2));
+      const storagePath = runId + ".xlsx";
+      const up = await db.storage.from("vdr-reports").upload(storagePath, outputBlob, {
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        upsert: true
+      });
+      if (up.error) throw up.error;
+
+      // 2. Compute discrepancy counts
+      const counts = {
+        oor:    rawRows.filter(r => r.OutOfRange).length,
+        short:  rawRows.filter(r => r.ShortAndBillable).length,
+        miss:   rawRows.filter(r => r.MissedVisit).length,
+        evalT:  rawRows.filter(r => r.EvalTimeAlert).length,
+        both:   rawRows.filter(r => r.OutOfRange && r.ShortAndBillable).length
+      };
+
+      // 3. Insert vdr_runs row — including the compact per-row snapshot
+      // so View-in-history can rebuild the inline preview instantly.
+      const preparedSnapshot = rawRows.map(r => ({
+        Date: r.Date instanceof Date ? r.Date.toISOString() : r.Date,
+        Submitted: r.Submitted instanceof Date ? r.Submitted.toISOString() : r.Submitted,
+        Type: r.Type, Clinician: r.Clinician, Payer: r.Payer,
+        Billable: r.Billable, Charge: r.Charge, Time: r.Time,
+        VTime: r.VTime, DaysBetween: r.DaysBetween,
+        OutOfRange: r.OutOfRange, ShortAndBillable: r.ShortAndBillable,
+        MissedVisit: r.MissedVisit, EvalTimeAlert: r.EvalTimeAlert
+      }));
+      const runRow = {
+        total_visits: summaries.totalVisits,
+        total_charges: summaries.totalCharges,
+        out_of_range_count: counts.oor,
+        short_billable_count: counts.short,
+        missed_visit_count: counts.miss,
+        eval_time_alert_count: counts.evalT,
+        both_conditions_count: counts.both,
+        visit_date_min: summaries.dateMin ? summaries.dateMin.toISOString().slice(0, 10) : null,
+        visit_date_max: summaries.dateMax ? summaries.dateMax.toISOString().slice(0, 10) : null,
+        report_path: storagePath,
+        source_filename: document.getElementById("vdr-dz-title")._sourceName || null,
+        prepared_rows: preparedSnapshot
+      };
+      const runIns = await db.from("vdr_runs").insert(runRow).select("id").single();
+      if (runIns.error) throw runIns.error;
+      const vdrRunId = runIns.data.id;
+
+      // 4. Per-clinician metrics rows
+      const byClin = {};
+      rawRows.forEach(r => {
+        const k = r.Clinician || "(unknown)";
+        if (!byClin[k]) byClin[k] = { sumDays: 0, sumTime: 0, n: 0, charge: 0, oor: 0, short: 0, miss: 0, evalT: 0 };
+        const b = byClin[k];
+        b.sumDays += r.DaysBetween;
+        if (!isNaN(r.Time)) b.sumTime += r.Time;
+        b.n++;
+        b.charge += r.Charge;
+        if (r.OutOfRange) b.oor++;
+        if (r.ShortAndBillable) b.short++;
+        if (r.MissedVisit) b.miss++;
+        if (r.EvalTimeAlert) b.evalT++;
+      });
+      const clinRows = Object.keys(byClin).map(name => ({
+        vdr_run_id: vdrRunId,
+        clinician_name: name,
+        clinician_id: matchClinicianId(name),
+        visit_count: byClin[name].n,
+        avg_days_to_submit: Math.round((byClin[name].sumDays / byClin[name].n) * 100) / 100,
+        avg_visit_minutes: Math.round((byClin[name].sumTime / byClin[name].n) * 100) / 100,
+        charge_total: Math.round(byClin[name].charge * 100) / 100,
+        out_of_range_count: byClin[name].oor,
+        short_billable_count: byClin[name].short,
+        missed_visit_count: byClin[name].miss,
+        eval_time_alert_count: byClin[name].evalT
+      }));
+      if (clinRows.length) {
+        const cm = await db.from("vdr_clinician_metrics").insert(clinRows);
+        if (cm.error) throw cm.error;
+      }
+
+      // 5. Per-payer metrics rows
+      const byPay = {};
+      rawRows.forEach(r => {
+        const k = r.Payer || "(unknown)";
+        if (!byPay[k]) byPay[k] = { n: 0, charge: 0 };
+        byPay[k].n++; byPay[k].charge += r.Charge;
+      });
+      const payRows = Object.keys(byPay).map(name => ({
+        vdr_run_id: vdrRunId,
+        payer_name: name,
+        visit_count: byPay[name].n,
+        charge_total: Math.round(byPay[name].charge * 100) / 100
+      }));
+      if (payRows.length) {
+        const pm = await db.from("vdr_payer_metrics").insert(payRows);
+        if (pm.error) throw pm.error;
+      }
+
+      showToast("Saved to history (" + (clinRows.length) + " clinicians, " + (payRows.length) + " payers)");
+      await loadHistory();
+    } catch (e) {
+      console.error("[VDR] save failed:", e);
+      showToast("Save failed: " + (e.message || e), "error");
+    } finally {
+      btn.disabled = false; btn.textContent = "💾 Save to History";
+    }
+  }
+
+  // ── View a historical run inline ──
+  async function viewHistoricalRun(runId) {
+    showToast("Loading run…");
+    try {
+      const r = await db.from("vdr_runs").select("*").eq("id", runId).single();
+      if (r.error) throw r.error;
+      const run = r.data;
+      const prep = Array.isArray(run.prepared_rows) ? run.prepared_rows : [];
+      if (!prep.length) {
+        showToast("This run has no row snapshot — only saved aggregates. Download the XLSX instead.", "error");
+        return;
+      }
+      // Revive dates from ISO strings
+      rawRows = prep.map(row => ({
+        ...row,
+        Date: row.Date ? new Date(row.Date) : null,
+        Submitted: row.Submitted ? new Date(row.Submitted) : null
+      })).filter(r => r.Date && r.Submitted);
+
+      summaries = buildSummaries(rawRows);
+      outputBlob = null; // user can re-download from history if they want the XLSX
+
+      // Render preview
+      showPreview();
+      // Banner so the user knows they're looking at a historical view
+      const card = document.getElementById("vdr-preview-card");
+      const dt = new Date(run.ran_at);
+      let banner = document.getElementById("vdr-historical-banner");
+      if (!banner) {
+        banner = document.createElement("div");
+        banner.id = "vdr-historical-banner";
+        banner.style.cssText = "background:#fdf0c8;color:#8a5a00;border:1px solid #f0c060;border-radius:8px;padding:9px 14px;margin-bottom:14px;font-size:13px;font-weight:700;display:flex;align-items:center;justify-content:space-between;";
+        card.insertBefore(banner, card.firstChild.nextSibling); // after <h3>
+      }
+      banner.innerHTML =
+        `📊 Viewing historical run from <strong>${escHtml(fmtDateShort(dt))}</strong> — ` +
+        `${run.total_visits} visits · ${fmtUsdInt(run.total_charges)}` +
+        ` <button id="vdr-close-historical" style="background:#fff;border:1px solid #f0c060;color:#8a5a00;padding:3px 10px;border-radius:5px;font-size:11px;font-weight:700;cursor:pointer;">✕ Close view</button>`;
+      document.getElementById("vdr-close-historical").addEventListener("click", () => {
+        // Reset the preview area back to empty (or to the user's current-run state if one is loaded)
+        document.getElementById("vdr-preview-card").style.display = "none";
+        if (banner.parentNode) banner.parentNode.removeChild(banner);
+        // Clear the historical data unless there's an in-flight current run
+        if (!outputBlob) { rawRows = []; summaries = null; }
+      });
+      card.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch (e) {
+      console.error("[VDR] view failed:", e);
+      showToast("Could not load run: " + (e.message || e), "error");
+    }
+  }
+
+  // ── History + Trends ──
+  async function loadHistory() {
+    const tbody = document.getElementById("vdr-history-body");
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">Loading history…</td></tr>';
+    try {
+      const r = await db.from("vdr_runs")
+        .select("id, ran_at, ran_by, total_visits, total_charges, out_of_range_count, short_billable_count, missed_visit_count, eval_time_alert_count, both_conditions_count, report_path")
+        .order("ran_at", { ascending: false })
+        .limit(500);
+      if (r.error) throw r.error;
+      const rows = r.data || [];
+
+      // Resolve ran_by emails via list_staff RPC (best-effort)
+      let staffMap = {};
+      try {
+        const s = await db.rpc("list_staff");
+        (s.data || []).forEach(x => { staffMap[x.user_id] = x.display_name || (x.email || "").split("@")[0]; });
+      } catch (e) {}
+
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">No saved runs yet. Process a file and click "Save to History".</td></tr>';
+        renderTrend([]);
+        return;
+      }
+
+      // For Δ Visits we need chronological order
+      const chrono = rows.slice().reverse();
+      const prevVisitsById = {};
+      for (let i = 1; i < chrono.length; i++) {
+        prevVisitsById[chrono[i].id] = chrono[i - 1].total_visits;
+      }
+
+      tbody.innerHTML = rows.map(row => {
+        const dt = new Date(row.ran_at);
+        const isPay = isPayrollDate(dt);
+        const reviewerName = staffMap[row.ran_by] || "—";
+        const totalDisc = (row.out_of_range_count + row.short_billable_count + row.missed_visit_count + row.eval_time_alert_count);
+        const delta = (prevVisitsById[row.id] != null) ? (row.total_visits - prevVisitsById[row.id]) : null;
+        const deltaCell = delta == null
+          ? '<span class="delta-zero">—</span>'
+          : (delta > 0 ? `<span class="delta-pos">+${delta}</span>` : `<span class="delta-zero">${delta}</span>`);
+        return `
+          <tr class="${isPay ? 'payroll' : ''}" data-id="${row.id}">
+            <td>${escHtml(fmtDateShort(dt))}</td>
+            <td>${escHtml(reviewerName)}</td>
+            <td style="text-align:right;font-weight:700;">${row.total_visits}</td>
+            <td style="text-align:right;">${fmtUsdInt(row.total_charges)}</td>
+            <td style="text-align:right;">${deltaCell}</td>
+            <td style="text-align:right;">${totalDisc}</td>
+            <td>${isPay ? '<span class="payroll-chip">PAY</span>' : ''}</td>
+            <td>
+              <button class="dl-btn" data-view="${row.id}" title="View charts inline">📊</button>
+              ${row.report_path ? `<button class="dl-btn" data-path="${escHtml(row.report_path)}" data-run="${row.id}" title="Download XLSX" style="margin-left:4px;">⬇</button>` : ''}
+              <button class="delete-btn" data-del="${row.id}" title="Delete">🗑</button>
+            </td>
+          </tr>
+        `;
+      }).join("");
+
+      // Download / view handlers
+      tbody.querySelectorAll(".dl-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          if (btn.dataset.view) {
+            await viewHistoricalRun(btn.dataset.view);
+            return;
+          }
+          const path = btn.dataset.path;
+          try {
+            const r = await db.storage.from("vdr-reports").createSignedUrl(path, 60);
+            if (r.error) throw r.error;
+            window.open(r.data.signedUrl, "_blank");
+          } catch (e) {
+            showToast("Download failed: " + (e.message || e), "error");
+          }
+        });
+      });
+      // Delete handlers
+      tbody.querySelectorAll(".delete-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          if (!confirm("Delete this VDR run? Per-clinician metrics will be removed too.")) return;
+          const id = btn.dataset.del;
+          try {
+            // Find the row to also delete storage object
+            const row = rows.find(x => x.id === id);
+            if (row && row.report_path) {
+              await db.storage.from("vdr-reports").remove([row.report_path]);
+            }
+            const r = await db.from("vdr_runs").delete().eq("id", id);
+            if (r.error) throw r.error;
+            showToast("Deleted");
+            await loadHistory();
+          } catch (e) {
+            showToast("Delete failed: " + (e.message || e), "error");
+          }
+        });
+      });
+
+      renderTrend(chrono);
+    } catch (e) {
+      console.error("[VDR] history load failed:", e);
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:20px;color:#b91c1c;">Could not load history: ' + escHtml(e.message || e) + '</td></tr>';
+    }
+  }
+
+  function renderTrend(chronoRows) {
+    if (chartRefs.trend) { try { chartRefs.trend.destroy(); } catch (e) {} }
+    if (!chronoRows.length) return;
+    const labels = chronoRows.map(r => fmtDateShort(new Date(r.ran_at)));
+    const visitsData = chronoRows.map(r => r.total_visits);
+    const chargesData = chronoRows.map(r => Number(r.total_charges));
+    const payrollMask = chronoRows.map(r => isPayrollDate(new Date(r.ran_at)));
+
+    chartRefs.trend = new Chart(document.getElementById("chart-trend"), {
+      data: {
+        labels,
+        datasets: [
+          {
+            type: "line", label: "Visits", data: visitsData, yAxisID: "y",
+            borderColor: "#2463eb",
+            backgroundColor: "#2463eb",
+            pointBackgroundColor: payrollMask.map(p => p ? "#eab308" : "#2463eb"),
+            pointRadius: payrollMask.map(p => p ? 7 : 4),
+            pointBorderColor: payrollMask.map(p => p ? "#8a5a00" : "#fff"),
+            pointBorderWidth: 2,
+            tension: 0.2
+          },
+          { type: "bar", label: "Charges ($)", data: chargesData, yAxisID: "y1", backgroundColor: "rgba(199,154,38,0.5)" }
+        ]
+      },
+      options: {
+        scales: {
+          y:  { type: "linear", position: "left",  title: { display: true, text: "Visits" } },
+          y1: { type: "linear", position: "right", title: { display: true, text: "Charges ($)" }, grid: { drawOnChartArea: false } }
+        }
+      }
+    });
+  }
+
+  // ── Entry point ──
+  function setStatus(msg, kind) {
+    const el = document.getElementById("vdr-status");
+    el.textContent = msg;
+    el.style.color = kind === "error" ? "#b91c1c" : kind === "ok" ? "#15803d" : "var(--muted)";
+  }
+  function resetUI() {
+    clearHistoricalBanner();
+    rawRows = []; summaries = null; outputBlob = null;
+    document.getElementById("vdr-actions").style.display = "none";
+    document.getElementById("vdr-preview-card").style.display = "none";
+    document.getElementById("vdr-dz-title").textContent = "Drop file here, or click to choose";
+    document.getElementById("vdr-dz-title")._sourceName = null;
+    document.getElementById("vdr-dz-sub").textContent = "Accepts .xlsx, .xls, .csv · \"Create bills\" export from TherapyBoss";
+    document.getElementById("vdr-file-input").value = "";
+    setStatus("");
+  }
+
+  async function processFile(file) {
+    if (!file) return;
+    clearHistoricalBanner(); // we're working with a fresh file now, not a historical view
+    document.getElementById("vdr-dz-title").textContent = "📄 " + file.name;
+    document.getElementById("vdr-dz-title")._sourceName = file.name;
+    document.getElementById("vdr-dz-sub").textContent = "Parsing…";
+    setStatus("Parsing file…");
+    try {
+      const rows = await readFile(file);
+      const prepared = validateAndPrepare(rows);
+      rawRows = prepared;
+      summaries = buildSummaries(prepared);
+      document.getElementById("vdr-dz-sub").textContent = `${prepared.length} rows parsed.`;
+      const flagged = prepared.filter(r => r.OutOfRange || r.ShortAndBillable || r.MissedVisit || r.EvalTimeAlert).length;
+      setStatus(`✓ ${prepared.length} rows parsed · ${flagged} discrepancies found.`, "ok");
+      outputBlob = await generateOutput();
+      document.getElementById("vdr-actions").style.display = "flex";
+      showPreview();
+    } catch (e) {
+      console.error("[VDR] process failed:", e);
+      setStatus("✗ " + (e.message || e), "error");
+      document.getElementById("vdr-actions").style.display = "none";
+      document.getElementById("vdr-preview-card").style.display = "none";
+    }
+  }
+
+  function init() {
+    if (initialized) return;
+    initialized = true;
+
+    const dz = document.getElementById("vdr-dropzone");
+    const fi = document.getElementById("vdr-file-input");
+    fi.addEventListener("change", () => { if (fi.files && fi.files[0]) processFile(fi.files[0]); });
+    dz.addEventListener("dragover",  (e) => { e.preventDefault(); dz.classList.add("dragover"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+    dz.addEventListener("drop", (e) => {
+      e.preventDefault(); dz.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById("vdr-download-btn").addEventListener("click", downloadOutput);
+    document.getElementById("vdr-save-history-btn").addEventListener("click", saveToHistory);
+    document.getElementById("vdr-reset-btn").addEventListener("click", resetUI);
+
+    loadHistory();
+  }
+
+  return { init };
+})();
+
+// Initialize VDR module after launchApp confirms admin role + when billing view opens
+function maybeInitVdr() {
+  if (currentRole === "admin") VDR.init();
+}
+// Re-init / refresh when switching to billing view
+const _originalSwitchView = switchView;
+switchView = function(viewName, skipPushState) {
+  _originalSwitchView(viewName, skipPushState);
+  if (viewName === "billing") maybeInitVdr();
+};
+
+// Hook into launchApp completion (the admin role check is already in launchApp)
+const _origLaunchApp = launchApp;
+launchApp = async function(user) {
+  await _origLaunchApp(user);
+  if (currentRole === "admin") {
+    // If URL deep-links to billing, init immediately
+    const params = new URLSearchParams(location.search);
+    if ((params.get("view") || "landing") === "billing") VDR.init();
+  }
+};
+
+// Boot
+checkSession();
+</script>
+<script src="chat-widget.js"></script>
+</body>
+</html>
