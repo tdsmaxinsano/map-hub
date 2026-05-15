@@ -16,6 +16,13 @@
 
 BEGIN;
 
+-- Self-healing: ensure avg_visit_minutes exists before the function below
+-- references it. Idempotent — no-op if the column is already there.
+-- (Normally added by migration 08 — this guard means 09 can be re-run
+-- without an "ordering" gotcha if 08 wasn't applied first.)
+ALTER TABLE public.vdr_clinician_metrics
+  ADD COLUMN IF NOT EXISTS avg_visit_minutes NUMERIC(8,2);
+
 CREATE OR REPLACE FUNCTION public.list_clinician_vdr_summary()
 RETURNS TABLE(
   clinician_id        UUID,
