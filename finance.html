@@ -1174,9 +1174,11 @@ const VDR = (function() {
       const byClin = {};
       rawRows.forEach(r => {
         const k = r.Clinician || "(unknown)";
-        if (!byClin[k]) byClin[k] = { sumDays: 0, n: 0, charge: 0, oor: 0, short: 0, miss: 0, evalT: 0 };
+        if (!byClin[k]) byClin[k] = { sumDays: 0, sumTime: 0, n: 0, charge: 0, oor: 0, short: 0, miss: 0, evalT: 0 };
         const b = byClin[k];
-        b.sumDays += r.DaysBetween; b.n++;
+        b.sumDays += r.DaysBetween;
+        if (!isNaN(r.Time)) b.sumTime += r.Time;
+        b.n++;
         b.charge += r.Charge;
         if (r.OutOfRange) b.oor++;
         if (r.ShortAndBillable) b.short++;
@@ -1189,6 +1191,7 @@ const VDR = (function() {
         clinician_id: matchClinicianId(name),
         visit_count: byClin[name].n,
         avg_days_to_submit: Math.round((byClin[name].sumDays / byClin[name].n) * 100) / 100,
+        avg_visit_minutes: Math.round((byClin[name].sumTime / byClin[name].n) * 100) / 100,
         charge_total: Math.round(byClin[name].charge * 100) / 100,
         out_of_range_count: byClin[name].oor,
         short_billable_count: byClin[name].short,

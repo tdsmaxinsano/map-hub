@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS public.vdr_clinician_metrics (
   clinician_id             UUID,
   visit_count              INTEGER NOT NULL DEFAULT 0,
   avg_days_to_submit       NUMERIC(8,2),
+  avg_visit_minutes        NUMERIC(8,2),
   charge_total             NUMERIC(12,2) NOT NULL DEFAULT 0,
   out_of_range_count       INTEGER NOT NULL DEFAULT 0,
   short_billable_count     INTEGER NOT NULL DEFAULT 0,
@@ -61,6 +62,31 @@ CREATE TABLE IF NOT EXISTS public.vdr_clinician_metrics (
 CREATE INDEX IF NOT EXISTS vdr_clinician_metrics_run_idx       ON public.vdr_clinician_metrics (vdr_run_id);
 CREATE INDEX IF NOT EXISTS vdr_clinician_metrics_clinician_idx ON public.vdr_clinician_metrics (clinician_id);
 CREATE INDEX IF NOT EXISTS vdr_clinician_metrics_name_idx      ON public.vdr_clinician_metrics (clinician_name);
+
+-- If table already existed before avg_visit_minutes was added, patch it now
+ALTER TABLE public.vdr_clinician_metrics ADD COLUMN IF NOT EXISTS avg_visit_minutes NUMERIC(8,2);
+
+-- Backfill avg_visit_minutes for already-saved runs that have a prepared_rows
+-- JSONB snapshot. Idempotent — only updates rows where avg_visit_minutes is
+-- still NULL. Runs saved before prepared_rows existed simply skip (column
+-- stays NULL; user can re-save the run if they need it backfilled).
+UPDATE public.vdr_clinician_metrics m
+SET avg_visit_minutes = sub.avg_minutes
+FROM (
+  SELECT
+    vr.id                       AS run_id,
+    TRIM(elem->>'Clinician')    AS clin_name,
+    ROUND(AVG((elem->>'Time')::numeric), 2) AS avg_minutes
+  FROM public.vdr_runs vr
+  CROSS JOIN LATERAL jsonb_array_elements(COALESCE(vr.prepared_rows, '[]'::jsonb)) AS elem
+  WHERE elem ? 'Time'
+    AND elem ? 'Clinician'
+    AND (elem->>'Time') ~ '^-?[0-9]+(\.[0-9]+)?$'
+  GROUP BY vr.id, TRIM(elem->>'Clinician')
+) sub
+WHERE m.vdr_run_id = sub.run_id
+  AND m.clinician_name = sub.clin_name
+  AND m.avg_visit_minutes IS NULL;
 
 CREATE TABLE IF NOT EXISTS public.vdr_payer_metrics (
   id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),

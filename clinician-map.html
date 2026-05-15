@@ -6509,6 +6509,10 @@
                   <span class="profile-header-quickfact-label">📋 Visits/Run</span>
                   <span id="profile-header-vdr-visits" class="profile-header-quickfact-value"></span>
                 </div>
+                <div class="profile-header-quickfact-row" id="profile-header-vdr-visitmins-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">🕐 Avg Visit</span>
+                  <span id="profile-header-vdr-visitmins" class="profile-header-quickfact-value"></span>
+                </div>
               </div>
               <div class="profile-header-actions">
                 <button id="profile-isolate-clinician" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Clinician</button>
@@ -12917,11 +12921,13 @@
     }
 
     function renderVdrQuickFacts(clinicianId) {
-      var syncRow = document.getElementById("profile-header-vdr-sync-row");
-      var syncEl  = document.getElementById("profile-header-vdr-sync");
-      var visRow  = document.getElementById("profile-header-vdr-visits-row");
-      var visEl   = document.getElementById("profile-header-vdr-visits");
-      if (!syncRow || !syncEl || !visRow || !visEl) return;
+      var syncRow   = document.getElementById("profile-header-vdr-sync-row");
+      var syncEl    = document.getElementById("profile-header-vdr-sync");
+      var visRow    = document.getElementById("profile-header-vdr-visits-row");
+      var visEl     = document.getElementById("profile-header-vdr-visits");
+      var minsRow   = document.getElementById("profile-header-vdr-visitmins-row");
+      var minsEl    = document.getElementById("profile-header-vdr-visitmins");
+      if (!syncRow || !syncEl || !visRow || !visEl || !minsRow || !minsEl) return;
 
       var clinician = clinicianId
         ? appState.clinicians.find(function(c) { return c.id === clinicianId; })
@@ -12930,6 +12936,7 @@
       if (!m) {
         syncRow.style.display = "none";
         visRow.style.display = "none";
+        minsRow.style.display = "none";
         return;
       }
 
@@ -12938,6 +12945,7 @@
           ? formatAcceptedDate(m.latest_run_at)
           : new Date(m.latest_run_at).toLocaleDateString());
 
+      // Avg sync days — colored
       var tintClass = "";
       if (m.avg_sync_days != null) {
         if (m.avg_sync_days <= 3) tintClass = "vdr-tint-green";
@@ -12949,9 +12957,20 @@
       syncRow.title = basis;
       syncRow.style.display = "flex";
 
+      // Avg visits / run
       visEl.textContent = m.avg_visits_per_run != null ? String(m.avg_visits_per_run) : "—";
       visRow.title = basis + " · " + m.total_visits + " visits total";
       visRow.style.display = "flex";
+
+      // Avg visit time (minutes) — hide row if older saves didn't capture it
+      if (m.avg_visit_minutes != null) {
+        minsEl.textContent = m.avg_visit_minutes + " min";
+        minsRow.title = basis + " · visit-weighted across all runs";
+        minsRow.style.display = "flex";
+      } else {
+        minsRow.style.display = "none";
+        minsEl.textContent = "";
+      }
     }
 
     // ── Per-clinician VDR aggregates lookup (powered by

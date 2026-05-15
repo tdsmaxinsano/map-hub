@@ -24,6 +24,7 @@ RETURNS TABLE(
   total_visits        INTEGER,
   avg_visits_per_run  NUMERIC,
   avg_sync_days       NUMERIC,
+  avg_visit_minutes   NUMERIC,
   total_charges       NUMERIC,
   latest_run_at       TIMESTAMPTZ
 )
@@ -42,6 +43,14 @@ AS $$
       / NULLIF(SUM(m.visit_count), 0),
       1
     )                                                                   AS avg_sync_days,
+    -- Visit-weighted average visit duration in minutes; NULL when no runs
+    -- contributed a value (older saves before this column existed).
+    ROUND(
+      SUM(m.avg_visit_minutes * m.visit_count)
+      FILTER (WHERE m.avg_visit_minutes IS NOT NULL)
+      / NULLIF(SUM(m.visit_count) FILTER (WHERE m.avg_visit_minutes IS NOT NULL), 0),
+      1
+    )                                                                   AS avg_visit_minutes,
     SUM(m.charge_total)                                                AS total_charges,
     MAX(r.ran_at)                                                      AS latest_run_at
   FROM public.vdr_clinician_metrics m

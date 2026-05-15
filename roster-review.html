@@ -426,6 +426,7 @@
           <th data-col="reviewed">✓ Reviewed</th>
           <th data-col="avgSync" style="text-align:right;">Avg Sync Days</th>
           <th data-col="avgVisits" style="text-align:right;">Avg Visits/Run</th>
+          <th data-col="avgVisitMins" style="text-align:right;">Avg Visit Time</th>
         </tr>
       </thead>
       <tbody id="roster-body">
@@ -500,8 +501,9 @@ const COLUMNS = [
   { key: "notes",        label: "Notes",        defaultOn: true  },
   { key: "dnr",          label: "DNR flag",     defaultOn: true  },
   { key: "reviewed",     label: "✓ Reviewed",   defaultOn: true  },
-  { key: "avgSync",      label: "Avg Sync Days",  defaultOn: false },
-  { key: "avgVisits",    label: "Avg Visits/Run", defaultOn: false }
+  { key: "avgSync",      label: "Avg Sync Days",     defaultOn: false },
+  { key: "avgVisits",    label: "Avg Visits/Run",    defaultOn: false },
+  { key: "avgVisitMins", label: "Avg Visit Time (min)", defaultOn: false }
 ];
 const EMR_KEYS = [
   { key: "strata",      label: "Strata" },
@@ -1018,6 +1020,13 @@ function buildRow(r) {
            ${escHtml(m.avg_visits_per_run)}
          </td>`
       : `<td data-col="avgVisits" style="text-align:right;" title="${escAttr(sharedTip)}">
+           <span class="vdr-cell-muted">—</span>
+         </td>`;
+    cells.avgVisitMins = (m && m.avg_visit_minutes != null)
+      ? `<td data-col="avgVisitMins" style="text-align:right;" title="${escAttr(sharedTip + " · visit-weighted across all runs")}">
+           ${escHtml(m.avg_visit_minutes)} min
+         </td>`
+      : `<td data-col="avgVisitMins" style="text-align:right;" title="${escAttr(sharedTip)}">
            <span class="vdr-cell-muted">—</span>
          </td>`;
   }
@@ -1540,7 +1549,7 @@ function exportCsv(onlySelected) {
     "restricted_agencies", "restricted_clinicians",
     "notes", "do_not_rehire",
     "last_reviewed_at", "last_reviewed_by_email",
-    "avg_sync_days", "avg_visits_per_run", "vdr_run_count", "latest_vdr_at"
+    "avg_sync_days", "avg_visits_per_run", "avg_visit_minutes", "vdr_run_count", "latest_vdr_at"
   ];
   function emrOn(caps, aliases) {
     if (!caps || typeof caps !== "object") return "";
@@ -1579,6 +1588,7 @@ function exportCsv(onlySelected) {
       reviewerEmail,
       m && m.avg_sync_days != null ? m.avg_sync_days : "",
       m && m.avg_visits_per_run != null ? m.avg_visits_per_run : "",
+      m && m.avg_visit_minutes != null ? m.avg_visit_minutes : "",
       m && m.run_count != null ? m.run_count : "",
       m && m.latest_run_at ? m.latest_run_at : ""
     ].map(v => {
