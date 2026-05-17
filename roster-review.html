@@ -260,6 +260,35 @@
   .sel-cell { width: 28px; text-align: center; }
   .sel-cell input { accent-color: var(--accent); cursor: pointer; }
 
+  /* Read-only "from TherapyBoss" cells (Phone, Email) */
+  .tb-readonly-cell {
+    color: var(--muted);
+    font-size: 12px;
+    font-style: italic;
+    background: #f8fafc;
+  }
+  .tb-readonly-cell .tb-lock {
+    margin-left: 4px;
+    opacity: 0.45;
+    font-size: 11px;
+    font-style: normal;
+  }
+  .tb-readonly-cell .tb-empty { color: #cbd5e1; }
+  table.roster tr:hover td.tb-readonly-cell { background: #f1f5f9; }
+
+  /* Emergency contact cell (click to open drawer editor) */
+  .emergency-cell {
+    cursor: pointer;
+    padding: 4px 6px;
+    border-radius: 5px;
+    border: 1px dashed transparent;
+    font-size: 12px;
+    color: var(--text);
+    max-width: 230px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .emergency-cell:hover { border-color: var(--accent); background: #eff6ff; }
+
   /* VDR metric tints — match the map's quick-fact chip palette */
   .vdr-tint-green { color: #15803d; font-weight: 800; }
   .vdr-tint-amber { color: #92400e; font-weight: 800; }
@@ -491,18 +520,19 @@
           <th data-col="name">Name</th>
           <th data-col="disc">Disc</th>
           <th data-col="status">Status</th>
-          <th data-col="hireDate">Hire Date</th>
-          <th data-col="rating">Rating</th>
-          <th data-col="phone">Phone</th>
-          <th data-col="email">Email</th>
-          <th data-col="emr">EMR</th>
-          <th data-col="restrictions">Restrictions</th>
-          <th data-col="notes">Notes</th>
-          <th data-col="dnr">DNR</th>
-          <th data-col="reviewed">✓ Reviewed</th>
           <th data-col="avgSync" style="text-align:right;">Avg Sync Days</th>
           <th data-col="avgVisits" style="text-align:right;">Avg Visits/Run</th>
           <th data-col="avgVisitMins" style="text-align:right;">Avg Visit Time</th>
+          <th data-col="rating">Rating</th>
+          <th data-col="hireDate">Hire Date</th>
+          <th data-col="restrictions">Restrictions</th>
+          <th data-col="notes">Notes</th>
+          <th data-col="emergency">Emergency Contact</th>
+          <th data-col="dnr">DNR</th>
+          <th data-col="reviewed">✓ Reviewed</th>
+          <th data-col="phone">Phone <span style="opacity:0.5;">🔒</span></th>
+          <th data-col="email">Email <span style="opacity:0.5;">🔒</span></th>
+          <th data-col="emr">EMR</th>
         </tr>
       </thead>
       <tbody id="roster-body">
@@ -567,18 +597,22 @@ const COLUMNS = [
   { key: "status",       label: "Status",       defaultOn: true  },
   // pauseStart / pauseEnd / reason intentionally removed — they now render
   // inline under the clinician's name when status === "Paused".
-  { key: "hireDate",     label: "Hire Date",    defaultOn: true  },
+  // Performance metrics prioritized right after Status — default ON.
+  { key: "avgSync",      label: "Avg Sync Days",     defaultOn: true  },
+  { key: "avgVisits",    label: "Avg Visits/Run",    defaultOn: true  },
+  { key: "avgVisitMins", label: "Avg Visit Time",    defaultOn: true  },
   { key: "rating",       label: "Rating",       defaultOn: true  },
-  { key: "phone",        label: "Phone",        defaultOn: false },
-  { key: "email",        label: "Email",        defaultOn: false },
-  { key: "emr",          label: "EMR",          defaultOn: false },
+  { key: "hireDate",     label: "Hire Date",    defaultOn: true  },
   { key: "restrictions", label: "Restrictions", defaultOn: true  },
   { key: "notes",        label: "Notes",        defaultOn: true  },
+  { key: "emergency",    label: "Emergency Contact", defaultOn: true  },
   { key: "dnr",          label: "DNR flag",     defaultOn: true  },
   { key: "reviewed",     label: "✓ Reviewed",   defaultOn: true  },
-  { key: "avgSync",      label: "Avg Sync Days",     defaultOn: false },
-  { key: "avgVisits",    label: "Avg Visits/Run",    defaultOn: false },
-  { key: "avgVisitMins", label: "Avg Visit Time (min)", defaultOn: false }
+  // Phone + Email come from TherapyBoss (read-only here). Default OFF
+  // since they're rarely needed during a roster review pass.
+  { key: "phone",        label: "Phone (TB)",   defaultOn: false },
+  { key: "email",        label: "Email (TB)",   defaultOn: false },
+  { key: "emr",          label: "EMR",          defaultOn: false }
 ];
 
 // Pause-reason presets (dropdown options under the name when status=Paused).
@@ -824,7 +858,7 @@ async function loadRoster() {
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
-      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags, emergency_contact_name, emergency_contact_phone, emergency_contact_relation")
       .limit(5000),
     db.from("home_health_agencies")
       .select("id, name")
@@ -867,7 +901,11 @@ async function loadRoster() {
       phone: p.phone || "",
       email: p.email || "",
       emr_capabilities: p.emr_capabilities || null,
-      therapy_boss_unavailable: !!p.therapy_boss_unavailable
+      therapy_boss_unavailable: !!p.therapy_boss_unavailable,
+      // Emergency contact (managed in this portal — TB doesn't track it)
+      emergency_contact_name: p.emergency_contact_name || "",
+      emergency_contact_phone: p.emergency_contact_phone || "",
+      emergency_contact_relation: p.emergency_contact_relation || ""
     };
   });
 
@@ -1044,14 +1082,29 @@ function buildRow(r) {
         min="0" max="5" step="1"
         value="${r.internal_rating != null ? escAttr(r.internal_rating) : ""}"${dis} />
     </td>`,
-    phone: `<td data-col="phone">
-      <input type="text" class="text-input phone-input" data-cid="${cid}"
-        value="${escAttr(r.phone)}" placeholder="Phone"${dis} />
+    // Phone + Email come from TherapyBoss (system of record). Read-only here.
+    phone: `<td data-col="phone" class="tb-readonly-cell" title="From TherapyBoss (read-only)">
+      ${r.phone ? escHtml(r.phone) : '<span class="tb-empty">—</span>'}
+      <span class="tb-lock" title="TherapyBoss source of record">🔒</span>
     </td>`,
-    email: `<td data-col="email">
-      <input type="text" class="text-input email-input" data-cid="${cid}"
-        value="${escAttr(r.email)}" placeholder="Email"${dis} />
+    email: `<td data-col="email" class="tb-readonly-cell" title="From TherapyBoss (read-only)">
+      ${r.email ? escHtml(r.email) : '<span class="tb-empty">—</span>'}
+      <span class="tb-lock" title="TherapyBoss source of record">🔒</span>
     </td>`,
+    emergency: (() => {
+      const n = r.emergency_contact_name || "";
+      const ph = r.emergency_contact_phone || "";
+      const rel = r.emergency_contact_relation || "";
+      const summary = (n || ph)
+        ? escHtml(n + (rel ? " (" + rel + ")" : "") + (ph ? " · " + ph : ""))
+        : "<span class='vdr-cell-muted'>Click to add</span>";
+      return `<td data-col="emergency">
+        <div class="emergency-cell" data-cid="${cid}" data-edit="emergency"
+             title="${escAttr(n ? n + (rel ? " (" + rel + ")" : "") + (ph ? " · " + ph : "") : "No emergency contact")}">
+          ${summary}
+        </div>
+      </td>`;
+    })(),
     emr: `<td data-col="emr"><div class="emr-chips">${emrChips}</div></td>`,
     restrictions: `<td data-col="restrictions">
       <div class="restr-cell${restrictionsCellHtml === "" ? " empty" : ""}" data-cid="${cid}" data-edit="restrictions">
@@ -1298,24 +1351,28 @@ async function saveRating(cid, val) {
   showToast("Rating saved");
 }
 
-async function savePhone(cid, text) {
-  const row = getRow(cid);
-  if (!row) return;
-  const v = (text || "").trim();
-  row.phone = v;
-  try { await saveProfileField(cid, "phone", v || null); }
-  catch (e) { return; }
-  showToast("Phone saved");
-}
+// Phone + Email are read-only here (TB is the system of record). No save fns.
 
-async function saveEmail(cid, text) {
+async function saveEmergencyContact(cid, fields) {
   const row = getRow(cid);
   if (!row) return;
-  const v = (text || "").trim();
-  row.email = v;
-  try { await saveProfileField(cid, "email", v || null); }
-  catch (e) { return; }
-  showToast("Email saved");
+  row.emergency_contact_name     = (fields.name     || "").trim();
+  row.emergency_contact_phone    = (fields.phone    || "").trim();
+  row.emergency_contact_relation = (fields.relation || "").trim();
+  try {
+    const res = await db.from("clinician_profiles").upsert({
+      clinician_id: cid,
+      emergency_contact_name:     row.emergency_contact_name || null,
+      emergency_contact_phone:    row.emergency_contact_phone || null,
+      emergency_contact_relation: row.emergency_contact_relation || null,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "clinician_id" });
+    if (res.error) throw res.error;
+    showToast("Emergency contact saved");
+  } catch (e) {
+    showToast("Save failed: " + (e.message || e), "error");
+  }
+  renderTable();
 }
 
 async function saveRestrictions(cid, restr) {
@@ -1362,17 +1419,20 @@ function openDrawer(cid, mode) {
   if (!row) return;
   drawerCid = cid;
   drawerMode = mode;
-  document.getElementById("drawer-title").textContent =
-    (mode === "restrictions" ? "Restrictions — " : "Notes — ") + formatName(row.name);
+  let titlePrefix;
+  if (mode === "restrictions")    titlePrefix = "Restrictions — ";
+  else if (mode === "emergency")  titlePrefix = "Emergency Contact — ";
+  else                            titlePrefix = "Notes — ";
+  document.getElementById("drawer-title").textContent = titlePrefix + formatName(row.name);
   document.getElementById("drawer-body").innerHTML =
-    mode === "restrictions" ? renderRestrictionsDrawer(row) : renderNotesDrawer(row);
+      mode === "restrictions" ? renderRestrictionsDrawer(row)
+    : mode === "emergency"    ? renderEmergencyDrawer(row)
+    :                           renderNotesDrawer(row);
   document.getElementById("drawer-overlay").classList.add("open");
   document.getElementById("drawer").classList.add("open");
-  if (mode === "restrictions") {
-    wireRestrictionsDrawer();
-  } else {
-    wireNotesDrawer();
-  }
+  if (mode === "restrictions")    wireRestrictionsDrawer();
+  else if (mode === "emergency")  wireEmergencyDrawer();
+  else                            wireNotesDrawer();
 }
 
 function closeDrawer() {
@@ -1429,6 +1489,69 @@ function renderNotesDrawer(row) {
     <textarea class="notes-textarea" id="drawer-notes-ta" ${canEdit ? "" : "readonly"}
       placeholder="Notes…">${escHtml(row.notes || "")}</textarea>
   `;
+}
+
+function renderEmergencyDrawer(row) {
+  const canEdit = currentRole === "admin" || currentRole === "editor";
+  const ro = canEdit ? "" : "readonly";
+  return `
+    <p class="drawer-sub">Emergency contact for this clinician (managed here — TherapyBoss doesn't track it). Saves when you click Save below.</p>
+
+    <div style="display:flex; flex-direction:column; gap:14px;">
+      <div>
+        <label style="display:block;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Name</label>
+        <input type="text" id="drawer-emerg-name" ${ro}
+          value="${escAttr(row.emergency_contact_name || "")}"
+          placeholder="e.g. Jane Smith"
+          style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;" />
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Phone</label>
+        <input type="text" id="drawer-emerg-phone" ${ro}
+          value="${escAttr(row.emergency_contact_phone || "")}"
+          placeholder="e.g. (555) 123-4567"
+          style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;" />
+      </div>
+      <div>
+        <label style="display:block;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;margin-bottom:4px;">Relationship</label>
+        <input type="text" id="drawer-emerg-relation" ${ro}
+          value="${escAttr(row.emergency_contact_relation || "")}"
+          placeholder="e.g. Spouse, Parent, Sibling"
+          style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;outline:none;" />
+      </div>
+      ${canEdit ? `
+        <div style="display:flex; gap:8px; margin-top:6px;">
+          <button id="drawer-emerg-save" style="flex:1;padding:9px 14px;background:var(--accent);color:#fff;border:none;border-radius:8px;font-weight:700;cursor:pointer;">💾 Save</button>
+          <button id="drawer-emerg-clear" style="padding:9px 14px;background:#fff;color:var(--muted);border:1.5px solid var(--border);border-radius:8px;font-weight:700;cursor:pointer;">Clear All</button>
+        </div>
+      ` : ""}
+    </div>
+  `;
+}
+
+function wireEmergencyDrawer() {
+  const row = getRow(drawerCid);
+  if (!row) return;
+  const saveBtn = document.getElementById("drawer-emerg-save");
+  const clearBtn = document.getElementById("drawer-emerg-clear");
+  if (saveBtn) {
+    saveBtn.onclick = async () => {
+      const name     = document.getElementById("drawer-emerg-name").value;
+      const phone    = document.getElementById("drawer-emerg-phone").value;
+      const relation = document.getElementById("drawer-emerg-relation").value;
+      saveBtn.disabled = true; saveBtn.textContent = "Saving…";
+      await saveEmergencyContact(drawerCid, { name, phone, relation });
+      saveBtn.disabled = false; saveBtn.textContent = "💾 Save";
+      closeDrawer();
+    };
+  }
+  if (clearBtn) {
+    clearBtn.onclick = async () => {
+      if (!confirm("Clear all emergency contact fields for this clinician?")) return;
+      await saveEmergencyContact(drawerCid, { name: "", phone: "", relation: "" });
+      closeDrawer();
+    };
+  }
 }
 
 function wireRestrictionsDrawer() {
@@ -1647,7 +1770,9 @@ function exportCsv(onlySelected) {
   const headers = [
     "name", "discipline", "status",
     "pause_start", "pause_end", "pause_reason",
-    "hire_date", "hire_date_source", "rating", "phone", "email",
+    "hire_date", "hire_date_source", "rating",
+    "phone_tb", "email_tb",
+    "emergency_contact_name", "emergency_contact_phone", "emergency_contact_relation",
     "emr_strata", "emr_therapy_boss", "emr_axxess", "emr_kinnser",
     "restricted_agencies", "restricted_clinicians",
     "notes", "do_not_rehire",
@@ -1679,6 +1804,9 @@ function exportCsv(onlySelected) {
       r.internal_rating != null ? r.internal_rating : "",
       r.phone || "",
       r.email || "",
+      r.emergency_contact_name || "",
+      r.emergency_contact_phone || "",
+      r.emergency_contact_relation || "",
       emrOn(r.emr_capabilities, ["strata", "uses_strata", "can_use_strata"]),
       emrOn(r.emr_capabilities, ["therapyBoss", "therapy_boss", "therapyboss", "uses_therapy_boss", "can_use_therapy_boss"]),
       emrOn(r.emr_capabilities, ["axxess", "uses_axxess", "can_use_axxess"]),
@@ -1904,20 +2032,17 @@ document.getElementById("roster-body").addEventListener("blur", async e => {
   } else if (t.classList.contains("rating-input")) {
     const newVal = t.value === "" ? null : Number(t.value);
     if (newVal !== row.internal_rating) await saveRating(cid, t.value);
-  } else if (t.classList.contains("phone-input") && (row.phone || "") !== t.value.trim()) {
-    await savePhone(cid, t.value);
-  } else if (t.classList.contains("email-input") && (row.email || "") !== t.value.trim()) {
-    await saveEmail(cid, t.value);
   }
+  // Phone + Email blur handlers removed — those cells are now read-only.
 }, true);
 
-// Click on restrictions / notes cell → open drawer
+// Click on restrictions / notes / emergency cell → open drawer
 document.getElementById("roster-body").addEventListener("click", e => {
   const cell = e.target.closest("[data-edit]");
   if (!cell) return;
   const mode = cell.dataset.edit;
   const cid  = cell.dataset.cid;
-  if (mode === "restrictions" || mode === "notes") openDrawer(cid, mode);
+  if (["restrictions", "notes", "emergency"].includes(mode)) openDrawer(cid, mode);
 });
 
 // Drawer close
