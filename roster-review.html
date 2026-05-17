@@ -990,6 +990,30 @@ function passesFilters(r) {
 }
 
 function renderTable() {
+  // Preserve scroll position + focus across innerHTML rewrites so the user
+  // doesn't get yanked to the top of the table when a single edit saves.
+  const wrap = document.querySelector(".table-wrap");
+  const savedScrollTop  = wrap ? wrap.scrollTop  : 0;
+  const savedScrollLeft = wrap ? wrap.scrollLeft : 0;
+
+  // Capture the focused element's identity so we can re-focus after rebuild.
+  // We use the row's data-cid + the focused element's tag/class to find it
+  // again. Good enough for date inputs, dropdowns, text inputs, checkboxes.
+  const active = document.activeElement;
+  let focusKey = null;
+  if (active && wrap && wrap.contains(active)) {
+    const tr = active.closest("tr[data-cid]");
+    if (tr) {
+      focusKey = {
+        cid: tr.dataset.cid,
+        cls: active.className.split(/\s+/).filter(Boolean)[0] || "",
+        tag: active.tagName,
+        selStart: typeof active.selectionStart === "number" ? active.selectionStart : null,
+        selEnd:   typeof active.selectionEnd   === "number" ? active.selectionEnd   : null
+      };
+    }
+  }
+
   // Sync <th> visibility with current column choices
   document.querySelectorAll("#roster-table thead th[data-col]").forEach(th => {
     th.style.display = visibleCols[th.dataset.col] === false ? "none" : "";
@@ -1000,9 +1024,29 @@ function renderTable() {
   const visible = rosterRows.filter(passesFilters);
   if (!visible.length) {
     body.innerHTML = '<tr><td colspan="' + visibleColCount + '" style="text-align:center;padding:30px;color:var(--muted);">No clinicians match the current filters.</td></tr>';
-    return;
+  } else {
+    body.innerHTML = visible.map(buildRow).join("");
   }
-  body.innerHTML = visible.map(buildRow).join("");
+
+  // Restore scroll + focus
+  if (wrap) {
+    wrap.scrollTop  = savedScrollTop;
+    wrap.scrollLeft = savedScrollLeft;
+  }
+  if (focusKey) {
+    const tr = document.querySelector('tr[data-cid="' + focusKey.cid + '"]');
+    if (tr) {
+      const el = tr.querySelector('.' + focusKey.cls) || tr.querySelector(focusKey.tag);
+      if (el) {
+        try {
+          el.focus({ preventScroll: true });
+          if (focusKey.selStart != null && typeof el.setSelectionRange === "function") {
+            el.setSelectionRange(focusKey.selStart, focusKey.selEnd);
+          }
+        } catch (e) { /* non-fatal */ }
+      }
+    }
+  }
 }
 
 function renderColumnPicker() {
@@ -1374,8 +1418,9 @@ async function saveRating(cid, val) {
 
 // Toggle a single EMR capability (strata / therapyBoss / axxess / kinnser)
 // and save the canonical normalized object back to clinician_profiles.
-// Also keeps therapy_boss_unavailable in sync with the inverse of therapyBoss
-// (same convention the map's saveClinicianProfileCoreToSupabase uses).
+// SURGICAL DOM UPDATE: only flips the affected chip's .off class — never
+// re-renders the whole table — so the user's scroll position, hover state,
+// and the chip they just clicked all stay exactly where they were.
 async function toggleEmrCapability(cid, key) {
   const row = getRow(cid);
   if (!row) return;
@@ -1383,8 +1428,18 @@ async function toggleEmrCapability(cid, key) {
   if (!Object.prototype.hasOwnProperty.call(normalized, key)) return;
   normalized[key] = !normalized[key];
   row.emr_capabilities = normalized;
-  // Keep the inverse cached column consistent with the map's writes
   if (key === "therapyBoss") row.therapy_boss_unavailable = !normalized.therapyBoss;
+
+  // Optimistic UI: flip the chip class in place (no re-render)
+  const chip = document.querySelector(
+    '.emr-chip[data-cid="' + cid + '"][data-emr-key="' + key + '"]'
+  );
+  const label = (EMR_KEYS.find(k => k.key === key) || {}).label || key;
+  if (chip) {
+    chip.classList.toggle("off", !normalized[key]);
+    chip.title = label + " " + (normalized[key] ? "✓ enabled" : "— disabled") + " (click to toggle)";
+  }
+
   try {
     const res = await db.from("clinician_profiles").upsert({
       clinician_id: cid,
@@ -1393,15 +1448,18 @@ async function toggleEmrCapability(cid, key) {
       updated_at: new Date().toISOString()
     }, { onConflict: "clinician_id" });
     if (res.error) throw res.error;
-    showToast(EMR_KEYS.find(k => k.key === key)?.label + ": " + (normalized[key] ? "✓ enabled" : "disabled"));
+    showToast(label + ": " + (normalized[key] ? "✓ enabled" : "disabled"));
   } catch (e) {
-    // Revert local state on failure
+    // Revert local state + DOM on failure
     normalized[key] = !normalized[key];
     row.emr_capabilities = normalized;
     if (key === "therapyBoss") row.therapy_boss_unavailable = !normalized.therapyBoss;
+    if (chip) {
+      chip.classList.toggle("off", !normalized[key]);
+      chip.title = label + " " + (normalized[key] ? "✓ enabled" : "— disabled") + " (click to toggle)";
+    }
     showToast("Save failed: " + (e.message || e), "error");
   }
-  renderTable();
 }
 
 async function saveEmergencyContact(cid, fields) {
