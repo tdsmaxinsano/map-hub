@@ -306,6 +306,10 @@
     background: #ecfeff; color: #155e75; border: 1px solid #a5f3fc;
   }
   .emr-chip.off { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; opacity: 0.5; }
+  .emr-chip.emr-chip-edit { cursor: pointer; transition: transform 0.08s, box-shadow 0.12s, opacity 0.12s; }
+  .emr-chip.emr-chip-edit:hover { transform: translateY(-1px); box-shadow: 0 2px 6px rgba(36,99,235,0.18); opacity: 1; }
+  .emr-chip.emr-chip-edit.off:hover { opacity: 0.85; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+  .emr-chip.emr-chip-edit:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   /* Column picker */
   .col-picker-wrap { position: relative; }
@@ -612,7 +616,7 @@ const COLUMNS = [
   // since they're rarely needed during a roster review pass.
   { key: "phone",        label: "Phone (TB)",   defaultOn: false },
   { key: "email",        label: "Email (TB)",   defaultOn: false },
-  { key: "emr",          label: "EMR",          defaultOn: false }
+  { key: "emr",          label: "EMR",          defaultOn: true  }
 ];
 
 // Pause-reason presets (dropdown options under the name when status=Paused).
@@ -1035,7 +1039,7 @@ function buildRow(r) {
   const dis = canEdit ? "" : " disabled";
   const cid = escAttr(r.id);
 
-  const emrChips = renderEmrChips(r.emr_capabilities);
+  // EMR chips rendered inline in the cell template below (needs cid + canEdit for click-to-toggle)
 
   // Build all cells indexed by column key — we'll join only the visible ones
   const cells = {
@@ -1105,7 +1109,7 @@ function buildRow(r) {
         </div>
       </td>`;
     })(),
-    emr: `<td data-col="emr"><div class="emr-chips">${emrChips}</div></td>`,
+    emr: `<td data-col="emr"><div class="emr-chips">${renderEmrChips(r.emr_capabilities, r.id, canEdit)}</div></td>`,
     restrictions: `<td data-col="restrictions">
       <div class="restr-cell${restrictionsCellHtml === "" ? " empty" : ""}" data-cid="${cid}" data-edit="restrictions">
         ${restrictionsCellHtml || "Click to add"}
@@ -1195,22 +1199,37 @@ function renderInlinePauseEditor(r, canEdit) {
   `;
 }
 
-function renderEmrChips(caps) {
-  if (!caps || typeof caps !== "object") {
-    return EMR_KEYS.map(k => `<span class="emr-chip off">${escHtml(k.label)}</span>`).join("");
-  }
-  return EMR_KEYS.map(k => {
-    const aliases = {
-      strata:      ["strata", "uses_strata", "can_use_strata"],
-      therapyBoss: ["therapyBoss", "therapy_boss", "therapyboss", "uses_therapy_boss", "can_use_therapy_boss"],
-      axxess:      ["axxess", "uses_axxess", "can_use_axxess"],
-      kinnser:     ["kinnser", "uses_kinnser", "can_use_kinnser"]
-    }[k.key] || [k.key];
-    let on = false;
+// Aliases the map's normalizeProfileEmrCapabilities accepts for each EMR
+const EMR_ALIASES = {
+  strata:      ["strata", "uses_strata", "can_use_strata"],
+  therapyBoss: ["therapyBoss", "therapy_boss", "therapyboss", "uses_therapy_boss", "can_use_therapy_boss"],
+  axxess:      ["axxess", "uses_axxess", "can_use_axxess"],
+  kinnser:     ["kinnser", "uses_kinnser", "can_use_kinnser"]
+};
+
+// Returns {strata, therapyBoss, axxess, kinnser} booleans from any
+// emr_capabilities JSONB shape (handles legacy/alias keys).
+function normalizeEmrCaps(caps) {
+  const out = { strata: false, therapyBoss: true, axxess: false, kinnser: false };
+  if (!caps || typeof caps !== "object") return out;
+  Object.keys(EMR_ALIASES).forEach(key => {
+    const aliases = EMR_ALIASES[key];
     for (const a of aliases) {
-      if (Object.prototype.hasOwnProperty.call(caps, a)) { on = !!caps[a]; break; }
+      if (Object.prototype.hasOwnProperty.call(caps, a)) { out[key] = !!caps[a]; return; }
     }
-    return `<span class="emr-chip${on ? "" : " off"}" title="${k.label} ${on ? "✓" : "—"}">${escHtml(k.label)}</span>`;
+    // Key not present at all: default to current `out[key]` (false except TB which defaults true)
+  });
+  return out;
+}
+
+function renderEmrChips(caps, cid, canEdit) {
+  const normalized = normalizeEmrCaps(caps);
+  return EMR_KEYS.map(k => {
+    const on = !!normalized[k.key];
+    const clickable = canEdit ? ` data-cid="${escAttr(cid || "")}" data-emr-key="${escAttr(k.key)}" role="button" tabindex="0"` : "";
+    const cls = "emr-chip" + (on ? "" : " off") + (canEdit ? " emr-chip-edit" : "");
+    return `<span class="${cls}"${clickable}
+      title="${k.label} ${on ? "✓ enabled" : "— disabled"}${canEdit ? " (click to toggle)" : ""}">${escHtml(k.label)}</span>`;
   }).join("");
 }
 
@@ -1352,6 +1371,38 @@ async function saveRating(cid, val) {
 }
 
 // Phone + Email are read-only here (TB is the system of record). No save fns.
+
+// Toggle a single EMR capability (strata / therapyBoss / axxess / kinnser)
+// and save the canonical normalized object back to clinician_profiles.
+// Also keeps therapy_boss_unavailable in sync with the inverse of therapyBoss
+// (same convention the map's saveClinicianProfileCoreToSupabase uses).
+async function toggleEmrCapability(cid, key) {
+  const row = getRow(cid);
+  if (!row) return;
+  const normalized = normalizeEmrCaps(row.emr_capabilities);
+  if (!Object.prototype.hasOwnProperty.call(normalized, key)) return;
+  normalized[key] = !normalized[key];
+  row.emr_capabilities = normalized;
+  // Keep the inverse cached column consistent with the map's writes
+  if (key === "therapyBoss") row.therapy_boss_unavailable = !normalized.therapyBoss;
+  try {
+    const res = await db.from("clinician_profiles").upsert({
+      clinician_id: cid,
+      emr_capabilities: normalized,
+      therapy_boss_unavailable: !normalized.therapyBoss,
+      updated_at: new Date().toISOString()
+    }, { onConflict: "clinician_id" });
+    if (res.error) throw res.error;
+    showToast(EMR_KEYS.find(k => k.key === key)?.label + ": " + (normalized[key] ? "✓ enabled" : "disabled"));
+  } catch (e) {
+    // Revert local state on failure
+    normalized[key] = !normalized[key];
+    row.emr_capabilities = normalized;
+    if (key === "therapyBoss") row.therapy_boss_unavailable = !normalized.therapyBoss;
+    showToast("Save failed: " + (e.message || e), "error");
+  }
+  renderTable();
+}
 
 async function saveEmergencyContact(cid, fields) {
   const row = getRow(cid);
@@ -2037,12 +2088,29 @@ document.getElementById("roster-body").addEventListener("blur", async e => {
 }, true);
 
 // Click on restrictions / notes / emergency cell → open drawer
+// Click on an EMR chip → toggle that capability
 document.getElementById("roster-body").addEventListener("click", e => {
+  // EMR chip toggle takes precedence (closer ancestor)
+  const chip = e.target.closest(".emr-chip-edit[data-emr-key]");
+  if (chip) {
+    e.preventDefault();
+    toggleEmrCapability(chip.dataset.cid, chip.dataset.emrKey);
+    return;
+  }
   const cell = e.target.closest("[data-edit]");
   if (!cell) return;
   const mode = cell.dataset.edit;
   const cid  = cell.dataset.cid;
   if (["restrictions", "notes", "emergency"].includes(mode)) openDrawer(cid, mode);
+});
+
+// Keyboard accessibility: Space / Enter on a focused EMR chip toggles
+document.getElementById("roster-body").addEventListener("keydown", e => {
+  if (e.key !== " " && e.key !== "Enter") return;
+  const chip = e.target.closest(".emr-chip-edit[data-emr-key]");
+  if (!chip) return;
+  e.preventDefault();
+  toggleEmrCapability(chip.dataset.cid, chip.dataset.emrKey);
 });
 
 // Drawer close
