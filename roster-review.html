@@ -162,6 +162,28 @@
   .name-status-pill.s-Paused   { background: #fef3c7; color: #92400e; }
   .name-status-pill.s-Inactive { background: #e5e7eb; color: #4b5563; }
 
+  /* Inline pause editor (under the name when status=Paused) */
+  .name-pause-block {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+    margin-top: 2px;
+    background: #fffbea;
+    border: 1px dashed #f0c060;
+    border-radius: 6px;
+    padding: 4px 6px;
+  }
+  .name-pause-block .date-input { width: 110px; font-size: 11px; padding: 3px 5px; }
+  .name-pause-block .pause-arrow { color: var(--muted); font-size: 11px; font-weight: 700; }
+  .name-pause-block .reason-select {
+    font-size: 11px; padding: 3px 6px; border: 1px solid var(--border);
+    border-radius: 5px; background: #fff; outline: none; min-width: 96px;
+  }
+  .name-pause-block .reason-select:focus { border-color: var(--accent); }
+  .name-pause-block .reason-other-input {
+    font-size: 11px; padding: 3px 6px; border: 1px solid var(--border);
+    border-radius: 5px; outline: none; width: 130px;
+  }
+  .name-pause-block .reason-other-input:focus { border-color: var(--accent); }
+
   .name-cell { font-weight: 700; }
   .name-cell a { color: var(--blue); text-decoration: none; }
   .name-cell a:hover { text-decoration: underline; }
@@ -469,9 +491,6 @@
           <th data-col="name">Name</th>
           <th data-col="disc">Disc</th>
           <th data-col="status">Status</th>
-          <th data-col="pauseStart">Pause Start</th>
-          <th data-col="pauseEnd">Pause End</th>
-          <th data-col="reason">Reason</th>
           <th data-col="hireDate">Hire Date</th>
           <th data-col="rating">Rating</th>
           <th data-col="phone">Phone</th>
@@ -546,9 +565,8 @@ const COLUMNS = [
   { key: "name",         label: "Name",         always: true,  defaultOn: true  },
   { key: "disc",         label: "Discipline",   defaultOn: true  },
   { key: "status",       label: "Status",       defaultOn: true  },
-  { key: "pauseStart",   label: "Pause Start",  defaultOn: true  },
-  { key: "pauseEnd",     label: "Pause End",    defaultOn: true  },
-  { key: "reason",       label: "Pause Reason", defaultOn: true  },
+  // pauseStart / pauseEnd / reason intentionally removed — they now render
+  // inline under the clinician's name when status === "Paused".
   { key: "hireDate",     label: "Hire Date",    defaultOn: true  },
   { key: "rating",       label: "Rating",       defaultOn: true  },
   { key: "phone",        label: "Phone",        defaultOn: false },
@@ -562,6 +580,11 @@ const COLUMNS = [
   { key: "avgVisits",    label: "Avg Visits/Run",    defaultOn: false },
   { key: "avgVisitMins", label: "Avg Visit Time (min)", defaultOn: false }
 ];
+
+// Pause-reason presets (dropdown options under the name when status=Paused).
+// Stored as plain text on clinician_profiles.pause_reason; an "Other" option
+// reveals a text input for anything that doesn't match these.
+const PAUSE_REASON_PRESETS = ["Personal", "Sick", "Vacation"];
 const EMR_KEYS = [
   { key: "strata",      label: "Strata" },
   { key: "therapyBoss", label: "TB" },
@@ -925,28 +948,19 @@ function passesFilters(r) {
 }
 
 function renderTable() {
-  const visible = rosterRows.filter(passesFilters);
-  // If none of the visible rows are Paused, hide the three pause-related
-  // columns (Pause Start / End / Reason) regardless of the Columns picker
-  // state. Re-enabled automatically when a Paused row appears.
-  const anyPaused = visible.some(r => r.status === "Paused");
-  const pauseAutoHide = { pauseStart: !anyPaused, pauseEnd: !anyPaused, reason: !anyPaused };
-
-  // Sync <th> visibility with current column choices + auto-hide rules
+  // Sync <th> visibility with current column choices
   document.querySelectorAll("#roster-table thead th[data-col]").forEach(th => {
-    const key = th.dataset.col;
-    const userHid = visibleCols[key] === false;
-    const autoHid = !!pauseAutoHide[key];
-    th.style.display = (userHid || autoHid) ? "none" : "";
+    th.style.display = visibleCols[th.dataset.col] === false ? "none" : "";
   });
-  const visibleColCount = COLUMNS.filter(c => visibleCols[c.key] && !pauseAutoHide[c.key]).length;
+  const visibleColCount = COLUMNS.filter(c => visibleCols[c.key]).length;
 
   const body = document.getElementById("roster-body");
+  const visible = rosterRows.filter(passesFilters);
   if (!visible.length) {
     body.innerHTML = '<tr><td colspan="' + visibleColCount + '" style="text-align:center;padding:30px;color:var(--muted);">No clinicians match the current filters.</td></tr>';
     return;
   }
-  body.innerHTML = visible.map(r => buildRow(r, pauseAutoHide)).join("");
+  body.innerHTML = visible.map(buildRow).join("");
 }
 
 function renderColumnPicker() {
@@ -966,8 +980,7 @@ function renderColumnPicker() {
   });
 }
 
-function buildRow(r, pauseAutoHide) {
-  pauseAutoHide = pauseAutoHide || {};
+function buildRow(r) {
   const isSel = selected.has(r.id);
   const discColor = DISC_COLOR[r.discipline] || "#94a3b8";
   const restrictionsCellHtml = renderRestrictionsCell(r.restrictions);
@@ -998,6 +1011,7 @@ function buildRow(r, pauseAutoHide) {
           <span class="disc-pill" style="background:${discColor};font-size:9.5px;padding:1px 6px;">${escHtml(r.discipline || "—")}</span>
           <span class="name-status-pill s-${r.status}">${escHtml(r.status)}</span>
         </span>
+        ${r.status === "Paused" ? renderInlinePauseEditor(r, canEdit) : ""}
       </div>
     </td>`,
     disc: `<td data-col="disc"><span class="disc-pill" style="background:${discColor};">${escHtml(r.discipline || "—")}</span></td>`,
@@ -1005,23 +1019,6 @@ function buildRow(r, pauseAutoHide) {
       <select class="status-select status-${r.status}" data-cid="${cid}"${dis}>
         ${STATUS_VALUES.map(s => `<option value="${s}" ${s === r.status ? "selected" : ""}>${s}</option>`).join("")}
       </select>
-    </td>`,
-    pauseStart: `<td data-col="pauseStart">
-      <input type="date" class="date-input pause-start" data-cid="${cid}"
-        value="${escAttr(fmtDateInput(r.pause_start_date))}"
-        ${r.status !== "Paused" ? "disabled" : ""}${dis} />
-    </td>`,
-    pauseEnd: `<td data-col="pauseEnd">
-      <input type="date" class="date-input pause-end" data-cid="${cid}"
-        value="${escAttr(fmtDateInput(r.pause_end_date))}"
-        ${r.status !== "Paused" ? "disabled" : ""}${dis} />
-    </td>`,
-    reason: `<td data-col="reason">
-      <input type="text" class="reason-input" data-cid="${cid}"
-        value="${escAttr(r.pause_reason)}"
-        maxlength="120"
-        placeholder="${r.status === "Paused" ? "Why paused?" : "—"}"
-        ${r.status !== "Paused" ? "disabled" : ""}${dis} />
     </td>`,
     hireDate: (() => {
       // Same logic as the map's getStartDateValue: explicit start_date wins,
@@ -1106,11 +1103,43 @@ function buildRow(r, pauseAutoHide) {
   }
 
   const orderedHtml = COLUMNS
-    .filter(c => visibleCols[c.key] && !pauseAutoHide[c.key])
+    .filter(c => visibleCols[c.key])
     .map(c => cells[c.key])
     .join("");
 
   return `<tr class="${rowClass}" data-cid="${cid}">${orderedHtml}</tr>`;
+}
+
+// Inline pause editor — shown inside the name cell when status === "Paused".
+// Replaces the old Pause Start / End / Reason standalone columns.
+function renderInlinePauseEditor(r, canEdit) {
+  const cid = escAttr(r.id);
+  const dis = canEdit ? "" : " disabled";
+  const existing = (r.pause_reason || "").trim();
+  const preset = PAUSE_REASON_PRESETS.find(p => p.toLowerCase() === existing.toLowerCase());
+  const selectVal = preset || (existing ? "Other" : "");
+  const showOther = selectVal === "Other";
+  const options = ["", ...PAUSE_REASON_PRESETS, "Other"].map(opt => {
+    const sel = opt === selectVal ? " selected" : "";
+    const label = opt === "" ? "Reason…" : opt;
+    return `<option value="${escAttr(opt)}"${sel}>${escHtml(label)}</option>`;
+  }).join("");
+  return `
+    <div class="name-pause-block" data-cid="${cid}">
+      <input type="date" class="date-input pause-start" data-cid="${cid}"
+        value="${escAttr(fmtDateInput(r.pause_start_date))}"
+        title="Pause start"${dis} />
+      <span class="pause-arrow">→</span>
+      <input type="date" class="date-input pause-end" data-cid="${cid}"
+        value="${escAttr(fmtDateInput(r.pause_end_date))}"
+        title="Pause end"${dis} />
+      <select class="reason-select" data-cid="${cid}"${dis}>${options}</select>
+      <input type="text" class="reason-other-input" data-cid="${cid}"
+        value="${escAttr(showOther ? existing : "")}"
+        placeholder="Custom reason"
+        style="${showOther ? "" : "display:none;"}"${dis} />
+    </div>
+  `;
 }
 
 function renderEmrChips(caps) {
@@ -1840,8 +1869,26 @@ document.getElementById("roster-body").addEventListener("change", async e => {
     await saveDnr(t.dataset.cid, t.checked);
   } else if (t.classList.contains("review-check")) {
     await toggleReviewed(t.dataset.cid, t.checked);
+  } else if (t.classList.contains("reason-select")) {
+    // Pause reason dropdown — when changed, save the value (unless "Other"
+    // which reveals a text input the user types into).
+    const block = t.closest(".name-pause-block");
+    const otherInput = block ? block.querySelector(".reason-other-input") : null;
+    if (t.value === "Other") {
+      if (otherInput) {
+        otherInput.style.display = "";
+        otherInput.focus();
+      }
+      // Don't save anything yet — wait for the text input to blur with a value
+    } else {
+      if (otherInput) {
+        otherInput.style.display = "none";
+        otherInput.value = "";
+      }
+      await savePauseReason(t.dataset.cid, t.value || "");
+    }
   }
-  // reason / rating / phone / email all save on blur (handled below)
+  // reason-other-input / rating / phone / email save on blur (handled below)
 });
 
 // Text-style inputs — save on blur (skip-if-unchanged)
@@ -1851,7 +1898,8 @@ document.getElementById("roster-body").addEventListener("blur", async e => {
   if (!cid) return;
   const row = getRow(cid);
   if (!row) return;
-  if (t.classList.contains("reason-input") && row.pause_reason !== t.value.trim()) {
+  if (t.classList.contains("reason-other-input") && row.pause_reason !== t.value.trim()) {
+    // "Other" custom pause-reason text — save whatever the user typed
     await savePauseReason(cid, t.value.trim());
   } else if (t.classList.contains("rating-input")) {
     const newVal = t.value === "" ? null : Number(t.value);
