@@ -87,23 +87,80 @@
   .btn-export:hover { background: #f1f5f9; }
 
   /* ── Table ── */
-  .table-wrap { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-  table.roster { width: 100%; border-collapse: collapse; }
+  /* Table-wrap is now scrollable internally so we can sticky thead + name col */
+  .table-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: auto;
+    max-height: calc(100vh - 240px);
+    min-height: 340px;
+    position: relative;
+  }
+  table.roster {
+    width: 100%;
+    border-collapse: separate;   /* required so sticky borders render */
+    border-spacing: 0;
+  }
   table.roster th {
     background: #f1f5f9; color: var(--muted); font-size: 10.5px;
     font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
     text-align: left; padding: 10px 10px;
     border-bottom: 1px solid var(--border);
-    position: sticky; top: 0; z-index: 2;
+    position: sticky; top: 0; z-index: 3;
   }
   table.roster td {
     padding: 8px 10px; font-size: 13px; vertical-align: middle;
     border-bottom: 1px solid #f1f5f9;
+    background: var(--card);     /* default cell bg so sticky cells don't show through */
   }
   table.roster tr:hover td { background: #f9fafb; }
   table.roster tr.selected td { background: #eff6ff !important; }
   table.roster tr.row-paused   td { background: #fffbea; }
   table.roster tr.row-inactive td { color: var(--muted); }
+
+  /* Sticky LEFT columns (checkbox + name) so they stay visible during
+     horizontal scroll. Name column has a right-border so it visually
+     separates from scrolled content. */
+  table.roster th[data-col="select"],
+  table.roster td.sel-cell {
+    position: sticky; left: 0; z-index: 2;
+  }
+  table.roster th[data-col="name"],
+  table.roster td.name-cell {
+    position: sticky; left: 36px; z-index: 2;
+    border-right: 1px solid var(--border);
+    min-width: 180px;
+  }
+  /* Top-left corner needs higher z-index than either axis */
+  table.roster thead th[data-col="select"],
+  table.roster thead th[data-col="name"] {
+    z-index: 4;
+  }
+  /* Make hover/selected/paused colors apply to the sticky cells too */
+  table.roster tr:hover td.sel-cell,
+  table.roster tr:hover td.name-cell { background: #f9fafb; }
+  table.roster tr.selected td.sel-cell,
+  table.roster tr.selected td.name-cell { background: #eff6ff; }
+  table.roster tr.row-paused td.sel-cell,
+  table.roster tr.row-paused td.name-cell { background: #fffbea; }
+
+  /* Sub-line under each clinician's name: discipline pill + status pill
+     so context survives even if the Disc/Status columns are scrolled
+     off-screen or hidden via the Columns picker. */
+  .name-cell-stack { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+  .name-cell-stack .name-main { font-weight: 700; }
+  .name-cell-stack .name-subline {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-weight: 600;
+  }
+  .name-status-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 10px;
+    font-size: 9.5px; font-weight: 800; letter-spacing: 0.3px;
+  }
+  .name-status-pill.s-Active   { background: #d1fae5; color: #065f46; }
+  .name-status-pill.s-Paused   { background: #fef3c7; color: #92400e; }
+  .name-status-pill.s-Inactive { background: #e5e7eb; color: #4b5563; }
 
   .name-cell { font-weight: 700; }
   .name-cell a { color: var(--blue); text-decoration: none; }
@@ -868,18 +925,28 @@ function passesFilters(r) {
 }
 
 function renderTable() {
-  // Sync <th> visibility with current column choices
-  document.querySelectorAll("#roster-table thead th[data-col]").forEach(th => {
-    th.style.display = visibleCols[th.dataset.col] === false ? "none" : "";
-  });
-  const visibleColCount = COLUMNS.filter(c => visibleCols[c.key]).length;
-  const body = document.getElementById("roster-body");
   const visible = rosterRows.filter(passesFilters);
+  // If none of the visible rows are Paused, hide the three pause-related
+  // columns (Pause Start / End / Reason) regardless of the Columns picker
+  // state. Re-enabled automatically when a Paused row appears.
+  const anyPaused = visible.some(r => r.status === "Paused");
+  const pauseAutoHide = { pauseStart: !anyPaused, pauseEnd: !anyPaused, reason: !anyPaused };
+
+  // Sync <th> visibility with current column choices + auto-hide rules
+  document.querySelectorAll("#roster-table thead th[data-col]").forEach(th => {
+    const key = th.dataset.col;
+    const userHid = visibleCols[key] === false;
+    const autoHid = !!pauseAutoHide[key];
+    th.style.display = (userHid || autoHid) ? "none" : "";
+  });
+  const visibleColCount = COLUMNS.filter(c => visibleCols[c.key] && !pauseAutoHide[c.key]).length;
+
+  const body = document.getElementById("roster-body");
   if (!visible.length) {
     body.innerHTML = '<tr><td colspan="' + visibleColCount + '" style="text-align:center;padding:30px;color:var(--muted);">No clinicians match the current filters.</td></tr>';
     return;
   }
-  body.innerHTML = visible.map(buildRow).join("");
+  body.innerHTML = visible.map(r => buildRow(r, pauseAutoHide)).join("");
 }
 
 function renderColumnPicker() {
@@ -899,7 +966,8 @@ function renderColumnPicker() {
   });
 }
 
-function buildRow(r) {
+function buildRow(r, pauseAutoHide) {
+  pauseAutoHide = pauseAutoHide || {};
   const isSel = selected.has(r.id);
   const discColor = DISC_COLOR[r.discipline] || "#94a3b8";
   const restrictionsCellHtml = renderRestrictionsCell(r.restrictions);
@@ -924,7 +992,13 @@ function buildRow(r) {
       <input type="checkbox" class="row-sel" data-cid="${cid}" ${isSel ? "checked" : ""} />
     </td>`,
     name: `<td class="name-cell" data-col="name">
-      <a href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(formatName(r.name))}</a>
+      <div class="name-cell-stack">
+        <a class="name-main" href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(formatName(r.name))}</a>
+        <span class="name-subline">
+          <span class="disc-pill" style="background:${discColor};font-size:9.5px;padding:1px 6px;">${escHtml(r.discipline || "—")}</span>
+          <span class="name-status-pill s-${r.status}">${escHtml(r.status)}</span>
+        </span>
+      </div>
     </td>`,
     disc: `<td data-col="disc"><span class="disc-pill" style="background:${discColor};">${escHtml(r.discipline || "—")}</span></td>`,
     status: `<td class="status-cell" data-col="status">
@@ -1032,7 +1106,7 @@ function buildRow(r) {
   }
 
   const orderedHtml = COLUMNS
-    .filter(c => visibleCols[c.key])
+    .filter(c => visibleCols[c.key] && !pauseAutoHide[c.key])
     .map(c => cells[c.key])
     .join("");
 
