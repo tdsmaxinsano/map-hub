@@ -452,6 +452,43 @@
         </table>
       </div>
     </div>
+
+    <!-- ④ Invoice Converter (IIF cleanup for QuickBooks import) -->
+    <div class="card">
+      <h3>④ Invoice Converter (IIF)</h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;">
+        Drop a raw <code>.iif</code> export (tab-delimited QuickBooks Intuit
+        format). The converter strips bookkeeping cruft columns
+        (<code>!TRNS / TRNSID / TRNSTYPE / ACCNT / CLASS / MEMO / CLEAR /
+        TOPRINT / ADDR1 / ADDR5 / PAID</code>), drops rows with TAXABLE or
+        negative AMOUNT, renames columns to <code>Invoice Date /
+        Customer / Invoice No / Due Date</code>, and normalizes
+        "<code>Medicare</code>" → "<code>Medicare Part B.</code>". Output is a
+        cleaned tab-delimited <code>.iif</code> ready for import.
+      </p>
+
+      <label class="dropzone" id="iif-dropzone" for="iif-file-input">
+        <input type="file" id="iif-file-input" accept=".iif,.IIF,.txt" />
+        <div class="dz-icon">🧾</div>
+        <div class="dz-title" id="iif-dz-title">Drop .iif file here, or click to choose</div>
+        <div class="dz-sub" id="iif-dz-sub">Tab-delimited Intuit Interchange Format export</div>
+      </label>
+
+      <div id="iif-status" style="margin-top:12px;font-size:13px;color:var(--muted);min-height:18px;"></div>
+
+      <div class="actions" id="iif-actions" style="display:none;">
+        <button id="iif-download-btn">⬇ Download cleaned .iif</button>
+        <button id="iif-reset-btn" class="btn-secondary">Reset</button>
+      </div>
+
+      <div id="iif-preview-card" style="display:none;margin-top:14px;">
+        <div class="stat-strip" id="iif-stats"></div>
+        <p style="font-size:11.5px;color:var(--muted);margin:4px 0 8px;">First 20 cleaned rows:</p>
+        <div class="discrep-table-wrap" style="max-height:300px;">
+          <table class="discrep" id="iif-preview-table"></table>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -1489,9 +1526,222 @@ const VDR = (function() {
   return { init };
 })();
 
-// Initialize VDR module after launchApp confirms admin role + when billing view opens
+// ══════════════════════════════════════════════════════════════════
+// IIF — Invoice Converter (browser-side port of run_invoice_conversion)
+// ══════════════════════════════════════════════════════════════════
+const IIF = (function() {
+  // Columns to strip — exact match against the Python script
+  const DROP_COLS = ["!TRNS","TRNSID","TRNSTYPE","ACCNT","CLASS","MEMO",
+                     "CLEAR","TOPRINT","ADDR1","ADDR5","PAID"];
+  // Column rename map (applied AFTER drop)
+  const RENAME = { DATE: "Invoice Date", NAME: "Customer",
+                   DOCNUM: "Invoice No",  DUEDATE: "Due Date" };
+
+  let cleanedHeader = [];   // string[] of kept column names (post-rename)
+  let cleanedRows   = [];   // string[][] of kept rows
+  let counts = { rowsIn: 0, rowsOut: 0, droppedTaxable: 0, droppedNegative: 0, droppedBlank: 0, customers: 0 };
+  let sourceFilename = "";
+  let initialized = false;
+
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function parseIif(text) {
+    if (!text || !text.trim()) throw new Error("File appears to be empty.");
+    const lines = text.split(/\r?\n/);
+    // Drop trailing blank lines
+    while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+    if (lines.length < 1) throw new Error("File has no header row.");
+
+    // Header: tab-split + trim
+    const rawHeader = lines[0].split("\t").map(c => c.trim());
+    // Determine which columns to KEEP (index, name)
+    const keepIdx = [];
+    rawHeader.forEach((name, idx) => {
+      if (!DROP_COLS.includes(name)) keepIdx.push(idx);
+    });
+    // Build the kept-header (post-rename)
+    const keptHeader = keepIdx.map(i => {
+      const orig = rawHeader[i];
+      return RENAME[orig] || orig;
+    });
+    // Find the AMOUNT column index in the ORIGINAL header so we can filter
+    const amountIdx = rawHeader.indexOf("AMOUNT");
+    // Customer column index in the kept-header (so we can do the Medicare substitution)
+    const customerKeptIdx = keptHeader.indexOf("Customer");
+
+    const out = [];
+    counts = { rowsIn: 0, rowsOut: 0, droppedTaxable: 0, droppedNegative: 0, droppedBlank: 0, customers: 0 };
+    const seenCustomers = new Set();
+
+    for (let li = 1; li < lines.length; li++) {
+      const line = lines[li];
+      // Don't trim — preserve internal whitespace within cells. Just skip empties.
+      if (!line.trim()) { counts.droppedBlank++; continue; }
+      counts.rowsIn++;
+
+      const cells = line.split("\t");
+      // dropna(how='all') mirror: drop if every cell is empty/whitespace
+      if (cells.every(c => !String(c).trim())) { counts.droppedBlank++; continue; }
+      // Any cell exactly === "TAXABLE" → drop
+      if (cells.some(c => String(c).trim().toUpperCase() === "TAXABLE")) { counts.droppedTaxable++; continue; }
+      // AMOUNT filter: parse and drop if NaN or < 0
+      if (amountIdx >= 0) {
+        const rawAmount = cells[amountIdx] != null ? String(cells[amountIdx]).replace(/[,$\s]/g, "") : "";
+        const amount = rawAmount === "" ? NaN : Number(rawAmount);
+        if (isNaN(amount)) { counts.droppedBlank++; continue; }   // matches Python: coerce + dropna
+        if (amount < 0)   { counts.droppedNegative++; continue; }
+      }
+
+      // Project to kept columns
+      const projected = keepIdx.map(i => cells[i] != null ? cells[i] : "");
+      // Medicare → Medicare Part B. substitution on the Customer cell
+      if (customerKeptIdx >= 0) {
+        const v = String(projected[customerKeptIdx] || "").trim();
+        if (v === "Medicare") projected[customerKeptIdx] = "Medicare Part B.";
+      }
+      if (customerKeptIdx >= 0) {
+        const c = String(projected[customerKeptIdx] || "").trim();
+        if (c) seenCustomers.add(c);
+      }
+      out.push(projected);
+    }
+
+    cleanedHeader = keptHeader;
+    cleanedRows   = out;
+    counts.rowsOut = out.length;
+    counts.customers = seenCustomers.size;
+  }
+
+  function renderStats() {
+    const stripEl = document.getElementById("iif-stats");
+    if (!stripEl) return;
+    stripEl.innerHTML = `
+      <div class="stat-pill"><div class="lbl">Rows In</div><div class="val">${counts.rowsIn}</div></div>
+      <div class="stat-pill"><div class="lbl">Rows Out</div><div class="val">${counts.rowsOut}</div></div>
+      <div class="stat-pill"><div class="lbl">Customers</div><div class="val">${counts.customers}</div></div>
+      <div class="stat-pill flag"><div class="lbl">Dropped TAXABLE</div><div class="val">${counts.droppedTaxable}</div></div>
+      <div class="stat-pill flag"><div class="lbl">Dropped Negative</div><div class="val">${counts.droppedNegative}</div></div>
+    `;
+  }
+
+  function renderPreview() {
+    const t = document.getElementById("iif-preview-table");
+    if (!t) return;
+    if (!cleanedRows.length) {
+      t.innerHTML = `<thead><tr><th colspan="${cleanedHeader.length || 1}" style="text-align:center;padding:20px;color:var(--muted);">No rows remained after cleaning.</th></tr></thead>`;
+      return;
+    }
+    const head = cleanedHeader.map(c => `<th>${escHtml(c)}</th>`).join("");
+    const body = cleanedRows.slice(0, 20).map(r =>
+      "<tr>" + r.map(v => `<td>${escHtml(v)}</td>`).join("") + "</tr>"
+    ).join("");
+    const more = cleanedRows.length > 20
+      ? `<tr><td colspan="${cleanedHeader.length}" style="text-align:center;padding:10px;color:var(--muted);">… ${cleanedRows.length - 20} more rows in the download.</td></tr>`
+      : "";
+    t.innerHTML = `<thead><tr>${head}</tr></thead><tbody>${body}${more}</tbody>`;
+  }
+
+  function showPreview() {
+    document.getElementById("iif-preview-card").style.display = "block";
+    renderStats();
+    renderPreview();
+  }
+
+  function buildOutputBlob() {
+    const lines = [cleanedHeader.join("\t"), ...cleanedRows.map(r => r.join("\t"))];
+    return new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+  }
+
+  function buildFilename() {
+    const dt = new Date();
+    const dateStr = dt.getFullYear() + "-" +
+      String(dt.getMonth() + 1).padStart(2, "0") + "-" +
+      String(dt.getDate()).padStart(2, "0");
+    return `Dependable_Invoice_${dateStr}.iif`;
+  }
+
+  function downloadOutput() {
+    if (!cleanedRows.length && !cleanedHeader.length) {
+      showToast("Process a file first.", "error");
+      return;
+    }
+    const blob = buildOutputBlob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = buildFilename(); a.click();
+    URL.revokeObjectURL(url);
+    showToast("Downloaded " + buildFilename());
+  }
+
+  function setStatus(msg, kind) {
+    const el = document.getElementById("iif-status");
+    el.textContent = msg;
+    el.style.color = kind === "error" ? "#b91c1c" : kind === "ok" ? "#15803d" : "var(--muted)";
+  }
+
+  function resetUI() {
+    cleanedHeader = []; cleanedRows = [];
+    counts = { rowsIn: 0, rowsOut: 0, droppedTaxable: 0, droppedNegative: 0, droppedBlank: 0, customers: 0 };
+    sourceFilename = "";
+    document.getElementById("iif-actions").style.display = "none";
+    document.getElementById("iif-preview-card").style.display = "none";
+    document.getElementById("iif-dz-title").textContent = "Drop .iif file here, or click to choose";
+    document.getElementById("iif-dz-sub").textContent = "Tab-delimited Intuit Interchange Format export";
+    document.getElementById("iif-file-input").value = "";
+    setStatus("");
+  }
+
+  async function processFile(file) {
+    if (!file) return;
+    sourceFilename = file.name;
+    document.getElementById("iif-dz-title").textContent = "📄 " + file.name;
+    document.getElementById("iif-dz-sub").textContent = "Parsing…";
+    setStatus("Parsing file…");
+    try {
+      const text = await file.text();
+      parseIif(text);
+      const dropped = counts.droppedTaxable + counts.droppedNegative + counts.droppedBlank;
+      document.getElementById("iif-dz-sub").textContent = `${counts.rowsIn} rows · ${counts.rowsOut} kept · ${dropped} dropped`;
+      setStatus(`✓ ${counts.rowsIn} rows parsed · ${counts.rowsOut} cleaned · ${counts.customers} customers`, "ok");
+      document.getElementById("iif-actions").style.display = "flex";
+      showPreview();
+    } catch (e) {
+      console.error("[IIF] parse failed:", e);
+      setStatus("✗ " + (e.message || e), "error");
+      document.getElementById("iif-actions").style.display = "none";
+      document.getElementById("iif-preview-card").style.display = "none";
+    }
+  }
+
+  function init() {
+    if (initialized) return;
+    initialized = true;
+
+    const dz = document.getElementById("iif-dropzone");
+    const fi = document.getElementById("iif-file-input");
+    if (!dz || !fi) return;
+
+    fi.addEventListener("change", () => { if (fi.files && fi.files[0]) processFile(fi.files[0]); });
+    dz.addEventListener("dragover",  (e) => { e.preventDefault(); dz.classList.add("dragover"); });
+    dz.addEventListener("dragleave", () => dz.classList.remove("dragover"));
+    dz.addEventListener("drop", (e) => {
+      e.preventDefault(); dz.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) processFile(e.dataTransfer.files[0]);
+    });
+
+    document.getElementById("iif-download-btn").addEventListener("click", downloadOutput);
+    document.getElementById("iif-reset-btn").addEventListener("click", resetUI);
+  }
+
+  return { init };
+})();
+
+// Initialize VDR + IIF modules after launchApp confirms admin role + when billing view opens
 function maybeInitVdr() {
   if (currentRole === "admin") VDR.init();
+  if (currentRole === "admin") IIF.init();
 }
 // Re-init / refresh when switching to billing view
 const _originalSwitchView = switchView;
@@ -1507,7 +1757,7 @@ launchApp = async function(user) {
   if (currentRole === "admin") {
     // If URL deep-links to billing, init immediately
     const params = new URLSearchParams(location.search);
-    if ((params.get("view") || "landing") === "billing") VDR.init();
+    if ((params.get("view") || "landing") === "billing") { VDR.init(); IIF.init(); }
   }
 };
 
