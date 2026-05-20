@@ -6513,6 +6513,10 @@
                   <span class="profile-header-quickfact-label">🕐 Avg Visit</span>
                   <span id="profile-header-vdr-visitmins" class="profile-header-quickfact-value"></span>
                 </div>
+                <div class="profile-header-quickfact-row" id="profile-header-pause-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">🏖 Pause</span>
+                  <span id="profile-header-pause" class="profile-header-quickfact-value"></span>
+                </div>
               </div>
               <div class="profile-header-actions">
                 <button id="profile-isolate-clinician" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Clinician</button>
@@ -12918,6 +12922,76 @@
       //    list_clinician_vdr_summary RPC. Hidden if the clinician has
       //    no VDR data yet.
       renderVdrQuickFacts(clinicianId);
+
+      // 5) Pause lifecycle — show ends-in-N-days when Paused, or
+      //    starts-in-N-days when Active with an upcoming pause_start_date.
+      renderPauseLifecycleQuickFact(clinicianId);
+    }
+
+    function renderPauseLifecycleQuickFact(clinicianId) {
+      var row = document.getElementById("profile-header-pause-row");
+      var el  = document.getElementById("profile-header-pause");
+      if (!row || !el) return;
+      var clinician = clinicianId
+        ? appState.clinicians.find(function(c) { return c.id === clinicianId; })
+        : null;
+      if (!clinician) { row.style.display = "none"; el.textContent = ""; return; }
+
+      function daysFromToday(dateStr) {
+        if (!dateStr) return null;
+        var d = new Date(String(dateStr) + "T00:00:00");
+        if (isNaN(d.getTime())) return null;
+        var today = new Date(); today.setHours(0, 0, 0, 0);
+        return Math.round((d.getTime() - today.getTime()) / 86400000);
+      }
+      function fmtShort(dateStr) {
+        if (!dateStr) return "";
+        var d = new Date(String(dateStr) + "T00:00:00");
+        if (isNaN(d.getTime())) return String(dateStr);
+        return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      }
+
+      var status   = clinician.status || (clinician.active === false ? "Inactive" : "Active");
+      var startStr = clinician.pause_start_date || (clinician.profile && clinician.profile.pause_start_date);
+      var endStr   = clinician.pause_end_date   || (clinician.profile && clinician.profile.pause_end_date);
+      var reason   = (clinician.pause_reason || (clinician.profile && clinician.profile.pause_reason) || "").trim();
+
+      // Paused → show ends-in-N-days (always visible while paused, not just within 1 day)
+      if (status === "Paused" && endStr) {
+        var n = daysFromToday(endStr);
+        var label;
+        if (n == null)       label = "ends " + fmtShort(endStr);
+        else if (n < 0)      label = "overdue " + (-n) + "d (ended " + fmtShort(endStr) + ")";
+        else if (n === 0)    label = "ends today (" + fmtShort(endStr) + ")";
+        else if (n === 1)    label = "ends tomorrow (" + fmtShort(endStr) + ")";
+        else                 label = "ends " + fmtShort(endStr) + " (" + n + " days)";
+        if (reason) label += " · " + reason;
+        var tintClass = (n != null && n <= 0) ? "vdr-tint-red"
+                      : (n != null && n <= 1) ? "vdr-tint-amber"
+                      :                          "vdr-tint-green";
+        el.innerHTML = "<span class='" + tintClass + "'>" + escapeHtml(label) + "</span>";
+        row.style.display = "flex";
+        return;
+      }
+
+      // Active with upcoming pause_start_date in next 3 days → preview
+      if (status === "Active" && startStr) {
+        var sn = daysFromToday(startStr);
+        if (sn != null && sn >= 0 && sn <= 3) {
+          var lbl;
+          if (sn === 0)      lbl = "starts today (" + fmtShort(startStr) + ")";
+          else if (sn === 1) lbl = "starts tomorrow (" + fmtShort(startStr) + ")";
+          else               lbl = "starts " + fmtShort(startStr) + " (" + sn + " days)";
+          if (reason) lbl += " · " + reason;
+          var tint = sn <= 1 ? "vdr-tint-red" : "vdr-tint-amber";
+          el.innerHTML = "<span class='" + tint + "'>" + escapeHtml(lbl) + "</span>";
+          row.style.display = "flex";
+          return;
+        }
+      }
+
+      row.style.display = "none";
+      el.textContent = "";
     }
 
     function renderVdrQuickFacts(clinicianId) {

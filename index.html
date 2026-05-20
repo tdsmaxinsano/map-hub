@@ -201,6 +201,52 @@
   .tool-card p { font-size: 12px; color: var(--muted); line-height: 1.4; flex: 1; }
   .tool-card .open-link { font-size: 12px; font-weight: 700; color: var(--accent); margin-top: 4px; }
 
+  /* News & Alerts card on the Home pane */
+  .alerts-count {
+    display: inline-block;
+    background: var(--accent); color: #fff;
+    border-radius: 10px; padding: 1px 9px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.3px;
+    margin-left: 8px; vertical-align: middle;
+  }
+  .alerts-count:empty { display: none; }
+  .alerts-card {
+    background: var(--card); border-radius: 12px;
+    padding: 12px 14px; border: 1px solid var(--border);
+    margin-bottom: 22px;
+  }
+  .alerts-empty {
+    text-align: center; padding: 18px 0;
+    color: var(--muted); font-size: 13px; font-style: italic;
+  }
+  .alerts-list { list-style: none; display: flex; flex-direction: column; gap: 7px; padding: 0; margin: 0; }
+  .alert-item {
+    display: grid;
+    grid-template-columns: 24px 1fr auto;
+    align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    cursor: pointer; transition: background 0.15s;
+    font-size: 13px;
+  }
+  .alert-item:hover { background: #f1f5f9; }
+  .alert-icon { font-size: 18px; line-height: 1; text-align: center; }
+  .alert-name { font-weight: 800; color: var(--text); }
+  .alert-disc {
+    display: inline-block; padding: 1px 6px; border-radius: 8px;
+    font-size: 9.5px; font-weight: 700; color: #fff;
+    margin-left: 4px; vertical-align: middle;
+  }
+  .alert-msg { color: var(--muted); font-size: 12px; }
+  .alert-when { font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; }
+  .alert-tint-red    .alert-when { background: #fee2e2; color: #991b1b; }
+  .alert-tint-amber  .alert-when { background: #fef3c7; color: #92400e; }
+  .alert-tint-green  .alert-when { background: #d1fae5; color: #065f46; }
+  .alert-tint-blue   .alert-when { background: #dbeafe; color: #1e3a8a; }
+  .alert-tint-red    { border-left: 3px solid #ef4444; }
+  .alert-tint-amber  { border-left: 3px solid #eab308; }
+  .alert-tint-green  { border-left: 3px solid #22c55e; }
+  .alert-tint-blue   { border-left: 3px solid #2463eb; }
+
   .recent-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -392,6 +438,17 @@
             <p>Task board with SLAs, multi-board, drag/drop.</p>
             <span class="open-link">Open →</span>
           </button>
+        </div>
+
+        <h2 class="section-title">
+          📰 News &amp; Alerts
+          <span class="alerts-count" id="alerts-count"></span>
+        </h2>
+        <div class="alerts-card">
+          <div class="alerts-empty" id="alerts-empty" style="display:none;">
+            ✓ Nothing needs attention right now.
+          </div>
+          <ul class="alerts-list" id="alerts-list"></ul>
         </div>
 
         <h2 class="section-title">Activity</h2>
@@ -753,8 +810,112 @@
       loadMyTasksAndCount(),
       loadActiveCliniciansCount(),
       loadOverdueTasksCount(),
-      loadRecentReferrals()
+      loadRecentReferrals(),
+      loadAlerts()
     ]);
+  }
+
+  // ── News & Alerts (pause / vacation lifecycle) ──
+  const DISC_COLOR = { PT: "#2463eb", PTA: "#7c3aed", OT: "#22c55e", OTA: "#16a34a", ST: "#f97316" };
+  const ALERT_META = {
+    pause_starting_today: { icon: "🔴", tint: "red",   verb: "starts" },
+    pause_starting_soon:  { icon: "🟡", tint: "amber", verb: "starts" },
+    pause_ending_today:   { icon: "🟢", tint: "green", verb: "returns" },
+    pause_ending_soon:    { icon: "🟢", tint: "green", verb: "returns" },
+    just_returned:        { icon: "🔵", tint: "blue",  verb: "returned" }
+  };
+
+  function fmtDateShort(d) {
+    if (!d) return "";
+    const x = (d instanceof Date) ? d : new Date(d + "T00:00:00");
+    if (isNaN(x.getTime())) return String(d);
+    return x.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  }
+  function reasonLabel(r) {
+    const v = String(r || "").trim();
+    if (!v) return "pause";
+    return v.toLowerCase();
+  }
+
+  function buildWhenLabel(alert) {
+    const o = Number(alert.days_offset);
+    if (alert.alert_type === "pause_starting_today")  return "TODAY";
+    if (alert.alert_type === "pause_starting_soon")   return "in " + o + (o === 1 ? " day" : " days");
+    if (alert.alert_type === "pause_ending_today")    return "today";
+    if (alert.alert_type === "pause_ending_soon")     return o === 1 ? "tomorrow" : "in " + o + " days";
+    if (alert.alert_type === "just_returned")         return Math.abs(o) + (Math.abs(o) === 1 ? " day ago" : " days ago");
+    return "";
+  }
+
+  function buildAlertMessage(alert) {
+    const meta = ALERT_META[alert.alert_type] || ALERT_META.pause_ending_soon;
+    const reason = reasonLabel(alert.pause_reason);
+    const range = (alert.pause_start_date || alert.pause_end_date)
+      ? " (" + fmtDateShort(alert.pause_start_date) + (alert.pause_end_date ? " – " + fmtDateShort(alert.pause_end_date) : "") + ")"
+      : "";
+    switch (alert.alert_type) {
+      case "pause_starting_today":  return `${meta.verb} ${reason} today${range} — assign coverage?`;
+      case "pause_starting_soon":   return `${meta.verb} ${reason}${range}`;
+      case "pause_ending_today":    return `${meta.verb} from ${reason}${range}`;
+      case "pause_ending_soon":     return `${meta.verb} from ${reason}${range}`;
+      case "just_returned":         return `${meta.verb} to Active (was ${reason})`;
+      default: return reason;
+    }
+  }
+
+  async function loadAlerts() {
+    const list = document.getElementById("alerts-list");
+    const empty = document.getElementById("alerts-empty");
+    const count = document.getElementById("alerts-count");
+    if (!list || !empty || !count) return;
+    try {
+      const r = await db.rpc("list_pause_alerts");
+      if (r.error) throw r.error;
+      const rows = (r.data || []);
+      if (!rows.length) {
+        list.innerHTML = "";
+        empty.style.display = "";
+        count.textContent = "";
+        return;
+      }
+      empty.style.display = "none";
+      count.textContent = rows.length + " active";
+
+      list.innerHTML = rows.map(a => {
+        const meta = ALERT_META[a.alert_type] || ALERT_META.pause_ending_soon;
+        const disc = a.discipline || "";
+        const discColor = DISC_COLOR[disc] || "#94a3b8";
+        const cls = "alert-item alert-tint-" + meta.tint;
+        const cid = a.clinician_id;
+        return `
+          <li class="${cls}" data-cid="${escHtml(cid)}">
+            <span class="alert-icon">${meta.icon}</span>
+            <div>
+              <div>
+                <span class="alert-name">${escHtml(a.clinician_name || "—")}</span>
+                ${disc ? `<span class="alert-disc" style="background:${discColor};">${escHtml(disc)}</span>` : ""}
+              </div>
+              <div class="alert-msg">${escHtml(buildAlertMessage(a))}</div>
+            </div>
+            <span class="alert-when">${escHtml(buildWhenLabel(a))}</span>
+          </li>
+        `;
+      }).join("");
+
+      // Clicking an alert → switch shell to the Map tab with that clinician deep-linked
+      list.querySelectorAll(".alert-item").forEach(li => {
+        li.addEventListener("click", () => {
+          const cid = li.dataset.cid;
+          if (cid) shellSwitchTab("map", "clinician=" + encodeURIComponent(cid));
+        });
+      });
+    } catch (e) {
+      console.warn("[alerts] load failed:", e && e.message);
+      list.innerHTML = "";
+      empty.textContent = "Could not load alerts.";
+      empty.style.display = "";
+      count.textContent = "";
+    }
   }
 
   async function loadOpenReferralsCount() {
