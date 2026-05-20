@@ -1253,15 +1253,40 @@ function daysFromToday(dateStr) {
   return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
-function renderPauseReturnPill(pauseEndDateStr) {
-  const n = daysFromToday(pauseEndDateStr);
-  if (n == null) return "";
-  let tint, label;
-  if (n < 0)       { tint = "tint-red";   label = "Pause overdue " + (-n) + "d"; }
-  else if (n === 0){ tint = "tint-green"; label = "Returns today"; }
-  else if (n === 1){ tint = "tint-amber"; label = "Returns tomorrow"; }
-  else             { tint = "";           label = "Returns in " + n + " days"; }
-  return `<span class="pause-return-pill ${tint}">${label}</span>`;
+function renderPauseReturnPill(r) {
+  // Accepts the full row object so we can distinguish "future scheduled" vs
+  // "currently paused, days until return". Backward-compatible: a string
+  // argument is treated as just an end-date.
+  const endStr   = (typeof r === "string") ? r : (r && r.pause_end_date);
+  const startStr = (typeof r === "string") ? null : (r && r.pause_start_date);
+  const status   = (typeof r === "string") ? null : (r && r.status);
+  const startN   = daysFromToday(startStr);
+  const endN     = daysFromToday(endStr);
+
+  // Case A: pause start is in the future (clinician should still be Active
+  // until then; status will auto-flip to Paused on the start date).
+  if (startN != null && startN > 0) {
+    let label;
+    if (endN != null) {
+      label = startN === 1 ? "Starts tomorrow · ends in " + endN + "d"
+                            : "Starts in " + startN + " days";
+    } else {
+      label = "Starts in " + startN + " days";
+    }
+    return `<span class="pause-return-pill tint-amber">${label}</span>`;
+  }
+
+  // Case B: in-window (today is between start and end) — show days to return
+  if (endN != null) {
+    let tint, label;
+    if (endN < 0)       { tint = "tint-red";   label = "Pause overdue " + (-endN) + "d"; }
+    else if (endN === 0){ tint = "tint-green"; label = "Returns today"; }
+    else if (endN === 1){ tint = "tint-amber"; label = "Returns tomorrow"; }
+    else                { tint = "";           label = "Returns in " + endN + " days"; }
+    return `<span class="pause-return-pill ${tint}">${label}</span>`;
+  }
+
+  return "";
 }
 
 function renderUpcomingPausePill(r) {
@@ -1305,7 +1330,7 @@ function renderInlinePauseEditor(r, canEdit) {
     const label = opt === "" ? "Reason…" : opt;
     return `<option value="${escAttr(opt)}"${sel}>${escHtml(label)}</option>`;
   }).join("");
-  const returnPill = renderPauseReturnPill(r.pause_end_date);
+  const returnPill = renderPauseReturnPill(r);
   return `
     <div class="name-pause-block" data-cid="${cid}">
       <input type="date" class="date-input pause-start" data-cid="${cid}"
