@@ -135,6 +135,20 @@ This document gives Claude full context to continue development on `time-tracker
 
 ---
 
+## Pay Period diagnostic strip (May 2026)
+
+A small monospace strip below the period label shows the actual UTC bounds being queried + row counts:
+
+```
+Period UTC: 2026-04-26T00:00Z – 2026-05-09T23:59Z · Query window: 142 rows · In-period: 18 rows · Sum hrs: 132.5h
+```
+
+Plus `console.log("[PayPeriod]", { offset, label, start_utc, end_utc, query_window_rows, in_period_rows, sample_clock_ins })` on every render. Added to debug the user's report that "whatever period I select displays the same data". Useful for any future period-filter / timezone issues.
+
+`hoursInPeriod(entries, period)` filters by `clock_in >= period.start && clock_in <= period.end`. `getPayPeriod(offset)` is anchored at `PAY_ANCHOR = new Date('2026-04-12T00:00:00.000Z')` — UTC midnight. Display via `fmtPeriod()` converts to `ADMIN_TZ` (Chicago) which causes a day-of-month visual shift (e.g. Apr 12 UTC midnight displays as Apr 11 Chicago).
+
+---
+
 ## Common Gotchas
 
 - **`startHardStopMonitor()`** — runs on a `setInterval`; make sure it's only started once (don't double-start on re-renders)
