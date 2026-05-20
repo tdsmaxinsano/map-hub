@@ -301,13 +301,30 @@ A "🔍 Compare ZIPs" button in this card opens a panel showing **ZIPs visited b
 
 ## Profile Header Quick-Facts
 
-The profile shell header now shows three at-a-glance facts under the badges row:
+The profile shell header shows five at-a-glance facts under the badges row:
 
 1. **Inactive flag** — `⚠ N days` red pill next to the ACTIVE/Inactive status pill. Shown only when `latestServiceDate` is 90+ days old. Uses the same days-since-last-visit computation as the existing Last Active badge in the Field Intelligence card. Element id `#profile-header-inactive-flag`. Populated in `renderProfileHeaderQuickFacts(clinicianId, history)`.
 2. **📍 Travel** row — `Typical 7.7-11 mi · max 33 mi · 177 sites`. Mirrors Field Intel travel range; populated by `renderFieldIntelTravelRange()` writing to BOTH the Field Intel element and the header element.
 3. **🏥 EMR** chip row — pulls from `clinician.emrCapabilities`; chips for Strata / Therapy Boss / Axxess / Kinnser. Hidden if no EMRs are enabled.
+4. **⏱ Sync** — visit-weighted average days-to-submit from the VDR aggregates. Green (≤3d) / amber (4-7d) / red (8+d) tint. Tooltip shows `Based on N runs · latest <date>`. Populated by `renderVdrQuickFacts(clinicianId)` from `appState.vdrLookup` (filled by `loadVdrSummaryForMap()` via the `list_clinician_vdr_summary()` RPC). Hidden if the clinician has no VDR runs yet.
+5. **📋 Visits/Run** — total visits across runs ÷ number of runs the clinician appears in. Hidden when empty.
+6. **🕐 Avg Visit** — visit-weighted average visit duration in minutes from the VDR `avg_visit_minutes` field. Hidden if the runs predate the column.
 
-CSS classes: `.profile-header-quickfacts`, `.profile-header-quickfact-row`, `.profile-header-quickfact-label`, `.profile-header-quickfact-value`, `.profile-header-emr-chip`, `.profile-header-inactive-flag`. Render hook: `renderProfileHeaderQuickFacts()` is called from `renderClinicianFieldIntel()`, plus the async `renderFieldIntelTravelRange()` mirrors its result into the header travel row when the haversine-distance compute finishes.
+CSS classes: `.profile-header-quickfacts`, `.profile-header-quickfact-row`, `.profile-header-quickfact-label`, `.profile-header-quickfact-value`, `.profile-header-emr-chip`, `.profile-header-inactive-flag`, `.vdr-tint-green/amber/red`. Render hook: `renderProfileHeaderQuickFacts()` is called from `renderClinicianFieldIntel()`, plus the async `renderFieldIntelTravelRange()` mirrors travel into the header row.
+
+### VDR lookup (per-clinician metrics)
+- `loadVdrSummaryForMap()` — runs once after clinicians load; calls `db.rpc("list_clinician_vdr_summary")` and builds `appState.vdrLookup = { byId, byName }`. Name lookup uses `formatClinicianDisplayName` so TB-export names that didn't auto-match by clinician_id still resolve.
+- `getVdrMetricsForClinician(clinician)` — id-first lookup, name-normalized fallback. Returns the aggregate row or null.
+
+---
+
+## Shared Cursor (realtime pointer-share)
+
+**Toolbar button `👁️ Share Cursor`** (next to admin Users button) — when active, broadcasts the user's mouse position to every other authenticated user viewing the map. **Hold Shift** to broadcast a burst without toggling the button.
+
+Implementation: Supabase Realtime broadcast channel `map-cursors-v1`. Each message: `{ user_id, lng, lat }`. Throttled to 20Hz (50ms) on send. Map coords (not screen px) on the wire so it works across different zoom levels. Receivers re-project via `map.project([lng, lat])` and reposition cursor DOM elements on every `map.move / zoom / resize / scroll / window.resize`. Auto-fade after 2.5s of no update; "leave" broadcast on toggle-off / Shift-release / window blur / pagehide / beforeunload.
+
+Other users' cursors render as SVG arrows + a colored name pill (using their `staff_config.display_color`). No DB writes — ephemeral. Module is wrapped in `sharedCursorModule` IIFE; init via `setupSharedCursor()` from inside `loadClinicians`.
 
 ---
 

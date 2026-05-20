@@ -184,6 +184,37 @@
   }
   .name-pause-block .reason-other-input:focus { border-color: var(--accent); }
 
+  /* Inline lifecycle pills under the name (pause-returning / pre-pause) */
+  .pause-return-pill, .pause-upcoming-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 10px;
+    font-size: 9.5px; font-weight: 800; letter-spacing: 0.3px;
+    margin-top: 3px;
+  }
+  .pause-return-pill.tint-green { background: #d1fae5; color: #065f46; }
+  .pause-return-pill.tint-amber { background: #fef3c7; color: #92400e; }
+  .pause-return-pill.tint-red   { background: #fee2e2; color: #991b1b; }
+  .pause-upcoming-pill { background: #fef3c7; color: #92400e; }
+  .pause-upcoming-pill.imminent { background: #fee2e2; color: #991b1b; }
+
+  /* "Schedule pause" button for Active clinicians with no pause data yet */
+  .schedule-pause-btn {
+    margin-top: 4px;
+    background: transparent;
+    color: var(--accent);
+    border: 1px dashed var(--accent);
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    align-self: flex-start;
+    transition: background 0.15s, color 0.15s;
+  }
+  .schedule-pause-btn:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+
   .name-cell { font-weight: 700; }
   .name-cell a { color: var(--blue); text-decoration: none; }
   .name-cell a:hover { text-decoration: underline; }
@@ -1097,7 +1128,8 @@ function buildRow(r) {
           <span class="disc-pill" style="background:${discColor};font-size:9.5px;padding:1px 6px;">${escHtml(r.discipline || "—")}</span>
           <span class="name-status-pill s-${r.status}">${escHtml(r.status)}</span>
         </span>
-        ${r.status === "Paused" ? renderInlinePauseEditor(r, canEdit) : ""}
+        ${renderUpcomingPausePill(r)}
+        ${renderPauseSection(r, canEdit)}
       </div>
     </td>`,
     disc: `<td data-col="disc"><span class="disc-pill" style="background:${discColor};">${escHtml(r.discipline || "—")}</span></td>`,
@@ -1211,8 +1243,81 @@ function buildRow(r) {
   return `<tr class="${rowClass}" data-cid="${cid}">${orderedHtml}</tr>`;
 }
 
-// Inline pause editor — shown inside the name cell when status === "Paused".
+// Compute days between today and a date string (returns null if invalid).
+// Positive = future, negative = past, 0 = today.
+function daysFromToday(dateStr) {
+  if (!dateStr) return null;
+  const d = new Date(dateStr + "T00:00:00");
+  if (isNaN(d.getTime())) return null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((d.getTime() - today.getTime()) / 86400000);
+}
+
+function renderPauseReturnPill(r) {
+  // Accepts the full row object so we can distinguish "future scheduled" vs
+  // "currently paused, days until return". Backward-compatible: a string
+  // argument is treated as just an end-date.
+  const endStr   = (typeof r === "string") ? r : (r && r.pause_end_date);
+  const startStr = (typeof r === "string") ? null : (r && r.pause_start_date);
+  const status   = (typeof r === "string") ? null : (r && r.status);
+  const startN   = daysFromToday(startStr);
+  const endN     = daysFromToday(endStr);
+
+  // Case A: pause start is in the future (clinician should still be Active
+  // until then; status will auto-flip to Paused on the start date).
+  if (startN != null && startN > 0) {
+    let label;
+    if (endN != null) {
+      label = startN === 1 ? "Starts tomorrow · ends in " + endN + "d"
+                            : "Starts in " + startN + " days";
+    } else {
+      label = "Starts in " + startN + " days";
+    }
+    return `<span class="pause-return-pill tint-amber">${label}</span>`;
+  }
+
+  // Case B: in-window (today is between start and end) — show days to return
+  if (endN != null) {
+    let tint, label;
+    if (endN < 0)       { tint = "tint-red";   label = "Pause overdue " + (-endN) + "d"; }
+    else if (endN === 0){ tint = "tint-green"; label = "Returns today"; }
+    else if (endN === 1){ tint = "tint-amber"; label = "Returns tomorrow"; }
+    else                { tint = "";           label = "Returns in " + endN + " days"; }
+    return `<span class="pause-return-pill ${tint}">${label}</span>`;
+  }
+
+  return "";
+}
+
+function renderUpcomingPausePill(r) {
+  // For Active rows: show when pause_start_date is in next 3 days
+  if (r.status !== "Active") return "";
+  const n = daysFromToday(r.pause_start_date);
+  if (n == null || n < 0 || n > 3) return "";
+  const reason = (r.pause_reason || "").trim() || "Pause";
+  const label = n === 0 ? `🏖 ${reason} starts today` :
+                n === 1 ? `🏖 ${reason} starts tomorrow` :
+                          `🏖 ${reason} in ${n} days`;
+  const cls = n <= 1 ? "pause-upcoming-pill imminent" : "pause-upcoming-pill";
+  return `<span class="${cls}">${escHtml(label)}</span>`;
+}
+
+// Renders the pause/schedule block under each clinician's name.
+// Decides what to show based on status + whether any pause data exists.
 // Replaces the old Pause Start / End / Reason standalone columns.
+function renderPauseSection(r, canEdit) {
+  const hasData = !!(r.pause_start_date || r.pause_end_date || (r.pause_reason || "").trim());
+  // Status=Paused OR any pause data exists → full editor
+  if (r.status === "Paused" || hasData) {
+    return renderInlinePauseEditor(r, canEdit);
+  }
+  // Active with no pause data → offer a schedule button (admin/editor only)
+  if (r.status === "Active" && canEdit) {
+    return `<button type="button" class="schedule-pause-btn" data-cid="${escAttr(r.id)}" title="Schedule a pause / vacation for this clinician">📅 Schedule pause</button>`;
+  }
+  return "";
+}
+
 function renderInlinePauseEditor(r, canEdit) {
   const cid = escAttr(r.id);
   const dis = canEdit ? "" : " disabled";
@@ -1225,6 +1330,7 @@ function renderInlinePauseEditor(r, canEdit) {
     const label = opt === "" ? "Reason…" : opt;
     return `<option value="${escAttr(opt)}"${sel}>${escHtml(label)}</option>`;
   }).join("");
+  const returnPill = renderPauseReturnPill(r);
   return `
     <div class="name-pause-block" data-cid="${cid}">
       <input type="date" class="date-input pause-start" data-cid="${cid}"
@@ -1239,6 +1345,7 @@ function renderInlinePauseEditor(r, canEdit) {
         value="${escAttr(showOther ? existing : "")}"
         placeholder="Custom reason"
         style="${showOther ? "" : "display:none;"}"${dis} />
+      ${returnPill}
     </div>
   `;
 }
@@ -2147,12 +2254,35 @@ document.getElementById("roster-body").addEventListener("blur", async e => {
 
 // Click on restrictions / notes / emergency cell → open drawer
 // Click on an EMR chip → toggle that capability
+// Click on "Schedule pause" → swap in the inline editor for that row
 document.getElementById("roster-body").addEventListener("click", e => {
   // EMR chip toggle takes precedence (closer ancestor)
   const chip = e.target.closest(".emr-chip-edit[data-emr-key]");
   if (chip) {
     e.preventDefault();
     toggleEmrCapability(chip.dataset.cid, chip.dataset.emrKey);
+    return;
+  }
+  // Schedule-pause button → expand the editor in-place (no full re-render)
+  const schedBtn = e.target.closest(".schedule-pause-btn[data-cid]");
+  if (schedBtn) {
+    e.preventDefault();
+    const row = getRow(schedBtn.dataset.cid);
+    if (!row) return;
+    const canEdit = currentRole === "admin" || currentRole === "editor";
+    // Pre-populate today as the default pause_start_date for convenience —
+    // user can change it. Don't write to DB yet; only fill the inputs.
+    if (!row.pause_start_date) row.pause_start_date = new Date().toISOString().slice(0, 10);
+    const editorHtml = renderInlinePauseEditor(row, canEdit);
+    const wrap = document.createElement("div");
+    wrap.innerHTML = editorHtml;
+    schedBtn.replaceWith(wrap.firstElementChild);
+    // Focus the start-date input so the user can immediately tab through
+    const tr = document.querySelector('tr[data-cid="' + row.id + '"]');
+    if (tr) {
+      const startInput = tr.querySelector(".pause-start");
+      if (startInput) startInput.focus();
+    }
     return;
   }
   const cell = e.target.closest("[data-edit]");
