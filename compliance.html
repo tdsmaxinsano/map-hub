@@ -346,6 +346,68 @@
     .view-tab:hover  { background: rgba(255,255,255,0.25); color: #fff; }
     .view-tab.active { background: var(--white); color: var(--blue); }
 
+    /* ── COMPLIANCE HUB — sub-nav + tiles + view switcher ── */
+    .compl-sub-nav {
+      display: flex; gap: 6px; padding: 0 24px;
+      background: var(--white); border-bottom: 1.5px solid var(--border);
+    }
+    .compl-sub-nav button {
+      background: transparent; border: none; cursor: pointer;
+      padding: 12px 18px; font-size: 14px; font-weight: 700;
+      color: var(--gray); border-bottom: 3px solid transparent;
+      margin-bottom: -1.5px;
+    }
+    .compl-sub-nav button:hover { color: var(--text); }
+    .compl-sub-nav button.active { color: var(--blue); border-bottom-color: var(--accent); }
+
+    .compl-view { display: none; flex: 1; min-height: 0; flex-direction: column; }
+    .compl-view.active { display: flex; }
+
+    /* Hub landing — tile grid */
+    .hub-intro { padding: 18px 24px 6px; color: var(--gray); font-size: 13px; }
+    .tile-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 18px; padding: 14px 24px 28px;
+    }
+    .compl-tile {
+      background: var(--white); border: 1px solid var(--border); border-radius: 14px;
+      padding: 28px 24px; cursor: pointer;
+      transition: box-shadow 0.18s, transform 0.18s, border-color 0.18s;
+      text-align: left; display: flex; flex-direction: column; gap: 10px;
+      min-height: 200px;
+    }
+    .compl-tile:hover { box-shadow: 0 10px 30px rgba(12,22,50,0.12); transform: translateY(-2px); border-color: var(--accent); }
+    .compl-tile-icon { font-size: 36px; line-height: 1; }
+    .compl-tile-title { font-size: 18px; font-weight: 800; color: var(--blue); }
+    .compl-tile-desc { font-size: 13px; color: var(--gray); line-height: 1.5; }
+    .compl-tile-cta {
+      margin-top: auto; font-size: 12px; font-weight: 700; color: var(--accent);
+      display: inline-flex; align-items: center; gap: 4px;
+    }
+    .compl-tile-badge {
+      display: inline-block; background: #fdf0c8; color: #8a5a00;
+      padding: 2px 9px; border-radius: 10px; font-size: 10.5px; font-weight: 800;
+      letter-spacing: 0.3px; margin-left: auto; align-self: flex-start;
+    }
+
+    /* Frequency view's own header strip (the renamed sub-view title + tabs) */
+    .freq-view-header {
+      display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+      padding: 14px 24px 0;
+    }
+    .freq-view-header h2 {
+      margin: 0; font-size: 18px; font-weight: 800; color: var(--blue);
+    }
+    .freq-view-header .freq-actions { margin-left: auto; display: flex; gap: 8px; }
+
+    /* Evaluation placeholder card */
+    .compl-coming-soon {
+      margin: 24px; padding: 32px; text-align: center;
+      background: var(--white); border: 1px dashed var(--border); border-radius: 14px;
+    }
+    .compl-coming-soon h3 { margin: 0 0 8px; color: var(--blue); font-size: 18px; }
+    .compl-coming-soon p { margin: 0 auto; max-width: 580px; color: var(--gray); font-size: 13px; line-height: 1.6; }
+
     /* ── LOG VIEW ── */
     #log-view { padding: 18px 24px; gap: 14px; overflow: hidden; }
     .log-toolbar {
@@ -425,17 +487,52 @@
       <a href="roster-review.html" class="portal-nav-link">📋 Roster</a>
       <a href="finance.html"       class="portal-nav-link admin-only-link" style="display:none;">💰 Finance</a>
     </nav>
-    <div class="view-tabs">
-      <button class="view-tab active" id="tab-active" onclick="switchView('active')">Active Queue</button>
-      <button class="view-tab" id="tab-log" onclick="switchView('log')">📜 Resolved Log</button>
-    </div>
     <div class="header-right">
-      <button class="btn-hdr btn-hdr-ghost" onclick="openAddModal()">+ Add Item</button>
-      <button class="btn-hdr btn-hdr-gold"  onclick="openImportPicker()">↑ Import TB</button>
       <span class="header-user" id="hdr-user"></span>
       <button class="btn-hdr btn-hdr-ghost" onclick="doLogout()">Sign Out</button>
     </div>
   </header>
+
+  <!-- Compliance Hub sub-nav: switches between Hub / Frequency / Evaluation -->
+  <nav class="compl-sub-nav" id="compl-sub-nav">
+    <button data-compl-view="hub"        class="active">Overview</button>
+    <button data-compl-view="frequency">📊 Frequency</button>
+    <button data-compl-view="evaluation">✅ Evaluation</button>
+  </nav>
+
+  <!-- HUB view (landing) -->
+  <div class="compl-view active" id="compl-view-hub">
+    <p class="hub-intro">Pick which compliance area to work on. More trackers will land here as they're built.</p>
+    <div class="tile-grid">
+      <button type="button" class="compl-tile" data-go="frequency">
+        <div class="compl-tile-icon">📊</div>
+        <div class="compl-tile-title">Frequency Compliance</div>
+        <div class="compl-tile-desc">Visit-frequency tracking — active queue + resolved log. TherapyBoss-import driven.</div>
+        <span class="compl-tile-cta">Open Frequency →</span>
+      </button>
+      <button type="button" class="compl-tile" data-go="evaluation">
+        <div class="compl-tile-icon">✅</div>
+        <div class="compl-tile-title">Evaluation Compliance</div>
+        <div class="compl-tile-desc">Coming soon — placeholder while we scope what evaluation compliance should track here.</div>
+        <span class="compl-tile-badge">Coming soon</span>
+        <span class="compl-tile-cta">Open Evaluation →</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- FREQUENCY view: today's working tracker, wrapped in a view container -->
+  <div class="compl-view" id="compl-view-frequency">
+    <div class="freq-view-header">
+      <h2>📊 Frequency Compliance</h2>
+      <div class="view-tabs">
+        <button class="view-tab active" id="tab-active" onclick="switchView('active')">Active Queue</button>
+        <button class="view-tab" id="tab-log" onclick="switchView('log')">📜 Resolved Log</button>
+      </div>
+      <div class="freq-actions">
+        <button class="btn-hdr btn-hdr-ghost" onclick="openAddModal()">+ Add Item</button>
+        <button class="btn-hdr btn-hdr-gold"  onclick="openImportPicker()">↑ Import TB</button>
+      </div>
+    </div>
 
   <div id="active-view" style="display:flex;flex-direction:column;flex:1;min-height:0;">
   <div class="toolbar">
@@ -522,6 +619,15 @@
       </div>
     </div>
   </div><!-- /log-view -->
+  </div><!-- /compl-view-frequency -->
+
+  <!-- EVALUATION view (placeholder) -->
+  <div class="compl-view" id="compl-view-evaluation">
+    <div class="compl-coming-soon">
+      <h3>✅ Evaluation Compliance — Coming soon</h3>
+      <p>This view will track evaluation-related compliance tasks (overdue evals, eval-renewal windows, eval-completion deadlines). The data model + UI are still being scoped — talk to your admin if you want to influence what's tracked here.</p>
+    </div>
+  </div>
 
 </div><!-- /app -->
 
@@ -656,6 +762,45 @@ function switchView(view) {
 }
 
 /* ══════════════════════════════════════════════════
+   COMPLIANCE HUB — top-level view switching
+   Toggles between hub (landing tiles), frequency (today's working tracker),
+   and evaluation (placeholder for the next tracker).
+══════════════════════════════════════════════════ */
+function switchComplianceView(viewName, skipPushState) {
+  var valid = ["hub", "frequency", "evaluation"];
+  if (valid.indexOf(viewName) === -1) viewName = "hub";
+
+  document.querySelectorAll(".compl-view").forEach(function(v) {
+    v.classList.toggle("active", v.id === "compl-view-" + viewName);
+  });
+  document.querySelectorAll(".compl-sub-nav button").forEach(function(b) {
+    b.classList.toggle("active", b.dataset.complView === viewName);
+  });
+
+  // URL sync — preserve any other query params (e.g. shell's ?tab=compliance)
+  if (!skipPushState) {
+    var url = new URL(location.href);
+    if (viewName === "hub") url.searchParams.delete("view");
+    else                    url.searchParams.set("view", viewName);
+    if (url.search !== location.search) history.pushState({ view: viewName }, "", url.pathname + url.search);
+  }
+}
+
+// Wire the hub UI once on DOM ready (event delegation would also work; this is fine)
+document.addEventListener("DOMContentLoaded", function() {
+  document.querySelectorAll(".compl-sub-nav button[data-compl-view]").forEach(function(btn) {
+    btn.addEventListener("click", function() { switchComplianceView(btn.dataset.complView); });
+  });
+  document.querySelectorAll(".compl-tile[data-go]").forEach(function(tile) {
+    tile.addEventListener("click", function() { switchComplianceView(tile.dataset.go); });
+  });
+  window.addEventListener("popstate", function() {
+    var p = new URLSearchParams(location.search);
+    switchComplianceView(p.get("view") || "hub", true);
+  });
+});
+
+/* ══════════════════════════════════════════════════
    LOG VIEW
 ══════════════════════════════════════════════════ */
 async function loadLog() {
@@ -788,6 +933,12 @@ async function launchApp(user) {
   var app = document.getElementById("app");
   app.style.display = "flex";
   document.getElementById("hdr-user").textContent = user.email || "";
+
+  // Initial hub-view selection from URL (?view=hub|frequency|evaluation)
+  // Default is hub so admins discover the Evaluation tile when it ships.
+  var params = new URLSearchParams(location.search);
+  switchComplianceView(params.get("view") || "hub", true);
+
   checkDeadlineBanner();
   await loadClinicians();
   loadImports();
