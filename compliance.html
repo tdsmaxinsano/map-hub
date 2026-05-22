@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DCS Compliance Tracker</title>
   <script src="./supabase.js"></script>
+  <!-- SheetJS — used by the Evaluation Compliance two-file import
+       (TB Active Services CSV + TB Patient List XLSX) -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -445,6 +448,280 @@
     html.in-iframe-shell .header-brand,
     html.in-iframe-shell #hdr-user,
     html.in-iframe-shell #hdr-user + .btn-hdr { display: none !important; }
+
+    /* ── EVALUATION COMPLIANCE ─────────────────────────────────── */
+    .eval-header {
+      display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 14px 24px 8px;
+    }
+    .eval-header h2 { margin: 0; font-size: 18px; font-weight: 800; color: var(--blue); }
+    .eval-header .eval-actions { margin-left: auto; display: flex; gap: 8px; }
+
+    /* Eval-header buttons sit on a LIGHT background — override the
+       header-style ghost button (which is designed for the dark blue
+       app header) so they have real contrast. */
+    .eval-actions .btn-hdr-ghost {
+      background: var(--white);
+      color: var(--blue);
+      border: 1.5px solid var(--border);
+      font-weight: 700;
+    }
+    .eval-actions .btn-hdr-ghost:hover {
+      background: var(--blue-light);
+      border-color: var(--blue-mid);
+      color: var(--blue);
+    }
+    /* Clear All is destructive — give it a red-leaning resting state
+       so users know it's the dangerous one before they hover. */
+    .eval-actions #eval-clear-btn {
+      color: var(--red);
+      border-color: #f5c2c2;
+    }
+    .eval-actions #eval-clear-btn:hover {
+      background: var(--red-bg);
+      border-color: var(--red);
+      color: var(--red);
+    }
+
+    /* Data summary bar (date ranges + freshness) */
+    .eval-data-summary {
+      padding: 6px 24px 10px;
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+      font-size: 11.5px;
+    }
+    .eval-data-summary:empty { display: none; }
+    .eval-summary-chip {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 3px 10px; border-radius: 12px;
+      background: var(--white); border: 1px solid var(--border);
+      color: var(--gray);
+    }
+    .eval-summary-chip strong { color: var(--blue); font-weight: 700; }
+    .eval-summary-chip.is-fresh   { background: #eef9f0; border-color: #b8e0c0; color: #1B5E20; }
+    .eval-summary-chip.is-stale   { background: #fff7e6; border-color: #ffd591; color: #8a5a00; }
+    .eval-summary-chip.is-missing { background: #fde8e8; border-color: #f5c2c2; color: #a53935; }
+
+    .eval-toolbar {
+      background: var(--white); border-bottom: 1px solid var(--border);
+      padding: 8px 24px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    }
+    .eval-toolbar select,
+    .eval-toolbar input[type=text] {
+      padding: 6px 12px; border: 1.5px solid var(--border); border-radius: 8px;
+      font-size: 13px; color: #222; outline: none; background: var(--white);
+    }
+    .eval-toolbar select:focus, .eval-toolbar input[type=text]:focus { border-color: var(--blue); }
+    .eval-stat-bar { margin-left: auto; display: flex; gap: 14px; align-items: center; font-size: 12px; color: var(--gray); font-weight: 600; }
+    .eval-stat-bar .eval-stat-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; }
+
+    .eval-body { flex: 1; min-height: 0; overflow: auto; padding: 8px 24px 24px; }
+
+    .eval-region-label {
+      margin: 22px 0 4px; padding: 0 4px;
+      font-size: 11px; font-weight: 800; color: var(--gray);
+      text-transform: uppercase; letter-spacing: 1.5px;
+    }
+    .eval-region-label:first-child { margin-top: 8px; }
+
+    .eval-cat-block { margin-top: 14px; background: var(--white); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.04); }
+    .eval-cat-head {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 16px; background: var(--blue-light); color: var(--blue);
+      font-weight: 800; font-size: 13px; border-bottom: 1px solid var(--border);
+      cursor: pointer; user-select: none;
+    }
+    /* Intake region: thin date dividers between days (compact like the spreadsheet) */
+    .eval-intake-block { padding: 0; }
+    .eval-date-divider-row td {
+      padding: 0 !important; background: var(--white);
+      border-bottom: none !important;
+    }
+    .eval-date-divider {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 14px 6px;
+      border-top: 2px solid var(--gold);
+      background: linear-gradient(to bottom, var(--gold-light), transparent);
+      margin-top: 6px;
+    }
+    .eval-date-divider:first-of-type { margin-top: 0; }
+    .eval-date-divider-label {
+      font-size: 12px; font-weight: 800; color: #7B5800;
+      letter-spacing: 0.3px;
+    }
+    .eval-date-divider-count {
+      font-size: 10.5px; font-weight: 700;
+      background: rgba(123, 88, 0, 0.12); color: #7B5800;
+      border-radius: 10px; padding: 1px 8px;
+    }
+
+    /* Ref date cell — compact monospace-feel like the anchor IDs */
+    .eval-refdt {
+      font-size: 11.5px; color: var(--gray); font-weight: 600;
+      white-space: nowrap;
+    }
+    .eval-cat-head .eval-cat-count { font-size: 11px; background: rgba(0,0,0,0.08); border-radius: 10px; padding: 1px 8px; }
+    .eval-cat-head .eval-cat-caret { margin-left: auto; opacity: 0.55; font-size: 11px; }
+    .eval-cat-block.collapsed .eval-cat-body { display: none; }
+    .eval-cat-block.collapsed .eval-cat-caret { transform: rotate(-90deg); }
+
+    .eval-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .eval-table thead th {
+      background: #f7f9fc; color: var(--blue); font-weight: 700; font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+      padding: 8px 12px; text-align: left; white-space: nowrap;
+      border-bottom: 1px solid var(--border);
+    }
+    .eval-table tbody td { padding: 8px 12px; vertical-align: top; border-bottom: 1px solid #edf1f7; }
+    .eval-table tbody tr:last-child td { border-bottom: none; }
+
+    /* Color tints — match the user's spreadsheet legend */
+    .eval-tint-synced               { background: #ecfdf5; }   /* green-50 — SYNCED */
+    .eval-tint-eval_done_not_synced { background: #fefce8; }   /* yellow-50 — EVAL DONE NOT SYNCED */
+    .eval-tint-no_evaluation        { background: #ffffff; }   /* white — NO EVALUATION */
+    .eval-tint-cancelled            { background: #f1f5f9; color: #64748b; }  /* slate-100 — CANCELLED/TERM/RETURNED */
+    .eval-tint-cancelled .eval-name { color: #64748b; }
+
+    .eval-name { font-weight: 700; color: #18274a; }
+    .eval-anchor-row { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }
+    .eval-pid, .eval-rid {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 10.5px;
+      color: #64748b; padding: 1px 6px; background: #f8fafc;
+      border: 1px solid #e2e8f0; border-radius: 4px;
+    }
+    .eval-episode { font-size: 11px; color: var(--gray); white-space: nowrap; }
+    .eval-svc-pill { display: inline-block; padding: 1px 7px; border-radius: 10px; background: var(--blue-light); color: var(--blue); font-size: 10.5px; font-weight: 800; }
+
+    .eval-sync-select, .eval-cat-select {
+      padding: 4px 8px; border: 1.5px solid var(--border); border-radius: 6px;
+      font-size: 12px; font-weight: 600; background: var(--white); cursor: pointer;
+      font-family: inherit; outline: none; min-width: 120px;
+    }
+    .eval-sync-select:focus, .eval-cat-select:focus { border-color: var(--blue); }
+    .eval-notes-input {
+      width: 100%; padding: 4px 8px; border: 1.5px solid var(--border); border-radius: 6px;
+      font-size: 12px; outline: none; background: #fafbfd; font-family: inherit;
+      transition: border-color 0.15s, background 0.15s;
+    }
+    .eval-notes-input:focus { border-color: var(--blue); background: var(--white); }
+    .eval-notes-input.has-note { border-color: var(--gold); background: var(--gold-light); }
+
+    /* Clinician cell — read-only plain text, supports multi-clinician rows */
+    .eval-clin-cell { font-size: 12px; line-height: 1.35; }
+    .eval-clin-text { display: flex; flex-direction: column; gap: 2px; }
+    .eval-clin-name { color: #18274a; font-weight: 600; white-space: normal; word-break: break-word; }
+    .eval-clin-empty { color: #aaa; font-style: italic; font-size: 11px; }
+
+    .eval-empty-state {
+      text-align: center; padding: 60px 24px; color: var(--gray);
+      background: var(--white); border: 1px dashed var(--border); border-radius: 14px; margin-top: 18px;
+    }
+    .eval-empty-state .icon { font-size: 48px; margin-bottom: 12px; }
+    .eval-empty-state h3 { font-size: 16px; color: var(--blue); margin-bottom: 8px; }
+    .eval-empty-state p { font-size: 13px; max-width: 540px; margin: 0 auto; line-height: 1.6; }
+
+    /* Eval import dropzone (in the modal) */
+    .eval-dropzone {
+      display: block; border: 2px dashed #94a3b8; border-radius: 12px;
+      padding: 28px; text-align: center; background: #fafbfc;
+      cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 14px;
+    }
+    .eval-dropzone:hover { border-color: var(--blue); background: var(--blue-light); }
+    .eval-dropzone.is-dragover { border-color: var(--gold); background: var(--gold-light); }
+    .eval-dropzone .dz-icon { font-size: 40px; line-height: 1; margin-bottom: 6px; }
+    .eval-dropzone .dz-hint { font-size: 11px; color: var(--gray); margin-top: 4px; }
+    .eval-dropzone input[type=file] { display: none !important; }
+
+    .eval-preview-table { width: 100%; font-size: 11px; border-collapse: collapse; margin-top: 10px; }
+    .eval-preview-table th, .eval-preview-table td { padding: 4px 8px; border-bottom: 1px solid #edf1f7; text-align: left; white-space: nowrap; }
+    .eval-preview-table th { background: #f7f9fc; color: var(--blue); font-weight: 700; font-size: 10px; text-transform: uppercase; }
+
+    /* Two-file dropzone row */
+    .eval-dz-row { display: flex; gap: 12px; margin-bottom: 14px; }
+    .eval-dz-half { flex: 1; margin-bottom: 0; padding: 18px 14px; }
+    .eval-dz-half .dz-icon { font-size: 28px; margin-bottom: 4px; }
+    .eval-dz-half .dz-status {
+      margin-top: 8px; font-size: 11px; font-weight: 700;
+      padding: 4px 10px; border-radius: 6px; display: inline-block;
+      background: #f0f4f8; color: var(--gray);
+    }
+    .eval-dz-half.is-ready .dz-status { background: #d4edda; color: #155724; }
+    .eval-dz-half.is-error .dz-status { background: var(--red-bg);  color: var(--red); }
+
+    /* Import-instructions fold-out */
+    .eval-import-instructions {
+      background: #fafbfd; border: 1px solid var(--border);
+      border-radius: 8px; padding: 0; margin-bottom: 14px;
+    }
+    .eval-import-instructions summary {
+      cursor: pointer; padding: 10px 14px;
+      font-size: 12px; font-weight: 700; color: var(--blue);
+      user-select: none;
+    }
+    .eval-import-instructions[open] summary { border-bottom: 1px solid var(--border); }
+    .eval-instructions-body { padding: 12px 18px 14px; font-size: 12px; line-height: 1.6; color: #333; }
+    .eval-instructions-body ol { padding-left: 18px; }
+    .eval-instructions-body li { margin-bottom: 6px; }
+    .eval-instructions-screenshots {
+      margin-top: 10px; padding: 12px; background: var(--white);
+      border: 1px dashed var(--border); border-radius: 6px;
+      text-align: center; color: var(--gray); font-size: 11px;
+    }
+    .eval-instructions-screenshots img { max-width: 100%; height: auto; border-radius: 4px; margin: 6px 0; }
+
+    /* Status Notes cell — multi-line: editable note + 3 read-only collapsible refs */
+    .eval-notes-stack { display: flex; flex-direction: column; gap: 4px; }
+    .eval-tb-ref { font-size: 11px; line-height: 1.4; }
+    .eval-tb-ref summary {
+      cursor: pointer; list-style: none;
+      padding: 2px 6px; border-radius: 4px;
+      color: var(--gray); background: rgba(0,0,0,0.025);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      user-select: none;
+    }
+    .eval-tb-ref summary::-webkit-details-marker { display: none; }
+    .eval-tb-ref summary:hover { background: rgba(0,0,0,0.06); }
+    .eval-tb-ref[open] summary { white-space: normal; background: rgba(0,0,0,0.04); }
+    .eval-tb-ref .eval-tb-ref-body {
+      padding: 6px 8px; margin-top: 2px;
+      background: var(--white); border: 1px solid var(--border);
+      border-radius: 4px; font-size: 11.5px;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .eval-tb-ref-icon { display: inline-block; width: 14px; }
+    .eval-tb-ref.eval-tb-ref-hold summary {
+      background: #fde8e8; color: #a53935; font-weight: 700;
+    }
+    .eval-tb-ref.eval-tb-ref-hold[open] summary { background: #fbd5d5; }
+
+    /* Hold/Hospital auto-promoted row indicator */
+    .eval-auto-held-chip {
+      display: inline-block; margin-left: 6px;
+      font-size: 9.5px; font-weight: 800;
+      background: #fde8e8; color: #a53935;
+      padding: 1px 6px; border-radius: 8px;
+      letter-spacing: 0.4px;
+    }
+
+    /* Eval Sched column — status + SLA indicators */
+    .eval-sched-cell { font-size: 11.5px; line-height: 1.35; }
+    .eval-sched-status { display: flex; flex-direction: column; gap: 2px; }
+    .eval-sched-head { font-weight: 700; color: #18274a; }
+    .eval-sched-sub { font-size: 10.5px; color: var(--gray); }
+    .eval-sched-done_synced           .eval-sched-head { color: #1B5E20; }
+    .eval-sched-done_not_synced       .eval-sched-head { color: #8a5a00; }
+    .eval-sched-scheduled_confirmed   .eval-sched-head { color: #1B5E20; }
+    .eval-sched-scheduled_unconfirmed .eval-sched-head { color: #8a5a00; }
+    .eval-sched-missed                .eval-sched-head { color: #a53935; }
+    .eval-sched-no_eval               .eval-sched-head { color: #a53935; }
+    .eval-sched-unknown               .eval-sched-head { color: #aaa; font-weight: 400; }
+
+    .eval-sla-chip {
+      display: inline-block; margin-top: 4px;
+      font-size: 9.5px; font-weight: 800;
+      padding: 1px 6px; border-radius: 8px;
+      letter-spacing: 0.4px;
+    }
+    .eval-sla-late { background: #fde8e8; color: #a53935; border: 1px solid #f5c2c2; }
   </style>
   <script>
     if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
@@ -513,8 +790,7 @@
       <button type="button" class="compl-tile" data-go="evaluation">
         <div class="compl-tile-icon">✅</div>
         <div class="compl-tile-title">Evaluation Compliance</div>
-        <div class="compl-tile-desc">Coming soon — placeholder while we scope what evaluation compliance should track here.</div>
-        <span class="compl-tile-badge">Coming soon</span>
+        <div class="compl-tile-desc">Active-services evaluation tracking — categorized queue, sync-state color codes, TB Active Services import.</div>
         <span class="compl-tile-cta">Open Evaluation →</span>
       </button>
     </div>
@@ -621,11 +897,51 @@
   </div><!-- /log-view -->
   </div><!-- /compl-view-frequency -->
 
-  <!-- EVALUATION view (placeholder) -->
+  <!-- EVALUATION view — TB Active Services driven tracker -->
   <div class="compl-view" id="compl-view-evaluation">
-    <div class="compl-coming-soon">
-      <h3>✅ Evaluation Compliance — Coming soon</h3>
-      <p>This view will track evaluation-related compliance tasks (overdue evals, eval-renewal windows, eval-completion deadlines). The data model + UI are still being scoped — talk to your admin if you want to influence what's tracked here.</p>
+    <div class="eval-header">
+      <h2>✅ Evaluation Compliance</h2>
+      <div class="eval-actions">
+        <button class="btn-hdr btn-hdr-ghost" id="eval-clear-btn" onclick="clearEvalCompliance()" style="display:none;">🗑 Clear All</button>
+        <button class="btn-hdr btn-hdr-ghost" onclick="openEvalVisitsModal()">👤 Import Visits</button>
+        <button class="btn-hdr btn-hdr-ghost" onclick="openEvalScheduleModal()">📅 Import Schedule</button>
+        <button class="btn-hdr btn-hdr-gold" onclick="openEvalImportModal()">↑ Import Base (CSV + XLSX)</button>
+      </div>
+    </div>
+
+    <!-- Data summary — date ranges + freshness of each import. Helps the user
+         tune the next TB export's date range. Recomputed on every load. -->
+    <div class="eval-data-summary" id="eval-data-summary"></div>
+
+    <div class="eval-toolbar">
+      <select id="eval-filter-category">
+        <option value="">All categories</option>
+        <option value="Assigned">Assigned (intake)</option>
+        <option value="Issues">Issues</option>
+        <option value="Hold/Hospital">Hold / Hospital</option>
+        <option value="Re-Evaluation">Re-Evaluation</option>
+        <option value="No Sched">No Sched</option>
+        <option value="Scheduled-Late Eval">Scheduled / Late Eval</option>
+        <option value="To Sync">To Sync</option>
+        <option value="Completed">Completed</option>
+      </select>
+      <select id="eval-filter-sync">
+        <option value="">All sync states</option>
+        <option value="synced">🟢 Synced</option>
+        <option value="eval_done_not_synced">🟡 Eval done, not synced</option>
+        <option value="no_evaluation">⚪ No evaluation</option>
+        <option value="cancelled">⬜ Cancelled / Term / Returned</option>
+      </select>
+      <input type="text" id="eval-filter-search" placeholder="🔍 Patient, clinician, agency…" style="width:220px;" />
+      <div class="eval-stat-bar" id="eval-stat-bar"></div>
+    </div>
+
+    <div class="eval-body" id="eval-body">
+      <div class="eval-empty-state">
+        <div class="icon">📋</div>
+        <h3>Loading evaluation items…</h3>
+        <p>If this is the first time you're opening Evaluation Compliance, click <strong>↑ Import TB Active Services</strong> to upload an Active Services XLSX export from TherapyBoss.</p>
+      </div>
     </div>
   </div>
 
@@ -703,6 +1019,162 @@
 
 <!-- File input (hidden) -->
 <input type="file" id="file-input" accept=".xls,.html,.htm" style="display:none;" onchange="handleFileSelect(event)" />
+
+<!-- ══════ EVAL IMPORT MODAL — two-file import ══════ -->
+<div class="modal-overlay" id="eval-import-modal" style="display:none;">
+  <div class="modal-box" style="width:820px;">
+    <div class="modal-title">Import TB Active Services + Patient List</div>
+    <div class="modal-sub">
+      Drop BOTH files below. The two reports join on Last name + First name + DOB + Referral date.
+      Patient/episode/agency data is refreshed every import; your edits to category, sync status,
+      and notes are preserved across re-imports.
+    </div>
+
+    <!-- Fold-out import instructions (collapsed by default) -->
+    <details class="eval-import-instructions">
+      <summary>📖 How to export these two reports from TherapyBoss</summary>
+      <div class="eval-instructions-body">
+        <ol>
+          <li><strong>Active services CSV</strong> — TB → Reports → Services →
+              <em>Active services</em> → <strong>Select all fields</strong> →
+              Download as <strong>CSV</strong>.</li>
+          <li><strong>Patient list XLSX</strong> — TB → Reports → Patients →
+              <em>Patient list</em> → <strong>Select all fields</strong> →
+              Download as <strong>XLSX</strong>.</li>
+          <li>Drop the Active Services <code>.csv</code> into ① and the Patient List
+              <code>.xlsx</code> into ② below. The Import button enables once both files
+              parse and a non-zero join count is shown.</li>
+        </ol>
+        <div class="eval-instructions-screenshots" id="eval-instructions-screenshots">
+          <!-- Screenshots get dropped in here later — placeholder for now -->
+          <em>(TB export screenshots will be added here.)</em>
+        </div>
+      </div>
+    </details>
+
+    <!-- Two stacked dropzones -->
+    <div class="eval-dz-row">
+      <label class="eval-dropzone eval-dz-half" id="eval-dropzone-csv" for="eval-file-input-csv">
+        <div class="dz-icon">📋</div>
+        <div><strong>① Active Services .csv</strong></div>
+        <div class="dz-hint">CSV only · drop or click to browse</div>
+        <div class="dz-status" id="eval-dz-csv-status">—</div>
+        <input type="file" id="eval-file-input-csv" accept=".csv,text/csv" />
+      </label>
+      <label class="eval-dropzone eval-dz-half" id="eval-dropzone-xlsx" for="eval-file-input-xlsx">
+        <div class="dz-icon">📒</div>
+        <div><strong>② Patient List .xlsx</strong></div>
+        <div class="dz-hint">XLSX only · drop or click to browse</div>
+        <div class="dz-status" id="eval-dz-xlsx-status">—</div>
+        <input type="file" id="eval-file-input-xlsx" accept=".xlsx,.xls" />
+      </label>
+    </div>
+
+    <div style="background:var(--blue-light);border:1px solid #b8d0e8;border-radius:8px;padding:10px 14px;font-size:11.5px;color:var(--blue);margin-bottom:14px;line-height:1.5;">
+      <strong>Active Services required columns:</strong>
+      Patient · Patient ID · Referral ID · Service · Start of episode ·
+      Referral source · Clinician names · Last visit date · Referral date<br>
+      <strong>Patient List required columns:</strong>
+      Last name · First name · DOB · Referral date · End of episode ·
+      Episode instructions · Service protocol · Hold since · Hold reason · Hold details
+    </div>
+
+    <div id="eval-import-missing" style="display:none;background:var(--red-bg);border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:14px;line-height:1.5;"></div>
+    <div id="eval-import-preview" style="display:none;">
+      <div class="import-preview" id="eval-import-stats"></div>
+      <div style="font-size:11px;color:var(--gray);margin:6px 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">First 10 rows preview (after join)</div>
+      <div style="max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:8px;">
+        <table class="eval-preview-table" id="eval-import-preview-table"></table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('eval-import-modal')">Cancel</button>
+      <button class="btn-confirm" id="eval-import-confirm-btn" onclick="confirmEvalImport()" disabled>Import</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ EVAL SCHEDULE IMPORT MODAL — phase-2 enrichment ══════ -->
+<div class="modal-overlay" id="eval-sched-modal" style="display:none;">
+  <div class="modal-box" style="width:720px;">
+    <div class="modal-title">📅 Import Scheduled Appointments</div>
+    <div class="modal-sub">
+      Phase-2 enrichment — adds eval-scheduling info to rows already imported via the base import.
+      Matches on Patient ID + Service. Rows in your file that don't match an existing
+      evaluation item are skipped (no phantom rows added).
+    </div>
+    <details class="eval-import-instructions">
+      <summary>📖 How to export Scheduled Appointments from TherapyBoss</summary>
+      <div class="eval-instructions-body">
+        <ol>
+          <li>TB → Reports → Clinicians → <em>Scheduled appointments</em></li>
+          <li>Set the date range to cover at least <strong>past 30 days through next 30 days</strong>
+              (gives us missed-eval detection + upcoming eval visibility)</li>
+          <li><strong>Select all fields</strong> → Download as <strong>CSV</strong></li>
+          <li>Drop the <code>.csv</code> below</li>
+        </ol>
+        <div class="eval-instructions-screenshots">
+          <em>(TB export screenshots will be added here.)</em>
+        </div>
+      </div>
+    </details>
+    <label class="eval-dropzone" id="eval-sched-dropzone" for="eval-sched-file-input">
+      <div class="dz-icon">📅</div>
+      <div><strong>Drop Scheduled Appointments .csv here</strong></div>
+      <div class="dz-hint">CSV only · all fields must be selected</div>
+      <input type="file" id="eval-sched-file-input" accept=".csv,text/csv" />
+    </label>
+    <div id="eval-sched-missing" style="display:none;background:var(--red-bg);border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:14px;line-height:1.5;"></div>
+    <div id="eval-sched-preview" style="display:none;">
+      <div class="import-preview" id="eval-sched-stats"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('eval-sched-modal')">Cancel</button>
+      <button class="btn-confirm" id="eval-sched-confirm-btn" onclick="confirmEvalScheduleImport()" disabled>Apply Schedule</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══════ EVAL VISITS IMPORT MODAL — phase-3 enrichment ══════ -->
+<div class="modal-overlay" id="eval-visits-modal" style="display:none;">
+  <div class="modal-box" style="width:720px;">
+    <div class="modal-title">👤 Import Patient Visits</div>
+    <div class="modal-sub">
+      Phase-3 enrichment — verifies which evals actually got done and were synced.
+      Matches on Patient ID + Service. <strong>Auto-updates sync status</strong>:
+      eval visit + note completed → 🟢 synced. Eval visit + note pending → 🟡 not synced.
+    </div>
+    <details class="eval-import-instructions">
+      <summary>📖 How to export Patient Visits from TherapyBoss</summary>
+      <div class="eval-instructions-body">
+        <ol>
+          <li>TB → Reports → Clinicians → <em>Patient visits</em></li>
+          <li>Set the date range to cover at least <strong>the last 60 days</strong>
+              (catches all initial evals + recent re-evals for current episodes)</li>
+          <li><strong>Select all fields</strong> → Download as <strong>CSV</strong></li>
+          <li>Drop the <code>.csv</code> below</li>
+        </ol>
+        <div class="eval-instructions-screenshots">
+          <em>(TB export screenshots will be added here.)</em>
+        </div>
+      </div>
+    </details>
+    <label class="eval-dropzone" id="eval-visits-dropzone" for="eval-visits-file-input">
+      <div class="dz-icon">👤</div>
+      <div><strong>Drop Patient Visits .csv here</strong></div>
+      <div class="dz-hint">CSV only · all fields must be selected</div>
+      <input type="file" id="eval-visits-file-input" accept=".csv,text/csv" />
+    </label>
+    <div id="eval-visits-missing" style="display:none;background:var(--red-bg);border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;font-size:12px;color:var(--red);margin-bottom:14px;line-height:1.5;"></div>
+    <div id="eval-visits-preview" style="display:none;">
+      <div class="import-preview" id="eval-visits-stats"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeModal('eval-visits-modal')">Cancel</button>
+      <button class="btn-confirm" id="eval-visits-confirm-btn" onclick="confirmEvalVisitsImport()" disabled>Apply Visits</button>
+    </div>
+  </div>
+</div>
 
 <!-- Status picker (shared, moved in DOM) -->
 <div class="status-picker" id="status-picker" style="display:none;">
@@ -783,6 +1255,12 @@ function switchComplianceView(viewName, skipPushState) {
     if (viewName === "hub") url.searchParams.delete("view");
     else                    url.searchParams.set("view", viewName);
     if (url.search !== location.search) history.pushState({ view: viewName }, "", url.pathname + url.search);
+  }
+
+  // Lazy-load Evaluation Compliance on first activation
+  if (viewName === "evaluation" && !window.__evalLoadedOnce) {
+    window.__evalLoadedOnce = true;
+    loadEvaluationCompliance();
   }
 }
 
@@ -947,12 +1425,17 @@ async function launchApp(user) {
 /* ══════════════════════════════════════════════════
    NAME MATCHING (mirrors clinician-map.html)
 ══════════════════════════════════════════════════ */
+// Tokens to keep ALL-CAPS in title-cased output (after stripping trailing ".").
+// Covers Roman numerals/suffixes, clinical disciplines, and corporate forms
+// commonly seen in TB exports (agencies, clinicians, etc.).
+const FORMAT_NAME_KEEP_CAPS = /^(ii|iii|iv|v|vi|vii|viii|ix|jr|sr|pt|pta|ot|ota|st|sta|slp|otr|rn|lpn|cna|md|do|dpt|np|pa|llc|inc|ltd|plc|pllc|llp|hha|hhc|ahc|emr|usa|us|ny|il|ca|co)\.?$/i;
+
 function formatDisplayNameToken(v) {
   var t = String(v || "");
   return t.split("-").map(function(h) {
     return h.split("'").map(function(a) {
       if (!a) return "";
-      if (/^(ii|iii|iv|v|vi|vii|viii|ix|jr|sr)\.?$/i.test(a)) return a.replace(/\.$/, "").toUpperCase();
+      if (FORMAT_NAME_KEEP_CAPS.test(a)) return a.replace(/\.$/, "").toUpperCase();
       return a.charAt(0).toUpperCase() + a.slice(1);
     }).join("'");
   }).join("-");
@@ -1742,6 +2225,1584 @@ var _tt; function showToast(msg, type) {
   var el = document.getElementById("toast");
   el.innerHTML = "<div class='toast-msg "+(type||"info")+"'>"+escHtml(msg)+"</div>";
   clearTimeout(_tt); _tt = setTimeout(function(){el.innerHTML="";}, 4000);
+}
+
+/* ══════════════════════════════════════════════════
+   EVALUATION COMPLIANCE — TB Active Services tracker
+   Schema: evaluation_compliance_items
+   RPCs:   list_evaluation_compliance, upsert_evaluation_items,
+           update_evaluation_item
+══════════════════════════════════════════════════ */
+var evalItems            = [];        // last fetched rows
+var evalImportPrepared   = null;      // parsed rows ready to upsert
+var evalImportFilename   = "";
+
+// Triage buckets — the manual categories the user moves rows INTO as they work
+// the queue. Rendered in this order in the top region of the Evaluation view.
+const EVAL_TRIAGE_CATEGORIES = [
+  "Issues", "Hold/Hospital", "Re-Evaluation",
+  "No Sched", "Scheduled-Late Eval", "To Sync", "Completed"
+];
+// All selectable categories in the row dropdown. "Assigned" is the auto bucket
+// that drives the bottom intake region (sub-grouped by referral_date).
+const EVAL_CATEGORIES = EVAL_TRIAGE_CATEGORIES.concat(["Assigned"]);
+const EVAL_SYNC_LABELS = {
+  synced:               "🟢 Synced",
+  eval_done_not_synced: "🟡 Eval done, not synced",
+  no_evaluation:        "⚪ No evaluation",
+  cancelled:            "⬜ Cancelled / Term / Returned"
+};
+
+// Tolerant header lookup — TB rename drift accommodation.
+// Three-pass strategy:
+//   1. EXACT match (after normalize: strip non-alphanumerics + lowercase)
+//   2. STARTS-WITH match — handles e.g. "Referral date (MM/DD/YYYY)" when
+//      a candidate is the bare "Referral date" (the suffix is just a format hint)
+//   3. CONTAINS match as last resort — handles weird truncations/prefixes
+// Each candidate gets all three passes before we move to the next candidate, so
+// the more specific candidate listed first wins ties.
+function evalFindCol(row, candidates) {
+  if (!row) return null;
+  var keys = Object.keys(row);
+  var norm = keys.map(function(k) { return { raw: k, key: k.toLowerCase().replace(/[^a-z0-9]/g, "") }; });
+  for (var i = 0; i < candidates.length; i++) {
+    var want = candidates[i].toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!want) continue;
+    // Pass 1: exact
+    for (var j = 0; j < norm.length; j++) if (norm[j].key === want) return norm[j].raw;
+    // Pass 2: header starts with candidate
+    for (var j = 0; j < norm.length; j++) if (norm[j].key.indexOf(want) === 0) return norm[j].raw;
+    // Pass 3: candidate starts with header (catches truncated exports)
+    for (var j = 0; j < norm.length; j++) if (want.indexOf(norm[j].key) === 0 && norm[j].key.length >= 6) return norm[j].raw;
+  }
+  return null;
+}
+
+function evalParseDate(v) {
+  if (!v && v !== 0) return null;
+  // SheetJS may emit Date objects when cellDates:true, or strings, or numbers
+  if (v instanceof Date) {
+    var y = v.getFullYear(), m = String(v.getMonth()+1).padStart(2,"0"), d = String(v.getDate()).padStart(2,"0");
+    return y + "-" + m + "-" + d;
+  }
+  var s = String(v).trim();
+  if (!s) return null;
+  // ISO already
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  // m/d/yy or m/d/yyyy
+  var mm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (mm) {
+    var yr = mm[3].length === 2 ? "20" + mm[3] : mm[3];
+    return yr + "-" + mm[1].padStart(2,"0") + "-" + mm[2].padStart(2,"0");
+  }
+  return null;
+}
+
+async function loadEvaluationCompliance() {
+  var body = document.getElementById("eval-body");
+  body.innerHTML = '<div class="eval-empty-state"><div class="icon">⏳</div><h3>Loading…</h3></div>';
+  var { data, error } = await db.rpc("list_evaluation_compliance");
+  if (error) {
+    body.innerHTML = '<div class="eval-empty-state"><div class="icon">⚠️</div><h3>Failed to load</h3><p>' + escHtml(error.message) + '</p></div>';
+    return;
+  }
+  evalItems = data || [];
+  renderEvaluationCompliance();
+  renderEvalDataSummary();
+  // Reveal Clear All only to admins (RPC also gates server-side)
+  await refreshEvalClearButtonVisibility();
+}
+
+// ── Data summary bar — computed from loaded items, not filtered ────
+// Shows base + schedule freshness side by side so the user can see at a
+// glance what date window their imports cover and how stale each is.
+function renderEvalDataSummary() {
+  var el = document.getElementById("eval-data-summary");
+  if (!el) return;
+  if (!evalItems.length) {
+    el.innerHTML = '<span class="eval-summary-chip is-missing">⚠ No data — run Import Base to start</span>';
+    return;
+  }
+
+  // Aggregate min/max + freshness from the loaded rows
+  var refMin = null, refMax = null;
+  var schedMin = null, schedMax = null;
+  var visitMin = null, visitMax = null;
+  var lastBaseImport = null;
+  var lastSchedImport = null;
+  var lastVisitsImport = null;
+  var rowsWithSched = 0;
+  var rowsWithVisits = 0;
+
+  evalItems.forEach(function(r) {
+    if (r.referral_date) {
+      if (!refMin || r.referral_date < refMin) refMin = r.referral_date;
+      if (!refMax || r.referral_date > refMax) refMax = r.referral_date;
+    }
+    if (r.next_eval_date) {
+      if (!schedMin || r.next_eval_date < schedMin) schedMin = r.next_eval_date;
+      if (!schedMax || r.next_eval_date > schedMax) schedMax = r.next_eval_date;
+    }
+    if (r.eval_visit_date || r.last_visit_actual_date) {
+      var v = r.last_visit_actual_date || r.eval_visit_date;
+      if (!visitMin || v < visitMin) visitMin = v;
+      if (!visitMax || v > visitMax) visitMax = v;
+    }
+    if (r.imported_at) {
+      if (!lastBaseImport || r.imported_at > lastBaseImport) lastBaseImport = r.imported_at;
+    }
+    if (r.schedule_imported_at) {
+      rowsWithSched++;
+      if (!lastSchedImport || r.schedule_imported_at > lastSchedImport) lastSchedImport = r.schedule_imported_at;
+    }
+    if (r.visits_imported_at) {
+      rowsWithVisits++;
+      if (!lastVisitsImport || r.visits_imported_at > lastVisitsImport) lastVisitsImport = r.visits_imported_at;
+    }
+  });
+
+  function ageMinutes(iso) {
+    if (!iso) return null;
+    return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60000));
+  }
+  function ageLabel(min) {
+    if (min == null) return "—";
+    if (min < 1)   return "just now";
+    if (min < 60)  return min + "m ago";
+    var hrs = Math.floor(min / 60);
+    if (hrs < 24)  return hrs + "h ago";
+    var days = Math.floor(hrs / 24);
+    return days + "d ago";
+  }
+  function freshnessClass(min) {
+    if (min == null)     return "is-missing";
+    if (min < 60 * 24)   return "is-fresh";       // <24hr
+    if (min < 60 * 72)   return "is-stale";       // 24-72hr
+    return "is-missing";                          // >72hr
+  }
+
+  var baseAge   = ageMinutes(lastBaseImport);
+  var schedAge  = ageMinutes(lastSchedImport);
+  var visitsAge = ageMinutes(lastVisitsImport);
+
+  var chips = [];
+
+  // Base import — always present if we have rows
+  chips.push(
+    '<span class="eval-summary-chip ' + freshnessClass(baseAge) + '">' +
+      '📋 <strong>Base</strong> · ' + evalItems.length + ' rows · imported ' + ageLabel(baseAge) +
+    '</span>'
+  );
+
+  // Referral date window
+  if (refMin && refMax) {
+    chips.push(
+      '<span class="eval-summary-chip">' +
+        '<strong>Refs</strong>: ' + formatEvalDate(refMin) + ' → ' + formatEvalDate(refMax) +
+      '</span>'
+    );
+  }
+
+  // Schedule import — separate state. Missing/stale gets a colored chip.
+  if (rowsWithSched === 0) {
+    chips.push(
+      '<span class="eval-summary-chip is-missing">' +
+        '📅 <strong>Schedule</strong>: not imported — run Import Schedule for eval visibility' +
+      '</span>'
+    );
+  } else {
+    chips.push(
+      '<span class="eval-summary-chip ' + freshnessClass(schedAge) + '">' +
+        '📅 <strong>Schedule</strong> · ' + rowsWithSched + ' rows · imported ' + ageLabel(schedAge) +
+      '</span>'
+    );
+    if (schedMin && schedMax) {
+      chips.push(
+        '<span class="eval-summary-chip">' +
+          '<strong>Evals</strong>: ' + formatEvalDate(schedMin) + ' → ' + formatEvalDate(schedMax) +
+        '</span>'
+      );
+    }
+  }
+
+  // Visits import — separate state. Missing/stale gets a colored chip.
+  if (rowsWithVisits === 0) {
+    chips.push(
+      '<span class="eval-summary-chip is-missing">' +
+        '👤 <strong>Visits</strong>: not imported — run Import Visits to auto-sync status' +
+      '</span>'
+    );
+  } else {
+    chips.push(
+      '<span class="eval-summary-chip ' + freshnessClass(visitsAge) + '">' +
+        '👤 <strong>Visits</strong> · ' + rowsWithVisits + ' rows · imported ' + ageLabel(visitsAge) +
+      '</span>'
+    );
+    if (visitMin && visitMax) {
+      chips.push(
+        '<span class="eval-summary-chip">' +
+          '<strong>Visits</strong>: ' + formatEvalDate(visitMin) + ' → ' + formatEvalDate(visitMax) +
+        '</span>'
+      );
+    }
+  }
+
+  el.innerHTML = chips.join("");
+}
+
+async function refreshEvalClearButtonVisibility() {
+  var btn = document.getElementById("eval-clear-btn");
+  if (!btn || !currentUser) return;
+  try {
+    var { data } = await db.from("user_roles").select("role").eq("user_id", currentUser.id).maybeSingle();
+    btn.style.display = (data && data.role === "admin") ? "" : "none";
+  } catch (e) { btn.style.display = "none"; }
+}
+
+// Two-click confirm pattern — first click flips to "Sure? Delete all", second click executes.
+// Resets after 3s if the user doesn't follow through.
+var _evalClearTimer = null;
+async function clearEvalCompliance() {
+  var btn = document.getElementById("eval-clear-btn");
+  if (!btn) return;
+  if (btn.dataset.confirming !== "1") {
+    btn.dataset.confirming = "1";
+    var orig = btn.textContent;
+    btn.dataset.original = orig;
+    btn.textContent = "⚠ Sure? Delete ALL " + (evalItems.length || 0) + " rows";
+    btn.style.background = "var(--red)";
+    btn.style.color = "#fff";
+    clearTimeout(_evalClearTimer);
+    _evalClearTimer = setTimeout(function() {
+      btn.dataset.confirming = "";
+      btn.textContent = btn.dataset.original || "🗑 Clear All";
+      btn.style.background = ""; btn.style.color = "";
+    }, 3000);
+    return;
+  }
+  // Confirmed — execute
+  clearTimeout(_evalClearTimer);
+  btn.disabled = true;
+  btn.textContent = "Clearing…";
+  try {
+    var { data, error } = await db.rpc("clear_evaluation_compliance");
+    if (error) throw new Error(error.message);
+    showToast("Cleared " + (data || 0) + " evaluation items.", "success");
+    evalItems = [];
+    renderEvaluationCompliance();
+    renderEvalDataSummary();
+  } catch (err) {
+    showToast("Clear failed: " + (err.message || err), "error");
+  } finally {
+    btn.disabled = false;
+    btn.dataset.confirming = "";
+    btn.textContent = btn.dataset.original || "🗑 Clear All";
+    btn.style.background = ""; btn.style.color = "";
+  }
+}
+
+function evalFilteredItems() {
+  var cat    = document.getElementById("eval-filter-category").value;
+  var sync   = document.getElementById("eval-filter-sync").value;
+  var search = (document.getElementById("eval-filter-search").value || "").trim().toLowerCase();
+  return evalItems.filter(function(r) {
+    if (cat && r.category !== cat) return false;
+    if (sync && r.sync_status !== sync) return false;
+    if (!search) return true;
+    var haystack = [
+      r.patient_name, r.tb_clinician_name, r.home_health_agency,
+      r.status_notes, r.patient_id, r.referral_id
+    ].join(" ").toLowerCase();
+    return haystack.indexOf(search) > -1;
+  });
+}
+
+function renderEvaluationCompliance() {
+  var body = document.getElementById("eval-body");
+  var rows = evalFilteredItems();
+
+  // Stat bar — total + per sync_status counts
+  var stats = { synced: 0, eval_done_not_synced: 0, no_evaluation: 0, cancelled: 0 };
+  rows.forEach(function(r) { if (stats.hasOwnProperty(r.sync_status)) stats[r.sync_status]++; });
+  document.getElementById("eval-stat-bar").innerHTML =
+    '<span><span class="eval-stat-dot" style="background:#10b981"></span>' + stats.synced + ' synced</span>' +
+    '<span><span class="eval-stat-dot" style="background:#facc15"></span>' + stats.eval_done_not_synced + ' to sync</span>' +
+    '<span><span class="eval-stat-dot" style="background:#cbd5e1"></span>' + stats.no_evaluation + ' no eval</span>' +
+    '<span><span class="eval-stat-dot" style="background:#94a3b8"></span>' + stats.cancelled + ' cancelled</span>' +
+    '<span style="color:var(--blue);font-weight:800">' + rows.length + ' total</span>';
+
+  if (!rows.length) {
+    body.innerHTML =
+      '<div class="eval-empty-state">' +
+        '<div class="icon">📋</div>' +
+        '<h3>No evaluation items match your filters</h3>' +
+        '<p>Click <strong>↑ Import TB Active Services</strong> to upload an Active Services export, or clear your filters to see all items.</p>' +
+      '</div>';
+    return;
+  }
+
+  // Split into triage rows (categories other than 'Assigned') and intake rows
+  // (category === 'Assigned', sub-grouped by referral_date).
+  var triageGroups = {};
+  var intakeGroups = {};      // keyed by ISO date string or "" for missing
+  rows.forEach(function(r) {
+    var c = r.category || "Assigned";
+    if (c === "Assigned") {
+      var d = r.referral_date || "";
+      (intakeGroups[d] = intakeGroups[d] || []).push(r);
+    } else {
+      (triageGroups[c] = triageGroups[c] || []).push(r);
+    }
+  });
+
+  // Triage region: render categories in canonical order, skipping empty.
+  // Unknown legacy categories (anything not in EVAL_TRIAGE_CATEGORIES) sort
+  // last so weird historical data isn't lost.
+  var triageOrder = EVAL_TRIAGE_CATEGORIES.filter(function(c) { return triageGroups[c]; })
+                      .concat(Object.keys(triageGroups).filter(function(c) {
+                        return EVAL_TRIAGE_CATEGORIES.indexOf(c) === -1;
+                      }));
+
+  // Intake region: date keys sorted DESC (newest first). Empty/null
+  // referral_date sorts to the end under "(no date)".
+  var intakeKeys = Object.keys(intakeGroups).sort(function(a, b) {
+    if (!a && !b) return 0;
+    if (!a) return  1;
+    if (!b) return -1;
+    return a < b ? 1 : a > b ? -1 : 0;
+  });
+
+  var html = "";
+
+  if (triageOrder.length) {
+    html += '<div class="eval-region-label">Triage queue</div>';
+    html += triageOrder.map(function(cat) {
+      return renderEvalCatBlock(cat, triageGroups[cat]);
+    }).join("");
+  }
+
+  if (intakeKeys.length) {
+    html += '<div class="eval-region-label">Intake — Assigned by date</div>';
+    html += renderEvalIntakeFlat(intakeKeys, intakeGroups);
+  }
+
+  body.innerHTML = html;
+}
+
+// Multi-clinician TB strings come in as "First Last DISC; First Last DISC".
+// Show each on its own line so the team can read all of them without
+// horizontal clipping. Single-clinician rows just render one line.
+// Each name is title-cased via formatClinicianDisplayName so TB's mix of
+// ALL-CAPS / lower / Title cases ends up consistent on screen.
+function renderClinNames(raw) {
+  return String(raw || "")
+    .split(/\s*;\s*/)
+    .filter(function(n) { return n.length > 0; })
+    .map(function(n) {
+      return '<div class="eval-clin-name">' + escHtml(formatClinicianDisplayName(n)) + '</div>';
+    })
+    .join("");
+}
+
+function formatEvalDate(iso) {
+  // "2026-05-21" → "5/21/2026"
+  if (!iso || iso.length < 10) return iso;
+  var y = iso.slice(0,4), m = iso.slice(5,7), d = iso.slice(8,10);
+  return String(parseInt(m,10)) + "/" + String(parseInt(d,10)) + "/" + y;
+}
+
+function renderEvalCatBlock(cat, items) {
+  return '<div class="eval-cat-block" data-cat="' + escAttr(cat) + '">' +
+    '<div class="eval-cat-head" onclick="this.parentElement.classList.toggle(\'collapsed\')">' +
+      '<span>' + escHtml(cat) + '</span>' +
+      '<span class="eval-cat-count">' + items.length + '</span>' +
+      '<span class="eval-cat-caret">▼</span>' +
+    '</div>' +
+    renderEvalTable(items) +
+  '</div>';
+}
+
+// Intake region — one flat table with thin date-divider rows between groups.
+// Matches the user's spreadsheet layout where each date is a slim header,
+// not a fat collapsible bucket. Default-expanded (no per-date collapsing) so
+// nothing is hidden by default; users can still filter top-level via the
+// toolbar dropdowns.
+function renderEvalIntakeFlat(intakeKeys, intakeGroups) {
+  var bodyHtml = intakeKeys.map(function(dKey) {
+    var items = intakeGroups[dKey];
+    var label = dKey ? formatEvalDate(dKey) : "(no date)";
+    return (
+      '<tr class="eval-date-divider-row"><td colspan="10">' +
+        '<div class="eval-date-divider">' +
+          '<span class="eval-date-divider-label">' + escHtml(label) + '</span>' +
+          '<span class="eval-date-divider-count">' + items.length + '</span>' +
+        '</div>' +
+      '</td></tr>' +
+      items.map(renderEvalRow).join("")
+    );
+  }).join("");
+  return '<div class="eval-cat-block eval-intake-block">' +
+    '<table class="eval-table">' + EVAL_TABLE_HEAD +
+    '<tbody>' + bodyHtml + '</tbody></table>' +
+  '</div>';
+}
+
+function renderEvalTable(items) {
+  // Column-width strategy: every column gets a fixed width EXCEPT Status Notes,
+  // which absorbs all leftover horizontal space (the `width:100%` trick on a
+  // single <th> tells the auto table-layout algorithm to stretch that one
+  // column to fill whatever's left). Other columns will respect their natural
+  // widths plus a small allowance.
+  return '<div class="eval-cat-body">' +
+    '<table class="eval-table">' + EVAL_TABLE_HEAD +
+    '<tbody>' +
+    items.map(renderEvalRow).join("") +
+    '</tbody></table>' +
+  '</div>';
+}
+
+// Shared <thead> — keeps triage and intake regions column-aligned so future
+// edits don't drift between the two.
+const EVAL_TABLE_HEAD =
+  '<thead><tr>' +
+    '<th style="width:170px">Sync Status</th>' +
+    '<th style="width:90px">Ref Date</th>' +
+    '<th style="width:200px">Patient</th>' +
+    '<th style="width:60px">Svc</th>' +
+    '<th style="width:140px">Episode</th>' +
+    '<th style="width:170px">Eval Sched</th>' +
+    '<th style="width:220px">Agency</th>' +
+    '<th style="width:210px">Clinician</th>' +
+    '<th style="width:150px">Category</th>' +
+    '<th style="width:100%;min-width:280px">Status Notes</th>' +
+  '</tr></thead>';
+
+function renderEvalRow(r) {
+  var syncOpts = Object.keys(EVAL_SYNC_LABELS).map(function(k) {
+    return '<option value="' + k + '"' + (r.sync_status === k ? " selected" : "") + '>' + EVAL_SYNC_LABELS[k] + '</option>';
+  }).join("");
+  var catOpts = EVAL_CATEGORIES.map(function(c) {
+    return '<option value="' + escAttr(c) + '"' + (r.category === c ? " selected" : "") + '>' + escHtml(c) + '</option>';
+  }).join("");
+
+  var episode = "";
+  if (r.episode_start_date || r.episode_end_date) {
+    episode = (r.episode_start_date || "—") + " → " + (r.episode_end_date || "—");
+  }
+  var clinName = r.tb_clinician_name || "";
+
+  var refDt = r.referral_date ? formatEvalDate(r.referral_date) : "—";
+
+  return '<tr class="eval-row eval-tint-' + escAttr(r.sync_status || "no_evaluation") + '" data-id="' + escAttr(r.id) + '">' +
+    '<td><select class="eval-sync-select" onchange="updateEvalField(\'' + escAttr(r.id) + '\', \'sync_status\', this.value)">' + syncOpts + '</select></td>' +
+    '<td class="eval-refdt">' + escHtml(refDt) + '</td>' +
+    '<td>' +
+      '<div class="eval-name">' + escHtml(formatClinicianDisplayName(r.patient_name) || "—") + '</div>' +
+      '<div class="eval-anchor-row">' +
+        '<span class="eval-pid" title="TB Patient ID (read-only)">PID ' + escHtml(r.patient_id) + '</span>' +
+        '<span class="eval-rid" title="TB Referral ID (read-only)">REF ' + escHtml(r.referral_id) + '</span>' +
+      '</div>' +
+    '</td>' +
+    '<td><span class="eval-svc-pill">' + escHtml(r.service || "—") + '</span></td>' +
+    '<td class="eval-episode">' + escHtml(episode) + '</td>' +
+    '<td class="eval-sched-cell">' + renderEvalSchedCell(r) + '</td>' +
+    '<td>' + escHtml(formatClinicianDisplayName(r.home_health_agency || "")) + '</td>' +
+    '<td class="eval-clin-cell" title="Clinician comes from TB — re-import to refresh">' +
+      (clinName
+         ? '<div class="eval-clin-text">' + renderClinNames(clinName) + '</div>'
+         : '<span class="eval-clin-empty">(unassigned)</span>') +
+    '</td>' +
+    '<td><select class="eval-cat-select" onchange="updateEvalField(\'' + escAttr(r.id) + '\', \'category\', this.value)">' + catOpts + '</select>' +
+       (r.hold_since ? '<span class="eval-auto-held-chip" title="Auto-promoted to Hold/Hospital based on TB hold flag (' + escAttr(r.hold_since) + ')">⚠ TB hold</span>' : '') +
+    '</td>' +
+    '<td>' + renderEvalNotesCell(r) + '</td>' +
+  '</tr>';
+}
+
+// ── Eval Sched cell + SLA computation ──────────────────────────────
+// Company rules: schedule eval ≤ 24hrs of referral, visit ≤ 48hrs,
+// sync note ≤ 48hrs of visit. Each is computed at render time from the
+// stored TB-sourced dates — no SQL or background job needed.
+
+function daysBetween(isoLater, isoEarlier) {
+  if (!isoLater || !isoEarlier) return null;
+  var ms = (new Date(isoLater) - new Date(isoEarlier));
+  return Math.round(ms / 86400000);
+}
+
+function evalSchedStatus(r) {
+  // Returns { kind, label, sub?, sla?, syncDelay? }
+  //   kind ∈ "done_synced" | "done_not_synced" | "scheduled_confirmed" |
+  //          "scheduled_unconfirmed" | "missed" | "no_eval" | "unknown"
+  //   sla  ∈ "late_schedule" | "late_visit" | "late_sync" | "ok"
+  var today = new Date(); today.setHours(0,0,0,0);
+  var todayIso = today.toISOString().slice(0,10);
+
+  // ① EVAL ALREADY DONE (Patient Visits data wins over schedule).
+  if (r.eval_visit_date) {
+    var hrs = r.eval_completion_hours;
+    var lateSync = (hrs != null && hrs > 48);
+    var evalClinTC = formatClinicianDisplayName(r.eval_visit_clinician || "");
+    if (r.eval_note_completed_at) {
+      return {
+        kind: "done_synced",
+        label: (r.eval_visit_type || "Eval") + " done " + formatEvalDate(r.eval_visit_date),
+        sub: evalClinTC
+          ? evalClinTC + (hrs != null ? " · synced in " + hrs.toFixed(1) + "h" : " · synced")
+          : (hrs != null ? "synced in " + hrs.toFixed(1) + "h" : "synced"),
+        sla: lateSync ? "late_sync" : "ok",
+        syncDelay: hrs
+      };
+    }
+    return {
+      kind: "done_not_synced",
+      label: (r.eval_visit_type || "Eval") + " done " + formatEvalDate(r.eval_visit_date),
+      sub: evalClinTC
+        ? evalClinTC + " · ⚠ note not synced"
+        : "⚠ note not synced",
+      sla: "late_sync"   // visit done but not synced — always counts as late
+    };
+  }
+
+  // ② FUTURE EVAL SCHEDULED.
+  if (r.next_eval_date) {
+    var isLateVisit = r.referral_date &&
+        daysBetween(r.next_eval_date, r.referral_date) > 2;   // >48 hrs
+    var nextClinTC = formatClinicianDisplayName(r.next_eval_clinician || "");
+    return {
+      kind: r.next_eval_confirmed ? "scheduled_confirmed" : "scheduled_unconfirmed",
+      label: (r.next_eval_activity || "Eval") + " " + formatEvalDate(r.next_eval_date),
+      sub: nextClinTC
+        ? nextClinTC + (r.next_eval_confirmed ? " · ✓" : " · ⚠ unconfirmed")
+        : (r.next_eval_confirmed ? "✓ confirmed" : "⚠ unconfirmed"),
+      sla: isLateVisit ? "late_visit" : "ok"
+    };
+  }
+
+  // ③ PAST EVAL SCHEDULED BUT NO VISIT FOUND → missed.
+  if (r.schedule_imported_at && r.last_eval_attempted) {
+    return {
+      kind: "missed",
+      label: "Missed " + formatEvalDate(r.last_eval_attempted),
+      sub: "Past eval — no current schedule",
+      sla: "late_schedule"
+    };
+  }
+
+  // ④ NO EVAL ANYWHERE — schedule imported but nothing scheduled.
+  if (r.schedule_imported_at) {
+    var isLateSchedule = r.referral_date &&
+        daysBetween(todayIso, r.referral_date) > 1;     // >24 hrs
+    return {
+      kind: "no_eval",
+      label: "No eval scheduled",
+      sub: isLateSchedule ? "⚠ SLA: >24hrs since referral" : null,
+      sla: isLateSchedule ? "late_schedule" : "ok"
+    };
+  }
+
+  // ⑤ Nothing imported yet for this row.
+  return { kind: "unknown", label: "—" };
+}
+
+function renderEvalSchedCell(r) {
+  var s = evalSchedStatus(r);
+  var icon = ({
+    done_synced:           "✅",
+    done_not_synced:       "🟡",
+    scheduled_confirmed:   "🟢",
+    scheduled_unconfirmed: "🟡",
+    missed:                "🔴",
+    no_eval:               "⚪",
+    unknown:               "·"
+  })[s.kind] || "·";
+  var slaChip = "";
+  if (s.sla === "late_schedule") slaChip = '<span class="eval-sla-chip eval-sla-late">⚠ SCHED LATE</span>';
+  if (s.sla === "late_visit")    slaChip = '<span class="eval-sla-chip eval-sla-late">⚠ >48HR VISIT</span>';
+  if (s.sla === "late_sync")     slaChip = '<span class="eval-sla-chip eval-sla-late">⚠ >48HR SYNC</span>';
+  return '<div class="eval-sched-status eval-sched-' + s.kind + '">' +
+    '<div class="eval-sched-head">' + icon + ' ' + escHtml(s.label) + '</div>' +
+    (s.sub ? '<div class="eval-sched-sub">' + escHtml(s.sub) + '</div>' : '') +
+    slaChip +
+  '</div>';
+}
+
+// Status Notes cell — 4 stacked rows:
+//   1. Editable user note (current behavior)
+//   2. Episode instructions (TB Patient List, read-only, click to expand)
+//   3. Service protocol (TB Patient List, read-only, click to expand)
+//   4. Hold details (TB Patient List, read-only, click to expand — only if on hold)
+function renderEvalNotesCell(r) {
+  var parts = [];
+  // 1. Editable user note
+  parts.push(
+    '<input class="eval-notes-input ' + (r.status_notes ? "has-note" : "") + '" value="' + escAttr(r.status_notes || "") + '" placeholder="add note…" ' +
+      'oninput="this.classList.toggle(\'has-note\', !!this.value)" ' +
+      'onchange="updateEvalField(\'' + escAttr(r.id) + '\', \'status_notes\', this.value)">'
+  );
+  // 2. Episode instructions
+  if (r.episode_instructions) {
+    parts.push(
+      '<details class="eval-tb-ref">' +
+        '<summary><span class="eval-tb-ref-icon">📋</span> Eval inst: ' + escHtml(r.episode_instructions) + '</summary>' +
+        '<div class="eval-tb-ref-body">' + escHtml(r.episode_instructions) + '</div>' +
+      '</details>'
+    );
+  }
+  // 3. Service protocol
+  if (r.service_protocol) {
+    parts.push(
+      '<details class="eval-tb-ref">' +
+        '<summary><span class="eval-tb-ref-icon">⚙</span> Service: ' + escHtml(r.service_protocol) + '</summary>' +
+        '<div class="eval-tb-ref-body">' + escHtml(r.service_protocol) + '</div>' +
+      '</details>'
+    );
+  }
+  // 4. Hold details (only when on hold)
+  if (r.hold_since || r.hold_reason || r.hold_details) {
+    var holdHead = "🏥 On hold";
+    if (r.hold_since)  holdHead += " since " + formatEvalDate(r.hold_since);
+    if (r.hold_reason) holdHead += " · " + r.hold_reason;
+    var holdBody = "";
+    if (r.hold_reason)  holdBody += "Reason: " + r.hold_reason + "\n";
+    if (r.hold_since)   holdBody += "Since: "  + formatEvalDate(r.hold_since) + "\n";
+    if (r.hold_details) holdBody += "Details: " + r.hold_details;
+    parts.push(
+      '<details class="eval-tb-ref eval-tb-ref-hold">' +
+        '<summary>' + escHtml(holdHead) + '</summary>' +
+        '<div class="eval-tb-ref-body">' + escHtml(holdBody.trim()) + '</div>' +
+      '</details>'
+    );
+  }
+  return '<div class="eval-notes-stack">' + parts.join("") + '</div>';
+}
+
+// Debounced single-field patch
+var _evalUpdateTimers = {};
+function updateEvalField(id, field, value) {
+  clearTimeout(_evalUpdateTimers[id + ":" + field]);
+  _evalUpdateTimers[id + ":" + field] = setTimeout(function() {
+    var payload = { item_id: id };
+    if (field === "category")     payload.new_category     = value;
+    if (field === "sync_status")  payload.new_sync_status  = value;
+    if (field === "status_notes") payload.new_status_notes = value;
+    db.rpc("update_evaluation_item", payload).then(function(res) {
+      if (res.error) { showToast("Save failed: " + res.error.message, "error"); return; }
+      // Update local cache + surgical row updates
+      var updated = Array.isArray(res.data) ? res.data[0] : res.data;
+      if (updated) {
+        var idx = evalItems.findIndex(function(x) { return x.id === id; });
+        if (idx > -1) evalItems[idx] = updated;
+        // If sync_status or category changed, re-render (row tint + grouping)
+        if (field === "sync_status" || field === "category") renderEvaluationCompliance();
+      }
+    });
+  }, 350);
+}
+
+// Filter listeners — render only, no debounce needed
+document.addEventListener("DOMContentLoaded", function() {
+  ["eval-filter-category","eval-filter-sync","eval-filter-search"].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    // <select> fires `change`, <input> fires both — listen for both, safe for either
+    el.addEventListener("change", renderEvaluationCompliance);
+    el.addEventListener("input",  renderEvaluationCompliance);
+  });
+
+  // Two-file dropzone wiring (CSV ① + XLSX ②)
+  function wireEvalDropzone(kind, handler) {
+    var dz = document.getElementById("eval-dropzone-" + kind);
+    if (!dz) return;
+    dz.addEventListener("dragover",  function(e) { e.preventDefault(); dz.classList.add("is-dragover"); });
+    dz.addEventListener("dragleave", function()  { dz.classList.remove("is-dragover"); });
+    dz.addEventListener("drop", function(e) {
+      e.preventDefault(); dz.classList.remove("is-dragover");
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handler(f);
+    });
+    var fi = document.getElementById("eval-file-input-" + kind);
+    if (fi) fi.addEventListener("change", function(e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) handler(f);
+    });
+  }
+  wireEvalDropzone("csv",  handleEvalCsvFile);
+  wireEvalDropzone("xlsx", handleEvalXlsxFile);
+
+  // Schedule modal (separate, single CSV dropzone)
+  function wireSingleCsvDropzone(dzId, fiId, handler) {
+    var dz = document.getElementById(dzId);
+    if (!dz) return;
+    dz.addEventListener("dragover",  function(e) { e.preventDefault(); dz.classList.add("is-dragover"); });
+    dz.addEventListener("dragleave", function()  { dz.classList.remove("is-dragover"); });
+    dz.addEventListener("drop", function(e) {
+      e.preventDefault(); dz.classList.remove("is-dragover");
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handler(f);
+    });
+    var fi = document.getElementById(fiId);
+    if (fi) fi.addEventListener("change", function(e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) handler(f);
+    });
+  }
+  wireSingleCsvDropzone("eval-sched-dropzone",  "eval-sched-file-input",  handleEvalScheduleFile);
+  wireSingleCsvDropzone("eval-visits-dropzone", "eval-visits-file-input", handleEvalVisitsFile);
+});
+
+// Required TB column headers — the import is hard-rejected if any are missing.
+// Each entry: { key: schema-field, label: friendly label, candidates: [TB headers we accept] }
+// === ACTIVE SERVICES CSV ===
+const EVAL_REQUIRED_COLS = [
+  { key: "pname",  label: "Patient",                  candidates: ["Patient", "Patient Name", "Name"] },
+  { key: "pid",    label: "Patient ID",               candidates: ["Patient ID", "PatientID", "Patient Id"] },
+  { key: "rid",    label: "Referral ID",              candidates: ["Referral ID", "ReferralID", "Episode ID", "Referral"] },
+  { key: "svc",    label: "Service",                  candidates: ["Service", "Discipline"] },
+  { key: "start",  label: "Start of episode",         candidates: ["Start of episode", "Episode Start", "Start Date", "Cert From", "From"] },
+  { key: "agency", label: "Referral source",          candidates: ["Referral source", "Referral Source", "Agency", "HHA", "Home Health Agency"] },
+  { key: "clin",   label: "Clinician names",          candidates: ["Clinician names", "Clinician Names", "Clinician", "Clinicians", "Therapist", "Assigned To"] },
+  { key: "lastv",  label: "Last visit date",          candidates: ["Last visit date", "Last Visit Date", "Last Visit"] },
+  { key: "dob",    label: "DOB",                      candidates: ["DOB", "Date of Birth"] },
+  // NOTE: don't add a bare "Referral date" candidate here — it would
+  // falsely match TB's period-separated parts ("Referral date.Year",
+  // "Referral date.Month", "Referral date.Day") via the matcher's pass-2
+  // starts-with. The full-format candidate already handles bare-"Referral
+  // date" headers via the matcher's pass-3 reverse-starts-with.
+  { key: "refdt",  label: "Referral date",            candidates: ["Referral date (MM/DD/YYYY)"] }
+];
+
+// === PATIENT VISITS CSV (phase-3 enrichment) ===
+const EVAL_VISITS_REQUIRED_COLS = [
+  { key: "visdt",  label: "Visit date",        candidates: ["Visit date (MM/DD/YYYY)", "Visit Date"] },
+  { key: "vistype",label: "Visit type",        candidates: ["Visit type", "Visit Type"] },
+  { key: "compdt", label: "Completed date",    candidates: ["Completed date", "Completed Date"] },
+  { key: "clin",   label: "Clinician",         candidates: ["Clinician"] },
+  { key: "pid",    label: "Patient ID",        candidates: ["Patient ID", "PatientID", "Patient Id"] },
+  { key: "svc",    label: "Service",           candidates: ["Service", "Discipline"] },
+  { key: "delay",  label: "Completion delay",  candidates: ["Completion delay", "Completion Delay"] },
+  { key: "visid",  label: "Visit ID",          candidates: ["Visit ID", "VisitID", "Visit Id"] }
+];
+
+// ── Pay period helper ───────────────────────────────────────────────
+// Bi-weekly, Thursday-anchored at 2024-10-17 (the payroll cutover date
+// from CLAUDE.md). Returns { start, end } as ISO date strings.
+const PAY_PERIOD_ANCHOR_MS = Date.UTC(2024, 9, 17);   // Oct 17 2024 (Thu)
+function payPeriodFor(visitDateIso) {
+  if (!visitDateIso) return null;
+  var t = Date.parse(visitDateIso + "T00:00:00Z");
+  if (isNaN(t)) return null;
+  var dayMs = 86400000;
+  var idx = Math.floor((t - PAY_PERIOD_ANCHOR_MS) / (14 * dayMs));
+  var startMs = PAY_PERIOD_ANCHOR_MS + idx * 14 * dayMs;
+  var endMs   = startMs + 13 * dayMs;
+  function iso(ms) {
+    var d = new Date(ms);
+    return d.getUTCFullYear() + "-" +
+      String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getUTCDate()).padStart(2, "0");
+  }
+  return { start: iso(startMs), end: iso(endMs) };
+}
+
+// Parse TB "Completion delay" strings like "2 d 11 h 04 m" → hours (NUMERIC).
+// Returns null when input is empty/unparseable.
+function parseCompletionDelay(s) {
+  if (!s) return null;
+  var str = String(s).trim();
+  if (!str) return null;
+  var d = (str.match(/(\d+)\s*d/) || [])[1];
+  var h = (str.match(/(\d+)\s*h/) || [])[1];
+  var m = (str.match(/(\d+)\s*m/) || [])[1];
+  if (!d && !h && !m) return null;
+  var hrs = (parseInt(d || 0, 10) * 24) + parseInt(h || 0, 10) + (parseInt(m || 0, 10) / 60);
+  return Math.round(hrs * 100) / 100;
+}
+
+// Parse TB "Completed date" like "01/03/26 11:27 PM" → ISO timestamp.
+function parseTBTimestamp(s) {
+  if (!s) return null;
+  var str = String(s).trim();
+  if (!str) return null;
+  var m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+  if (!m) return null;
+  var mo = parseInt(m[1], 10);
+  var da = parseInt(m[2], 10);
+  var yr = parseInt(m[3], 10);
+  if (yr < 100) yr += 2000;
+  var hr = parseInt(m[4], 10);
+  var mi = parseInt(m[5], 10);
+  var ampm = (m[6] || "").toUpperCase();
+  if (ampm === "PM" && hr < 12) hr += 12;
+  if (ampm === "AM" && hr === 12) hr = 0;
+  // Build a local-time ISO string (no Z) — Supabase will treat as TIMESTAMPTZ
+  // using its UTC default; close enough for our SLA math, since we only care
+  // about delay hours, not wall-clock precision.
+  return yr + "-" + String(mo).padStart(2, "0") + "-" + String(da).padStart(2, "0") +
+         "T" + String(hr).padStart(2, "0") + ":" + String(mi).padStart(2, "0") + ":00";
+}
+
+// Eval activity codes — initial evals vs re-evals.
+const EVAL_VISIT_INITIAL_CODES = ["PTE", "OTE", "STE"];
+const EVAL_VISIT_REEVAL_CODES  = ["PTRE", "OTRE", "STRE"];
+
+// === SCHEDULED APPOINTMENTS CSV (phase-2 enrichment) ===
+const EVAL_SCHEDULE_REQUIRED_COLS = [
+  { key: "appdt",   label: "Appointment date", candidates: ["Appointment date (MM/DD/YYYY)", "Appointment Date"] },
+  { key: "act",     label: "Activity type",    candidates: ["Activity type", "Activity Type"] },
+  { key: "clin",    label: "Clinician",        candidates: ["Clinician"] },
+  { key: "pid",     label: "Patient ID",       candidates: ["Patient ID", "PatientID", "Patient Id"] },
+  { key: "svc",     label: "Service",          candidates: ["Service", "Discipline"] },
+  { key: "evalCol", label: "Evaluation",       candidates: ["Evaluation"] },
+  { key: "conf",    label: "Patient confirmed",candidates: ["Patient confirmed", "Patient Confirmed"] },
+  { key: "appid",   label: "Appointment ID",   candidates: ["Appointment ID", "AppointmentID", "Appointment Id"] },
+  { key: "note",    label: "Appointment note", candidates: ["Appointment note", "Appointment Note"] }
+];
+
+// Eval activity codes — initial evals + re-evals across PT/OT/ST.
+// Used to detect "is this appointment an evaluation visit?".
+const EVAL_ACTIVITY_CODES = ["PTE", "OTE", "STE", "PTRE", "OTRE", "STRE"];
+function isEvalActivity(code, evalColYesNo) {
+  // Both signals: the Evaluation column (Yes/No) AND the activity-type
+  // prefix. Either is enough — covers TB-version drift.
+  if (String(evalColYesNo || "").trim().toLowerCase() === "yes") return true;
+  var c = String(code || "").trim().toUpperCase();
+  return EVAL_ACTIVITY_CODES.indexOf(c) > -1;
+}
+
+// === PATIENT LIST XLSX ===
+const PATIENT_LIST_REQUIRED_COLS = [
+  { key: "last",        label: "Last name",            candidates: ["Last name", "LastName", "Last"] },
+  { key: "first",       label: "First name",           candidates: ["First name", "FirstName", "First"] },
+  { key: "dob",         label: "DOB",                  candidates: ["DOB", "Date of Birth"] },
+  { key: "refdt",       label: "Referral date",        candidates: ["Referral date", "Referral Date"] },
+  { key: "endep",       label: "End of episode",       candidates: ["End of episode", "Episode End", "End Date", "Cert To"] },
+  { key: "epinstr",     label: "Episode instructions", candidates: ["Episode instructions", "Episode Instructions"] },
+  { key: "svcproto",    label: "Service protocol",     candidates: ["Service protocol", "Service Protocol"] },
+  { key: "holdsince",   label: "Hold since",           candidates: ["Hold since", "Hold Since"] },
+  { key: "holdreason",  label: "Hold reason",          candidates: ["Hold reason", "Hold Reason"] },
+  { key: "holddetails", label: "Hold details",         candidates: ["Hold details", "Hold Details"] }
+];
+
+// Two-file import state. Both must be parsed + validated before the join +
+// preview kick in. Cleared every time the modal is reopened.
+var evalImportCsvRows  = null;     // raw parsed CSV rows (Active Services)
+var evalImportXlsxRows = null;     // raw parsed XLSX rows (Patient List)
+var evalImportCsvCols  = null;     // resolved column-name map for CSV
+var evalImportXlsxCols = null;     // resolved column-name map for XLSX
+
+function openEvalImportModal() {
+  evalImportPrepared    = null;
+  evalImportCsvRows     = null;
+  evalImportXlsxRows    = null;
+  evalImportCsvCols     = null;
+  evalImportXlsxCols    = null;
+  document.getElementById("eval-import-preview").style.display = "none";
+  document.getElementById("eval-import-missing").style.display = "none";
+  document.getElementById("eval-import-confirm-btn").disabled = true;
+  document.getElementById("eval-file-input-csv").value  = "";
+  document.getElementById("eval-file-input-xlsx").value = "";
+  setEvalDzStatus("csv",  "neutral", "—");
+  setEvalDzStatus("xlsx", "neutral", "—");
+  document.getElementById("eval-import-modal").style.display = "flex";
+}
+
+function setEvalDzStatus(kind, state, text) {
+  var dz = document.getElementById("eval-dropzone-" + kind);
+  if (!dz) return;
+  dz.classList.remove("is-ready", "is-error");
+  if (state === "ready") dz.classList.add("is-ready");
+  if (state === "error") dz.classList.add("is-error");
+  var sEl = document.getElementById("eval-dz-" + kind + "-status");
+  if (sEl) sEl.textContent = text;
+}
+
+// Match key for joining the two reports.
+// upper(last) | upper(first) | dob-iso | refdt-iso
+function evalJoinKey(last, first, dob, refdt) {
+  var L = String(last  || "").trim().toUpperCase();
+  var F = String(first || "").trim().toUpperCase();
+  var D = evalParseDate(dob)   || "";
+  var R = evalParseDate(refdt) || "";
+  if (!L || !F || !D || !R) return null;
+  return L + "|" + F + "|" + D + "|" + R;
+}
+
+// Split "LAST, FIRST" → { last, first }. If no comma, fall back to last token = first.
+function evalSplitPatientName(raw) {
+  var s = String(raw || "").trim();
+  if (!s) return { last: "", first: "" };
+  var ci = s.indexOf(",");
+  if (ci > -1) {
+    return { last: s.slice(0, ci).trim(), first: s.slice(ci + 1).trim() };
+  }
+  // No comma — treat as "First Last" with last being the last token
+  var parts = s.split(/\s+/);
+  if (parts.length === 1) return { last: parts[0], first: "" };
+  return { last: parts[parts.length - 1], first: parts.slice(0, -1).join(" ") };
+}
+
+// Lightweight CSV parser — handles quoted fields, embedded commas, escaped quotes ("").
+// Returns array of row-objects keyed by the first row's headers.
+function parseCsv(text) {
+  // Strip UTF-8 BOM if present
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  var rows = [];
+  var row = [];
+  var field = "";
+  var inQuotes = false;
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    if (inQuotes) {
+      if (c === '"') {
+        if (text[i+1] === '"') { field += '"'; i++; }
+        else inQuotes = false;
+      } else field += c;
+    } else {
+      if (c === '"') inQuotes = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\r") { /* skip */ }
+      else if (c === "\n") { row.push(field); field = ""; rows.push(row); row = []; }
+      else field += c;
+    }
+  }
+  // Flush last field/row
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+  var headers = rows[0].map(function(h) { return String(h).trim(); });
+  var out = [];
+  for (var r = 1; r < rows.length; r++) {
+    if (rows[r].length === 1 && rows[r][0] === "") continue; // skip empty trailing line
+    var obj = {};
+    for (var h = 0; h < headers.length; h++) obj[headers[h]] = (rows[r][h] != null ? rows[r][h] : "");
+    out.push(obj);
+  }
+  return out;
+}
+
+// ── CSV (Active Services) handler ────────────────────────────────────
+async function handleEvalCsvFile(file) {
+  var lc = (file.name || "").toLowerCase();
+  if (!lc.endsWith(".csv")) {
+    setEvalDzStatus("csv", "error", "Not a .csv file");
+    showEvalImportMissing("Active Services must be a <strong>.csv</strong> file. Got: <code>" + escHtml(file.name) + "</code>");
+    return;
+  }
+  try {
+    var text = await file.text();
+    var rows = parseCsv(text);
+    if (!rows.length) {
+      setEvalDzStatus("csv", "error", "Empty file");
+      showEvalImportMissing("Active Services CSV is empty.");
+      return;
+    }
+    var sample = rows[0];
+    var col = {};
+    var missing = [];
+    EVAL_REQUIRED_COLS.forEach(function(spec) {
+      var hit = evalFindCol(sample, spec.candidates);
+      col[spec.key] = hit;
+      if (!hit) missing.push(spec);
+    });
+    if (missing.length) {
+      setEvalDzStatus("csv", "error", "Missing columns");
+      showEvalImportMissing(
+        "<strong>Active Services CSV is missing columns.</strong><br>" +
+        "Re-export with <strong>Select all fields</strong> checked.<br><br>" +
+        "<strong>Missing:</strong> " +
+        missing.map(function(m){return escHtml(m.label);}).join(", ") +
+        "<br><br><strong>Columns seen:</strong><br>" +
+        "<span style='font-family:ui-monospace,monospace;font-size:11px;color:#444;'>" +
+        Object.keys(sample).map(escHtml).join(", ") + "</span>"
+      );
+      return;
+    }
+    col.end = evalFindCol(sample, ["Episode End", "End Date", "Cert To", "To"]);  // optional
+    evalImportCsvRows = rows;
+    evalImportCsvCols = col;
+    setEvalDzStatus("csv", "ready", "✓ " + rows.length + " rows · " + escHtml(file.name));
+    document.getElementById("eval-import-missing").style.display = "none";
+    maybeBuildEvalImportPreview();
+  } catch (err) {
+    setEvalDzStatus("csv", "error", "Read failed");
+    showEvalImportMissing("Failed to read CSV: " + escHtml(err.message || String(err)));
+  }
+}
+
+// ── XLSX (Patient List) handler ──────────────────────────────────────
+async function handleEvalXlsxFile(file) {
+  var lc = (file.name || "").toLowerCase();
+  if (!(lc.endsWith(".xlsx") || lc.endsWith(".xls"))) {
+    setEvalDzStatus("xlsx", "error", "Not an .xlsx file");
+    showEvalImportMissing("Patient List must be an <strong>.xlsx</strong> file. Got: <code>" + escHtml(file.name) + "</code>");
+    return;
+  }
+  if (typeof XLSX === "undefined") {
+    setEvalDzStatus("xlsx", "error", "SheetJS missing");
+    showEvalImportMissing("Spreadsheet parser (SheetJS) didn't load. Hard-refresh and try again.");
+    return;
+  }
+  try {
+    var buf = await file.arrayBuffer();
+    var wb  = XLSX.read(buf, { cellDates: true });
+    var ws  = wb.Sheets[wb.SheetNames[0]];
+    var rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
+    if (!rows.length) {
+      setEvalDzStatus("xlsx", "error", "Empty file");
+      showEvalImportMissing("Patient List XLSX has no data rows.");
+      return;
+    }
+    var sample = rows[0];
+    var col = {};
+    var missing = [];
+    PATIENT_LIST_REQUIRED_COLS.forEach(function(spec) {
+      var hit = evalFindCol(sample, spec.candidates);
+      col[spec.key] = hit;
+      if (!hit) missing.push(spec);
+    });
+    if (missing.length) {
+      setEvalDzStatus("xlsx", "error", "Missing columns");
+      showEvalImportMissing(
+        "<strong>Patient List XLSX is missing columns.</strong><br>" +
+        "Re-export with <strong>Select all fields</strong> checked.<br><br>" +
+        "<strong>Missing:</strong> " +
+        missing.map(function(m){return escHtml(m.label);}).join(", ") +
+        "<br><br><strong>Columns seen:</strong><br>" +
+        "<span style='font-family:ui-monospace,monospace;font-size:11px;color:#444;'>" +
+        Object.keys(sample).map(escHtml).join(", ") + "</span>"
+      );
+      return;
+    }
+    evalImportXlsxRows = rows;
+    evalImportXlsxCols = col;
+    setEvalDzStatus("xlsx", "ready", "✓ " + rows.length + " rows · " + escHtml(file.name));
+    document.getElementById("eval-import-missing").style.display = "none";
+    maybeBuildEvalImportPreview();
+  } catch (err) {
+    setEvalDzStatus("xlsx", "error", "Read failed");
+    showEvalImportMissing("Failed to read XLSX: " + escHtml(err.message || String(err)));
+  }
+}
+
+// ── Join + preview ───────────────────────────────────────────────────
+// Once both files are parsed, build a (last|first|dob|refdt) index over the
+// Patient List, walk the Active Services rows, attach the matching XLSX row
+// to each, dedupe, and show stats.
+function maybeBuildEvalImportPreview() {
+  if (!evalImportCsvRows || !evalImportXlsxRows) return;   // need both
+  var csvRows = evalImportCsvRows, ccol = evalImportCsvCols;
+  var xRows   = evalImportXlsxRows, xcol = evalImportXlsxCols;
+
+  // Build PL index by join key. If duplicate keys exist (shouldn't, but the
+  // same patient could appear twice across services), last wins.
+  var plIndex = Object.create(null);
+  var plUnindexed = 0;
+  xRows.forEach(function(r) {
+    var key = evalJoinKey(r[xcol.last], r[xcol.first], r[xcol.dob], r[xcol.refdt]);
+    if (!key) { plUnindexed++; return; }
+    plIndex[key] = r;
+  });
+
+  var prepared = [];
+  var skipped = 0;
+  var unmatched = 0;
+  var autoHeld  = 0;
+
+  csvRows.forEach(function(r) {
+    var pid = String(r[ccol.pid] || "").trim();
+    var rid = String(r[ccol.rid] || "").trim();
+    if (!pid || !rid) { skipped++; return; }
+    var split = evalSplitPatientName(r[ccol.pname]);
+    var key   = evalJoinKey(split.last, split.first, r[ccol.dob], r[ccol.refdt]);
+    var pl    = key ? plIndex[key] : null;
+    if (!pl) unmatched++;
+    var holdSince = pl ? evalParseDate(pl[xcol.holdsince]) : null;
+    if (holdSince) autoHeld++;
+    prepared.push({
+      patient_id:           pid,
+      referral_id:          rid,
+      patient_name:         String(r[ccol.pname] || "").trim() || "(no name)",
+      episode_start_date:   evalParseDate(r[ccol.start]),
+      episode_end_date:     pl ? evalParseDate(pl[xcol.endep]) : (ccol.end ? evalParseDate(r[ccol.end]) : null),
+      service:              String(r[ccol.svc]    || "").trim(),
+      home_health_agency:   String(r[ccol.agency] || "").trim(),
+      tb_clinician_name:    String(r[ccol.clin]   || "").trim(),
+      referral_date:        evalParseDate(r[ccol.refdt]),
+      episode_instructions: pl ? (String(pl[xcol.epinstr]  || "").trim() || null) : null,
+      service_protocol:     pl ? (String(pl[xcol.svcproto] || "").trim() || null) : null,
+      hold_since:           holdSince,
+      hold_reason:          pl ? (String(pl[xcol.holdreason]  || "").trim() || null) : null,
+      hold_details:         pl ? (String(pl[xcol.holddetails] || "").trim() || null) : null
+    });
+  });
+
+  if (!prepared.length) {
+    showEvalImportMissing("All Active Services rows skipped — every row missing Patient ID or Referral ID.");
+    return;
+  }
+
+  // Client-side dedupe — last-wins on (patient_id, referral_id)
+  var seenKeys = Object.create(null);
+  var dedupCount = 0;
+  var deduped = [];
+  for (var i = prepared.length - 1; i >= 0; i--) {
+    var k = prepared[i].patient_id + "|" + prepared[i].referral_id;
+    if (seenKeys[k]) { dedupCount++; continue; }
+    seenKeys[k] = true;
+    deduped.push(prepared[i]);
+  }
+  deduped.reverse();
+  prepared = deduped;
+  evalImportPrepared = prepared;
+
+  // Stats panel
+  var matchedCount = prepared.length - unmatched;
+  document.getElementById("eval-import-stats").innerHTML =
+    '<div class="ipr"><span class="ipr-l">Active Services rows</span><span class="ipr-v">' + csvRows.length + '</span></div>' +
+    '<div class="ipr"><span class="ipr-l">Patient List rows</span><span class="ipr-v">' + xRows.length + '</span></div>' +
+    '<div class="ipr"><span class="ipr-l">Joined (matched)</span><span class="ipr-v">' + matchedCount + '</span></div>' +
+    '<div class="ipr"><span class="ipr-l">Unmatched (no PL row)</span><span class="ipr-v">' + unmatched + '</span></div>' +
+    '<div class="ipr"><span class="ipr-l">Skipped (missing IDs)</span><span class="ipr-v">' + skipped + '</span></div>' +
+    '<div class="ipr"><span class="ipr-l">Duplicates collapsed</span><span class="ipr-v">' + dedupCount + '</span></div>' +
+    '<div class="ipr" style="background:#fde8e8;padding:4px 8px;border-radius:6px;"><span class="ipr-l" style="color:#a53935;font-weight:700;">⚠ Auto-promote to Hold/Hospital</span><span class="ipr-v" style="color:#a53935;">' + autoHeld + ' rows</span></div>';
+
+  // Preview table — first 10 prepared rows, key columns only
+  var headers = ["patient_id","referral_id","patient_name","service","referral_date","episode_start_date","episode_end_date","hold_since","service_protocol"];
+  var thead = "<thead><tr>" + headers.map(function(h){return "<th>"+h+"</th>";}).join("") + "</tr></thead>";
+  var tbody = "<tbody>" + prepared.slice(0, 10).map(function(r){
+    return "<tr>" + headers.map(function(h){ return "<td>" + escHtml(r[h] || "") + "</td>"; }).join("") + "</tr>";
+  }).join("") + "</tbody>";
+  document.getElementById("eval-import-preview-table").innerHTML = thead + tbody;
+
+  document.getElementById("eval-import-preview").style.display = "block";
+  document.getElementById("eval-import-confirm-btn").disabled = false;
+}
+
+function showEvalImportMissing(htmlMsg) {
+  var box = document.getElementById("eval-import-missing");
+  box.innerHTML = htmlMsg;
+  box.style.display = "block";
+  document.getElementById("eval-import-confirm-btn").disabled = true;
+  evalImportPrepared = null;
+}
+
+/* ══════════════════════════════════════════════════
+   SCHEDULED APPOINTMENTS — phase-2 enrichment
+══════════════════════════════════════════════════ */
+var evalSchedPrepared = null;     // aggregated payload (one row per patient_id+service)
+
+function openEvalScheduleModal() {
+  evalSchedPrepared = null;
+  document.getElementById("eval-sched-preview").style.display = "none";
+  document.getElementById("eval-sched-missing").style.display = "none";
+  document.getElementById("eval-sched-confirm-btn").disabled = true;
+  document.getElementById("eval-sched-file-input").value = "";
+  document.getElementById("eval-sched-modal").style.display = "flex";
+}
+
+function showEvalSchedMissing(htmlMsg) {
+  var box = document.getElementById("eval-sched-missing");
+  box.innerHTML = htmlMsg;
+  box.style.display = "block";
+  document.getElementById("eval-sched-confirm-btn").disabled = true;
+  evalSchedPrepared = null;
+}
+
+async function handleEvalScheduleFile(file) {
+  var lc = (file.name || "").toLowerCase();
+  if (!lc.endsWith(".csv")) {
+    showEvalSchedMissing("Only <strong>.csv</strong> files are accepted. Got: <code>" + escHtml(file.name) + "</code>");
+    return;
+  }
+  try {
+    var text = await file.text();
+    var rows = parseCsv(text);
+    if (!rows.length) { showEvalSchedMissing("That CSV is empty."); return; }
+
+    var sample = rows[0];
+    var col = {};
+    var missing = [];
+    EVAL_SCHEDULE_REQUIRED_COLS.forEach(function(spec) {
+      var hit = evalFindCol(sample, spec.candidates);
+      col[spec.key] = hit;
+      if (!hit) missing.push(spec);
+    });
+    if (missing.length) {
+      showEvalSchedMissing(
+        "<strong>Missing required columns.</strong><br>" +
+        "Re-export with <strong>Select all fields</strong> checked.<br><br>" +
+        "<strong>Missing:</strong> " +
+        missing.map(function(m){return escHtml(m.label);}).join(", ") +
+        "<br><br><strong>Columns seen:</strong><br>" +
+        "<span style='font-family:ui-monospace,monospace;font-size:11px;color:#444;'>" +
+        Object.keys(sample).map(escHtml).join(", ") + "</span>"
+      );
+      return;
+    }
+
+    // Aggregate per (patient_id, service):
+    //   - earliest FUTURE eval (next_eval_*)
+    //   - latest PAST eval (last_eval_attempted) — for missed-eval detection
+    //   - total future appointment count
+    var todayIso = new Date().toISOString().slice(0, 10);
+    var bucket = Object.create(null);   // key = pid|svc
+    var totalRows = 0, evalRows = 0;
+    rows.forEach(function(r) {
+      var pid = String(r[col.pid] || "").trim();
+      var svc = String(r[col.svc] || "").trim();
+      if (!pid || !svc) return;
+      var apptDate = evalParseDate(r[col.appdt]);
+      if (!apptDate) return;
+      var isEval = isEvalActivity(r[col.act], r[col.evalCol]);
+      var key = pid + "|" + svc;
+      var b = bucket[key];
+      if (!b) {
+        b = bucket[key] = {
+          patient_id: pid, service: svc,
+          next_eval_date: null, next_eval_activity: null, next_eval_clinician: null,
+          next_eval_confirmed: null, next_eval_appt_id: null, next_eval_note: null,
+          last_eval_attempted: null,
+          scheduled_appt_count: 0
+        };
+      }
+      totalRows++;
+      if (apptDate >= todayIso) b.scheduled_appt_count++;
+      if (!isEval) return;
+      evalRows++;
+      if (apptDate >= todayIso) {
+        // Future eval — keep earliest
+        if (!b.next_eval_date || apptDate < b.next_eval_date) {
+          b.next_eval_date       = apptDate;
+          b.next_eval_activity   = String(r[col.act]  || "").trim().toUpperCase();
+          b.next_eval_clinician  = String(r[col.clin] || "").trim();
+          b.next_eval_confirmed  = String(r[col.conf] || "").trim().toLowerCase() === "yes";
+          b.next_eval_appt_id    = String(r[col.appid]|| "").trim() || null;
+          b.next_eval_note       = String(r[col.note] || "").trim() || null;
+        }
+      } else {
+        // Past eval — keep latest
+        if (!b.last_eval_attempted || apptDate > b.last_eval_attempted) {
+          b.last_eval_attempted = apptDate;
+        }
+      }
+    });
+
+    var prepared = Object.values(bucket);
+    if (!prepared.length) {
+      showEvalSchedMissing("No usable rows in the file (Patient ID + Service required).");
+      return;
+    }
+    evalSchedPrepared = prepared;
+
+    var withFutureEval = prepared.filter(function(b) { return !!b.next_eval_date; }).length;
+    var withMissedEval = prepared.filter(function(b) { return !b.next_eval_date && !!b.last_eval_attempted; }).length;
+    document.getElementById("eval-sched-stats").innerHTML =
+      '<div class="ipr"><span class="ipr-l">File</span><span class="ipr-v">' + escHtml(file.name) + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Appointments parsed</span><span class="ipr-v">' + totalRows + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Eval-type appointments</span><span class="ipr-v">' + evalRows + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Distinct (patient × service)</span><span class="ipr-v">' + prepared.length + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">With future eval scheduled</span><span class="ipr-v">' + withFutureEval + '</span></div>' +
+      '<div class="ipr" style="background:#fde8e8;padding:4px 8px;border-radius:6px;"><span class="ipr-l" style="color:#a53935;font-weight:700;">🔴 Past eval, no current schedule</span><span class="ipr-v" style="color:#a53935;">' + withMissedEval + '</span></div>';
+
+    document.getElementById("eval-sched-preview").style.display = "block";
+    document.getElementById("eval-sched-confirm-btn").disabled = false;
+  } catch (err) {
+    showEvalSchedMissing("Failed to read CSV: " + escHtml(err.message || String(err)));
+  }
+}
+
+async function confirmEvalScheduleImport() {
+  if (!evalSchedPrepared || !evalSchedPrepared.length) return;
+  var btn = document.getElementById("eval-sched-confirm-btn");
+  btn.disabled = true; btn.textContent = "Applying…";
+  try {
+    var total = 0;
+    for (var i = 0; i < evalSchedPrepared.length; i += 200) {
+      var chunk = evalSchedPrepared.slice(i, i + 200);
+      var { data, error } = await db.rpc("update_eval_schedule_info", { rows: chunk });
+      if (error) throw new Error(error.message);
+      total += (data || 0);
+    }
+    closeModal("eval-sched-modal");
+    showToast("Schedule applied — updated " + total + " evaluation items.", "success");
+    await loadEvaluationCompliance();
+  } catch (err) {
+    showToast("Schedule import failed: " + (err.message || err), "error");
+  } finally {
+    btn.disabled = false; btn.textContent = "Apply Schedule";
+  }
+}
+
+/* ══════════════════════════════════════════════════
+   PATIENT VISITS — phase-3 enrichment
+══════════════════════════════════════════════════ */
+var evalVisitsPrepared       = null;   // per-(patient,service) for apply_eval_visits
+var evalClinPeriodsPrepared  = null;   // per-(clinician,pay_period) for upsert_clinician_visit_periods
+
+function openEvalVisitsModal() {
+  evalVisitsPrepared = null;
+  evalClinPeriodsPrepared = null;
+  document.getElementById("eval-visits-preview").style.display = "none";
+  document.getElementById("eval-visits-missing").style.display = "none";
+  document.getElementById("eval-visits-confirm-btn").disabled = true;
+  document.getElementById("eval-visits-file-input").value = "";
+  document.getElementById("eval-visits-modal").style.display = "flex";
+}
+
+function showEvalVisitsMissing(htmlMsg) {
+  var box = document.getElementById("eval-visits-missing");
+  box.innerHTML = htmlMsg;
+  box.style.display = "block";
+  document.getElementById("eval-visits-confirm-btn").disabled = true;
+  evalVisitsPrepared = null;
+}
+
+async function handleEvalVisitsFile(file) {
+  var lc = (file.name || "").toLowerCase();
+  if (!lc.endsWith(".csv")) {
+    showEvalVisitsMissing("Only <strong>.csv</strong> files are accepted. Got: <code>" + escHtml(file.name) + "</code>");
+    return;
+  }
+  try {
+    var text = await file.text();
+    var rows = parseCsv(text);
+    if (!rows.length) { showEvalVisitsMissing("That CSV is empty."); return; }
+
+    var sample = rows[0];
+    var col = {};
+    var missing = [];
+    EVAL_VISITS_REQUIRED_COLS.forEach(function(spec) {
+      var hit = evalFindCol(sample, spec.candidates);
+      col[spec.key] = hit;
+      if (!hit) missing.push(spec);
+    });
+    if (missing.length) {
+      showEvalVisitsMissing(
+        "<strong>Missing required columns.</strong><br>" +
+        "Re-export with <strong>Select all fields</strong> checked.<br><br>" +
+        "<strong>Missing:</strong> " +
+        missing.map(function(m){return escHtml(m.label);}).join(", ") +
+        "<br><br><strong>Columns seen:</strong><br>" +
+        "<span style='font-family:ui-monospace,monospace;font-size:11px;color:#444;'>" +
+        Object.keys(sample).map(escHtml).join(", ") + "</span>"
+      );
+      return;
+    }
+
+    // Detect Duration / Billable / Payable columns (used for clinician-period
+    // aggregation; not required for eval-level enrichment).
+    var colDur      = evalFindCol(sample, ["Duration minutes", "DurationMinutes"]);
+    var colBillable = evalFindCol(sample, ["Billable"]);
+    var colPayable  = evalFindCol(sample, ["Payable"]);
+
+    // Aggregate per (patient_id, service):
+    //   - latest INITIAL eval (PTE/OTE/STE) → eval_visit_*
+    //   - latest RE-EVAL (PTRE/OTRE/STRE) → reeval_*
+    //   - latest visit of ANY kind → last_visit_actual_date
+    // AND in parallel, aggregate per (clinician_name, pay_period) for Roster:
+    //   - visit_count, eval_count, billable_count, payable_count
+    //   - total_duration_minutes, total_completion_hours
+    var bucket   = Object.create(null);
+    var clinPer  = Object.create(null);   // key = clinician_name|pp_start
+    var totalRows = 0, initialEvals = 0, reEvals = 0;
+    rows.forEach(function(r) {
+      var pid = String(r[col.pid] || "").trim();
+      var svc = String(r[col.svc] || "").trim();
+      if (!pid || !svc) return;
+      var visitDate = evalParseDate(r[col.visdt]);
+      if (!visitDate) return;
+      totalRows++;
+      var type = String(r[col.vistype] || "").trim().toUpperCase();
+      var key = pid + "|" + svc;
+      var b = bucket[key] || (bucket[key] = {
+        patient_id: pid, service: svc,
+        eval_visit_date: null, eval_visit_type: null, eval_visit_clinician: null,
+        eval_note_completed_at: null, eval_completion_hours: null, eval_visit_id: null,
+        reeval_visit_date: null, reeval_note_completed_at: null,
+        last_visit_actual_date: null
+      });
+
+      // Latest visit of any type
+      if (!b.last_visit_actual_date || visitDate > b.last_visit_actual_date) {
+        b.last_visit_actual_date = visitDate;
+      }
+
+      // Initial eval — keep the LATEST one (most recent visit wins)
+      var isInitialEval = EVAL_VISIT_INITIAL_CODES.indexOf(type) > -1;
+      var isReeval      = EVAL_VISIT_REEVAL_CODES.indexOf(type)  > -1;
+      if (isInitialEval) {
+        initialEvals++;
+        if (!b.eval_visit_date || visitDate > b.eval_visit_date) {
+          b.eval_visit_date         = visitDate;
+          b.eval_visit_type         = type;
+          b.eval_visit_clinician    = String(r[col.clin] || "").trim();
+          b.eval_note_completed_at  = parseTBTimestamp(r[col.compdt]);
+          b.eval_completion_hours   = parseCompletionDelay(r[col.delay]);
+          b.eval_visit_id           = String(r[col.visid] || "").trim() || null;
+        }
+      }
+      if (isReeval) {
+        reEvals++;
+        if (!b.reeval_visit_date || visitDate > b.reeval_visit_date) {
+          b.reeval_visit_date        = visitDate;
+          b.reeval_note_completed_at = parseTBTimestamp(r[col.compdt]);
+        }
+      }
+
+      // ── Per-(clinician, pay_period) aggregation for the Roster RPC ──
+      var clinName = String(r[col.clin] || "").trim();
+      if (!clinName) return;
+      var pp = payPeriodFor(visitDate);
+      if (!pp) return;
+      var ckey = clinName + "|" + pp.start;
+      var c = clinPer[ckey] || (clinPer[ckey] = {
+        clinician_name: clinName,
+        pay_period_start: pp.start,
+        pay_period_end:   pp.end,
+        visit_count: 0,
+        eval_count: 0,
+        billable_count: 0,
+        payable_count: 0,
+        total_duration_minutes: 0,
+        _delaySum: 0,     // sum of hours
+        _delayCount: 0    // number of visits where delay was parseable
+      });
+      c.visit_count++;
+      if (isInitialEval || isReeval) c.eval_count++;
+      if (colBillable && String(r[colBillable] || "").trim().toLowerCase() === "yes") c.billable_count++;
+      if (colPayable  && String(r[colPayable]  || "").trim().toLowerCase() === "yes") c.payable_count++;
+      var dur = colDur ? parseFloat(r[colDur]) : NaN;
+      if (!isNaN(dur)) c.total_duration_minutes += dur;
+      var delayHrs = parseCompletionDelay(r[col.delay]);
+      if (delayHrs != null) { c._delaySum += delayHrs; c._delayCount++; }
+    });
+
+    var prepared = Object.values(bucket);
+    if (!prepared.length) {
+      showEvalVisitsMissing("No usable rows (Patient ID + Service required on every row).");
+      return;
+    }
+    evalVisitsPrepared = prepared;
+
+    // Finalize clinician-period aggregates: compute the avgs.
+    evalClinPeriodsPrepared = Object.values(clinPer).map(function(c) {
+      var avgDur = c.visit_count > 0 ? Math.round((c.total_duration_minutes / c.visit_count) * 100) / 100 : null;
+      var avgDelayHrs = c._delayCount > 0 ? Math.round((c._delaySum / c._delayCount) * 100) / 100 : null;
+      var avgSyncDays = avgDelayHrs != null ? Math.round((avgDelayHrs / 24) * 100) / 100 : null;
+      return {
+        clinician_name:         c.clinician_name,
+        pay_period_start:       c.pay_period_start,
+        pay_period_end:         c.pay_period_end,
+        visit_count:            c.visit_count,
+        eval_count:             c.eval_count,
+        billable_count:         c.billable_count,
+        payable_count:          c.payable_count,
+        total_duration_minutes: Math.round(c.total_duration_minutes * 100) / 100,
+        avg_duration_minutes:   avgDur,
+        total_completion_hours: c._delayCount > 0 ? Math.round(c._delaySum * 100) / 100 : null,
+        avg_completion_hours:   avgDelayHrs,
+        avg_sync_days:          avgSyncDays
+      };
+    });
+
+    // Stats panel
+    var withEval         = prepared.filter(function(b) { return !!b.eval_visit_date; }).length;
+    var withSyncedNote   = prepared.filter(function(b) { return !!b.eval_note_completed_at; }).length;
+    var lateSync         = prepared.filter(function(b) { return b.eval_completion_hours && b.eval_completion_hours > 48; }).length;
+    var distinctClinicians = (function() {
+      var seen = Object.create(null);
+      evalClinPeriodsPrepared.forEach(function(c) { seen[c.clinician_name] = true; });
+      return Object.keys(seen).length;
+    })();
+    document.getElementById("eval-visits-stats").innerHTML =
+      '<div class="ipr"><span class="ipr-l">File</span><span class="ipr-v">' + escHtml(file.name) + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Visits parsed</span><span class="ipr-v">' + totalRows + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Initial eval visits</span><span class="ipr-v">' + initialEvals + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Re-eval visits</span><span class="ipr-v">' + reEvals + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Distinct (patient × service)</span><span class="ipr-v">' + prepared.length + '</span></div>' +
+      '<div class="ipr" style="background:#eef9f0;padding:4px 8px;border-radius:6px;"><span class="ipr-l" style="color:#1B5E20;font-weight:700;">🟢 With completed eval</span><span class="ipr-v" style="color:#1B5E20;">' + withEval + '</span></div>' +
+      '<div class="ipr"><span class="ipr-l">Eval note synced</span><span class="ipr-v">' + withSyncedNote + '</span></div>' +
+      '<div class="ipr" style="background:#fde8e8;padding:4px 8px;border-radius:6px;"><span class="ipr-l" style="color:#a53935;font-weight:700;">⚠ Sync delay > 48 hrs</span><span class="ipr-v" style="color:#a53935;">' + lateSync + '</span></div>' +
+      '<div class="ipr" style="background:#eef3f9;padding:4px 8px;border-radius:6px;"><span class="ipr-l" style="color:var(--blue);font-weight:700;">📊 Roster metrics</span><span class="ipr-v" style="color:var(--blue);">' + distinctClinicians + ' clinicians · ' + evalClinPeriodsPrepared.length + ' periods</span></div>';
+
+    document.getElementById("eval-visits-preview").style.display = "block";
+    document.getElementById("eval-visits-confirm-btn").disabled = false;
+  } catch (err) {
+    showEvalVisitsMissing("Failed to read CSV: " + escHtml(err.message || String(err)));
+  }
+}
+
+async function confirmEvalVisitsImport() {
+  if (!evalVisitsPrepared || !evalVisitsPrepared.length) return;
+  var btn = document.getElementById("eval-visits-confirm-btn");
+  btn.disabled = true; btn.textContent = "Applying…";
+  try {
+    // 1. Per-(patient, service) → drives Eval Compliance sync_status
+    var totalEval = 0;
+    for (var i = 0; i < evalVisitsPrepared.length; i += 200) {
+      var chunk = evalVisitsPrepared.slice(i, i + 200);
+      var { data, error } = await db.rpc("apply_eval_visits", { rows: chunk });
+      if (error) throw new Error(error.message);
+      totalEval += (data || 0);
+    }
+
+    // 2. Per-(clinician, pay_period) → drives Roster AVG SYNC/VISITS/TIME
+    var totalRoster = 0;
+    if (evalClinPeriodsPrepared && evalClinPeriodsPrepared.length) {
+      for (var j = 0; j < evalClinPeriodsPrepared.length; j += 200) {
+        var cchunk = evalClinPeriodsPrepared.slice(j, j + 200);
+        var resp = await db.rpc("upsert_clinician_visit_periods", { rows: cchunk });
+        if (resp.error) throw new Error(resp.error.message);
+        totalRoster += (resp.data || 0);
+      }
+    }
+
+    closeModal("eval-visits-modal");
+    var msg = "Visits applied — updated " + totalEval + " evaluation items";
+    if (totalRoster) msg += " · " + totalRoster + " clinician/period rows for Roster";
+    msg += ". Sync status auto-derived.";
+    showToast(msg, "success");
+    await loadEvaluationCompliance();
+  } catch (err) {
+    showToast("Visits import failed: " + (err.message || err), "error");
+  } finally {
+    btn.disabled = false; btn.textContent = "Apply Visits";
+  }
+}
+
+async function confirmEvalImport() {
+  if (!evalImportPrepared || !evalImportPrepared.length) return;
+  var btn = document.getElementById("eval-import-confirm-btn");
+  btn.disabled = true; btn.textContent = "Importing…";
+  try {
+    var batchId = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+                  : "batch-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
+    // Count how many will land in Hold/Hospital so we can warn the user.
+    // (Only matters for NEW rows; the RPC preserves category on conflict, so
+    // existing rows aren't affected. We can't tell client-side which rows
+    // are new vs. existing without a round-trip, so this is an upper bound.)
+    var autoHeldCount = evalImportPrepared.filter(function(r) { return !!r.hold_since; }).length;
+
+    // Chunk into batches of 200 to keep payloads sane
+    var total = 0;
+    for (var i = 0; i < evalImportPrepared.length; i += 200) {
+      var chunk = evalImportPrepared.slice(i, i + 200);
+      var { data, error } = await db.rpc("upsert_evaluation_items", { rows: chunk, batch_id: batchId });
+      if (error) throw new Error(error.message);
+      total += (data || 0);
+    }
+    closeModal("eval-import-modal");
+    var msg = "Imported " + total + " evaluation items.";
+    if (autoHeldCount > 0) {
+      msg += " ⚠ " + autoHeldCount + " new rows auto-promoted to Hold/Hospital (TB hold flag set).";
+    }
+    showToast(msg, "success");
+    await loadEvaluationCompliance();
+  } catch (err) {
+    showToast("Import failed: " + (err.message || err), "error");
+  } finally {
+    btn.disabled = false; btn.textContent = "Import";
+  }
 }
 
 /* ══════════════════════════════════════════════════

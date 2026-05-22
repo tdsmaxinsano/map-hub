@@ -470,6 +470,37 @@
   .toast.error { background: #b91c1c; }
 
   .loading-row td { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
+
+  /* ── Bulk Visits Import modal (admin-only) ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+  }
+  .modal-box {
+    background: #fff; border-radius: 16px; padding: 28px;
+    width: 540px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+  }
+  .modal-title { font-size: 17px; font-weight: 800; color: #1E3A5F; margin-bottom: 6px; }
+  .modal-sub   { font-size: 13px; color: #666; margin-bottom: 18px; line-height: 1.55; }
+  .modal-footer { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+  .btn-cancel  { padding: 9px 20px; border: 1.5px solid var(--border); background: #fff; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .btn-cancel:hover  { background: var(--bg, #f0f4f8); }
+  .btn-confirm { padding: 9px 22px; background: #1E3A5F; color: #fff; border: none; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+  .btn-confirm:hover { background: #2C5282; }
+  .btn-confirm:disabled { background: #aaa; cursor: not-allowed; }
+
+  .bulk-vis-dropzone {
+    display: block; border: 2px dashed #94a3b8; border-radius: 12px;
+    padding: 24px 18px; text-align: center; background: #fafbfc;
+    cursor: pointer; transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 14px;
+  }
+  .bulk-vis-dropzone:hover { border-color: #1E3A5F; background: #e8f0f8; }
+  .bulk-vis-dropzone.is-dragover { border-color: #C8960C; background: #FFF8E1; }
+  .bulk-vis-dropzone input[type=file] { display: none !important; }
+  .bulk-vis-icon { font-size: 36px; line-height: 1; margin-bottom: 6px; }
+  .bulk-vis-hint { font-size: 11px; color: #666; margin-top: 4px; }
 </style>
 <script>
   if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
@@ -544,6 +575,7 @@
       <div class="col-picker-menu" id="col-picker-menu"></div>
     </div>
     <button class="btn-export" id="csv-btn">⬇ CSV</button>
+    <button class="btn-export" id="bulk-visits-btn" style="display:none;background:#fff;border:1.5px solid #1E3A5F;color:#1E3A5F;">📥 Bulk Import Visits</button>
   </div>
 
   <!-- Table -->
@@ -574,6 +606,35 @@
         <tr class="loading-row"><td colspan="16">Loading…</td></tr>
       </tbody>
     </table>
+  </div>
+</div>
+
+<!-- ══════ BULK VISITS IMPORT MODAL — admin-only ══════ -->
+<div class="modal-overlay" id="bulk-visits-modal" style="display:none;">
+  <div class="modal-box" style="width:600px;">
+    <div class="modal-title">📥 Bulk Import Patient Visits → Roster Metrics</div>
+    <div class="modal-sub">
+      Admin-only one-shot backfill. Aggregates per-clinician + per-pay-period
+      from TB's Patient Visits CSV and feeds the
+      <strong>AVG SYNC DAYS · AVG VISITS/RUN · AVG VISIT TIME</strong> columns.
+      Existing periods are re-computed on conflict; nothing is deleted.
+      <br><br>
+      <strong>Tip:</strong> for full history, export TB Patient Visits with a
+      date range starting from your earliest hire (e.g. 2017) through today.
+      A ~9-year file is fine — parsed in ~10s, aggregates into ~2K rows.
+    </div>
+    <label class="bulk-vis-dropzone" id="bulk-vis-dropzone" for="bulk-vis-file-input">
+      <div class="bulk-vis-icon">👤</div>
+      <div><strong>Drop Patient Visits .csv here</strong></div>
+      <div class="bulk-vis-hint">CSV only · all fields must be selected in the TB export</div>
+      <input type="file" id="bulk-vis-file-input" accept=".csv,text/csv" />
+    </label>
+    <div id="bulk-vis-missing" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;font-size:12px;color:#c62828;margin-bottom:14px;line-height:1.5;"></div>
+    <div id="bulk-vis-preview" style="display:none;"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeBulkVisModal()">Cancel</button>
+      <button class="btn-confirm" id="bulk-vis-confirm-btn" onclick="confirmBulkVisitsImport()" disabled>Import All</button>
+    </div>
   </div>
 </div>
 
@@ -680,27 +741,72 @@ let filters = {
 let realtimeChannel = null;
 let visibleCols = loadVisibleCols(); // {key: bool}
 let agenciesList = []; // [{id, name}] from home_health_agencies
-let vdrLookup = { byId: {}, byName: {} }; // per-clinician VDR aggregates from list_clinician_vdr_summary()
+let vdrLookup    = { byId: {}, byName: {} }; // legacy VDR (Create-bills) aggregates
+let visitsLookup = { byId: {}, byName: {} }; // Patient Visits-derived aggregates (preferred)
 
-// ── Per-clinician VDR metrics lookup (Roster + Map share this pattern) ──
+// ── Per-clinician metrics lookup ──
+// Patient Visits (TB Reports → Clinicians → Patient visits) is the canonical
+// source — every visit, with explicit completion delay + duration. VDR
+// (Create-bills) is the fallback when Visits data hasn't been imported yet.
+// Both RPCs return the same field names (avg_sync_days, avg_visits_per_run,
+// avg_visit_minutes) so the cell renderer doesn't care which source it came
+// from. We just prefer Visits when present.
 async function loadVdrSummary() {
-  try {
-    const r = await db.rpc("list_clinician_vdr_summary");
-    if (r.error) return;
-    const byId = {}, byName = {};
-    (r.data || []).forEach(row => {
-      if (row.clinician_id) byId[row.clinician_id] = row;
-      if (row.clinician_name) byName[formatName(row.clinician_name).toLowerCase()] = row;
-    });
-    vdrLookup = { byId, byName };
-  } catch (e) { /* non-fatal */ }
+  // supabase-js's db.rpc() returns a thenable but not a true Promise, so
+  // .catch() chained directly throws "not a function". Wrap each call in
+  // an async helper so try/catch handles failures cleanly. Both RPCs are
+  // best-effort — Roster still renders if either fails.
+  async function safeRpc(name) {
+    try {
+      const r = await db.rpc(name);
+      if (r && r.error) { console.warn("[roster]", name, "error:", r.error.message); return []; }
+      return (r && r.data) || [];
+    } catch (e) {
+      console.warn("[roster]", name, "threw:", e && e.message);
+      return [];
+    }
+  }
+  const [vdrRows, visRows] = await Promise.all([
+    safeRpc("list_clinician_vdr_summary"),
+    safeRpc("list_clinician_visit_summary")
+  ]);
+  vdrLookup    = buildMetricsLookup(vdrRows);
+  visitsLookup = buildMetricsLookup(visRows);
 }
 
+// TB clinician names carry trailing discipline codes: "Leon Diaz PTA",
+// "Basma Rafael PT". clinician_v2.name doesn't ("Leon Diaz", "Basma Rafael").
+// Normalize on lookup to strip the trailing code so both sides resolve to the
+// same key.
+const CLIN_LOOKUP_DISC_RX = /\s+(pt|pta|ot|ota|st|sta|slp|otr|otrl|rn|lpn|cna|md|do|dpt|np|pa)\.?$/i;
+function clinLookupKey(name) {
+  return formatName(String(name || ""))
+    .toLowerCase()
+    .replace(CLIN_LOOKUP_DISC_RX, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildMetricsLookup(rows) {
+  const byId = {}, byName = {};
+  rows.forEach(row => {
+    if (row.clinician_id)   byId[row.clinician_id] = row;
+    if (row.clinician_name) byName[clinLookupKey(row.clinician_name)] = row;
+  });
+  return { byId, byName };
+}
+
+// Visits-first lookup with VDR fallback. Keeps the existing call sites
+// untouched — they just see whichever source has data for the clinician.
 function getVdrMetricsFor(clinicianObj) {
-  if (!vdrLookup) return null;
-  if (clinicianObj.id && vdrLookup.byId[clinicianObj.id]) return vdrLookup.byId[clinicianObj.id];
-  const key = formatName(clinicianObj.name || "").toLowerCase();
-  return vdrLookup.byName[key] || null;
+  const key = clinLookupKey(clinicianObj.name);
+  // Patient Visits first (more comprehensive — captures non-billable evals)
+  if (clinicianObj.id && visitsLookup.byId[clinicianObj.id]) return visitsLookup.byId[clinicianObj.id];
+  if (visitsLookup.byName[key])                              return visitsLookup.byName[key];
+  // VDR fallback (Create-bills-derived)
+  if (clinicianObj.id && vdrLookup.byId[clinicianObj.id])    return vdrLookup.byId[clinicianObj.id];
+  if (vdrLookup.byName[key])                                 return vdrLookup.byName[key];
+  return null;
 }
 
 function syncTimeTint(days) {
@@ -856,6 +962,8 @@ async function launchApp(user) {
     const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
     currentRole = (roleRow && roleRow.role) || "readonly";
   } catch (e) { currentRole = "readonly"; }
+  // Reveal admin-only UI now that the role is resolved
+  if (typeof refreshBulkVisitsBtnVisibility === "function") refreshBulkVisitsBtnVisibility();
 
   // Load staff directory for "reviewed by" display
   loadStaffDirectory();
@@ -2322,6 +2430,292 @@ db.auth.onAuthStateChange((event, session) => {
 
 // Boot
 checkSession();
+
+/* ══════════════════════════════════════════════════
+   BULK PATIENT VISITS IMPORT — admin-only Roster backfill
+   Drops a full TB Patient Visits CSV (potentially multi-year),
+   aggregates per (clinician_name, pay_period_start), and writes
+   into clinician_visit_period_metrics. Powers the AVG SYNC DAYS /
+   AVG VISITS/RUN / AVG VISIT TIME columns.
+══════════════════════════════════════════════════ */
+var bulkVisitsPrepared = null;
+
+const BULK_VIS_REQUIRED_COLS = [
+  { key: "visdt",  candidates: ["Visit date (MM/DD/YYYY)", "Visit Date"] },
+  { key: "vistype",candidates: ["Visit type", "Visit Type"] },
+  { key: "compdt", candidates: ["Completed date", "Completed Date"] },
+  { key: "clin",   candidates: ["Clinician"] },
+  { key: "pid",    candidates: ["Patient ID", "PatientID", "Patient Id"] },
+  { key: "svc",    candidates: ["Service", "Discipline"] },
+  { key: "delay",  candidates: ["Completion delay", "Completion Delay"] },
+  { key: "dur",    candidates: ["Duration minutes", "DurationMinutes"] }
+];
+const BULK_VIS_EVAL_CODES   = ["PTE","OTE","STE","PTRE","OTRE","STRE"];
+const BULK_VIS_ANCHOR_MS    = Date.UTC(2024, 9, 17); // Thu 2024-10-17
+
+function bulkVisFindCol(row, candidates) {
+  if (!row) return null;
+  var keys = Object.keys(row);
+  var norm = keys.map(function(k) { return { raw: k, key: k.toLowerCase().replace(/[^a-z0-9]/g, "") }; });
+  for (var i = 0; i < candidates.length; i++) {
+    var want = candidates[i].toLowerCase().replace(/[^a-z0-9]/g, "");
+    for (var j = 0; j < norm.length; j++) if (norm[j].key === want) return norm[j].raw;
+    for (var j = 0; j < norm.length; j++) if (norm[j].key.indexOf(want) === 0) return norm[j].raw;
+    for (var j = 0; j < norm.length; j++) if (want.indexOf(norm[j].key) === 0 && norm[j].key.length >= 6) return norm[j].raw;
+  }
+  return null;
+}
+
+function bulkVisParseCsv(text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  var rows = [], row = [], field = "", inQ = false;
+  for (var i = 0; i < text.length; i++) {
+    var c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i+1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ",") { row.push(field); field = ""; }
+      else if (c === "\r") { /* skip */ }
+      else if (c === "\n") { row.push(field); field = ""; rows.push(row); row = []; }
+      else field += c;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  if (!rows.length) return [];
+  var headers = rows[0].map(function(h) { return String(h).trim(); });
+  var out = [];
+  for (var r = 1; r < rows.length; r++) {
+    if (rows[r].length === 1 && rows[r][0] === "") continue;
+    var obj = {};
+    for (var h = 0; h < headers.length; h++) obj[headers[h]] = (rows[r][h] != null ? rows[r][h] : "");
+    out.push(obj);
+  }
+  return out;
+}
+
+function bulkVisParseDate(v) {
+  if (!v && v !== 0) return null;
+  if (v instanceof Date) {
+    return v.getFullYear() + "-" + String(v.getMonth()+1).padStart(2,"0") + "-" + String(v.getDate()).padStart(2,"0");
+  }
+  var s = String(v).trim();
+  if (!s) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  var mm = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (mm) {
+    var yr = mm[3].length === 2 ? "20" + mm[3] : mm[3];
+    return yr + "-" + mm[1].padStart(2,"0") + "-" + mm[2].padStart(2,"0");
+  }
+  return null;
+}
+
+function bulkVisParseCompletionDelay(s) {
+  if (!s) return null;
+  var str = String(s).trim();
+  if (!str) return null;
+  var d = (str.match(/(\d+)\s*d/) || [])[1];
+  var h = (str.match(/(\d+)\s*h/) || [])[1];
+  var m = (str.match(/(\d+)\s*m/) || [])[1];
+  if (!d && !h && !m) return null;
+  return Math.round(((parseInt(d||0,10) * 24) + parseInt(h||0,10) + (parseInt(m||0,10) / 60)) * 100) / 100;
+}
+
+function bulkVisPayPeriod(iso) {
+  if (!iso) return null;
+  var t = Date.parse(iso + "T00:00:00Z");
+  if (isNaN(t)) return null;
+  var dayMs = 86400000;
+  var idx = Math.floor((t - BULK_VIS_ANCHOR_MS) / (14 * dayMs));
+  var startMs = BULK_VIS_ANCHOR_MS + idx * 14 * dayMs;
+  var endMs   = startMs + 13 * dayMs;
+  function fmt(ms) {
+    var d = new Date(ms);
+    return d.getUTCFullYear() + "-" +
+      String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getUTCDate()).padStart(2, "0");
+  }
+  return { start: fmt(startMs), end: fmt(endMs) };
+}
+
+function openBulkVisModal() {
+  bulkVisitsPrepared = null;
+  document.getElementById("bulk-vis-missing").style.display = "none";
+  document.getElementById("bulk-vis-preview").style.display = "none";
+  document.getElementById("bulk-vis-confirm-btn").disabled = true;
+  document.getElementById("bulk-vis-file-input").value = "";
+  document.getElementById("bulk-visits-modal").style.display = "flex";
+}
+function closeBulkVisModal() {
+  document.getElementById("bulk-visits-modal").style.display = "none";
+}
+function showBulkVisError(html) {
+  var box = document.getElementById("bulk-vis-missing");
+  box.innerHTML = html;
+  box.style.display = "block";
+  document.getElementById("bulk-vis-confirm-btn").disabled = true;
+  bulkVisitsPrepared = null;
+}
+
+async function handleBulkVisitsFile(file) {
+  var lc = (file.name || "").toLowerCase();
+  if (!lc.endsWith(".csv")) {
+    showBulkVisError("Only <strong>.csv</strong> files are accepted. Got: <code>" + escHtml(file.name) + "</code>");
+    return;
+  }
+  document.getElementById("bulk-vis-preview").innerHTML = '<div style="padding:14px;color:var(--gray);">⏳ Parsing ' + escHtml(file.name) + '…</div>';
+  document.getElementById("bulk-vis-preview").style.display = "block";
+  // Yield to the browser so the spinner renders before we lock the thread
+  await new Promise(function(r) { setTimeout(r, 16); });
+
+  try {
+    var text = await file.text();
+    var rows = bulkVisParseCsv(text);
+    if (!rows.length) { showBulkVisError("That CSV is empty."); return; }
+
+    var sample = rows[0];
+    var col = {};
+    var missing = [];
+    BULK_VIS_REQUIRED_COLS.forEach(function(spec) {
+      var hit = bulkVisFindCol(sample, spec.candidates);
+      col[spec.key] = hit;
+      if (!hit) missing.push(spec.candidates[0]);
+    });
+    if (missing.length) {
+      showBulkVisError(
+        "<strong>Missing required columns:</strong> " + missing.map(escHtml).join(", ") +
+        "<br><br>Re-export with <strong>Select all fields</strong> checked." +
+        "<br><br><strong>Columns seen:</strong><br>" +
+        "<span style='font-family:ui-monospace,monospace;font-size:11px;color:#444;'>" +
+        Object.keys(sample).map(escHtml).join(", ") + "</span>"
+      );
+      return;
+    }
+
+    // Aggregate per (clinician_name, pay_period_start). Memory-efficient
+    // single-pass over the rows — no intermediate row arrays.
+    var bucket = Object.create(null);
+    var totalRows = 0;
+    var earliest = null, latest = null;
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i];
+      var visIso = bulkVisParseDate(r[col.visdt]);
+      if (!visIso) continue;
+      var clinName = String(r[col.clin] || "").trim();
+      if (!clinName) continue;
+      var pp = bulkVisPayPeriod(visIso);
+      if (!pp) continue;
+      totalRows++;
+      if (!earliest || visIso < earliest) earliest = visIso;
+      if (!latest   || visIso > latest)   latest   = visIso;
+      var ckey = clinName + "|" + pp.start;
+      var c = bucket[ckey] || (bucket[ckey] = {
+        clinician_name: clinName,
+        pay_period_start: pp.start, pay_period_end: pp.end,
+        visit_count: 0, eval_count: 0, billable_count: 0, payable_count: 0,
+        total_duration_minutes: 0,
+        _delaySum: 0, _delayCount: 0
+      });
+      c.visit_count++;
+      var type = String(r[col.vistype] || "").trim().toUpperCase();
+      if (BULK_VIS_EVAL_CODES.indexOf(type) > -1) c.eval_count++;
+      var dur = parseFloat(r[col.dur]);
+      if (!isNaN(dur)) c.total_duration_minutes += dur;
+      var delay = bulkVisParseCompletionDelay(r[col.delay]);
+      if (delay != null) { c._delaySum += delay; c._delayCount++; }
+    }
+
+    var prepared = [];
+    var seenClinicians = Object.create(null);
+    Object.keys(bucket).forEach(function(k) {
+      var c = bucket[k];
+      seenClinicians[c.clinician_name] = true;
+      var avgDur = c.visit_count > 0 ? Math.round((c.total_duration_minutes / c.visit_count) * 100) / 100 : null;
+      var avgDelay = c._delayCount > 0 ? Math.round((c._delaySum / c._delayCount) * 100) / 100 : null;
+      var avgSyncDays = avgDelay != null ? Math.round((avgDelay / 24) * 100) / 100 : null;
+      prepared.push({
+        clinician_name: c.clinician_name,
+        pay_period_start: c.pay_period_start,
+        pay_period_end:   c.pay_period_end,
+        visit_count: c.visit_count, eval_count: c.eval_count,
+        billable_count: c.billable_count, payable_count: c.payable_count,
+        total_duration_minutes: Math.round(c.total_duration_minutes * 100) / 100,
+        avg_duration_minutes: avgDur,
+        total_completion_hours: c._delayCount > 0 ? Math.round(c._delaySum * 100) / 100 : null,
+        avg_completion_hours: avgDelay,
+        avg_sync_days: avgSyncDays
+      });
+    });
+    bulkVisitsPrepared = prepared;
+
+    var clinCount = Object.keys(seenClinicians).length;
+    document.getElementById("bulk-vis-preview").innerHTML =
+      '<div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-size:13px;">' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--gray);">File</span><span style="font-weight:700;">' + escHtml(file.name) + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--gray);">Visits parsed</span><span style="font-weight:700;">' + totalRows.toLocaleString() + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--gray);">Visit date range</span><span style="font-weight:700;">' + escHtml(earliest || "—") + ' → ' + escHtml(latest || "—") + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;"><span style="color:var(--gray);">Distinct clinicians</span><span style="font-weight:700;">' + clinCount + '</span></div>' +
+        '<div style="display:flex;justify-content:space-between;padding:3px 0;background:#eef9f0;border-radius:4px;padding-left:8px;padding-right:8px;"><span style="color:#1B5E20;font-weight:700;">📊 Aggregate rows to upsert</span><span style="color:#1B5E20;font-weight:700;">' + prepared.length.toLocaleString() + '</span></div>' +
+      '</div>';
+    document.getElementById("bulk-vis-confirm-btn").disabled = prepared.length === 0;
+  } catch (err) {
+    showBulkVisError("Failed to read CSV: " + escHtml(err.message || String(err)));
+  }
+}
+
+async function confirmBulkVisitsImport() {
+  if (!bulkVisitsPrepared || !bulkVisitsPrepared.length) return;
+  var btn = document.getElementById("bulk-vis-confirm-btn");
+  btn.disabled = true;
+  var total = 0;
+  var chunkSize = 500;
+  var totalChunks = Math.ceil(bulkVisitsPrepared.length / chunkSize);
+  try {
+    for (var i = 0; i < bulkVisitsPrepared.length; i += chunkSize) {
+      btn.textContent = "Importing… " + Math.min(i + chunkSize, bulkVisitsPrepared.length) + "/" + bulkVisitsPrepared.length;
+      var chunk = bulkVisitsPrepared.slice(i, i + chunkSize);
+      var resp = await db.rpc("upsert_clinician_visit_periods", { rows: chunk });
+      if (resp.error) throw new Error(resp.error.message);
+      total += (resp.data || 0);
+    }
+    closeBulkVisModal();
+    alert("✓ Imported " + total + " clinician/period rows. Refreshing roster…");
+    await loadVdrSummary();
+    if (typeof renderTable === "function") renderTable();
+  } catch (err) {
+    showBulkVisError("Import failed: " + escHtml(err.message || String(err)));
+  } finally {
+    btn.disabled = false; btn.textContent = "Import All";
+  }
+}
+
+// Wire up — button is admin-gated, dropzone is always wired
+(function wireBulkVisitsImport() {
+  var dz = document.getElementById("bulk-vis-dropzone");
+  if (dz) {
+    dz.addEventListener("dragover",  function(e) { e.preventDefault(); dz.classList.add("is-dragover"); });
+    dz.addEventListener("dragleave", function()  { dz.classList.remove("is-dragover"); });
+    dz.addEventListener("drop", function(e) {
+      e.preventDefault(); dz.classList.remove("is-dragover");
+      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleBulkVisitsFile(f);
+    });
+    var fi = document.getElementById("bulk-vis-file-input");
+    if (fi) fi.addEventListener("change", function(e) {
+      var f = e.target.files && e.target.files[0];
+      if (f) handleBulkVisitsFile(f);
+    });
+  }
+  var btn = document.getElementById("bulk-visits-btn");
+  if (btn) btn.addEventListener("click", openBulkVisModal);
+})();
+
+// Reveal the button only to admins (called after role is resolved)
+function refreshBulkVisitsBtnVisibility() {
+  var btn = document.getElementById("bulk-visits-btn");
+  if (btn) btn.style.display = (currentRole === "admin") ? "" : "none";
+}
 </script>
 <!-- Chat widget (no-op inside iframe shell since it guards window.self !== window.top) -->
 <script src="chat-widget.js"></script>

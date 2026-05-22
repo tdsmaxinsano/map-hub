@@ -13047,38 +13047,66 @@
       }
     }
 
-    // ── Per-clinician VDR aggregates lookup (powered by
-    //    list_clinician_vdr_summary() RPC). Loaded once at boot; cached
-    //    on appState. ──
+    // ── Per-clinician metrics lookup ──────────────────────────────────
+    // Two sources, both with the same shape (avg_sync_days, avg_visits_per_run,
+    // avg_visit_minutes):
+    //   1. Patient Visits — list_clinician_visit_summary() — preferred. Captures
+    //      every visit (incl. non-billable evals) with explicit completion delay.
+    //   2. VDR (Create-bills) — list_clinician_vdr_summary() — fallback for
+    //      clinicians not in the Patient Visits import yet.
+    // TB's clinician names carry trailing discipline codes ("Basma Rafael PT");
+    // clinician_v2.name doesn't. Normalize both sides with clinLookupKeyMap()
+    // so the byName lookup actually matches.
+    var MAP_CLIN_DISC_RX = /\s+(pt|pta|ot|ota|st|sta|slp|otr|otrl|rn|lpn|cna|md|do|dpt|np|pa)\.?$/i;
+    function clinLookupKeyMap(name) {
+      var s = String(name || "");
+      if (typeof formatClinicianDisplayName === "function") s = formatClinicianDisplayName(s);
+      return s.toLowerCase().replace(MAP_CLIN_DISC_RX, "").replace(/\s+/g, " ").trim();
+    }
+    function buildMapMetricsLookup(rows) {
+      var byId = {}, byName = {};
+      (rows || []).forEach(function(row) {
+        if (row.clinician_id)   byId[row.clinician_id] = row;
+        if (row.clinician_name) byName[clinLookupKeyMap(row.clinician_name)] = row;
+      });
+      return { byId: byId, byName: byName };
+    }
+
     async function loadVdrSummaryForMap() {
-      try {
-        var r = await supabaseClient.rpc("list_clinician_vdr_summary");
-        if (r.error) return;
-        var byId = {}, byName = {};
-        (r.data || []).forEach(function(row) {
-          if (row.clinician_id) byId[row.clinician_id] = row;
-          if (row.clinician_name) {
-            var key = (typeof formatClinicianDisplayName === "function"
-              ? formatClinicianDisplayName(row.clinician_name)
-              : String(row.clinician_name)).toLowerCase();
-            byName[key] = row;
-          }
-        });
-        appState.vdrLookup = { byId: byId, byName: byName };
-        // If a profile is already open, re-render its VDR chips
-        if (appState.currentProfileClinicianId) {
-          renderVdrQuickFacts(appState.currentProfileClinicianId);
-        }
-      } catch (e) { /* non-fatal */ }
+      // supabase-js's .rpc() returns a thenable that doesn't expose .catch()
+      // until awaited — so wrap each call in a real async helper.
+      async function safeRpc(name) {
+        try {
+          var r = await supabaseClient.rpc(name);
+          if (r && r.error) return [];
+          return (r && r.data) || [];
+        } catch (e) { return []; }
+      }
+      var vdrRows = await safeRpc("list_clinician_vdr_summary");
+      var visRows = await safeRpc("list_clinician_visit_summary");
+      appState.vdrLookup    = buildMapMetricsLookup(vdrRows);
+      appState.visitsLookup = buildMapMetricsLookup(visRows);
+      // If a profile is already open, re-render its chips with the new data
+      if (appState.currentProfileClinicianId) {
+        renderVdrQuickFacts(appState.currentProfileClinicianId);
+      }
     }
     function getVdrMetricsForClinician(clinician) {
-      var lk = appState.vdrLookup;
-      if (!lk || !clinician) return null;
-      if (clinician.id && lk.byId[clinician.id]) return lk.byId[clinician.id];
-      var key = (typeof formatClinicianDisplayName === "function"
-        ? formatClinicianDisplayName(clinician.name || "")
-        : String(clinician.name || "")).toLowerCase();
-      return lk.byName[key] || null;
+      if (!clinician) return null;
+      var key = clinLookupKeyMap(clinician.name);
+      // Patient Visits-derived first (more comprehensive)
+      var v = appState.visitsLookup;
+      if (v) {
+        if (clinician.id && v.byId[clinician.id]) return v.byId[clinician.id];
+        if (v.byName[key])                        return v.byName[key];
+      }
+      // VDR fallback
+      var d = appState.vdrLookup;
+      if (d) {
+        if (clinician.id && d.byId[clinician.id]) return d.byId[clinician.id];
+        if (d.byName[key])                        return d.byName[key];
+      }
+      return null;
     }
 
     function renderClinicianCompletedServiceHistory() {
