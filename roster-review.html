@@ -1435,19 +1435,53 @@ function renderUpcomingPausePill(r) {
 }
 
 // Renders the pause/schedule block under each clinician's name.
-// Decides what to show based on status + whether any pause data exists.
-// Replaces the old Pause Start / End / Reason standalone columns.
+// Status drives the render — stale pause data on Active rows is ignored
+// (the auto-transition Edge Function already flipped the status; we
+// just don't want the inline editor surfacing the now-irrelevant dates).
 function renderPauseSection(r, canEdit) {
-  const hasData = !!(r.pause_start_date || r.pause_end_date || (r.pause_reason || "").trim());
-  // Status=Paused OR any pause data exists → full editor
-  if (r.status === "Paused" || hasData) {
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const hasStart = !!r.pause_start_date;
+  const hasEnd   = !!r.pause_end_date;
+  const isFutureStart = hasStart && r.pause_start_date > todayIso;
+  const isPastEnd     = hasEnd   && r.pause_end_date   < todayIso;
+
+  // Currently paused → full editor (with overdue pill if end_date is past)
+  if (r.status === "Paused") {
     return renderInlinePauseEditor(r, canEdit);
   }
-  // Active with no pause data → offer a schedule button (admin/editor only)
+
+  // Active with a FUTURE-scheduled pause → editor stays (the pause is still
+  // upcoming, user may want to adjust dates)
+  if (r.status === "Active" && isFutureStart) {
+    return renderInlinePauseEditor(r, canEdit);
+  }
+
+  // Active with STALE past pause data → show small "returned" badge instead
+  // of the editor, plus a button to schedule a new pause. Keeps the audit
+  // visible without making it look like the row is still paused.
+  if (r.status === "Active" && isPastEnd && canEdit) {
+    const ret = fmtPauseDateShort(r.pause_end_date);
+    return `
+      <div class="name-pause-block">
+        <span class="pause-return-pill tint-green" title="Auto-transitioned back to Active when pause end date passed">✓ Returned ${escHtml(ret)}</span>
+        <button type="button" class="schedule-pause-btn" data-cid="${escAttr(r.id)}" title="Schedule a new pause / vacation">📅 Schedule pause</button>
+      </div>
+    `;
+  }
+
+  // Active with no pause data → offer schedule button (admin/editor only)
   if (r.status === "Active" && canEdit) {
     return `<button type="button" class="schedule-pause-btn" data-cid="${escAttr(r.id)}" title="Schedule a pause / vacation for this clinician">📅 Schedule pause</button>`;
   }
   return "";
+}
+
+// Compact MM/DD/YY for the "Returned" badge.
+function fmtPauseDateShort(isoDate) {
+  if (!isoDate) return "";
+  const d = new Date(String(isoDate) + "T00:00:00");
+  if (isNaN(d.getTime())) return String(isoDate);
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function renderInlinePauseEditor(r, canEdit) {
