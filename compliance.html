@@ -138,7 +138,7 @@
     thead th.sorted .sa { opacity: 1; }
     tbody tr { border-bottom: 1px solid #edf1f7; transition: background 0.1s; }
     tbody tr:last-child { border-bottom: none; }
-    tbody tr:hover { background: #f7f9fc; }
+    tbody tr:not(.eval-row):hover { background: #f7f9fc; }
     tbody tr.row-hot { background: #fff5f5; }
     tbody tr.row-hot:hover { background: #ffeeee; }
     tbody tr.row-done { opacity: 0.5; }
@@ -580,6 +580,14 @@
     .eval-tint-no_evaluation        { background: #ffffff; }   /* white — NO EVALUATION */
     .eval-tint-cancelled            { background: #f1f5f9; color: #64748b; }  /* slate-100 — CANCELLED/TERM/RETURNED */
     .eval-tint-cancelled .eval-name { color: #64748b; }
+
+    /* Hover variants — deepen the row's own tint instead of flattening to
+       a neutral gray. Preserves the status meaning while still signaling
+       that the row is interactive. */
+    .eval-tint-synced:hover               { background: #d1fae5; }   /* green-100  */
+    .eval-tint-eval_done_not_synced:hover { background: #fef3c7; }   /* yellow-100 */
+    .eval-tint-no_evaluation:hover        { background: #f8fafc; }   /* slate-50 — subtle on white */
+    .eval-tint-cancelled:hover            { background: #e2e8f0; }   /* slate-200 */
 
     .eval-name { font-weight: 700; color: #18274a; }
     .eval-anchor-row { display: flex; gap: 4px; margin-top: 4px; flex-wrap: wrap; }

@@ -54,7 +54,9 @@ AS $$
 
   UNION ALL
 
-  -- (2) Pause starting in 0-3 days (active, start_date in next 3 days)
+  -- (2) Pause starting in 0-14 days (active, start_date in next 2 weeks).
+  -- Widened from the original 3-day window so coverage/coordination has
+  -- enough lead time to plan around scheduled vacations.
   SELECT
     CASE WHEN p.pause_start_date = CURRENT_DATE
          THEN 'pause_starting_today' ELSE 'pause_starting_soon' END,
@@ -66,7 +68,7 @@ AS $$
   JOIN public.clinician_profiles p ON p.clinician_id = v.id
   WHERE p.status = 'Active'
     AND p.pause_start_date IS NOT NULL
-    AND p.pause_start_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '3 days'
+    AND p.pause_start_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '14 days'
 
   UNION ALL
 
