@@ -220,6 +220,94 @@
     color: var(--muted); font-size: 13px; font-style: italic;
   }
   .alerts-list { list-style: none; display: flex; flex-direction: column; gap: 7px; padding: 0; margin: 0; }
+
+  .alerts-footer {
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px dashed var(--border);
+    text-align: right;
+  }
+  .bday-month-link {
+    background: transparent; border: none; cursor: pointer;
+    font-family: inherit; font-size: 12.5px; font-weight: 600;
+    color: var(--accent, #2463eb);
+    padding: 4px 8px; border-radius: 6px;
+  }
+  .bday-month-link:hover { background: rgba(36, 99, 235, 0.08); }
+
+  /* ── Birthdays drawer ─────────────────────────────────────── */
+  .bday-drawer-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.35);
+    z-index: 9998; display: none;
+  }
+  .bday-drawer-overlay.is-open { display: block; }
+  .bday-drawer {
+    position: fixed; top: 0; right: 0; bottom: 0;
+    width: 420px; max-width: 92vw;
+    background: var(--card, #fff);
+    box-shadow: -8px 0 28px rgba(0,0,0,0.18);
+    z-index: 9999; display: none;
+    flex-direction: column;
+  }
+  .bday-drawer.is-open { display: flex; }
+  .bday-drawer-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+  }
+  .bday-drawer-title { flex: 1; margin: 0; font-size: 15px; font-weight: 700; color: var(--text, #18274a); }
+  .bday-nav-btn, .bday-drawer-close {
+    background: transparent; border: 1.5px solid var(--border);
+    color: var(--text, #18274a); cursor: pointer;
+    width: 28px; height: 28px; border-radius: 6px;
+    font-size: 14px; font-weight: 700; line-height: 1;
+    font-family: inherit;
+  }
+  .bday-nav-btn:hover, .bday-drawer-close:hover { background: #f1f5f9; }
+  .bday-drawer-body {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 14px 16px;
+  }
+  .bday-drawer-loading { padding: 24px 0; text-align: center; color: var(--muted); }
+  .bday-drawer-empty   { padding: 24px 0; text-align: center; color: var(--muted); font-style: italic; }
+  .bday-section { margin-bottom: 18px; }
+  .bday-section-head {
+    font-size: 11px; font-weight: 800; letter-spacing: 0.4px;
+    text-transform: uppercase; color: var(--muted, #666);
+    margin-bottom: 8px;
+  }
+  .bday-section-head.is-today { color: #a53935; }
+  .bday-section-head.is-upcoming { color: #1B5E20; }
+  .bday-section-head.is-past { color: #94a3b8; }
+  .bday-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px;
+    border: 1px solid var(--border);
+    margin-bottom: 6px; cursor: pointer;
+    transition: background 0.12s;
+  }
+  .bday-row:hover { background: #f8fafc; }
+  .bday-row.is-today { border-color: #f5c2c2; background: #fff5f5; }
+  .bday-row.is-past  { opacity: 0.55; }
+  .bday-row-main { flex: 1; min-width: 0; }
+  .bday-row-name { font-weight: 700; color: var(--text, #18274a); font-size: 13.5px; }
+  .bday-row-meta { font-size: 11.5px; color: var(--muted, #666); margin-top: 2px; }
+  .bday-row-disc {
+    display: inline-block; font-size: 9.5px; font-weight: 800;
+    padding: 1px 6px; border-radius: 8px;
+    color: #fff; background: #94a3b8; margin-left: 4px;
+    letter-spacing: 0.4px;
+  }
+  .bday-row-when {
+    flex-shrink: 0; font-size: 11px; font-weight: 700;
+    color: var(--muted, #666);
+    padding: 3px 8px; border-radius: 10px;
+    background: #f1f5f9;
+  }
+  .bday-row.is-today .bday-row-when { background: #fde8e8; color: #a53935; }
+  .bday-drawer-summary {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    font-size: 11.5px; color: var(--muted, #666);
+    background: #fafbfc;
+  }
   .alert-item {
     display: grid;
     grid-template-columns: 24px 1fr auto;
@@ -449,6 +537,11 @@
             ✓ Nothing needs attention right now.
           </div>
           <ul class="alerts-list" id="alerts-list"></ul>
+          <div class="alerts-footer">
+            <button type="button" class="bday-month-link" id="open-bday-drawer">
+              🎂 Birthdays this month →
+            </button>
+          </div>
         </div>
 
         <h2 class="section-title">Activity</h2>
@@ -822,7 +915,9 @@
     pause_starting_soon:  { icon: "🟡", tint: "amber", verb: "starts" },
     pause_ending_today:   { icon: "🟢", tint: "green", verb: "returns" },
     pause_ending_soon:    { icon: "🟢", tint: "green", verb: "returns" },
-    just_returned:        { icon: "🔵", tint: "blue",  verb: "returned" }
+    just_returned:        { icon: "🔵", tint: "blue",  verb: "returned" },
+    birthday_today:       { icon: "🎂", tint: "amber", verb: "birthday" },
+    birthday_tomorrow:    { icon: "🎂", tint: "blue",  verb: "birthday" }
   };
 
   function fmtDateShort(d) {
@@ -838,12 +933,14 @@
   }
 
   function buildWhenLabel(alert) {
-    const o = Number(alert.days_offset);
+    const o = Number(alert.days_offset != null ? alert.days_offset : alert.days_until);
     if (alert.alert_type === "pause_starting_today")  return "TODAY";
     if (alert.alert_type === "pause_starting_soon")   return "in " + o + (o === 1 ? " day" : " days");
     if (alert.alert_type === "pause_ending_today")    return "today";
     if (alert.alert_type === "pause_ending_soon")     return o === 1 ? "tomorrow" : "in " + o + " days";
     if (alert.alert_type === "just_returned")         return Math.abs(o) + (Math.abs(o) === 1 ? " day ago" : " days ago");
+    if (alert.alert_type === "birthday_today")        return "TODAY";
+    if (alert.alert_type === "birthday_tomorrow")     return "tomorrow";
     return "";
   }
 
@@ -859,19 +956,176 @@
       case "pause_ending_today":    return `${meta.verb} from ${reason}${range}`;
       case "pause_ending_soon":     return `${meta.verb} from ${reason}${range}`;
       case "just_returned":         return `${meta.verb} to Active (was ${reason})`;
+      case "birthday_today":        return `turns ${alert.age_turning} today — ${fmtDateShort(alert.birthday_iso)}`;
+      case "birthday_tomorrow":     return `turns ${alert.age_turning} tomorrow — ${fmtDateShort(alert.birthday_iso)}`;
       default: return reason;
     }
   }
+
+  /* ════════════════════════════════════════════════════
+     BIRTHDAYS-THIS-MONTH DRAWER
+     ════════════════════════════════════════════════════ */
+  const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+  let bdayDrawerCursor = null;   // { year, month }  — month is 1-12
+
+  function openBdayDrawer() {
+    const now = new Date();
+    bdayDrawerCursor = { year: now.getFullYear(), month: now.getMonth() + 1 };
+    document.getElementById("bday-drawer").classList.add("is-open");
+    document.getElementById("bday-drawer").setAttribute("aria-hidden", "false");
+    document.getElementById("bday-drawer-overlay").classList.add("is-open");
+    loadBdayDrawerData();
+  }
+  function closeBdayDrawer() {
+    document.getElementById("bday-drawer").classList.remove("is-open");
+    document.getElementById("bday-drawer").setAttribute("aria-hidden", "true");
+    document.getElementById("bday-drawer-overlay").classList.remove("is-open");
+  }
+  function navBdayDrawer(delta) {
+    if (!bdayDrawerCursor) return;
+    let m = bdayDrawerCursor.month + delta;
+    let y = bdayDrawerCursor.year;
+    if (m > 12) { m -= 12; y += 1; }
+    if (m < 1)  { m += 12; y -= 1; }
+    bdayDrawerCursor = { year: y, month: m };
+    loadBdayDrawerData();
+  }
+
+  async function loadBdayDrawerData() {
+    const titleEl   = document.getElementById("bday-drawer-title");
+    const bodyEl    = document.getElementById("bday-drawer-body");
+    const summaryEl = document.getElementById("bday-drawer-summary");
+    if (!titleEl || !bodyEl || !summaryEl || !bdayDrawerCursor) return;
+    titleEl.textContent = "Birthdays — " + MONTH_NAMES[bdayDrawerCursor.month - 1] + " " + bdayDrawerCursor.year;
+    bodyEl.innerHTML = '<div class="bday-drawer-loading">Loading…</div>';
+    summaryEl.textContent = "";
+    try {
+      const r = await db.rpc("list_birthdays_in_month", {
+        target_year: bdayDrawerCursor.year,
+        target_month: bdayDrawerCursor.month
+      });
+      if (r.error) throw r.error;
+      const rows = r.data || [];
+      renderBdayDrawer(rows);
+    } catch (e) {
+      console.warn("[bday-drawer] load failed:", e && e.message);
+      bodyEl.innerHTML = '<div class="bday-drawer-empty">Failed to load birthdays. ' + escHtml(e && e.message || "") + '</div>';
+    }
+  }
+
+  function renderBdayDrawer(rows) {
+    const bodyEl    = document.getElementById("bday-drawer-body");
+    const summaryEl = document.getElementById("bday-drawer-summary");
+    if (!bodyEl || !summaryEl) return;
+    if (!rows.length) {
+      bodyEl.innerHTML = '<div class="bday-drawer-empty">No birthdays this month.</div>';
+      summaryEl.textContent = "0 total";
+      return;
+    }
+    const today    = rows.filter(r => r.days_offset === 0);
+    const upcoming = rows.filter(r => r.days_offset > 0).sort((a,b) => a.days_offset - b.days_offset);
+    const past     = rows.filter(r => r.days_offset < 0).sort((a,b) => a.days_offset - b.days_offset);
+
+    function rowHtml(r, kind) {
+      const disc = r.discipline || "";
+      const discColor = DISC_COLOR[disc] || "#94a3b8";
+      let whenLabel = "";
+      if      (kind === "today")    whenLabel = "TODAY 🎉";
+      else if (kind === "upcoming") whenLabel = r.days_offset === 1 ? "tomorrow" : "in " + r.days_offset + " days";
+      else                          whenLabel = r.days_offset === -1 ? "yesterday" : Math.abs(r.days_offset) + " days ago";
+      return `
+        <div class="bday-row ${kind === "today" ? "is-today" : (kind === "past" ? "is-past" : "")}" data-cid="${escHtml(r.clinician_id)}">
+          <div class="bday-row-main">
+            <div class="bday-row-name">
+              ${escHtml(r.clinician_name || "—")}
+              ${disc ? `<span class="bday-row-disc" style="background:${discColor};">${escHtml(disc)}</span>` : ""}
+            </div>
+            <div class="bday-row-meta">
+              ${fmtDateShort(r.birthday_iso)} · turns ${r.age_turning}
+            </div>
+          </div>
+          <span class="bday-row-when">${escHtml(whenLabel)}</span>
+        </div>`;
+    }
+
+    let html = "";
+    if (today.length) {
+      html += `<section class="bday-section">
+        <div class="bday-section-head is-today">🎉 Today (${today.length})</div>
+        ${today.map(r => rowHtml(r, "today")).join("")}
+      </section>`;
+    }
+    if (upcoming.length) {
+      html += `<section class="bday-section">
+        <div class="bday-section-head is-upcoming">📅 Upcoming this month (${upcoming.length})</div>
+        ${upcoming.map(r => rowHtml(r, "upcoming")).join("")}
+      </section>`;
+    }
+    if (past.length) {
+      html += `<section class="bday-section">
+        <div class="bday-section-head is-past">✓ Earlier this month (${past.length})</div>
+        ${past.map(r => rowHtml(r, "past")).join("")}
+      </section>`;
+    }
+    bodyEl.innerHTML = html;
+    summaryEl.textContent = rows.length + " total · " + today.length + " today · " + upcoming.length + " upcoming · " + past.length + " past";
+
+    // Row click → switch shell to Map tab with clinician deep-linked
+    bodyEl.querySelectorAll(".bday-row").forEach(el => {
+      el.addEventListener("click", () => {
+        const cid = el.dataset.cid;
+        if (cid) {
+          closeBdayDrawer();
+          shellSwitchTab("map", "clinician=" + encodeURIComponent(cid));
+        }
+      });
+    });
+  }
+
+  // Wire drawer controls once
+  document.addEventListener("DOMContentLoaded", function() {
+    var openBtn  = document.getElementById("open-bday-drawer");
+    var closeBtn = document.getElementById("bday-drawer-close");
+    var overlay  = document.getElementById("bday-drawer-overlay");
+    var prevBtn  = document.getElementById("bday-nav-prev");
+    var nextBtn  = document.getElementById("bday-nav-next");
+    if (openBtn)  openBtn.addEventListener("click", openBdayDrawer);
+    if (closeBtn) closeBtn.addEventListener("click", closeBdayDrawer);
+    if (overlay)  overlay.addEventListener("click", closeBdayDrawer);
+    if (prevBtn)  prevBtn.addEventListener("click", () => navBdayDrawer(-1));
+    if (nextBtn)  nextBtn.addEventListener("click", () => navBdayDrawer( 1));
+    document.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") {
+        var drawer = document.getElementById("bday-drawer");
+        if (drawer && drawer.classList.contains("is-open")) closeBdayDrawer();
+      }
+    });
+  });
 
   async function loadAlerts() {
     const list = document.getElementById("alerts-list");
     const empty = document.getElementById("alerts-empty");
     const count = document.getElementById("alerts-count");
     if (!list || !empty || !count) return;
+    // supabase-js .rpc() returns a thenable that doesn't expose .catch() until
+    // awaited — wrap each in safeRpc so a missing/failed RPC doesn't break the
+    // whole alerts card.
+    async function safeRpc(name) {
+      try { const r = await db.rpc(name); return (r && !r.error && r.data) ? r.data : []; }
+      catch (e) { console.warn("[alerts]", name, "failed:", e && e.message); return []; }
+    }
     try {
-      const r = await db.rpc("list_pause_alerts");
-      if (r.error) throw r.error;
-      const rows = (r.data || []);
+      const [pauseRows, bdayRows] = await Promise.all([
+        safeRpc("list_pause_alerts"),
+        safeRpc("list_birthday_alerts")
+      ]);
+      // Sort: TODAY alerts first (days_offset/days_until = 0), then by absolute
+      // distance ascending so tomorrow's beat in-3-days etc.
+      function alertSortKey(a) {
+        const o = a.days_offset != null ? a.days_offset : (a.days_until != null ? a.days_until : 99);
+        return o === 0 ? -1 : Math.abs(o);
+      }
+      const rows = pauseRows.concat(bdayRows).sort(function(a, b) { return alertSortKey(a) - alertSortKey(b); });
       if (!rows.length) {
         list.innerHTML = "";
         empty.style.display = "";
@@ -1044,6 +1298,22 @@
     checkSession();
   }
 </script>
+
+<!-- ══════ BIRTHDAYS-THIS-MONTH DRAWER ══════ -->
+<div class="bday-drawer-overlay" id="bday-drawer-overlay"></div>
+<aside class="bday-drawer" id="bday-drawer" aria-hidden="true">
+  <header class="bday-drawer-header">
+    <button class="bday-nav-btn" id="bday-nav-prev" aria-label="Previous month">‹</button>
+    <h3 class="bday-drawer-title" id="bday-drawer-title">Birthdays</h3>
+    <button class="bday-nav-btn" id="bday-nav-next" aria-label="Next month">›</button>
+    <button class="bday-drawer-close" id="bday-drawer-close" aria-label="Close">✕</button>
+  </header>
+  <section class="bday-drawer-body" id="bday-drawer-body">
+    <div class="bday-drawer-loading">Loading…</div>
+  </section>
+  <footer class="bday-drawer-summary" id="bday-drawer-summary"></footer>
+</aside>
+
 <script src="chat-widget.js"></script>
 </body>
 </html>

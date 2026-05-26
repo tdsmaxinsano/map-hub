@@ -6517,6 +6517,10 @@
                   <span class="profile-header-quickfact-label">🏖 Pause</span>
                   <span id="profile-header-pause" class="profile-header-quickfact-value"></span>
                 </div>
+                <div class="profile-header-quickfact-row" id="profile-header-dob-row" style="display:none;" title="Date of birth (from clinician import)">
+                  <span class="profile-header-quickfact-label">🎂 DOB</span>
+                  <span id="profile-header-dob" class="profile-header-quickfact-value"></span>
+                </div>
               </div>
               <div class="profile-header-actions">
                 <button id="profile-isolate-clinician" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Clinician</button>
@@ -7756,6 +7760,7 @@
     const clinicianMasterImportFields = [
       { key: "name", label: "Name", aliases: ["name", "clinician", "clinician name"] },
       { key: "gender", label: "Gender", aliases: ["gender", "sex"] },
+      { key: "dob", label: "DOB", aliases: ["dob", "date of birth", "birthday", "birth date", "birthdate"] },
       { key: "street", label: "Street", aliases: ["street", "address", "street address"] },
       { key: "city", label: "City", aliases: ["city"] },
       { key: "state", label: "State", aliases: ["state"] },
@@ -8584,6 +8589,7 @@
         email: profileRow.email || record.email || null,
         photo_url: profileRow.photo_url || record.photo_url || null,
         internal_rating: profileRow.internal_rating ?? record.internal_rating ?? null,
+        dob: profileRow.dob || record.dob || null,
         profile_status: nextStatus,
         status: nextStatus,
         notes: profileRow.notes || record.notes || "",
@@ -12926,6 +12932,50 @@
       // 5) Pause lifecycle — show ends-in-N-days when Paused, or
       //    starts-in-N-days when Active with an upcoming pause_start_date.
       renderPauseLifecycleQuickFact(clinicianId);
+
+      // 6) DOB / birthday — shows "Apr 21 (turns 47)" with celebratory tint
+      //    when this week.
+      renderDobQuickFact(clinicianId);
+    }
+
+    function renderDobQuickFact(clinicianId) {
+      var row = document.getElementById("profile-header-dob-row");
+      var el  = document.getElementById("profile-header-dob");
+      if (!row || !el) return;
+      var clinician = clinicianId
+        ? appState.clinicians.find(function(c) { return c.id === clinicianId; })
+        : null;
+      if (!clinician || !clinician.dob) {
+        row.style.display = "none";
+        el.innerHTML = "";
+        return;
+      }
+      var dobStr = String(clinician.dob);
+      var d = new Date(dobStr + "T00:00:00");
+      if (isNaN(d.getTime())) {
+        row.style.display = "none";
+        return;
+      }
+      var today = new Date(); today.setHours(0, 0, 0, 0);
+      var thisYr = today.getFullYear();
+      var bday = new Date(thisYr, d.getMonth(), d.getDate());
+      bday.setHours(0, 0, 0, 0);
+      // If the birthday has already passed this year, compute days_until for next year
+      var daysUntil = Math.round((bday.getTime() - today.getTime()) / 86400000);
+      var ageThis  = thisYr - d.getFullYear();
+      var ageNext  = ageThis + (daysUntil < 0 ? 1 : 0);
+      var monthDay = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+      var label = monthDay + " (turns " + ageNext + ")";
+      var tintClass = "";
+      if (daysUntil === 0)             { label = "🎉 " + monthDay + " (today, turns " + ageNext + ")"; tintClass = "vdr-tint-amber"; }
+      else if (daysUntil === 1)        { label = monthDay + " (tomorrow, turns " + ageNext + ")"; tintClass = "vdr-tint-amber"; }
+      else if (daysUntil > 1 && daysUntil <= 7) { label = monthDay + " (" + daysUntil + " days, turns " + ageNext + ")"; }
+
+      el.innerHTML = tintClass
+        ? "<span class='" + tintClass + "'>" + escapeHtml(label) + "</span>"
+        : escapeHtml(label);
+      row.style.display = "flex";
     }
 
     function renderPauseLifecycleQuickFact(clinicianId) {
@@ -17895,6 +17945,24 @@
       const rawValue = String(value ?? "").trim();
       if (!rawValue) return null;
 
+      // Excel serial date — bare number like "34397" or "34397.0".
+      // TB exports DOB without a date number format applied, so SheetJS
+      // returns the serial as-is. Convert to ISO via the standard
+      // Lotus/Excel epoch (days since 1899-12-30; the 25569 offset gets
+      // us to 1970-01-01 = Unix epoch). Range guard ([1, 80000]) covers
+      // 1900-01-01 through ~2119 so plain ints elsewhere don't false-match.
+      const serialMatch = rawValue.match(/^-?\d+(\.\d+)?$/);
+      if (serialMatch) {
+        const serial = Number(rawValue);
+        if (serial >= 1 && serial < 80000) {
+          const ms = Math.round((serial - 25569) * 86400000);
+          const serialDate = new Date(ms);
+          if (!Number.isNaN(serialDate.getTime())) {
+            return serialDate.toISOString();
+          }
+        }
+      }
+
       const dateMatch = rawValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2})(?::(\d{2}))?(?::(\d{2}))?\s*(AM|PM)?)?$/i);
       if (dateMatch) {
         let month = Number(dateMatch[1]);
@@ -18617,6 +18685,7 @@
           row_number: rowNumber,
           name: normalizeImportTextValue(getMappedImportValue(rawRow, "name")),
           gender: normalizeImportTextValue(getMappedImportValue(rawRow, "gender")),
+          dob: normalizeImportDateOnlyValue(getMappedImportValue(rawRow, "dob")),
           street: street,
           city: city,
           state: state ? state.toUpperCase() : null,
@@ -18960,6 +19029,11 @@
         clinician_id: clinicianId,
         phone: row.phone || (existingClinician && existingClinician.phone) || null,
         email: row.email || (existingClinician && existingClinician.email) || null,
+        // DOB is a top-level column (not in tags JSONB) so the
+        // EXTRACT(MONTH/DAY) index can use it for birthday-alert lookups.
+        // On INSERT we use whatever was parsed; on UPDATE the upsert below
+        // preserves the existing value when row.dob is empty.
+        dob: row.dob || (existingClinician && existingClinician.dob) || null,
         status: String((existingClinician && existingClinician.profile_status) || (existingClinician && existingClinician.status) || "").trim() || derivedStatus,
         tags: nextTags,
         updated_at: new Date().toISOString()
@@ -19162,6 +19236,7 @@
       let createdCount = 0;
       let updatedCount = 0;
       let skippedCount = 0;
+      let dobBackfillCount = 0;   // opportunistic DOB-only writes in Additions Only mode
       const processedCliniciansByKey = new Map();
 
       for (let index = 0; index < normalizedRows.length; index += 1) {
@@ -19238,6 +19313,25 @@
         }
 
         if (appState.clinicianImportMode === "additions_only" && existingClinician) {
+          // Opportunistic DOB backfill: Additions Only normally skips matched
+          // existing clinicians entirely. The single exception: if the file
+          // has a DOB AND the DB row has NULL dob, write JUST the dob (no
+          // other field touched). Lets users fill in birthdays over time
+          // without switching to Full Initial Load.
+          if (row.dob && !existingClinician.dob) {
+            const dobRes = await supabaseClient
+              .from("clinician_profiles")
+              .upsert(
+                { clinician_id: existingClinician.id, dob: row.dob },
+                { onConflict: "clinician_id" }
+              );
+            if (dobRes.error) {
+              console.warn("[bulk-import] DOB backfill failed for", existingClinician.id, dobRes.error.message);
+            } else {
+              dobBackfillCount += 1;
+              existingClinician.dob = row.dob;   // keep in-memory cache in sync
+            }
+          }
           skippedCount += 1;
           if (importKey) {
             processedCliniciansByKey.set(importKey, existingClinician);
@@ -19291,7 +19385,9 @@
 
       setImportStatus(
         "Clinician master import complete (" + getClinicianImportModeLabel(appState.clinicianImportMode) + "). "
-          + createdCount + " created, " + updatedCount + " updated, " + skippedCount + " skipped.",
+          + createdCount + " created, " + updatedCount + " updated, " + skippedCount + " skipped"
+          + (dobBackfillCount ? " · 🎂 backfilled DOB on " + dobBackfillCount + " existing clinicians" : "")
+          + ".",
         "success"
       );
       await loadClinicians();

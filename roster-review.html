@@ -600,6 +600,7 @@
           <th data-col="phone">Phone <span style="opacity:0.5;">🔒</span></th>
           <th data-col="email">Email <span style="opacity:0.5;">🔒</span></th>
           <th data-col="emr">EMR</th>
+          <th data-col="dob">DOB <span style="opacity:0.5;">🎂</span></th>
         </tr>
       </thead>
       <tbody id="roster-body">
@@ -708,7 +709,10 @@ const COLUMNS = [
   // since they're rarely needed during a roster review pass.
   { key: "phone",        label: "Phone (TB)",   defaultOn: false },
   { key: "email",        label: "Email (TB)",   defaultOn: false },
-  { key: "emr",          label: "EMR",          defaultOn: true  }
+  { key: "emr",          label: "EMR",          defaultOn: true  },
+  // DOB — sourced from the Map clinician bulk import (read-only here).
+  // Default OFF for privacy + only shown as MM/DD (no year) in the cell.
+  { key: "dob",          label: "DOB (MM/DD)",  defaultOn: false }
 ];
 
 // Pause-reason presets (dropdown options under the name when status=Paused).
@@ -1001,7 +1005,7 @@ async function loadRoster() {
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
-      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags, emergency_contact_name, emergency_contact_phone, emergency_contact_relation")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, dob")
       .limit(5000),
     db.from("home_health_agencies")
       .select("id, name")
@@ -1048,7 +1052,9 @@ async function loadRoster() {
       // Emergency contact (managed in this portal — TB doesn't track it)
       emergency_contact_name: p.emergency_contact_name || "",
       emergency_contact_phone: p.emergency_contact_phone || "",
-      emergency_contact_relation: p.emergency_contact_relation || ""
+      emergency_contact_relation: p.emergency_contact_relation || "",
+      // DOB (sourced from Map clinician bulk import — read-only here)
+      dob: p.dob || null
     };
   });
 
@@ -1312,7 +1318,25 @@ function buildRow(r) {
     reviewed: `<td class="review-cell" data-col="reviewed" title="${escAttr(reviewTitle)}">
       <input type="checkbox" class="review-check" data-cid="${cid}" ${r.last_reviewed_at ? "checked" : ""}${dis} />
       ${r.last_reviewed_at ? `<span class="review-stamp">${escHtml(fmtDate(r.last_reviewed_at))}</span>` : ""}
-    </td>`
+    </td>`,
+    dob: (() => {
+      // Show MM/DD only — privacy-friendly + the most common use case is
+      // "when's the birthday" not "what year". Full date is on hover via title.
+      if (!r.dob) return `<td data-col="dob"><span style="color:#cbd5e1;font-size:11px;">—</span></td>`;
+      const d = new Date(String(r.dob) + "T00:00:00");
+      if (isNaN(d.getTime())) return `<td data-col="dob">—</td>`;
+      const monthDay = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      const fullIso  = String(r.dob);
+      // Tint with celebratory color if birthday is in next 7 days
+      const today = new Date(); today.setHours(0,0,0,0);
+      const thisYr = today.getFullYear();
+      const bday = new Date(thisYr, d.getMonth(), d.getDate()); bday.setHours(0,0,0,0);
+      const daysUntil = Math.round((bday.getTime() - today.getTime()) / 86400000);
+      const tint = (daysUntil === 0)             ? "color:#a53935;font-weight:700;"
+                 : (daysUntil > 0 && daysUntil <= 7) ? "color:#8a5a00;font-weight:600;"
+                 :                                    "";
+      return `<td data-col="dob" title="${escAttr(fullIso)}"><span style="${tint}">${escHtml(monthDay)}</span></td>`;
+    })()
   };
 
   // VDR metric cells — pull from the aggregate lookup
