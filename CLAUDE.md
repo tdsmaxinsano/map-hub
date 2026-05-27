@@ -24,7 +24,7 @@ All files are standalone HTML/CSS/JS — no framework, no build step. They share
 
 **Per-tool iframe-detection:** Each tool HTML has a tiny script in `<head>` that adds `html.in-iframe-shell` when `window.self !== window.top`. CSS rules then hide each tool's duplicate chrome (portal nav strip, brand, user chip, sign-out) when running inside the shell. Tools accessed via direct URL still show their full header — backward compatible.
 
-**Portal nav strip** (Map / Referrals / Time / Compliance / Kanban) is the fallback navigation when a tool is loaded standalone. Uses real `<a href>` links so Ctrl/Cmd+click → new tab works for free. All pages use `localStorage` auth → SSO across the portal, no re-login when switching tabs.
+**Portal nav strip** (🏠 Home / 🗺️ Map / 📋 Referrals / ⏱️ Time / ✅ Compliance / 🗂️ Kanban / 📋 Roster / 💰 Finance) is the fallback navigation when a tool is loaded standalone. 🏠 Home is always first and links back to `index.html` (the shell's Home dashboard pane). 💰 Finance is admin-only-revealed. Uses real `<a href>` links so Ctrl/Cmd+click → new tab works for free. All pages use `localStorage` auth → SSO across the portal, no re-login when switching tabs.
 
 ---
 
