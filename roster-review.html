@@ -471,6 +471,15 @@
 
   .loading-row td { padding: 40px; text-align: center; color: var(--muted); font-size: 13px; }
 
+  /* Pay-method inline dropdown */
+  .pay-method-select {
+    padding: 4px 6px; font-size: 12px; font-family: inherit;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: #fff; min-width: 140px;
+    cursor: pointer;
+  }
+  .pay-method-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   /* ── Bulk Visits Import modal (admin-only) ── */
   .modal-overlay {
     position: fixed; inset: 0; background: rgba(0,0,0,0.45);
@@ -529,6 +538,7 @@
     <p>Roster Review</p>
   </div>
   <nav class="header-nav">
+    <a href="index.html">🏠 Home</a>
     <a href="clinician-map.html">🗺️ Map</a>
     <a href="referrals.html">📋 Referrals</a>
     <a href="time-tracker.html">⏱️ Time</a>
@@ -601,6 +611,7 @@
           <th data-col="email">Email <span style="opacity:0.5;">🔒</span></th>
           <th data-col="emr">EMR</th>
           <th data-col="dob">DOB <span style="opacity:0.5;">🎂</span></th>
+          <th data-col="payMethod">Pay Method</th>
         </tr>
       </thead>
       <tbody id="roster-body">
@@ -712,7 +723,21 @@ const COLUMNS = [
   { key: "emr",          label: "EMR",          defaultOn: true  },
   // DOB — sourced from the Map clinician bulk import (read-only here).
   // Default OFF for privacy + only shown as MM/DD (no year) in the cell.
-  { key: "dob",          label: "DOB (MM/DD)",  defaultOn: false }
+  { key: "dob",          label: "DOB (MM/DD)",  defaultOn: false },
+  // Pay Method — drives the Finance → Payroll export grouping. Default
+  // OFF (column hidden until admin opts in via Columns ▾). Inline
+  // dropdown writes to clinician_profiles.payment_method. Default value
+  // for every clinician is 'check' (the existing QB-bill workflow).
+  { key: "payMethod",    label: "Pay Method",   defaultOn: false }
+];
+
+// Pay-method dropdown options. Order matches the four allowed DB values.
+// First option (Check) is the default for every clinician.
+const PAY_METHOD_OPTIONS = [
+  { value: "check",          label: "📄 Check (QB bill)", short: "Check" },
+  { value: "direct_deposit", label: "🏦 Direct Deposit",  short: "DD" },
+  { value: "zelle",          label: "💸 Zelle",           short: "Zelle" },
+  { value: "w2",             label: "🧾 W-2 Payroll",     short: "W-2" }
 ];
 
 // Pause-reason presets (dropdown options under the name when status=Paused).
@@ -1005,7 +1030,7 @@ async function loadRoster() {
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
-      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, dob")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, dob, payment_method")
       .limit(5000),
     db.from("home_health_agencies")
       .select("id, name")
@@ -1054,7 +1079,9 @@ async function loadRoster() {
       emergency_contact_phone: p.emergency_contact_phone || "",
       emergency_contact_relation: p.emergency_contact_relation || "",
       // DOB (sourced from Map clinician bulk import — read-only here)
-      dob: p.dob || null
+      dob: p.dob || null,
+      // Pay method (default 'check' per migration 20)
+      payment_method: p.payment_method || "check"
     };
   });
 
@@ -1336,6 +1363,17 @@ function buildRow(r) {
                  : (daysUntil > 0 && daysUntil <= 7) ? "color:#8a5a00;font-weight:600;"
                  :                                    "";
       return `<td data-col="dob" title="${escAttr(fullIso)}"><span style="${tint}">${escHtml(monthDay)}</span></td>`;
+    })(),
+    payMethod: (() => {
+      // Default is 'check' for every clinician (the QB-bill workflow).
+      const current = r.payment_method || "check";
+      const opts = PAY_METHOD_OPTIONS.map(o =>
+        `<option value="${escAttr(o.value)}"${o.value === current ? " selected" : ""}>${escHtml(o.label)}</option>`
+      ).join("");
+      const dis = canEdit ? "" : " disabled";
+      return `<td data-col="payMethod">
+        <select class="pay-method-select" data-cid="${cid}"${dis}>${opts}</select>
+      </td>`;
     })()
   };
 
@@ -1648,6 +1686,17 @@ async function saveDnr(cid, val) {
   try { await saveProfileField(cid, "do_not_rehire", val); }
   catch (e) { row.do_not_rehire = !val; renderAll(); return; }
   showToast(val ? "Marked Do Not Rehire" : "DNR cleared");
+}
+
+async function savePayMethod(cid, value) {
+  const row = getRow(cid);
+  if (!row) return;
+  const prev = row.payment_method;
+  row.payment_method = value;
+  try { await saveProfileField(cid, "payment_method", value); }
+  catch (e) { row.payment_method = prev; renderAll(); return; }
+  const opt = PAY_METHOD_OPTIONS.find(o => o.value === value);
+  showToast("Pay method → " + (opt ? opt.short : value));
 }
 
 async function saveNotes(cid, text) {
@@ -2379,6 +2428,8 @@ document.getElementById("roster-body").addEventListener("change", async e => {
     await saveDnr(t.dataset.cid, t.checked);
   } else if (t.classList.contains("review-check")) {
     await toggleReviewed(t.dataset.cid, t.checked);
+  } else if (t.classList.contains("pay-method-select")) {
+    await savePayMethod(t.dataset.cid, t.value);
   } else if (t.classList.contains("reason-select")) {
     // Pause reason dropdown — when changed, save the value (unless "Other"
     // which reveals a text input the user types into).

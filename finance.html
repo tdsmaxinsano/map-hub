@@ -134,6 +134,392 @@
   }
   .card .actions .btn-secondary:hover { background: #eff6ff; color: var(--accent); }
 
+  /* ── Clinician Payroll Calendar (Phase 1) ── */
+  .clin-pay-cal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .clin-pay-cal-head h3 { margin: 0; }
+  .clin-pay-cal-nav {
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  .clin-pay-cal-nav .btn-secondary {
+    background: #fff; color: var(--accent); border: 1.5px solid var(--accent);
+    padding: 5px 10px; border-radius: 6px; font-size: 12.5px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .clin-pay-cal-nav .btn-secondary:hover { background: #eff6ff; }
+  .clin-pay-cal-year {
+    font-size: 15px; font-weight: 800; color: var(--blue);
+    min-width: 62px; text-align: center;
+  }
+  .clin-pay-cal-wrap { overflow-x: auto; }
+  .clin-pay-cal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .clin-pay-cal-table thead th {
+    background: var(--blue-light, #e8f0f8); color: var(--blue);
+    font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 8px 12px; text-align: left; border-bottom: 1.5px solid var(--border);
+  }
+  .clin-pay-cal-table tbody td {
+    padding: 7px 12px; border-bottom: 1px solid #f1f5f9;
+  }
+  .clin-pay-cal-table tbody tr:last-child td { border-bottom: none; }
+  .clin-pay-cal-table tbody tr.is-current {
+    background: #fff8e1; font-weight: 700;
+    box-shadow: inset 3px 0 0 0 #C8960C;
+  }
+  .clin-pay-cal-table tbody tr.is-past td { color: #94a3b8; }
+  .clin-pay-cal-table tbody tr.is-future td { color: var(--text); }
+
+  /* Clickable pay-period rows — opens audit modal */
+  .clin-pay-cal-table tbody tr.clin-pay-cal-clickable { cursor: pointer; transition: background 0.12s; }
+  .clin-pay-cal-table tbody tr.clin-pay-cal-clickable:hover td { background: #eff6ff; }
+  .clin-pay-cal-audit-cta {
+    display: inline-block; font-size: 11px; font-weight: 700;
+    padding: 2px 10px; border-radius: 10px;
+    background: #eff6ff; color: var(--accent);
+    border: 1px dashed var(--accent);
+    letter-spacing: 0.3px;
+  }
+  .clin-pay-cal-table tbody tr.clin-pay-cal-clickable:hover .clin-pay-cal-audit-cta {
+    background: var(--accent); color: #fff; border-style: solid;
+  }
+  .clin-pay-cal-table .clin-pay-cal-status-col { width: 110px; text-align: right; white-space: nowrap; }
+  .clin-pay-cal-status-pill {
+    display: inline-block; font-size: 10.5px; font-weight: 800;
+    padding: 2px 8px; border-radius: 10px;
+    letter-spacing: 0.3px;
+  }
+  .clin-pay-cal-status-pill.past    { background: #f1f5f9; color: #94a3b8; }
+  .clin-pay-cal-status-pill.current { background: #fde68a; color: #7c2d12; }
+  .clin-pay-cal-status-pill.inprog  { background: #e0e7ff; color: #3730a3; }
+  .clin-pay-cal-status-pill.future  { background: #e0f2fe; color: #075985; }
+  /* Print: just the table, please */
+  @media print {
+    body * { visibility: hidden !important; }
+    #clin-pay-cal-card, #clin-pay-cal-card * { visibility: visible !important; }
+    #clin-pay-cal-card { position: absolute; left: 0; top: 0; width: 100%; border: none; box-shadow: none; }
+    .clin-pay-cal-nav, .clin-pay-cal-status-col { display: none !important; }
+    /* Hide the Audit column when printing — printed calendar should be a clean
+       2-column "Period | Pay Date" handout, no clickable hints. */
+    .clin-pay-cal-table thead th:nth-child(3),
+    .clin-pay-cal-table tbody td:nth-child(3) { display: none !important; }
+    .clin-pay-cal-table tbody tr.is-current { background: transparent !important; box-shadow: none !important; }
+  }
+
+  /* ── Clinician Payroll Audit (Phase 2) ── */
+  .cpr-status-pill {
+    display: inline-block; font-size: 10.5px; font-weight: 800;
+    padding: 2px 8px; border-radius: 10px; letter-spacing: 0.3px;
+  }
+  .cpr-status-pill.open     { background: #fef3c7; color: #92400e; }
+  .cpr-status-pill.audited  { background: #d1fae5; color: #065f46; }
+  .cpr-status-pill.exported { background: #dbeafe; color: #1e40af; }
+  .cpr-status-pill.paid     { background: #f1f5f9; color: #334155; }
+
+  .cpr-row-actions .btn-secondary {
+    padding: 3px 8px; font-size: 11px; margin-left: 4px;
+  }
+  .cpr-row-actions .cpr-del-btn {
+    color: #a53935; border-color: #f5c2c2; font-weight: 800;
+  }
+  .cpr-row-actions .cpr-del-btn:hover {
+    background: #fff5f5; border-color: #a53935;
+  }
+
+  .cpr-modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.45);
+    display: flex; align-items: center; justify-content: center; z-index: 9999;
+  }
+  .cpr-modal-box {
+    background: #fff; border-radius: 14px; padding: 26px;
+    width: 640px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.25);
+  }
+  .cpr-modal-title { font-size: 17px; font-weight: 800; color: var(--blue); margin-bottom: 6px; }
+  .cpr-modal-sub   { font-size: 13px; color: var(--muted); margin-bottom: 16px; line-height: 1.55; }
+  .cpr-modal-footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .cpr-modal-footer .btn-secondary {
+    background: #fff; color: var(--accent); border: 1.5px solid var(--accent);
+    padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit;
+  }
+  .cpr-modal-footer .btn-secondary:hover { background: #eff6ff; }
+  .cpr-modal-footer .btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .cpr-dropzone {
+    display: block; border: 2px dashed #94a3b8; border-radius: 12px;
+    padding: 24px 18px; text-align: center; background: #fafbfc;
+    cursor: pointer; transition: border-color 0.2s, background 0.2s; margin-bottom: 14px;
+  }
+  .cpr-dropzone:hover { border-color: var(--accent); background: #eff6ff; }
+  .cpr-dropzone.is-dragover { border-color: #C8960C; background: #fff8e1; }
+  .cpr-dropzone input[type=file] { display: none !important; }
+  .cpr-dz-icon { font-size: 36px; line-height: 1; margin-bottom: 6px; }
+  .cpr-dz-hint { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  .cpr-stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .cpr-stat-card { background: #f8fafc; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .cpr-stat-card.is-warn { background: #fff7e6; border-color: #ffd591; }
+  .cpr-stat-label { font-size: 10px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .cpr-stat-value { font-size: 17px; font-weight: 800; color: var(--blue); margin-top: 2px; }
+  .cpr-stat-card.is-warn .cpr-stat-value { color: #a53935; }
+
+  .cpr-per-clin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .cpr-per-clin-table thead th {
+    background: #f7f9fc; color: var(--blue); font-size: 10.5px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+    padding: 6px 10px; border-bottom: 1.5px solid var(--border);
+  }
+  .cpr-per-clin-table tbody td { padding: 5px 10px; border-bottom: 1px solid #edf1f7; }
+  .cpr-per-clin-table tbody tr:last-child td { border-bottom: none; }
+  .cpr-per-clin-table .cpr-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .cpr-per-clin-table tfoot td { font-weight: 800; background: #f1f5f9; padding: 7px 10px; }
+
+  /* Auditor flag strip + chips */
+  .cpr-flag-strip {
+    background: #fff5f5; border: 1px solid #ef9a9a; border-radius: 8px;
+    padding: 10px 14px; margin: 12px 0;
+  }
+  .cpr-flag-strip.cpr-flag-clean {
+    background: #ecfdf5; border-color: #86efac; color: #065f46;
+    font-size: 13px; font-weight: 700; padding: 10px 14px;
+  }
+  .cpr-flag-strip-label {
+    font-size: 11.5px; font-weight: 800; color: #a53935;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+  .cpr-flag-chip-row { display: flex; flex-wrap: wrap; gap: 6px; }
+  .cpr-flag-chip {
+    display: inline-block; font-size: 11px; font-weight: 700;
+    padding: 3px 8px; border-radius: 10px;
+    letter-spacing: 0.3px; white-space: nowrap;
+  }
+  .cpr-flag-chip.is-error { background: #fde8e8; color: #a53935; border: 1px solid #f5c2c2; }
+  .cpr-flag-chip.is-warn  { background: #fff7e6; color: #8a5a00; border: 1px solid #ffd591; }
+
+  /* Multi-period sanity warning (preview-only) */
+  .cpr-period-warn {
+    background: #fff7e6; border: 1px solid #ffd591; border-radius: 8px;
+    padding: 12px 14px; margin: 12px 0;
+  }
+  .cpr-period-warn-head {
+    font-size: 12px; font-weight: 800; color: #8a5a00;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px;
+  }
+  .cpr-period-warn-body {
+    font-size: 12.5px; color: #5a3a00; line-height: 1.5; margin-bottom: 10px;
+  }
+  .cpr-period-warn-table { width: 100%; border-collapse: collapse; font-size: 12px; background: #fff; border-radius: 6px; overflow: hidden; }
+  .cpr-period-warn-table th {
+    background: #fef3c7; color: #5a3a00; font-size: 10.5px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+    padding: 6px 10px; border-bottom: 1px solid #ffd591;
+  }
+  .cpr-period-warn-table td { padding: 6px 10px; border-bottom: 1px solid #fef3c7; }
+  .cpr-period-warn-table tr:last-child td { border-bottom: none; }
+  .cpr-period-warn-table tr.cpr-period-warn-target td { background: #fff8e1; font-weight: 600; }
+
+  /* ── CPR audit header (TB original vs adjusted) ── */
+  .cpr-audit-header { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; }
+  .cpr-audit-summary { display: flex; flex-direction: column; gap: 4px; }
+  .cpr-audit-row { display: flex; align-items: baseline; gap: 12px; }
+  .cpr-audit-label { font-size: 10.5px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; min-width: 100px; }
+  .cpr-audit-value { font-size: 15px; font-weight: 700; color: var(--blue); font-variant-numeric: tabular-nums; }
+  .cpr-audit-adjusted { color: #1B5E20; }
+  .cpr-strike { text-decoration: line-through; color: #94a3b8; font-weight: 500; }
+  .cpr-delta { font-size: 11.5px; font-weight: 700; margin-left: 4px; }
+  .cpr-delta.neg { color: #a53935; }
+  .cpr-delta.pos { color: #1B5E20; }
+
+  /* ── Per-clinician search row ── */
+  .cpr-clin-search-row {
+    display: flex; align-items: center; gap: 10px; margin: 14px 0 8px;
+  }
+  .cpr-clin-search-input {
+    flex: 0 0 280px;
+    padding: 6px 12px; font-size: 13px; font-family: inherit;
+    border: 1.5px solid var(--border); border-radius: 8px;
+    background: #fff; transition: border-color 0.12s;
+  }
+  .cpr-clin-search-input:focus { border-color: var(--accent); outline: none; }
+  .cpr-clin-search-count {
+    font-size: 11px; color: var(--muted); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+  }
+
+  /* ── Per-clinician accordion table (bulletproof HTML table layout) ── */
+  .cpr-acc-wrap { max-height: 460px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  /* border-collapse: separate is REQUIRED for `position: sticky` to work on
+     <th>/<td> cells. With collapse, sticky on table cells is silently ignored. */
+  .cpr-clin-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; background: #fff; }
+  .cpr-clin-table thead th {
+    background: #f1f5f9; color: var(--blue); font-size: 10.5px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+    padding: 8px 12px; border-bottom: 1.5px solid var(--border);
+    position: sticky; top: 0; z-index: 3;
+  }
+  .cpr-clin-table tbody tr.cpr-clin-row { cursor: pointer; transition: background 0.12s; }
+  .cpr-clin-table tbody tr.cpr-clin-row:hover td { background: #f7f9fc; }
+  .cpr-clin-table tbody tr.cpr-clin-row.is-open td { background: #eef3f9; }
+  /* STICKY clinician row — when a clinician is expanded and you scroll the
+     visit list inside, the clinician's header row stays pinned to the top
+     of the scroll area (just under the column header strip). Top offset
+     matches the thead height. */
+  .cpr-clin-table tbody tr.cpr-clin-row.is-open td {
+    position: sticky;
+    top: 32px;     /* matches thead height: 8px padding x2 + ~16px text */
+    z-index: 2;
+    box-shadow: 0 2px 4px rgba(12,22,50,0.06);
+  }
+  .cpr-clin-table tbody td {
+    padding: 10px 12px; border-bottom: 1px solid #edf1f7;
+    vertical-align: middle; background: #fff;
+  }
+  .cpr-clin-table tbody tr:last-child td { border-bottom: none; }
+  .cpr-clin-table td.col-caret { width: 26px; color: var(--muted); font-size: 13px; text-align: center; }
+  .cpr-clin-table td.col-name  { font-weight: 700; color: var(--blue); font-size: 13.5px; }
+  .cpr-clin-table td.col-disc  {
+    width: 70px;
+    color: var(--muted); font-weight: 800; font-size: 11px; letter-spacing: 0.3px;
+  }
+  .cpr-clin-table td.col-disc  span { background: #f1f5f9; padding: 2px 8px; border-radius: 10px; }
+  .cpr-clin-table td.col-vc    { width: 180px; color: var(--muted); font-size: 12px; text-align: right; }
+  .cpr-clin-table td.col-pay   {
+    width: 150px; text-align: right; font-weight: 800; color: var(--blue);
+    font-variant-numeric: tabular-nums; font-size: 14px;
+  }
+  /* Expansion sub-row */
+  .cpr-clin-table tr.cpr-expand-row td { background: #fafbfc; padding: 12px 14px; border-bottom: 1px solid #edf1f7; }
+
+  /* ── Visits table inside accordion ── */
+  .cpr-visits-table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+  .cpr-visits-table thead th {
+    background: #eef3f9; color: var(--blue); font-size: 9.5px; font-weight: 800;
+    text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
+    padding: 5px 8px; border-bottom: 1.5px solid var(--border);
+  }
+  .cpr-visits-table tbody td { padding: 4px 8px; border-bottom: 1px solid #edf1f7; }
+  .cpr-visits-table .cpr-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .cpr-visits-table tbody tr:hover { background: #f7f9fc; }
+
+  /* Excluded TB row — strikethrough + red bg */
+  .cpr-visits-table tr.cpr-row-excluded { background: #fff5f5 !important; }
+  .cpr-visits-table tr.cpr-row-excluded td { color: #94a3b8; text-decoration: line-through; }
+  .cpr-visits-table tr.cpr-row-excluded td:first-child,
+  .cpr-visits-table tr.cpr-row-excluded td:last-child { text-decoration: none; }
+
+  /* Manual adjustment row — green tint */
+  .cpr-visits-table tr.cpr-row-adjustment { background: #ecfdf5; }
+  .cpr-visits-table tr.cpr-row-adjustment td { color: #065f46; }
+
+  /* Flagged visit rows — colored left border + subtle bg so the auditor can
+     scan a long list and instantly spot the sus rows. Error (red) wins over
+     warn (amber) when both flags are present. Excluded rows keep their red
+     strikethrough treatment and skip the flag styling. */
+  .cpr-visits-table tr.cpr-row-flag-warn  td:first-child { box-shadow: inset 3px 0 0 0 #fbbf24; }
+  .cpr-visits-table tr.cpr-row-flag-error td:first-child { box-shadow: inset 3px 0 0 0 #ef4444; }
+  .cpr-visits-table tr.cpr-row-flag-warn:not(.cpr-row-excluded)  td { background: #fffbeb; }
+  .cpr-visits-table tr.cpr-row-flag-error:not(.cpr-row-excluded) td { background: #fef2f2; }
+
+  /* Parent clinician-row flag badge */
+  .cpr-clin-flag-badge {
+    display: inline-block; font-size: 10px; font-weight: 800;
+    padding: 2px 7px; border-radius: 10px; margin-left: 8px;
+    letter-spacing: 0.3px; vertical-align: 1px;
+  }
+  .cpr-clin-flag-badge.cpr-flag-warn  { background: #fef3c7; color: #8a5a00; border: 1px solid #fbbf24; }
+  .cpr-clin-flag-badge.cpr-flag-error { background: #fde8e8; color: #a53935; border: 1px solid #ef4444; }
+  /* Parent rows that have flagged children also get a subtle left bar so you
+     can find them at a glance from the collapsed list */
+  .cpr-clin-table tbody tr.has-flag-warn  td.col-caret { box-shadow: inset 4px 0 0 0 #fbbf24; }
+  .cpr-clin-table tbody tr.has-flag-error td.col-caret { box-shadow: inset 4px 0 0 0 #ef4444; }
+
+  /* ── Per-visit pay editing ── */
+  .cpr-pay-cell { white-space: nowrap; }
+  .cpr-pay-edit-input {
+    width: 80px; padding: 2px 6px; font-size: 11.5px; font-family: inherit;
+    border: 1.5px solid var(--accent); border-radius: 4px;
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .cpr-btn-edit-pay {
+    visibility: hidden;
+    margin-left: 4px; padding: 0 4px;
+    background: transparent; border: 1px solid var(--border);
+    color: var(--accent); cursor: pointer;
+    font-size: 10px; border-radius: 4px; font-family: inherit;
+  }
+  .cpr-visits-table tr:hover .cpr-btn-edit-pay { visibility: visible; }
+  .cpr-btn-edit-pay:hover { background: var(--accent); color: #fff; }
+
+  /* Redline markup for edited pay */
+  .cpr-pay-orig { text-decoration: line-through; color: #94a3b8; font-weight: 500; font-size: 10.5px; }
+  .cpr-pay-new  { font-weight: 800; color: #1d4ed8; }
+  .cpr-visits-table tr.cpr-row-pay-edited:not(.cpr-row-excluded) td { background: #eff6ff; }
+  .cpr-visits-table tr.cpr-row-pay-edited td:first-child { box-shadow: inset 3px 0 0 0 #1d4ed8; }
+
+  /* ── Per-adjustment in-place editing ── */
+  .cpr-adj-cell-editable {
+    cursor: pointer; padding: 1px 4px; border-radius: 3px;
+    border-bottom: 1px dashed transparent;
+  }
+  .cpr-adj-cell-editable:hover {
+    background: rgba(29, 78, 216, 0.08);
+    border-bottom-color: var(--accent);
+  }
+  .cpr-adj-edit-input {
+    padding: 2px 6px; font-size: 11.5px; font-family: inherit;
+    border: 1.5px solid var(--accent); border-radius: 4px;
+    background: #fff;
+  }
+  .cpr-adj-edit-input[type=number] { width: 100px; text-align: right; font-variant-numeric: tabular-nums; }
+  .cpr-adj-edit-input[type=date]   { width: 130px; }
+
+  /* Subtotal row */
+  .cpr-visits-table tr.cpr-subtotal-row { background: #f1f5f9; }
+  .cpr-visits-table tr.cpr-subtotal-row td { padding: 7px 8px; border-bottom: none; }
+
+  /* Mini badges + buttons */
+  .cpr-badge-adj {
+    display: inline-block; font-size: 9px; font-weight: 800;
+    padding: 1px 6px; border-radius: 8px; background: #065f46; color: #fff;
+    letter-spacing: 0.3px;
+  }
+  .cpr-btn-mini {
+    padding: 2px 8px; font-size: 10.5px; font-weight: 700; cursor: pointer;
+    border: 1.5px solid var(--border); background: #fff; color: var(--blue);
+    border-radius: 5px; font-family: inherit; white-space: nowrap;
+  }
+  .cpr-btn-mini:hover { background: #eef3f9; }
+  .cpr-btn-exclude { color: #a53935; border-color: #f5c2c2; }
+  .cpr-btn-exclude:hover { background: #fff5f5; border-color: #a53935; }
+  .cpr-btn-restore { color: #1B5E20; border-color: #b8e0c0; }
+  .cpr-btn-restore:hover { background: #ecfdf5; border-color: #1B5E20; }
+  .cpr-btn-save { color: #fff; background: #1B5E20; border-color: #1B5E20; }
+  .cpr-btn-save:hover { background: #14532d; }
+
+  /* Add-adjustment inline form */
+  .cpr-adj-form { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; padding: 8px; background: #ecfdf5; border: 1px solid #b8e0c0; border-radius: 8px; }
+  .cpr-adj-form input[type=date],
+  .cpr-adj-form input[type=text],
+  .cpr-adj-form input[type=number] {
+    padding: 5px 8px; border: 1px solid var(--border); border-radius: 5px;
+    font-size: 12px; font-family: inherit;
+  }
+  .cpr-adj-form input[type=text] { flex: 1; min-width: 180px; }
+  .cpr-btn-add-adj {
+    margin-top: 8px; padding: 6px 12px; font-size: 11.5px; font-weight: 700;
+    cursor: pointer; border: 1.5px dashed #b8e0c0; background: transparent;
+    color: #065f46; border-radius: 6px; font-family: inherit; width: 100%;
+  }
+  .cpr-btn-add-adj:hover { background: #ecfdf5; }
+
+  /* Detail-view footer (Save / Finalize / Reopen) */
+  .cpr-detail-footer {
+    display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+    margin-top: 16px; padding-top: 14px; border-top: 1.5px solid var(--border);
+  }
+  .cpr-detail-footer-msg { flex: 1; font-size: 12px; color: var(--muted); }
+
   .empty-state {
     background: #fffbea; border: 1px dashed #f0c060; color: #8a5a00;
     border-radius: 10px; padding: 18px 22px; font-size: 13px; line-height: 1.6;
@@ -309,6 +695,7 @@
     <p>Finance</p>
   </div>
   <nav class="header-nav">
+    <a href="index.html">🏠 Home</a>
     <a href="clinician-map.html">🗺️ Map</a>
     <a href="referrals.html">📋 Referrals</a>
     <a href="time-tracker.html">⏱️ Time</a>
@@ -379,6 +766,71 @@
       </p>
       <div class="actions">
         <a id="pp-open-wise" href="time-tracker.html">Run from Time Tracker →</a>
+      </div>
+    </div>
+
+    <!-- ── Clinician Payroll Audit (Phase 2) ── -->
+    <div class="card" id="clin-pay-audit-card">
+      <div class="clin-pay-cal-head">
+        <h3>💵 Clinician Payroll Audit</h3>
+        <div class="clin-pay-cal-nav">
+          <button type="button" class="btn-secondary" id="cpr-import-btn">↑ Import Prepare Payroll.xlsx</button>
+        </div>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;">
+        Drop the <strong>Prepare payroll</strong> Excel from TherapyBoss. Aggregates per clinician,
+        flags non-payable visits, saves to history. Re-import a period after corrections to update.
+      </p>
+      <div class="clin-pay-cal-wrap">
+        <table class="clin-pay-cal-table" id="cpr-history-table">
+          <thead>
+            <tr>
+              <th>Period</th>
+              <th>Pay Date</th>
+              <th style="text-align:right;">Total Pay</th>
+              <th style="text-align:right;">Visits</th>
+              <th style="text-align:right;">Clinicians</th>
+              <th>Status</th>
+              <th style="width:140px;text-align:right;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="cpr-history-tbody">
+            <tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:18px;">No imports yet — click ↑ Import to add one.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div id="cpr-detail-panel" style="display:none;"></div>
+    </div>
+
+    <!-- ── Clinician Payroll Calendar (Phase 1) ── -->
+    <div class="card" id="clin-pay-cal-card">
+      <div class="clin-pay-cal-head">
+        <h3>🗓️ Clinician Payroll Calendar</h3>
+        <div class="clin-pay-cal-nav">
+          <button type="button" class="btn-secondary clin-pay-cal-prev" aria-label="Previous year">‹</button>
+          <span class="clin-pay-cal-year" id="clin-pay-cal-year">—</span>
+          <button type="button" class="btn-secondary clin-pay-cal-next" aria-label="Next year">›</button>
+          <button type="button" class="btn-secondary" id="clin-pay-cal-today">Today</button>
+          <button type="button" class="btn-secondary" id="clin-pay-cal-print">⎙ Print</button>
+          <button type="button" class="btn-secondary" id="clin-pay-cal-csv">⬇ CSV</button>
+        </div>
+      </div>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;">
+        Bi-weekly Sun → Sat periods, pay date is the second Monday after period close.
+        Friday is when payroll work is run in TherapyBoss; Monday is when the check funds clear.
+      </p>
+      <div class="clin-pay-cal-wrap">
+        <table class="clin-pay-cal-table" id="clin-pay-cal-table">
+          <thead>
+            <tr>
+              <th>Pay Period</th>
+              <th>Pay Date</th>
+              <th>Audit</th>
+              <th class="clin-pay-cal-status-col">Status</th>
+            </tr>
+          </thead>
+          <tbody id="clin-pay-cal-tbody"></tbody>
+        </table>
       </div>
     </div>
   </div>
@@ -630,6 +1082,1668 @@ function switchView(viewName, skipPushState) {
       : location.pathname + "?view=" + viewName;
     history.pushState({ view: viewName }, "", newUrl);
   }
+
+  // Render the clinician payroll calendar lazily when entering Payroll
+  if (viewName === "payroll") {
+    renderClinPayCal(clinPayCalYear);
+    loadCprHistory();
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CLINICIAN PAYROLL CALENDAR — Phase 1
+// Bi-weekly periods, Sunday → Saturday, pay date = period_end + 16 days
+// (always a Monday). Anchored to Sun 2025-12-14 (matches user's pasted
+// sample). Pure client-side derivation; no DB writes.
+// ══════════════════════════════════════════════════════════════════
+const CLIN_PAY_ANCHOR_MS = Date.UTC(2025, 11, 14);   // Sun Dec 14 2025
+let clinPayCalYear = new Date().getFullYear();
+
+function clinPayPeriods(year) {
+  // Walk forward (and a bit backward) in 14-day steps from the anchor;
+  // emit any periods whose PAY DATE falls in the target calendar year.
+  // (Using pay_date for inclusion mirrors the user's sample where the
+  // 2026 calendar's first row is period 12/14/25 - 12/27/25 because its
+  // pay date 01/12/2026 falls in 2026.)
+  const DAY = 86400000;
+  const out = [];
+  function isoUtc(ms) {
+    const d = new Date(ms);
+    return d.getUTCFullYear() + "-" +
+      String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getUTCDate()).padStart(2, "0");
+  }
+  // Wide walk: 40 periods before/after anchor covers any year safely.
+  for (let i = -50; i < 90; i++) {
+    const startMs = CLIN_PAY_ANCHOR_MS + i * 14 * DAY;
+    const endMs   = startMs + 13 * DAY;
+    const payMs   = endMs   + 16 * DAY;
+    const payYr   = new Date(payMs).getUTCFullYear();
+    if (payYr !== year) continue;
+    out.push({
+      period_start: isoUtc(startMs),
+      period_end:   isoUtc(endMs),
+      pay_date:     isoUtc(payMs)
+    });
+  }
+  return out;
+}
+
+function fmtPayCalDate(iso) {
+  // "2026-05-31" → "05/31/2026"
+  if (!iso || iso.length < 10) return iso || "";
+  return iso.slice(5, 7) + "/" + iso.slice(8, 10) + "/" + iso.slice(0, 4);
+}
+
+// Cached run history (keyed by period_start) so the calendar can light up
+// which periods already have an audit + jump straight into view mode.
+// Populated by loadCprHistory(); also feeds clinPayCalRowClicked().
+let cprRunsByPeriodStart = Object.create(null);
+
+function renderClinPayCal(year) {
+  const tbody = document.getElementById("clin-pay-cal-tbody");
+  const yearEl = document.getElementById("clin-pay-cal-year");
+  if (!tbody || !yearEl) return;
+  yearEl.textContent = String(year);
+  const periods = clinPayPeriods(year);
+  if (!periods.length) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:18px;">No pay periods in ' + year + '.</td></tr>';
+    return;
+  }
+  const todayIso = new Date().toISOString().slice(0, 10);
+  // "Current" = the period that's closed and being processed for the NEXT
+  // upcoming pay date. That's the one the user is auditing today.
+  // Logic: pick the period whose pay_date is the smallest pay_date >= today.
+  // (Periods with pay_date < today are already paid; those with much later
+  // pay dates are future / in-progress.)
+  let currentIdx = -1;
+  for (let i = 0; i < periods.length; i++) {
+    if (periods[i].pay_date >= todayIso) {
+      if (currentIdx === -1 || periods[i].pay_date < periods[currentIdx].pay_date) {
+        currentIdx = i;
+      }
+    }
+  }
+  tbody.innerHTML = periods.map(function(p, i) {
+    const isCurrent  = i === currentIdx;
+    const isPast     = !isCurrent && p.pay_date <  todayIso;
+    const isInProg   = !isCurrent && !isPast && todayIso >= p.period_start && todayIso <= p.period_end;
+    const cls        = isCurrent ? "is-current" : (isPast ? "is-past" : "is-future");
+    const pill       = isCurrent ? '<span class="clin-pay-cal-status-pill current">AUDIT NOW</span>'
+                     : isPast    ? '<span class="clin-pay-cal-status-pill past">Paid</span>'
+                     : isInProg  ? '<span class="clin-pay-cal-status-pill inprog">In progress</span>'
+                     :             '<span class="clin-pay-cal-status-pill future">Upcoming</span>';
+    // Audit-status pill — drives the calendar-row's hover affordance.
+    const run = cprRunsByPeriodStart[p.period_start];
+    const auditPill = run
+      ? '<span class="cpr-status-pill ' + run.status + '" style="margin-left:6px;">' + run.status.toUpperCase() + '</span>' +
+        (run.total_pay ? ' <span style="font-size:11px;color:var(--muted);">' + cprFmtMoney(run.total_pay) + '</span>' : '')
+      : '<span class="clin-pay-cal-audit-cta">+ Start audit</span>';
+    return '<tr class="clin-pay-cal-clickable ' + cls + '" data-pstart="' + p.period_start + '" data-pend="' + p.period_end + '">' +
+      '<td>' + fmtPayCalDate(p.period_start) + ' – ' + fmtPayCalDate(p.period_end) + '</td>' +
+      '<td>' + fmtPayCalDate(p.pay_date) + ' (Mon)</td>' +
+      '<td>' + auditPill + '</td>' +
+      '<td class="clin-pay-cal-status-col">' + pill + '</td>' +
+    '</tr>';
+  }).join("");
+}
+
+// Click handler — wired via delegation in DOMContentLoaded below.
+function clinPayCalRowClicked(tr) {
+  const periodStart = tr.dataset.pstart;
+  if (!periodStart) return;
+  const run = cprRunsByPeriodStart[periodStart];
+  if (run) {
+    // Audit already exists → open the View modal directly
+    viewCprRun(run.id);
+  } else {
+    // No audit yet → open the import modal pre-set with this period as the
+    // expected target. The user drops the TB file; we auto-detect the
+    // actual period from the file's data on parse.
+    openCprModal();
+    // Stash the expected period — used only to nudge the user if the file's
+    // detected period doesn't match (TODO: validation pass).
+    cprExpectedPeriod = { start: periodStart, end: tr.dataset.pend };
+  }
+}
+let cprExpectedPeriod = null;
+
+function downloadClinPayCalCsv(year) {
+  const periods = clinPayPeriods(year);
+  const lines = ['"Pay Period","Pay Date"'];
+  periods.forEach(function(p) {
+    lines.push(
+      '"' + fmtPayCalDate(p.period_start) + ' - ' + fmtPayCalDate(p.period_end) + '","' +
+      fmtPayCalDate(p.pay_date) + ' (Mon)"'
+    );
+  });
+  const blob = new Blob([lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement("a");
+  a.href = url;
+  a.download = "Clinician_Payroll_Calendar_" + year + ".csv";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function() { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+}
+
+// Wire calendar controls once the DOM is ready
+document.addEventListener("DOMContentLoaded", function() {
+  const prevBtn  = document.querySelector(".clin-pay-cal-prev");
+  const nextBtn  = document.querySelector(".clin-pay-cal-next");
+  const todayBtn = document.getElementById("clin-pay-cal-today");
+  const printBtn = document.getElementById("clin-pay-cal-print");
+  const csvBtn   = document.getElementById("clin-pay-cal-csv");
+  if (prevBtn)  prevBtn.addEventListener("click",  function() { clinPayCalYear -= 1; renderClinPayCal(clinPayCalYear); });
+  if (nextBtn)  nextBtn.addEventListener("click",  function() { clinPayCalYear += 1; renderClinPayCal(clinPayCalYear); });
+  if (todayBtn) todayBtn.addEventListener("click", function() { clinPayCalYear = new Date().getFullYear(); renderClinPayCal(clinPayCalYear); });
+  if (printBtn) printBtn.addEventListener("click", function() { window.print(); });
+  if (csvBtn)   csvBtn.addEventListener("click",   function() { downloadClinPayCalCsv(clinPayCalYear); });
+
+  // Clicking a pay-period row in the calendar opens the audit modal —
+  // jumps straight to View if a run exists for that period, or opens the
+  // Import modal if it doesn't. Delegated so it picks up rows re-rendered
+  // by prev/next/today navigation.
+  const calBody = document.getElementById("clin-pay-cal-tbody");
+  if (calBody) {
+    calBody.addEventListener("click", function(ev) {
+      const tr = ev.target.closest && ev.target.closest("tr.clin-pay-cal-clickable");
+      if (tr) clinPayCalRowClicked(tr);
+    });
+  }
+
+  // Clinician Payroll Audit (CPR) wiring
+  const cprBtn = document.getElementById("cpr-import-btn");
+  if (cprBtn) cprBtn.addEventListener("click", openCprModal);
+  const cprCancel = document.getElementById("cpr-modal-cancel");
+  if (cprCancel) cprCancel.addEventListener("click", closeCprModal);
+  const cprConfirm = document.getElementById("cpr-import-confirm-btn");
+  if (cprConfirm) cprConfirm.addEventListener("click", saveCprRun);
+  const cprDetailClose = document.getElementById("cpr-detail-close");
+  if (cprDetailClose) cprDetailClose.addEventListener("click", function() {
+    document.getElementById("cpr-detail-overlay").style.display = "none";
+  });
+  const cprDz = document.getElementById("cpr-dropzone");
+  if (cprDz) {
+    cprDz.addEventListener("dragover",  function(e) { e.preventDefault(); cprDz.classList.add("is-dragover"); });
+    cprDz.addEventListener("dragleave", function()  { cprDz.classList.remove("is-dragover"); });
+    cprDz.addEventListener("drop", function(e) {
+      e.preventDefault(); cprDz.classList.remove("is-dragover");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleCprFile(f);
+    });
+    const cprFi = document.getElementById("cpr-file-input");
+    if (cprFi) cprFi.addEventListener("change", function(e) {
+      const f = e.target.files && e.target.files[0];
+      if (f) handleCprFile(f);
+    });
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// CLINICIAN PAYROLL AUDIT — Phase 2
+// Imports the TB "Prepare payroll" Excel, aggregates per clinician,
+// persists to clinician_payroll_runs, drives the history table +
+// per-run drill-down view.
+// ══════════════════════════════════════════════════════════════════
+let cprPrepared = null;   // parsed + aggregated payload, ready to save
+
+// TB Prepare-payroll column positions are fixed (headerless on row 1,
+// row 2+ are data). Indices match the exploration of the sample file.
+const CPR_COL = {
+  date: 0, submitted: 1, type: 2, time: 3, units: 4, clinician: 5,
+  discipline: 6, unique_id: 7, employee_no: 8, patient: 9, agency: 10,
+  payable: 11, pay: 12, expenses: 13
+};
+
+// Audit flag thresholds — change here if business rules shift.
+const CPR_FLAG_LATE_SYNC_DAYS = 30;   // Submitted > N days after visit Date
+const CPR_FLAG_SHORT_VISIT_MIN = 45;  // Visit Time < N minutes
+// Note: "Revisions" is NOT in the TB Prepare Payroll Excel — that column
+// only appears in the Patient Visits export. Flagging revisions would
+// require cross-referencing with a Patient Visits import for the same
+// period; deferred for now.
+
+// Returns an array of flag objects for one visit row.
+//   { code, severity ('error' | 'warn'), label }
+function cprFlagRow(v) {
+  const flags = [];
+  // Missing $ — pay value is null/undefined/blank (TB didn't compute one)
+  if (v.pay == null || v.pay === "") {
+    flags.push({ code: "missing_pay", severity: "error", label: "💸 Missing $" });
+  } else if (Number(v.pay) === 0) {
+    // $0 — TB computed zero. Often legitimate for non-payable visits but
+    // worth surfacing so the user can confirm.
+    flags.push({ code: "zero_pay", severity: "warn", label: "💸 $0" });
+  }
+  // Late sync — Submitted > 30 days after visit Date
+  if (v.date && v.submitted) {
+    const dms = Date.parse(v.submitted + "T00:00:00Z") - Date.parse(v.date + "T00:00:00Z");
+    const days = Math.round(dms / 86400000);
+    if (days >= CPR_FLAG_LATE_SYNC_DAYS) {
+      flags.push({ code: "late_sync", severity: "error", label: "⏰ Synced " + days + "d late" });
+    }
+  }
+  // Short visit — under 45 minutes
+  if (v.time_min != null && v.time_min !== "" && Number(v.time_min) < CPR_FLAG_SHORT_VISIT_MIN && Number(v.time_min) > 0) {
+    flags.push({ code: "short_visit", severity: "warn", label: "⏱ " + v.time_min + "min" });
+  }
+  return flags;
+}
+
+// Tally flags across all visits — returns counts by code.
+function cprTallyFlags(visits) {
+  const tally = { missing_pay: 0, zero_pay: 0, late_sync: 0, short_visit: 0, total: 0 };
+  visits.forEach(function(v) {
+    const flags = cprFlagRow(v);
+    if (flags.length) tally.total++;
+    flags.forEach(function(f) { if (tally[f.code] != null) tally[f.code]++; });
+  });
+  return tally;
+}
+
+// Render the flagged-visits detail table. Returns an HTML string ready to
+// append to the preview / saved-run view.
+function cprRenderFlaggedVisits(visits, maxRows) {
+  const flagged = visits.map(function(v) { return { v: v, f: cprFlagRow(v) }; })
+                        .filter(function(x) { return x.f.length > 0; });
+  if (!flagged.length) return "";
+  const trimmed = maxRows ? flagged.slice(0, maxRows) : flagged;
+  let html = '<div style="font-size:11px;color:var(--muted);margin:14px 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Flagged visits (' + flagged.length + (maxRows && flagged.length > maxRows ? " — showing first " + maxRows : "") + ')</div>';
+  html += '<div style="max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
+  html += '<table class="cpr-per-clin-table"><thead><tr>' +
+    '<th>Date</th>' +
+    '<th>Clinician</th>' +
+    '<th>Patient</th>' +
+    '<th>Type</th>' +
+    '<th class="cpr-num">Time</th>' +
+    '<th class="cpr-num">Pay</th>' +
+    '<th>Flags</th>' +
+  '</tr></thead><tbody>';
+  trimmed.forEach(function(x) {
+    const chips = x.f.map(function(fl) {
+      return '<span class="cpr-flag-chip ' + (fl.severity === "error" ? "is-error" : "is-warn") + '">' + escHtml(fl.label) + '</span>';
+    }).join(" ");
+    html += '<tr>' +
+      '<td>' + escHtml(cprFmtDate(x.v.date)) + '</td>' +
+      '<td>' + escHtml(cprTitleCase(x.v.clinician)) + '</td>' +
+      '<td>' + escHtml(cprTitleCase(x.v.patient))   + '</td>' +
+      '<td>' + escHtml(x.v.type || "") + '</td>' +
+      '<td class="cpr-num">' + (x.v.time_min != null && x.v.time_min !== "" ? x.v.time_min : "—") + '</td>' +
+      '<td class="cpr-num">' + (x.v.pay == null || x.v.pay === "" ? '<span style="color:#a53935;font-weight:800">missing</span>' : cprFmtMoney(x.v.pay)) + '</td>' +
+      '<td>' + chips + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function cprExcelSerialToIso(serial) {
+  if (serial == null || serial === "") return null;
+  const n = Number(serial);
+  if (!Number.isFinite(n) || n < 1 || n > 80000) return null;
+  const ms = Math.round((n - 25569) * 86400000);
+  const d = new Date(ms);
+  if (isNaN(d.getTime())) return null;
+  return d.getUTCFullYear() + "-" +
+    String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getUTCDate()).padStart(2, "0");
+}
+
+function cprFmtMoney(n) {
+  if (n == null || isNaN(n)) return "—";
+  return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function cprFmtDate(iso) {
+  if (!iso) return "";
+  return iso.slice(5, 7) + "/" + iso.slice(8, 10) + "/" + iso.slice(0, 4);
+}
+
+// Title-case helper for display of clinician / patient / agency names.
+// Keeps clinical-discipline + corporate abbreviations all-caps (PT, PTA, OT,
+// OTA, ST, SLP, RN, MD, DO, LLC, INC, LTD, PLLC, HHA, HHC, etc.). Handles
+// hyphens + apostrophes (O'Brien stays O'Brien; Mary-Jane stays Mary-Jane).
+// Backend keys (the c.clinician string used as a Map key) are unchanged —
+// only the rendered display is title-cased.
+const CPR_KEEP_CAPS = /^(II|III|IV|V|VI|VII|VIII|IX|JR|SR|PT|PTA|OT|OTA|ST|STA|SLP|OTR|RN|LPN|CNA|MD|DO|DPT|NP|PA|LLC|INC|LTD|PLC|PLLC|LLP|HHA|HHC|AHC|EMR|USA|US|NY|IL|CA|CO|MA|TX|FL|OH|GA|MI|NJ|VA|NC|DC)\.?$/i;
+function cprTitleCase(s) {
+  if (s == null) return "";
+  const str = String(s).trim();
+  if (!str) return "";
+  return str.toLowerCase().split(/\s+/).map(function(tok) {
+    return tok.split("-").map(function(seg) {
+      return seg.split("'").map(function(p) {
+        if (!p) return "";
+        if (CPR_KEEP_CAPS.test(p)) return p.replace(/\.$/, "").toUpperCase();
+        return p.charAt(0).toUpperCase() + p.slice(1);
+      }).join("'");
+    }).join("-");
+  }).join(" ");
+}
+
+function openCprModal() {
+  cprPrepared = null;
+  document.getElementById("cpr-import-preview").style.display = "none";
+  document.getElementById("cpr-import-error").style.display = "none";
+  document.getElementById("cpr-import-confirm-btn").disabled = true;
+  document.getElementById("cpr-file-input").value = "";
+  document.getElementById("cpr-modal-overlay").style.display = "flex";
+}
+function closeCprModal() {
+  document.getElementById("cpr-modal-overlay").style.display = "none";
+}
+function showCprError(html) {
+  const el = document.getElementById("cpr-import-error");
+  el.innerHTML = html;
+  el.style.display = "block";
+  document.getElementById("cpr-import-confirm-btn").disabled = true;
+  cprPrepared = null;
+}
+
+async function handleCprFile(file) {
+  const lc = (file.name || "").toLowerCase();
+  if (!lc.endsWith(".xlsx") && !lc.endsWith(".xls")) {
+    showCprError("Only <strong>.xlsx</strong> files are accepted. Got <code>" + escHtml(file.name) + "</code>.");
+    return;
+  }
+  if (typeof XLSX === "undefined") {
+    showCprError("Spreadsheet parser (SheetJS) didn't load. Hard-refresh and try again.");
+    return;
+  }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb  = XLSX.read(buf, { type: "array", cellDates: false });
+    const ws  = wb.Sheets[wb.SheetNames[0]];
+    // header:1 → array-of-arrays (TB file is headerless on row 1's numeric labels,
+    // so we ignore row 1 and start at row 2). Use raw:true so Excel serials stay numeric.
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: true });
+    if (!rows.length) {
+      showCprError("That spreadsheet is empty.");
+      return;
+    }
+    // Sanity check column count
+    if (!rows[0] || rows[0].length < 14) {
+      showCprError("Expected at least 14 columns. Got " + (rows[0] ? rows[0].length : 0) + ". Make sure this is the TB Prepare Payroll export.");
+      return;
+    }
+    // Skip row 0 (TB's numeric headers) — data starts at row 1.
+    const dataRows = rows.slice(1).filter(function(r) { return r && r.length && r[CPR_COL.date]; });
+    if (!dataRows.length) {
+      showCprError("No data rows found below the header.");
+      return;
+    }
+
+    // Aggregate per clinician + compute totals + capture per-visit detail
+    const perClinMap = Object.create(null);
+    let totalPay = 0, totalExpenses = 0, payableVisits = 0, nonpayableVisits = 0;
+    let minDate = null, maxDate = null;
+    // Track min + max SUBMITTED dates — drives the pay-period detection
+    // AND the cross-period sanity warning. Pay happens by submitted date
+    // (when the note hits TB) rather than the visit date, so a visit dated
+    // 03/26 but submitted 05/20 is paid out on the pay date associated
+    // with 05/20, not 03/26.
+    let minSubmitted = null, maxSubmitted = null;
+    // Per-period bucket so we can warn when a file accidentally spans two
+    // pay periods (TB's date-range filter normally prevents this, but if
+    // the user picked a wider range than one pay period we want to flag it).
+    const submittedByPeriod = Object.create(null);   // key = period_start ISO
+    const visitDetail = [];
+
+    dataRows.forEach(function(r) {
+      const dateIso     = cprExcelSerialToIso(r[CPR_COL.date]);
+      const submittedIso= cprExcelSerialToIso(r[CPR_COL.submitted]);
+      const type        = String(r[CPR_COL.type] || "").trim();
+      const timeMin     = Number(r[CPR_COL.time]) || 0;
+      const clin        = String(r[CPR_COL.clinician] || "").trim();
+      const disc        = String(r[CPR_COL.discipline] || "").trim();
+      const uniqueId    = String(r[CPR_COL.unique_id] || "").trim();
+      const patient     = String(r[CPR_COL.patient] || "").trim();
+      const agency      = String(r[CPR_COL.agency] || "").trim();
+      const payableRaw  = String(r[CPR_COL.payable] || "").trim().toUpperCase();
+      const isPayable   = payableRaw === "Y" || payableRaw === "YES" || payableRaw === "TRUE" || payableRaw === "1";
+      const pay         = Number(r[CPR_COL.pay]) || 0;
+      const expenses    = Number(r[CPR_COL.expenses]) || 0;
+
+      if (dateIso) {
+        if (!minDate || dateIso < minDate) minDate = dateIso;
+        if (!maxDate || dateIso > maxDate) maxDate = dateIso;
+      }
+      if (submittedIso) {
+        if (!minSubmitted || submittedIso < minSubmitted) minSubmitted = submittedIso;
+        if (!maxSubmitted || submittedIso > maxSubmitted) maxSubmitted = submittedIso;
+        // Bucket this visit into the pay period containing its submitted date
+        const subPeriod = cprPeriodForSubmitted(submittedIso);
+        if (subPeriod) {
+          const k = subPeriod.period_start;
+          if (!submittedByPeriod[k]) submittedByPeriod[k] = { period: subPeriod, count: 0, pay: 0 };
+          submittedByPeriod[k].count++;
+          submittedByPeriod[k].pay += pay;
+        }
+      }
+      totalPay      += pay;
+      totalExpenses += expenses;
+      if (isPayable) payableVisits++;
+      else           nonpayableVisits++;
+
+      if (clin) {
+        const c = perClinMap[clin] || (perClinMap[clin] = {
+          clinician: clin, discipline: disc,
+          visits: 0, payable: 0, nonpayable: 0,
+          pay_total: 0, expenses_total: 0
+        });
+        c.visits++;
+        if (isPayable) c.payable++; else c.nonpayable++;
+        c.pay_total      += pay;
+        c.expenses_total += expenses;
+      }
+      visitDetail.push({
+        // Stable per-visit ID — positional index ONLY. TB's "Unique ID"
+        // column is the episode/referral ID (shared across all visits in
+        // the same episode) so we can't use it as a per-visit key — that
+        // would cause clicking ✎ on one row to enter edit mode on every
+        // sibling visit. Keep uniqueId in its own field for audit, but
+        // never as the row-key.
+        vid: "v-" + visitDetail.length,
+        date: dateIso, submitted: submittedIso, type: type, time_min: timeMin,
+        clinician: clin, discipline: disc, unique_id: uniqueId,
+        patient: patient, agency: agency, payable: isPayable,
+        pay: pay, expenses: expenses,
+        // Audit-time adjustments — default false. Excluded rows don't
+        // count toward the period totals. is_manual flags rows added by
+        // the user in the audit view (vs TB-sourced).
+        excluded: false, is_manual: false
+      });
+    });
+
+    const perClinician = Object.values(perClinMap).sort(function(a, b) { return b.pay_total - a.pay_total; });
+
+    // Derive period bounds — KEYED BY THE SUBMITTED DATE (not the visit date).
+    //
+    // Strategy: of all the pay periods touched by the file's submitted dates,
+    // pick the one with the MOST visits as the target. This is more robust
+    // than just "period containing max submitted" — a single straggler from
+    // a different period (TB filter quirk) won't yank the target away from
+    // the intended pay period. The cross-period warning below still surfaces
+    // the breakdown so the user can investigate.
+    //
+    // Fallback to visit-date detection only if no submitted dates parsed.
+    let period = null;
+    let maxBucketCount = 0;
+    Object.values(submittedByPeriod).forEach(function(b) {
+      if (b.count > maxBucketCount) {
+        maxBucketCount = b.count;
+        period = b.period;
+      }
+    });
+    const periodStart = period ? period.period_start : cprPeriodStartFor(maxDate);
+    const periodEnd   = period ? period.period_end   : cprAddDays(periodStart, 13);
+    const payDate     = period ? period.pay_date     : cprAddDays(periodEnd, 16);
+
+    // Cross-period sanity: surface every distinct period the file's
+    // submitted dates touched. If > 1, the import preview shows a yellow
+    // warning + per-period breakdown so the user can investigate.
+    const periodBuckets = Object.values(submittedByPeriod).sort(function(a, b) {
+      return a.period.period_start < b.period.period_start ? -1 : 1;
+    });
+
+    cprPrepared = {
+      period_start: periodStart,
+      period_end:   periodEnd,
+      pay_date:     payDate,
+      total_pay:    Math.round(totalPay * 100) / 100,
+      total_expenses: Math.round(totalExpenses * 100) / 100,
+      total_visits: dataRows.length,
+      payable_visits: payableVisits,
+      nonpayable_visits: nonpayableVisits,
+      distinct_clinicians: perClinician.length,
+      per_clinician_payload: perClinician,
+      all_visits_payload: visitDetail,
+      source_filename: file.name,
+      // Sanity-warning data (not persisted to DB — only used in preview)
+      _spans_multiple_periods: periodBuckets.length > 1,
+      _period_buckets: periodBuckets,
+      _min_submitted: minSubmitted,
+      _max_submitted: maxSubmitted
+    };
+
+    renderCprImportPreview();
+    document.getElementById("cpr-import-error").style.display = "none";
+    document.getElementById("cpr-import-confirm-btn").disabled = false;
+  } catch (err) {
+    showCprError("Failed to read file: " + escHtml(err.message || String(err)));
+  }
+}
+
+// Find the pay period that CONTAINS the given submitted date, aligned to the
+// bi-weekly cycle from CLIN_PAY_ANCHOR_MS (Sun Dec 14 2025).
+//
+// TB's "Prepare payroll" filter lets the user pick a date range by submitted
+// date. That date range IS the pay period (e.g., picking 05/03–05/16 → period
+// 05/03–05/16, pay date 06/01). So we just snap to whatever bi-weekly window
+// contains the file's max submitted date — no offset needed.
+//
+//    Period i covers [anchor + i*14d, anchor + (i*14 + 13)d]
+//    For a date inside that window: i = floor((dateMs - anchor) / 14d)
+function cprPeriodForSubmitted(submittedIso) {
+  if (!submittedIso) return null;
+  const DAY = 86400000;
+  const targetMs = Date.parse(submittedIso + "T00:00:00Z");
+  if (!isFinite(targetMs)) return null;
+  const i = Math.floor((targetMs - CLIN_PAY_ANCHOR_MS) / (14 * DAY));
+  const startMs = CLIN_PAY_ANCHOR_MS + i * 14 * DAY;
+  function iso(ms) {
+    const d = new Date(ms);
+    return d.getUTCFullYear() + "-" +
+      String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+      String(d.getUTCDate()).padStart(2, "0");
+  }
+  return {
+    period_start: iso(startMs),
+    period_end:   iso(startMs + 13 * DAY),
+    pay_date:     iso(startMs + 29 * DAY)
+  };
+}
+
+function cprPeriodStartFor(isoDate) {
+  // Snap to most recent Sunday on/before the date. Kept as a fallback for
+  // files with no submitted dates parsed.
+  if (!isoDate) return null;
+  const d = new Date(isoDate + "T00:00:00Z");
+  if (isNaN(d.getTime())) return null;
+  const dow = d.getUTCDay();   // Sun=0..Sat=6
+  const sunMs = d.getTime() - (dow * 86400000);
+  const sd = new Date(sunMs);
+  return sd.getUTCFullYear() + "-" +
+    String(sd.getUTCMonth() + 1).padStart(2, "0") + "-" +
+    String(sd.getUTCDate()).padStart(2, "0");
+}
+function cprAddDays(iso, days) {
+  if (!iso) return null;
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.getUTCFullYear() + "-" +
+    String(d.getUTCMonth() + 1).padStart(2, "0") + "-" +
+    String(d.getUTCDate()).padStart(2, "0");
+}
+
+function renderCprImportPreview() {
+  const wrap = document.getElementById("cpr-import-preview");
+  if (!wrap || !cprPrepared) return;
+  const p = cprPrepared;
+  const periodLabel = cprFmtDate(p.period_start) + " – " + cprFmtDate(p.period_end);
+  const payLabel    = cprFmtDate(p.pay_date) + " (Mon)";
+  const nonpayWarn  = p.nonpayable_visits > 0 ? "is-warn" : "";
+
+  // Audit-flag tally — compute on the parsed visits (not stored separately)
+  const tally = cprTallyFlags(p.all_visits_payload);
+
+  let html = '<div class="cpr-stat-grid">' +
+    '<div class="cpr-stat-card"><div class="cpr-stat-label">Period</div><div class="cpr-stat-value" style="font-size:13px">' + escHtml(periodLabel) + '</div></div>' +
+    '<div class="cpr-stat-card"><div class="cpr-stat-label">Pay Date</div><div class="cpr-stat-value" style="font-size:13px">' + escHtml(payLabel) + '</div></div>' +
+    '<div class="cpr-stat-card"><div class="cpr-stat-label">Total Pay</div><div class="cpr-stat-value">' + cprFmtMoney(p.total_pay) + '</div></div>' +
+    '<div class="cpr-stat-card"><div class="cpr-stat-label">Visits</div><div class="cpr-stat-value">' + p.total_visits + '</div></div>' +
+    '<div class="cpr-stat-card"><div class="cpr-stat-label">Clinicians</div><div class="cpr-stat-value">' + p.distinct_clinicians + '</div></div>' +
+    '<div class="cpr-stat-card ' + nonpayWarn + '"><div class="cpr-stat-label">Non-payable</div><div class="cpr-stat-value">' + p.nonpayable_visits + '</div></div>' +
+  '</div>';
+
+  // ── Cross-period sanity warning ──────────────────────────────────
+  // If the file's submitted dates touched more than one pay period, surface
+  // a yellow strip with the per-period breakdown. Detection prefers the
+  // period with the most visits, but the user should know about the split.
+  if (p._spans_multiple_periods && Array.isArray(p._period_buckets) && p._period_buckets.length > 1) {
+    html += '<div class="cpr-period-warn">' +
+      '<div class="cpr-period-warn-head">⚠ MULTI-PERIOD FILE — submitted dates span ' + p._period_buckets.length + ' pay periods</div>' +
+      '<div class="cpr-period-warn-body">' +
+        'This file contains visits submitted across multiple pay periods. We saved it as ' +
+        '<strong>' + cprFmtDate(p.period_start) + ' – ' + cprFmtDate(p.period_end) + '</strong> (the period of the latest submission). ' +
+        'If that\'s wrong, narrow your TB date-range filter to a single pay period and re-export.' +
+      '</div>' +
+      '<table class="cpr-period-warn-table">' +
+        '<thead><tr><th>Period</th><th>Pay Date</th><th style="text-align:right;">Visits</th><th style="text-align:right;">Pay $</th></tr></thead>' +
+        '<tbody>' +
+        p._period_buckets.map(function(b) {
+          const isTarget = b.period.period_start === p.period_start;
+          return '<tr' + (isTarget ? ' class="cpr-period-warn-target"' : '') + '>' +
+            '<td>' + cprFmtDate(b.period.period_start) + ' – ' + cprFmtDate(b.period.period_end) + (isTarget ? ' <strong>← target</strong>' : '') + '</td>' +
+            '<td>' + cprFmtDate(b.period.pay_date) + ' (Mon)</td>' +
+            '<td style="text-align:right;">' + b.count + '</td>' +
+            '<td style="text-align:right;">' + cprFmtMoney(b.pay) + '</td>' +
+          '</tr>';
+        }).join("") +
+        '</tbody>' +
+      '</table>' +
+    '</div>';
+  }
+
+  // ── Auditor flag tally (red strip if any errors, amber if only warnings) ──
+  if (tally.total > 0) {
+    html += '<div class="cpr-flag-strip">' +
+      '<div class="cpr-flag-strip-label">⚠ AUDITOR FLAGGED ' + tally.total + ' VISIT' + (tally.total === 1 ? '' : 'S') + '</div>' +
+      '<div class="cpr-flag-chip-row">' +
+        (tally.missing_pay ? '<span class="cpr-flag-chip is-error">💸 Missing $: ' + tally.missing_pay + '</span>' : '') +
+        (tally.zero_pay    ? '<span class="cpr-flag-chip is-warn">💸 $0 pay: '    + tally.zero_pay    + '</span>' : '') +
+        (tally.late_sync   ? '<span class="cpr-flag-chip is-error">⏰ Synced ≥30d late: ' + tally.late_sync + '</span>' : '') +
+        (tally.short_visit ? '<span class="cpr-flag-chip is-warn">⏱ <45min visit: ' + tally.short_visit + '</span>' : '') +
+      '</div>' +
+    '</div>';
+    // Per-visit flagged list (scrollable, max 50 rows preview)
+    html += cprRenderFlaggedVisits(p.all_visits_payload, 50);
+  } else {
+    html += '<div class="cpr-flag-strip cpr-flag-clean">✓ Auditor — no flagged visits</div>';
+  }
+  // Per-clinician table preview
+  html += '<div style="font-size:11px;color:var(--muted);margin:6px 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Per-clinician (' + p.per_clinician_payload.length + ')</div>';
+  html += '<div style="max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
+  html += '<table class="cpr-per-clin-table"><thead><tr>' +
+    '<th>Clinician</th>' +
+    '<th>Disc</th>' +
+    '<th class="cpr-num">Visits</th>' +
+    '<th class="cpr-num">Payable</th>' +
+    '<th class="cpr-num">Non-pay</th>' +
+    '<th class="cpr-num">Total Pay</th>' +
+  '</tr></thead><tbody>';
+  p.per_clinician_payload.forEach(function(c) {
+    html += '<tr>' +
+      '<td>' + escHtml(c.clinician) + '</td>' +
+      '<td>' + escHtml(c.discipline || "") + '</td>' +
+      '<td class="cpr-num">' + c.visits + '</td>' +
+      '<td class="cpr-num">' + c.payable + '</td>' +
+      '<td class="cpr-num"' + (c.nonpayable > 0 ? ' style="color:#a53935;font-weight:700;"' : '') + '>' + c.nonpayable + '</td>' +
+      '<td class="cpr-num">' + cprFmtMoney(c.pay_total) + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody><tfoot><tr>' +
+    '<td colspan="2">TOTAL</td>' +
+    '<td class="cpr-num">' + p.total_visits + '</td>' +
+    '<td class="cpr-num">' + p.payable_visits + '</td>' +
+    '<td class="cpr-num">' + p.nonpayable_visits + '</td>' +
+    '<td class="cpr-num">' + cprFmtMoney(p.total_pay) + '</td>' +
+  '</tr></tfoot></table></div>';
+  wrap.innerHTML = html;
+  wrap.style.display = "block";
+}
+
+async function saveCprRun() {
+  if (!cprPrepared) return;
+  const btn = document.getElementById("cpr-import-confirm-btn");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const p = cprPrepared;
+    const { data, error } = await db.rpc("upsert_clinician_payroll_run", {
+      p_period_start:          p.period_start,
+      p_period_end:            p.period_end,
+      p_pay_date:              p.pay_date,
+      p_total_pay:             p.total_pay,
+      p_total_expenses:        p.total_expenses,
+      p_total_visits:          p.total_visits,
+      p_payable_visits:        p.payable_visits,
+      p_nonpayable_visits:     p.nonpayable_visits,
+      p_distinct_clinicians:   p.distinct_clinicians,
+      p_per_clinician_payload: p.per_clinician_payload,
+      p_all_visits_payload:    p.all_visits_payload,
+      p_source_filename:       p.source_filename
+    });
+    if (error) throw new Error(error.message);
+    closeCprModal();
+    alert("✓ Saved payroll run for " + cprFmtDate(p.period_start) + " - " + cprFmtDate(p.period_end) + " ($" + p.total_pay.toLocaleString() + ")");
+    await loadCprHistory();
+  } catch (err) {
+    showCprError("Save failed: " + escHtml(err.message || String(err)));
+  } finally {
+    btn.disabled = false; btn.textContent = "Save Run";
+  }
+}
+
+async function loadCprHistory() {
+  const tbody = document.getElementById("cpr-history-tbody");
+  if (!tbody) return;
+  try {
+    const { data, error } = await db.rpc("list_clinician_payroll_runs");
+    if (error) throw new Error(error.message);
+    const rows = data || [];
+    // Populate the cache keyed by period_start so the calendar can show
+    // each period's audit status + jump straight into View mode on click.
+    cprRunsByPeriodStart = Object.create(null);
+    rows.forEach(function(r) { cprRunsByPeriodStart[r.period_start] = r; });
+    // Re-render the calendar so the new "Audit" pills appear immediately.
+    if (typeof renderClinPayCal === "function") renderClinPayCal(clinPayCalYear);
+    if (!rows.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:18px;">No imports yet — click on a pay period above (or ↑ Import) to start.</td></tr>';
+      return;
+    }
+    tbody.innerHTML = rows.map(function(r) {
+      const periodLabel = cprFmtDate(r.period_start) + " – " + cprFmtDate(r.period_end);
+      const payLabel    = cprFmtDate(r.pay_date) + " (Mon)";
+      const pill        = '<span class="cpr-status-pill ' + r.status + '">' + r.status.toUpperCase() + '</span>';
+      const auditBtn    = r.status === "open"
+        ? '<button type="button" class="btn-secondary" onclick="auditCprRun(\'' + r.id + '\')">Mark audited</button>'
+        : '';
+      // Delete button — short label "✕" so the row's actions cell stays narrow.
+      // Red-tinted to signal destructive. Confirms before firing.
+      const delBtn = '<button type="button" class="btn-secondary cpr-del-btn" title="Delete this run" ' +
+        'onclick="deleteCprRun(\'' + r.id + '\', \'' + escAttr(periodLabel) + '\', ' + (r.total_pay || 0) + ')">✕</button>';
+      return '<tr>' +
+        '<td>' + escHtml(periodLabel) + '</td>' +
+        '<td>' + escHtml(payLabel) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;">' + cprFmtMoney(r.total_pay) + '</td>' +
+        '<td style="text-align:right;">' + r.total_visits + (r.nonpayable_visits > 0 ? ' <span style="color:#a53935;font-size:11px;">(' + r.nonpayable_visits + ' non-pay)</span>' : '') + '</td>' +
+        '<td style="text-align:right;">' + r.distinct_clinicians + '</td>' +
+        '<td>' + pill + '</td>' +
+        '<td class="cpr-row-actions" style="text-align:right;">' +
+          '<button type="button" class="btn-secondary" onclick="viewCprRun(\'' + r.id + '\')">View</button>' +
+          auditBtn +
+          delBtn +
+        '</td>' +
+      '</tr>';
+    }).join("");
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#c62828;padding:18px;">Failed to load history: ' + escHtml(err.message || String(err)) + '</td></tr>';
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CPR VIEW STATE — redline-style audit
+// cprViewState holds the loaded run + a flag for unsaved local edits.
+// Visit exclusion + manual adjustments mutate this state, recompute
+// totals, then re-render. Save/Finalize pushes back to the DB.
+// ══════════════════════════════════════════════════════════════════
+let cprViewState = { run: null, dirty: false, expanded: new Set(), addFormOpen: new Set() };
+
+async function viewCprRun(runId) {
+  const body  = document.getElementById("cpr-detail-body");
+  const title = document.getElementById("cpr-detail-title");
+  if (!body) return;
+  body.innerHTML = '<div style="padding:20px;color:var(--muted);">Loading…</div>';
+  document.getElementById("cpr-detail-overlay").style.display = "flex";
+  try {
+    const { data, error } = await db.rpc("get_clinician_payroll_run", { run_id: runId });
+    if (error) throw new Error(error.message);
+    const r = Array.isArray(data) ? data[0] : data;
+    if (!r) throw new Error("Run not found");
+    title.textContent = "Payroll Run — " + cprFmtDate(r.period_start) + " – " + cprFmtDate(r.period_end);
+
+    // Defensive defaults for older runs that pre-date the adjustment fields
+    const visits  = Array.isArray(r.all_visits_payload) ? r.all_visits_payload : [];
+    const perClin = Array.isArray(r.per_clinician_payload) ? r.per_clinician_payload : [];
+    // ALWAYS re-key by positional index. Older saves used TB's "Unique ID"
+    // column for vid, which is actually shared across visits in the same
+    // episode → caused multi-row edit mode bug. Re-keying on load makes
+    // pre-existing runs work correctly without a re-import.
+    visits.forEach(function(v, i) {
+      v.vid = "v-" + i;
+      if (v.excluded == null)  v.excluded  = false;
+      if (v.is_manual == null) v.is_manual = false;
+    });
+    perClin.forEach(function(c) {
+      if (!Array.isArray(c.adjustments)) c.adjustments = [];
+    });
+
+    cprViewState = {
+      run: r,
+      dirty: false,
+      expanded: new Set(),
+      addFormOpen: new Set(),
+      // Inline-edit state: only one cell at a time. Stores the vid (for
+      // visit pay edits) or "<clinKey>|<adjId>|<field>" (for adjustments).
+      editingVid: null,
+      editingAdj: null,
+      // Search-filter for the per-clinician list. Substring + case-insensitive.
+      // When the filter narrows to exactly one clinician we auto-expand it
+      // so the user lands directly on their visits — effectively "isolate".
+      search: ""
+    };
+    cprRecompute();
+    cprRenderDetail();
+  } catch (err) {
+    body.innerHTML = '<div style="padding:20px;color:#c62828;">Failed: ' + escHtml(err.message || String(err)) + '</div>';
+  }
+}
+
+// Recompute per-clinician totals + period totals from the in-memory
+// visits + adjustments. Called after any edit; results overwrite the
+// live state in cprViewState.run.
+function cprRecompute() {
+  const r = cprViewState.run;
+  if (!r) return;
+  const visits  = r.all_visits_payload || [];
+  const perClin = r.per_clinician_payload || [];
+
+  // Rebuild per-clinician aggregates from current visits + persisted adjustments
+  const byClin = Object.create(null);
+  perClin.forEach(function(c) {
+    byClin[c.clinician] = Object.assign({}, c, {
+      visits: 0, payable: 0, nonpayable: 0,
+      excluded_count: 0, excluded_pay: 0,
+      pay_total: 0, expenses_total: 0,
+      adjustments: Array.isArray(c.adjustments) ? c.adjustments : []
+    });
+  });
+  visits.forEach(function(v) {
+    const c = byClin[v.clinician];
+    if (!c) return;
+    // Cache the auditor flags ON the visit object so renderers don't have
+    // to recompute. Also tally per-clinician flag counts.
+    v._flags = cprFlagRow(v);
+    if (v.excluded) {
+      c.excluded_count++;
+      c.excluded_pay += Number(v.pay) || 0;
+      return;
+    }
+    c.visits++;
+    if (v.payable) c.payable++; else c.nonpayable++;
+    c.pay_total      += Number(v.pay) || 0;
+    c.expenses_total += Number(v.expenses) || 0;
+    // Track per-visit pay edits so the parent row + subtotal show "N edited"
+    if (v.pay_edited) c.edited_count = (c.edited_count || 0) + 1;
+    if (v._flags.length) {
+      c.flag_count = (c.flag_count || 0) + 1;
+      // Highest severity wins for the parent-row badge color
+      const anyError = v._flags.some(function(f) { return f.severity === "error"; });
+      if (anyError) c.flag_severity = "error";
+      else if (!c.flag_severity) c.flag_severity = "warn";
+    }
+  });
+  // Apply manual adjustments to pay_total
+  Object.values(byClin).forEach(function(c) {
+    c.adjustments_total = c.adjustments.reduce(function(s, a) { return s + (Number(a.amount) || 0); }, 0);
+    c.pay_total += c.adjustments_total;
+  });
+  // Rebuild ordered per_clinician_payload (preserve original sort, e.g. by pay_total desc)
+  r.per_clinician_payload = Object.values(byClin).sort(function(a, b) { return b.pay_total - a.pay_total; });
+
+  // Period totals
+  r.total_pay = r.per_clinician_payload.reduce(function(s, c) { return s + (Number(c.pay_total) || 0); }, 0);
+  r.total_expenses = r.per_clinician_payload.reduce(function(s, c) { return s + (Number(c.expenses_total) || 0); }, 0);
+  r.total_visits   = r.per_clinician_payload.reduce(function(s, c) { return s + c.visits; }, 0);
+  r.payable_visits = r.per_clinician_payload.reduce(function(s, c) { return s + c.payable; }, 0);
+  r.nonpayable_visits = r.per_clinician_payload.reduce(function(s, c) { return s + c.nonpayable; }, 0);
+  r.distinct_clinicians = r.per_clinician_payload.length;
+}
+
+// Original totals as captured at last save (used to show the strikethrough
+// delta in the header). We derive these from a snapshot taken at load.
+function cprComputeOriginalTotals() {
+  const r = cprViewState.run;
+  if (!r) return null;
+  const visits = r.all_visits_payload || [];
+  let pay = 0, visitCt = 0;
+  visits.forEach(function(v) {
+    // "Original" = everything as-imported, ignoring excluded flag + adjustments
+    pay += Number(v.pay) || 0;
+    visitCt++;
+  });
+  return { pay: pay, visits: visitCt };
+}
+
+function cprRenderDetail() {
+  const body = document.getElementById("cpr-detail-body");
+  if (!body || !cprViewState.run) return;
+
+  // ── Scroll-position preservation ──
+  // Full re-render replaces body.innerHTML, which resets the accordion's
+  // inner scroll AND, more importantly, triggers focus/layout work that
+  // ends up scrolling the DOCUMENT itself (modal-box doesn't scroll —
+  // it's shorter than the viewport — but the page underneath does).
+  // Snapshot all three so no matter which container is actually scrolling,
+  // we can put it back.
+  const modalBox = document.querySelector("#cpr-detail-overlay .cpr-modal-box");
+  const accWrap  = document.querySelector("#cpr-detail-body .cpr-acc-wrap");
+  const savedModalScroll = modalBox ? modalBox.scrollTop : 0;
+  const savedAccScroll   = accWrap  ? accWrap.scrollTop  : 0;
+  const savedDocScroll   = document.documentElement.scrollTop || document.body.scrollTop || 0;
+  const r = cprViewState.run;
+  const visits  = r.all_visits_payload || [];
+  const perClin = r.per_clinician_payload || [];
+  const orig    = cprComputeOriginalTotals();
+  const isLocked = r.status !== "open";
+
+  const adjustedDiffer = orig && (Math.abs(orig.pay - r.total_pay) > 0.001 || orig.visits !== (r.total_visits + (orig.visits - r.total_visits - cprCountAdjustments(perClin))));
+  const delta = (r.total_pay - orig.pay);
+  const deltaSign = delta > 0 ? "+" : "";
+
+  let html = "";
+
+  // ── Header summary card ─────────────────────────────────────────
+  html += '<div class="cpr-audit-header">';
+  if (adjustedDiffer || cprCountAdjustments(perClin) > 0 || cprCountExcluded(visits) > 0) {
+    html += '<div class="cpr-audit-summary">' +
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">TB ORIGINAL</span>' +
+        '<span class="cpr-audit-value cpr-strike">' + cprFmtMoney(orig.pay) + ' · ' + orig.visits + ' visits</span>' +
+      '</div>' +
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">ADJUSTED</span>' +
+        '<span class="cpr-audit-value cpr-audit-adjusted">' +
+          cprFmtMoney(r.total_pay) + ' · ' + r.total_visits + ' visits' +
+          ' <span class="cpr-delta ' + (delta < 0 ? "neg" : "pos") + '">(' + deltaSign + cprFmtMoney(delta) + ', ' +
+          cprCountExcluded(visits) + ' excluded · ' + cprCountAdjustments(perClin) + ' adj)</span>' +
+        '</span>' +
+      '</div>' +
+    '</div>';
+  } else {
+    html += '<div class="cpr-audit-summary">' +
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">TOTAL</span>' +
+        '<span class="cpr-audit-value">' + cprFmtMoney(r.total_pay) + ' · ' + r.total_visits + ' visits · ' + r.distinct_clinicians + ' clinicians</span>' +
+      '</div>' +
+    '</div>';
+  }
+  html += '<div class="cpr-stat-card" style="margin-top:8px;background:transparent;border:none;padding:0;">' +
+    '<span class="cpr-status-pill ' + r.status + '">' + r.status.toUpperCase() + '</span>' +
+    (isLocked ? ' <span style="font-size:11.5px;color:var(--muted);margin-left:6px;">🔒 Finalized — click Reopen to edit</span>' : '') +
+  '</div>';
+  html += '</div>';
+
+  // ── Auditor flag strip (recomputed from current visits) ─────────
+  const tally = cprTallyFlags(visits.filter(function(v) { return !v.excluded; }));
+  if (tally.total > 0) {
+    html += '<div class="cpr-flag-strip" style="margin-top:10px;">' +
+      '<div class="cpr-flag-strip-label">⚠ AUDITOR FLAGGED ' + tally.total + ' VISIT' + (tally.total === 1 ? '' : 'S') + ' (excluding excluded rows)</div>' +
+      '<div class="cpr-flag-chip-row">' +
+        (tally.missing_pay ? '<span class="cpr-flag-chip is-error">💸 Missing $: ' + tally.missing_pay + '</span>' : '') +
+        (tally.zero_pay    ? '<span class="cpr-flag-chip is-warn">💸 $0 pay: '    + tally.zero_pay    + '</span>' : '') +
+        (tally.late_sync   ? '<span class="cpr-flag-chip is-error">⏰ Synced ≥30d late: ' + tally.late_sync + '</span>' : '') +
+        (tally.short_visit ? '<span class="cpr-flag-chip is-warn">⏱ <45min visit: ' + tally.short_visit + '</span>' : '') +
+      '</div>' +
+    '</div>';
+  } else {
+    html += '<div class="cpr-flag-strip cpr-flag-clean" style="margin-top:10px;">✓ Auditor — no flagged visits</div>';
+  }
+
+  // ── Per-clinician table (always shows clinician names; expand for visits) ──
+  // Uses a plain HTML table — bulletproof rendering, no flexbox/grid edge cases.
+  // Each clinician = one <tr>. Expanded clinician injects a second <tr> below
+  // with the full visit detail + adjustments + add-adjustment form.
+
+  // Filter clinicians by search term (case-insensitive substring against the
+  // title-cased name + raw name, so users can search either format).
+  const searchTerm = String(cprViewState.search || "").trim().toLowerCase();
+  const filteredPerClin = searchTerm
+    ? perClin.filter(function(c) {
+        const raw = String(c.clinician || "").toLowerCase();
+        const tc  = cprTitleCase(c.clinician).toLowerCase();
+        return raw.indexOf(searchTerm) > -1 || tc.indexOf(searchTerm) > -1;
+      })
+    : perClin;
+  // Auto-expand the single match — effectively "isolate" the clinician.
+  if (searchTerm && filteredPerClin.length === 1) {
+    cprViewState.expanded.add(filteredPerClin[0].clinician);
+  }
+
+  // Header strip — search input + result counter + clear button
+  const searchEsc = escAttr(cprViewState.search || "");
+  const headerLabel = searchTerm
+    ? "Per-clinician (" + filteredPerClin.length + " of " + perClin.length + ")"
+    : "Per-clinician (" + perClin.length + ") — click a row to expand";
+  html += '<div class="cpr-clin-search-row">' +
+    '<input type="text" id="cpr-clin-search" class="cpr-clin-search-input" placeholder="🔍 Search clinician name…" value="' + searchEsc + '" autocomplete="off" />' +
+    (searchTerm ? '<button type="button" class="cpr-btn-mini" data-action="clear-clin-search" title="Clear">✕ Clear</button>' : '') +
+    '<span class="cpr-clin-search-count">' + escHtml(headerLabel) + '</span>' +
+  '</div>';
+
+  html += '<div class="cpr-acc-wrap">';
+  html += '<table class="cpr-clin-table">';
+  html += '<thead><tr>' +
+    '<th></th>' +
+    '<th>Clinician</th>' +
+    '<th>Disc</th>' +
+    '<th style="text-align:right;">Visits / Adj</th>' +
+    '<th style="text-align:right;">Total Pay</th>' +
+  '</tr></thead>';
+  html += '<tbody>';
+
+  if (!filteredPerClin.length) {
+    html += '<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No clinicians match "' + escHtml(cprViewState.search) + '"</td></tr>';
+  }
+
+  filteredPerClin.forEach(function(c) {
+    // Use the index into the UNFILTERED list so click handlers index
+    // into r.per_clinician_payload correctly even when filtered.
+    const idx = perClin.indexOf(c);
+    const exp = cprViewState.expanded.has(c.clinician);
+    const adjFormOpen = cprViewState.addFormOpen.has(c.clinician);
+    const visitsForClin = visits.filter(function(v) { return v.clinician === c.clinician; });
+    const origPay = visitsForClin.reduce(function(s, v) { return s + (Number(v.pay) || 0); }, 0);
+    const delta = c.pay_total - origPay;
+    const deltaHtml = Math.abs(delta) > 0.001
+      ? ' <span class="cpr-delta ' + (delta < 0 ? "neg" : "pos") + '">(' + (delta > 0 ? "+" : "") + cprFmtMoney(delta) + ')</span>'
+      : '';
+    const vcLabel = c.visits + ' vis'
+      + (c.excluded_count ? ' · ' + c.excluded_count + ' excl' : '')
+      + (c.edited_count ? ' · ' + c.edited_count + ' edited' : '')
+      + (c.adjustments.length ? ' · ' + c.adjustments.length + ' adj' : '');
+    const flagBadge = c.flag_count
+      ? ' <span class="cpr-clin-flag-badge cpr-flag-' + (c.flag_severity || "warn") +
+        '" title="Click to expand and review flagged visits">⚠ ' + c.flag_count + ' flagged</span>'
+      : '';
+    const rowFlagCls = c.flag_count
+      ? (c.flag_severity === "error" ? "has-flag-error" : "has-flag-warn")
+      : "";
+
+    // Use data-cidx (index into perClin) instead of inline string interpolation
+    // of the clinician name — sidesteps any apostrophe/quote-escaping issues.
+    html += '<tr class="cpr-clin-row ' + (exp ? "is-open" : "") + ' ' + rowFlagCls + '" data-cidx="' + idx + '">' +
+      '<td class="col-caret">' + (exp ? '▾' : '▸') + '</td>' +
+      '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + flagBadge + '</td>' +
+      '<td class="col-disc"><span>' + escHtml(c.discipline || "—") + '</span></td>' +
+      '<td class="col-vc">' + escHtml(vcLabel) + '</td>' +
+      '<td class="col-pay">' + cprFmtMoney(c.pay_total) + deltaHtml + '</td>' +
+    '</tr>';
+
+    if (exp) {
+      html += '<tr class="cpr-expand-row"><td colspan="5">';
+      // Visits table
+      html += '<table class="cpr-visits-table"><thead><tr>' +
+        '<th></th>' +
+        '<th>Date</th>' +
+        '<th>Type</th>' +
+        '<th class="cpr-num">Time</th>' +
+        '<th>Patient</th>' +
+        '<th>Agency</th>' +
+        '<th class="cpr-num">Pay</th>' +
+        '<th>Flags</th>' +
+        '<th>Action</th>' +
+      '</tr></thead><tbody>';
+      visitsForClin.forEach(function(v) {
+        const flags = v._flags || cprFlagRow(v);
+        const flagCls = flags.length
+          ? (flags.some(function(f) { return f.severity === "error"; }) ? "cpr-row-flag-error" : "cpr-row-flag-warn")
+          : "";
+        const exclCls = v.excluded ? "cpr-row-excluded" : "";
+        const manCls  = v.is_manual ? "cpr-row-manual" : "";
+        const editCls = v.pay_edited ? "cpr-row-pay-edited" : "";
+        const flagChipsHtml = flags.length
+          ? flags.map(function(f) {
+              return '<span class="cpr-flag-chip ' + (f.severity === "error" ? "is-error" : "is-warn") +
+                '" title="' + escAttr(f.label) + '">' + escHtml(f.label) + '</span>';
+            }).join(" ")
+          : '';
+
+        // Pay cell — three states:
+        //   1. Currently editing → inline input + ✓/✕ buttons
+        //   2. Edited (committed) → strike-through original + bold new + ↶ revert button
+        //   3. Normal → plain $X.XX + hover-revealed ✎ button
+        let payCellHtml;
+        if (cprViewState.editingVid === v.vid && !isLocked) {
+          // NOTE: no autofocus attribute — autofocus triggers the browser
+          // to scroll the input into view automatically, fighting our scroll
+          // restoration. We focus manually via { preventScroll: true } below.
+          payCellHtml =
+            '<input type="number" step="0.01" class="cpr-pay-edit-input" data-action="save-pay-key" ' +
+              'value="' + escAttr(Number(v.pay).toFixed(2)) + '" />' +
+            '<button type="button" class="cpr-btn-mini cpr-btn-save" data-action="save-pay" title="Save">✓</button>' +
+            '<button type="button" class="cpr-btn-mini" data-action="cancel-pay" title="Cancel">✕</button>';
+        } else if (v.pay_edited && v.original_pay != null) {
+          payCellHtml =
+            '<span class="cpr-pay-orig">' + cprFmtMoney(v.original_pay) + '</span>' +
+            ' <span class="cpr-pay-new">' + cprFmtMoney(v.pay) + '</span>' +
+            (isLocked ? '' : ' <button type="button" class="cpr-btn-mini cpr-btn-restore" data-action="revert-pay" title="Revert to TB original">↶</button>');
+        } else {
+          payCellHtml = cprFmtMoney(v.pay) +
+            (isLocked || v.excluded ? '' : ' <button type="button" class="cpr-btn-edit-pay" data-action="edit-pay" title="Edit pay amount">✎</button>');
+        }
+
+        html += '<tr class="' + exclCls + ' ' + manCls + ' ' + flagCls + ' ' + editCls + '" data-vid="' + escAttr(v.vid) + '">' +
+          '<td>' + (v.is_manual ? '<span class="cpr-badge-adj">+ ADJ</span>' : '') + '</td>' +
+          '<td>' + escHtml(cprFmtDate(v.date) || "—") + '</td>' +
+          '<td>' + escHtml(v.type || "") + '</td>' +
+          '<td class="cpr-num">' + (v.time_min || "—") + '</td>' +
+          '<td>' + escHtml(cprTitleCase(v.patient)) + '</td>' +
+          '<td>' + escHtml(cprTitleCase(v.agency))  + '</td>' +
+          '<td class="cpr-num cpr-pay-cell">' + payCellHtml + '</td>' +
+          '<td>' + flagChipsHtml + '</td>' +
+          '<td>' + (isLocked ? '' : (v.excluded
+            ? '<button type="button" class="cpr-btn-mini cpr-btn-restore" data-action="restore">↶ Restore</button>'
+            : '<button type="button" class="cpr-btn-mini cpr-btn-exclude" data-action="exclude">✕ Exclude</button>'
+          )) + '</td>' +
+        '</tr>';
+      });
+      // Adjustments (9-col layout). Each user-editable field (date, desc,
+      // amount) shows as click-to-edit text in normal state and an inline
+      // input when cprViewState.editingAdj === "clinKey|adjId|field".
+      c.adjustments.forEach(function(a) {
+        const adjKeyBase = c.clinician + "|" + a.id + "|";
+        const editingField = (cprViewState.editingAdj && cprViewState.editingAdj.indexOf(adjKeyBase) === 0)
+          ? cprViewState.editingAdj.slice(adjKeyBase.length)
+          : null;
+
+        // Date cell
+        let dateHtml;
+        if (editingField === "date" && !isLocked) {
+          dateHtml = '<input type="date" class="cpr-adj-edit-input" data-adj-field="date" data-adj-id="' + escAttr(a.id) + '" data-clin="' + escAttr(c.clinician) + '" value="' + escAttr(a.date || "") + '" />';
+        } else {
+          const dateStr = cprFmtDate(a.date) || "—";
+          dateHtml = isLocked
+            ? escHtml(dateStr)
+            : '<span class="cpr-adj-cell-editable" data-action="edit-adj-field" data-adj-id="' + escAttr(a.id) + '" data-clin="' + escAttr(c.clinician) + '" data-field="date" title="Click to edit date">' + escHtml(dateStr) + '</span>';
+        }
+
+        // Description cell
+        let descHtml;
+        if (editingField === "description" && !isLocked) {
+          descHtml = '<input type="text" class="cpr-adj-edit-input" data-adj-field="description" data-adj-id="' + escAttr(a.id) + '" data-clin="' + escAttr(c.clinician) + '" value="' + escAttr(a.description || "") + '" style="width:100%;" />';
+        } else {
+          const descStr = a.description || "(no description)";
+          descHtml = isLocked
+            ? '<span style="font-style:italic;">' + escHtml(descStr) + '</span>'
+            : '<span class="cpr-adj-cell-editable" data-action="edit-adj-field" data-adj-id="' + escAttr(a.id) + '" data-clin="' + escAttr(c.clinician) + '" data-field="description" style="font-style:italic;" title="Click to edit description">' + escHtml(descStr) + '</span>';
+        }
+
+        // Amount cell
+        let amtHtml;
+        if (editingField === "amount" && !isLocked) {
+          amtHtml = '<input type="number" step="0.01" class="cpr-adj-edit-input" data-adj-field="amount" data-adj-id="' + escAttr(a.id) + '" data-clin="' + escAttr(c.clinician) + '" value="' + escAttr(Number(a.amount).toFixed(2)) + '" />';
+        } else {
+          const amtTxt = cprFmtMoney(a.amount);
+          const amtStyle = Number(a.amount) < 0 ? 'color:#a53935;' : '';
+          amtHtml = isLocked
+            ? '<span style="' + amtStyle + '">' + amtTxt + '</span>'
+            : '<span class="cpr-adj-cell-editable" data-action="edit-adj-field" data-adj-id="' + escAttr(a.id) + '" data-clin="' + escAttr(c.clinician) + '" data-field="amount" style="' + amtStyle + '" title="Click to edit amount">' + amtTxt + '</span>';
+        }
+
+        html += '<tr class="cpr-row-adjustment" data-adj-id="' + escAttr(a.id) + '">' +
+          '<td><span class="cpr-badge-adj">+ ADJ</span></td>' +
+          '<td>' + dateHtml + '</td>' +
+          '<td colspan="4">' + descHtml + '</td>' +
+          '<td class="cpr-num">' + amtHtml + '</td>' +
+          '<td></td>' +
+          '<td>' + (isLocked ? '' :
+            '<button type="button" class="cpr-btn-mini cpr-btn-exclude" data-action="remove-adj">✕ Remove</button>'
+          ) + '</td>' +
+        '</tr>';
+      });
+      // Subtotal (9-col layout)
+      html += '<tr class="cpr-subtotal-row">' +
+        '<td colspan="6" style="text-align:right;">' +
+          (c.excluded_count ? '<span style="color:#a53935;font-weight:600;">' + c.excluded_count + ' excluded</span> · ' : '') +
+          (c.edited_count ? '<span style="color:#1d4ed8;font-weight:600;">' + c.edited_count + ' edited</span> · ' : '') +
+          (c.adjustments.length ? '<span style="color:#1B5E20;font-weight:600;">' + c.adjustments.length + ' adjustment' + (c.adjustments.length === 1 ? '' : 's') + '</span> · ' : '') +
+          (c.flag_count ? '<span style="color:' + (c.flag_severity === "error" ? "#a53935" : "#8a5a00") + ';font-weight:600;">' + c.flag_count + ' flagged</span> · ' : '') +
+          '<strong>Subtotal</strong>' +
+        '</td>' +
+        '<td class="cpr-num"><strong>' + cprFmtMoney(c.pay_total) + '</strong></td>' +
+        '<td></td>' +
+        '<td></td>' +
+      '</tr>';
+      html += '</tbody></table>';
+
+      if (!isLocked) {
+        if (adjFormOpen) {
+          html += '<div class="cpr-adj-form" data-cidx="' + idx + '">' +
+            '<input type="date" data-field="date" />' +
+            '<input type="text" data-field="desc" placeholder="Description (mileage, bonus, retro-pay, etc.)" />' +
+            '<input type="number" step="0.01" data-field="amt" placeholder="$ Amount (negative to subtract)" />' +
+            '<button type="button" class="cpr-btn-mini cpr-btn-save" data-action="add-adj">Add</button>' +
+            '<button type="button" class="cpr-btn-mini" data-action="cancel-adj">Cancel</button>' +
+          '</div>';
+        } else {
+          html += '<button type="button" class="cpr-btn-add-adj" data-action="open-adj" data-cidx="' + idx + '">➕ Add manual adjustment</button>';
+        }
+      }
+      html += '</td></tr>'; // /expand-row
+    }
+  });
+  html += '</tbody></table></div>';
+
+  // ── Footer (Save / Finalize / Reopen) ────────────────────────────
+  html += '<div class="cpr-detail-footer">';
+  if (isLocked) {
+    const stamp = r.audited_at ? new Date(r.audited_at).toLocaleString() : "";
+    html += '<span class="cpr-detail-footer-msg">🔒 Finalized ' + escHtml(stamp) + '</span>' +
+      '<button type="button" class="btn-secondary" onclick="cprReopenRun()">Reopen for edits</button>';
+  } else {
+    const dirty = cprViewState.dirty;
+    html += '<span class="cpr-detail-footer-msg">' + (dirty ? '⚠ Unsaved edits — Save Adjustments to keep, or Finalize to lock' : 'No pending edits') + '</span>' +
+      '<button type="button" class="btn-secondary" onclick="cprSaveRun(false)"' + (dirty ? '' : ' disabled') + '>Save Adjustments</button>' +
+      '<button type="button" class="btn-secondary" style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;" onclick="cprSaveRun(true)">Finalize Audit</button>';
+  }
+  html += '</div>';
+
+  if (r.source_filename) {
+    html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;">Source: <code>' + escHtml(r.source_filename) + '</code> · imported ' + (r.imported_at ? new Date(r.imported_at).toLocaleString() : "—") + '</div>';
+  }
+  body.innerHTML = html;
+
+  // Restore all three scroll positions. The document scroll matters most
+  // here — the modal-box doesn't scroll on most screens (it fits in the
+  // viewport) so it's the page underneath that actually jumps. Restore
+  // synchronously + again on the next animation frame to win any race
+  // with the browser's focus-into-view scrolling.
+  const newModalBox = document.querySelector("#cpr-detail-overlay .cpr-modal-box");
+  const newAccWrap  = document.querySelector("#cpr-detail-body .cpr-acc-wrap");
+  if (newModalBox && savedModalScroll) newModalBox.scrollTop = savedModalScroll;
+  if (newAccWrap  && savedAccScroll)   newAccWrap.scrollTop  = savedAccScroll;
+  if (savedDocScroll) {
+    window.scrollTo(0, savedDocScroll);
+    // Belt-and-suspenders: re-pin on the next frame in case focus() or
+    // another browser-triggered scroll fired between our swap and paint.
+    requestAnimationFrame(function() {
+      window.scrollTo(0, savedDocScroll);
+    });
+  }
+
+  // Wire event delegation once after each render. Avoids inline onclick
+  // string-quote escaping issues with clinician names containing apostrophes
+  // (e.g. "O'Brien") that would otherwise break the page.
+  cprWireDetailEvents();
+}
+
+function cprWireDetailEvents() {
+  const body = document.getElementById("cpr-detail-body");
+  if (!body) return;
+
+  // Search input — preserve focus + caret position across re-renders so
+  // the user can keep typing without the box losing focus on each keypress.
+  const searchInp = document.getElementById("cpr-clin-search");
+  if (searchInp) {
+    searchInp.oninput = function() {
+      const caret = searchInp.selectionStart;
+      cprViewState.search = searchInp.value;
+      cprRenderDetail();
+      // Re-render replaced the input; refocus the new one and restore caret
+      const newInp = document.getElementById("cpr-clin-search");
+      if (newInp) {
+        try { newInp.focus({ preventScroll: true }); } catch (e) { newInp.focus(); }
+        try { newInp.setSelectionRange(caret, caret); } catch (e) {}
+      }
+    };
+  }
+
+  // Inline-input keyboard + blur wiring — Enter saves, Esc cancels, blur
+  // saves for adjustment fields (visit-pay only saves on explicit ✓ click
+  // so users can ✕ to cancel a typo without committing).
+  body.querySelectorAll(".cpr-pay-edit-input").forEach(function(inp) {
+    inp.onkeydown = function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const tr = inp.closest("tr");
+        const vid = tr && tr.dataset.vid;
+        if (vid) cprEditVisitPay(vid, inp.value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cprViewState.editingVid = null;
+        cprRenderDetail();
+      }
+    };
+  });
+  body.querySelectorAll(".cpr-adj-edit-input").forEach(function(inp) {
+    // Enter saves, Esc cancels. NO blur-save — too easy to lose edits when
+    // jumping between cells. User must explicitly press Enter to commit.
+    inp.onkeydown = function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        cprEditAdjustment(inp.dataset.clin, inp.dataset.adjId, inp.dataset.adjField, inp.value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cprViewState.editingAdj = null;
+        cprRenderDetail();
+      }
+    };
+  });
+
+  body.onclick = function(ev) {
+    const t = ev.target;
+    // Clear-search button
+    if (t.dataset && t.dataset.action === "clear-clin-search") {
+      cprViewState.search = "";
+      cprRenderDetail();
+      return;
+    }
+    // Per-clinician row click → toggle expand
+    const clinRow = t.closest && t.closest(".cpr-clin-row");
+    if (clinRow && !t.closest("button") && !t.closest("input")) {
+      const idx = Number(clinRow.dataset.cidx);
+      const r = cprViewState.run;
+      const c = r && r.per_clinician_payload[idx];
+      if (c) cprToggleClin(c.clinician);
+      return;
+    }
+    // Visit row buttons (exclude / restore) — find vid on the parent <tr>
+    if (t.dataset && (t.dataset.action === "exclude" || t.dataset.action === "restore")) {
+      const tr = t.closest("tr");
+      const vid = tr && tr.dataset.vid;
+      if (vid) cprToggleExclude(vid);
+      return;
+    }
+    // ── Per-visit pay editing ──────────────────────────────────
+    // ✎ click → enter edit mode for that visit
+    if (t.dataset && t.dataset.action === "edit-pay") {
+      const tr = t.closest("tr");
+      const vid = tr && tr.dataset.vid;
+      if (vid) {
+        cprViewState.editingVid = vid;
+        cprRenderDetail();
+        // Focus the new input. preventScroll: true keeps the page from
+        // jumping — we already preserved scrollTop in cprRenderDetail.
+        setTimeout(function() {
+          const inp = body.querySelector('tr[data-vid="' + vid + '"] .cpr-pay-edit-input');
+          if (inp) {
+            try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); }
+            inp.select();
+          }
+        }, 0);
+      }
+      return;
+    }
+    // ✓ commit → cprEditVisitPay
+    if (t.dataset && t.dataset.action === "save-pay") {
+      const tr = t.closest("tr");
+      const vid = tr && tr.dataset.vid;
+      const inp = tr && tr.querySelector(".cpr-pay-edit-input");
+      if (vid && inp) cprEditVisitPay(vid, inp.value);
+      return;
+    }
+    // ✕ cancel → exit edit mode without saving
+    if (t.dataset && t.dataset.action === "cancel-pay") {
+      cprViewState.editingVid = null;
+      cprRenderDetail();
+      return;
+    }
+    // ↶ revert → restore TB original
+    if (t.dataset && t.dataset.action === "revert-pay") {
+      const tr = t.closest("tr");
+      const vid = tr && tr.dataset.vid;
+      if (vid) cprRevertVisitPay(vid);
+      return;
+    }
+    // ── Per-adjustment in-place editing ────────────────────────
+    if (t.dataset && t.dataset.action === "edit-adj-field") {
+      const adjId = t.dataset.adjId;
+      const clin  = t.dataset.clin;
+      const field = t.dataset.field;
+      if (adjId && clin && field) {
+        cprViewState.editingAdj = clin + "|" + adjId + "|" + field;
+        cprRenderDetail();
+        setTimeout(function() {
+          const inp = body.querySelector('.cpr-adj-edit-input[data-adj-id="' + adjId + '"][data-adj-field="' + field + '"]');
+          if (inp) {
+            try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); }
+            if (inp.select) inp.select();
+          }
+        }, 0);
+      }
+      return;
+    }
+    // Adjustment remove
+    if (t.dataset && t.dataset.action === "remove-adj") {
+      const tr = t.closest("tr");
+      const adjId = tr && tr.dataset.adjId;
+      const expandRow = tr && tr.closest(".cpr-expand-row");
+      // Find which clinician we're under via the previous-sibling clin row
+      let clinRow2 = expandRow ? expandRow.previousElementSibling : null;
+      if (clinRow2 && adjId) {
+        const idx = Number(clinRow2.dataset.cidx);
+        const c = cprViewState.run.per_clinician_payload[idx];
+        if (c) cprRemoveAdj(c.clinician, adjId);
+      }
+      return;
+    }
+    // Open / cancel / submit adjustment form
+    if (t.dataset && t.dataset.action === "open-adj") {
+      const idx = Number(t.dataset.cidx);
+      const c = cprViewState.run.per_clinician_payload[idx];
+      if (c) cprOpenAdj(c.clinician);
+      return;
+    }
+    if (t.dataset && t.dataset.action === "cancel-adj") {
+      const form = t.closest(".cpr-adj-form");
+      const idx = form && Number(form.dataset.cidx);
+      const c = cprViewState.run.per_clinician_payload[idx];
+      if (c) cprCancelAdj(c.clinician);
+      return;
+    }
+    if (t.dataset && t.dataset.action === "add-adj") {
+      const form = t.closest(".cpr-adj-form");
+      if (!form) return;
+      const idx = Number(form.dataset.cidx);
+      const c = cprViewState.run.per_clinician_payload[idx];
+      if (!c) return;
+      const date = form.querySelector('[data-field="date"]').value || null;
+      const desc = form.querySelector('[data-field="desc"]').value || "";
+      const amt  = Number(form.querySelector('[data-field="amt"]').value || 0);
+      if (!desc.trim()) { alert("Description required."); return; }
+      if (!Number.isFinite(amt) || amt === 0) { alert("Amount required and must be non-zero."); return; }
+      const clin = c;
+      if (!Array.isArray(clin.adjustments)) clin.adjustments = [];
+      clin.adjustments.push({
+        id: "adj-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+        date: date, description: desc.trim(),
+        amount: Math.round(amt * 100) / 100,
+        created_at: new Date().toISOString()
+      });
+      cprViewState.addFormOpen.delete(clin.clinician);
+      cprViewState.dirty = true;
+      cprRecompute();
+      cprRenderDetail();
+    }
+  };
+}
+
+function cprCountExcluded(visits)   { return visits.filter(function(v) { return v.excluded; }).length; }
+function cprCountAdjustments(perClin) {
+  return perClin.reduce(function(s, c) { return s + (c.adjustments ? c.adjustments.length : 0); }, 0);
+}
+
+// ── Mutations ───────────────────────────────────────────────────────
+function cprToggleClin(name) {
+  if (cprViewState.expanded.has(name)) cprViewState.expanded.delete(name);
+  else                                  cprViewState.expanded.add(name);
+  cprRenderDetail();
+}
+function cprToggleExclude(vid) {
+  const r = cprViewState.run;
+  if (!r || r.status !== "open") return;
+  const v = (r.all_visits_payload || []).find(function(x) { return x.vid === vid; });
+  if (!v) return;
+  v.excluded = !v.excluded;
+  cprViewState.dirty = true;
+  cprRecompute();
+  cprRenderDetail();
+}
+
+// Edit a TB visit's pay amount in place. Preserves original_pay on first
+// edit so the redline markup can show the strikethrough original.
+function cprEditVisitPay(vid, newPayRaw) {
+  const r = cprViewState.run;
+  if (!r || r.status !== "open") return;
+  const v = (r.all_visits_payload || []).find(function(x) { return x.vid === vid; });
+  if (!v) return;
+  const newPay = Number(newPayRaw);
+  if (!Number.isFinite(newPay)) { alert("Pay must be a number."); return; }
+  // First edit: capture the original. Subsequent edits overwrite but keep
+  // the original as-is so revert always goes back to TB's value.
+  if (v.original_pay == null) v.original_pay = Number(v.pay) || 0;
+  v.pay = Math.round(newPay * 100) / 100;
+  v.pay_edited = true;
+  cprViewState.editingVid = null;       // exit edit mode
+  cprViewState.dirty = true;
+  cprRecompute();
+  cprRenderDetail();
+}
+
+function cprRevertVisitPay(vid) {
+  const r = cprViewState.run;
+  if (!r || r.status !== "open") return;
+  const v = (r.all_visits_payload || []).find(function(x) { return x.vid === vid; });
+  if (!v) return;
+  if (v.original_pay == null) return;   // never was edited
+  v.pay = v.original_pay;
+  v.original_pay = null;
+  v.pay_edited = false;
+  cprViewState.dirty = true;
+  cprRecompute();
+  cprRenderDetail();
+}
+
+// In-place edit for a manual adjustment field (date / description / amount).
+function cprEditAdjustment(clinKey, adjId, field, value) {
+  const r = cprViewState.run;
+  if (!r || r.status !== "open") return;
+  const clin = (r.per_clinician_payload || []).find(function(c) { return c.clinician === clinKey; });
+  if (!clin || !Array.isArray(clin.adjustments)) return;
+  const adj = clin.adjustments.find(function(a) { return a.id === adjId; });
+  if (!adj) return;
+  if (field === "amount") {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n === 0) { alert("Amount must be non-zero."); return; }
+    adj.amount = Math.round(n * 100) / 100;
+  } else if (field === "description") {
+    const s = String(value || "").trim();
+    if (!s) { alert("Description required."); return; }
+    adj.description = s;
+  } else if (field === "date") {
+    adj.date = value || null;
+  } else {
+    return;
+  }
+  cprViewState.editingAdj = null;
+  cprViewState.dirty = true;
+  cprRecompute();
+  cprRenderDetail();
+}
+function cprOpenAdj(clinName)   { cprViewState.addFormOpen.add(clinName);   cprRenderDetail(); }
+function cprCancelAdj(clinName) { cprViewState.addFormOpen.delete(clinName); cprRenderDetail(); }
+function cprSubmitAdj(clinName) {
+  const date = (document.getElementById("cpr-adj-date-" + clinName) || {}).value || null;
+  const desc = (document.getElementById("cpr-adj-desc-" + clinName) || {}).value || "";
+  const amtRaw = (document.getElementById("cpr-adj-amt-" + clinName) || {}).value || "";
+  const amt = Number(amtRaw);
+  if (!desc.trim()) { alert("Description required."); return; }
+  if (!Number.isFinite(amt) || amt === 0) { alert("Amount required and must be non-zero."); return; }
+  const r = cprViewState.run;
+  const clin = (r.per_clinician_payload || []).find(function(c) { return c.clinician === clinName; });
+  if (!clin) return;
+  if (!Array.isArray(clin.adjustments)) clin.adjustments = [];
+  clin.adjustments.push({
+    id: "adj-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+    date: date,
+    description: desc.trim(),
+    amount: Math.round(amt * 100) / 100,
+    created_at: new Date().toISOString()
+  });
+  cprViewState.addFormOpen.delete(clinName);
+  cprViewState.dirty = true;
+  cprRecompute();
+  cprRenderDetail();
+}
+function cprRemoveAdj(clinName, adjId) {
+  if (!confirm("Remove this adjustment?")) return;
+  const r = cprViewState.run;
+  const clin = (r.per_clinician_payload || []).find(function(c) { return c.clinician === clinName; });
+  if (!clin || !Array.isArray(clin.adjustments)) return;
+  clin.adjustments = clin.adjustments.filter(function(a) { return a.id !== adjId; });
+  cprViewState.dirty = true;
+  cprRecompute();
+  cprRenderDetail();
+}
+
+// ── Save / Finalize / Reopen ─────────────────────────────────────────
+async function cprSaveRun(finalize) {
+  const r = cprViewState.run;
+  if (!r) return;
+  // Re-fire the upsert with the mutated payload; ON CONFLICT preserves audit state.
+  try {
+    const { error } = await db.rpc("upsert_clinician_payroll_run", {
+      p_period_start:          r.period_start,
+      p_period_end:            r.period_end,
+      p_pay_date:              r.pay_date,
+      p_total_pay:             r.total_pay,
+      p_total_expenses:        r.total_expenses,
+      p_total_visits:          r.total_visits,
+      p_payable_visits:        r.payable_visits,
+      p_nonpayable_visits:     r.nonpayable_visits,
+      p_distinct_clinicians:   r.distinct_clinicians,
+      p_per_clinician_payload: r.per_clinician_payload,
+      p_all_visits_payload:    r.all_visits_payload,
+      p_source_filename:       r.source_filename
+    });
+    if (error) throw new Error(error.message);
+    if (finalize) {
+      const res2 = await db.rpc("mark_clinician_payroll_audited", { run_id: r.id, notes: null });
+      if (res2.error) throw new Error(res2.error.message);
+      r.status = "audited";
+      r.audited_at = new Date().toISOString();
+    }
+    cprViewState.dirty = false;
+    cprRenderDetail();
+    await loadCprHistory();
+    if (finalize) alert("✓ Audit finalized and locked.");
+    else          alert("✓ Adjustments saved. Run remains open.");
+  } catch (err) {
+    alert("Save failed: " + (err.message || err));
+  }
+}
+
+async function cprReopenRun() {
+  const r = cprViewState.run;
+  if (!r) return;
+  if (!confirm("Reopen this run for edits? Audit status will be cleared.")) return;
+  try {
+    // Reopen via direct UPDATE (no specific RPC for this — using existing
+    // status field). We use a small dedicated RPC pattern below; for now
+    // we just refire upsert with current data and manually flip the status
+    // via a follow-up call. Simplest path: just re-fire upsert; the audit
+    // state IS preserved on conflict (we don't want that for reopen).
+    // Workaround: direct table update is RLS-protected (admin), so just do that.
+    const upd = await db.from("clinician_payroll_runs")
+      .update({ status: "open", audited_at: null, audited_by: null })
+      .eq("id", r.id);
+    if (upd.error) throw new Error(upd.error.message);
+    r.status = "open";
+    r.audited_at = null;
+    cprRenderDetail();
+    await loadCprHistory();
+  } catch (err) {
+    alert("Reopen failed: " + (err.message || err));
+  }
+}
+
+async function auditCprRun(runId) {
+  if (!confirm("Mark this run as audited?")) return;
+  try {
+    const { error } = await db.rpc("mark_clinician_payroll_audited", { run_id: runId, notes: null });
+    if (error) throw new Error(error.message);
+    await loadCprHistory();
+  } catch (err) {
+    alert("Audit failed: " + (err.message || err));
+  }
+}
+
+async function deleteCprRun(runId, periodLabel, totalPay) {
+  // Two-step confirm to prevent accidental loss of an audited run.
+  const niceTotal = cprFmtMoney(totalPay);
+  if (!confirm("⚠ Delete the payroll run for " + periodLabel + " (" + niceTotal + ")?\n\nThis cannot be undone. You can re-import the same period afterwards if needed.")) return;
+  try {
+    const { data, error } = await db.rpc("delete_clinician_payroll_run", { run_id: runId });
+    if (error) throw new Error(error.message);
+    const n = Number(data) || 0;
+    if (n === 0) {
+      alert("Nothing was deleted — the run may have been removed already. Refreshing list.");
+    }
+    await loadCprHistory();
+  } catch (err) {
+    alert("Delete failed: " + (err.message || err));
+  }
+}
+
+// Minimal escAttr fallback for the inline onclick handler (escHtml already handles
+// the same chars; escAttr is a separate name for HTML-attribute-safe escaping).
+if (typeof escAttr !== "function") {
+  window.escAttr = function(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  };
+}
+
+// Tiny helper (escHtml already exists if defined elsewhere; defensive fallback)
+if (typeof escHtml !== "function") {
+  window.escHtml = function(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  };
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1767,6 +3881,42 @@ launchApp = async function(user) {
 // Boot
 checkSession();
 </script>
+
+<!-- ══════ CLINICIAN PAYROLL AUDIT — Import modal ══════ -->
+<div class="cpr-modal-overlay" id="cpr-modal-overlay" style="display:none;">
+  <div class="cpr-modal-box">
+    <div class="cpr-modal-title">↑ Import TB Prepare Payroll</div>
+    <div class="cpr-modal-sub">
+      Drop the <strong>Prepare payroll.xlsx</strong> exported from TherapyBoss.
+      Tool aggregates per clinician + saves to history. Re-importing a period
+      replaces the data; your audit status (audited / exported / paid) is preserved.
+    </div>
+    <label class="cpr-dropzone" id="cpr-dropzone" for="cpr-file-input">
+      <div class="cpr-dz-icon">💵</div>
+      <div><strong>Drop Prepare payroll .xlsx here</strong></div>
+      <div class="cpr-dz-hint">XLSX only · headers: Date, Type, Clinician, Pay, Payable…</div>
+      <input type="file" id="cpr-file-input" accept=".xlsx" />
+    </label>
+    <div id="cpr-import-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;font-size:12px;color:#c62828;margin-bottom:14px;line-height:1.5;"></div>
+    <div id="cpr-import-preview" style="display:none;"></div>
+    <div class="cpr-modal-footer">
+      <button type="button" class="btn-secondary" id="cpr-modal-cancel">Cancel</button>
+      <button type="button" class="btn-secondary" id="cpr-import-confirm-btn" disabled style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;">Save Run</button>
+    </div>
+  </div>
+</div>
+
+<!-- Detail-view modal (per-clinician + per-visit drill-down for a saved run) -->
+<div class="cpr-modal-overlay" id="cpr-detail-overlay" style="display:none;">
+  <div class="cpr-modal-box" style="width:900px;max-width:95vw;">
+    <div class="cpr-modal-title" id="cpr-detail-title">Payroll Run</div>
+    <div id="cpr-detail-body"></div>
+    <div class="cpr-modal-footer">
+      <button type="button" class="btn-secondary" id="cpr-detail-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <script src="chat-widget.js"></script>
 </body>
 </html>
