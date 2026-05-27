@@ -16512,6 +16512,13 @@
     function toggleClinicianIsolation(clinicianId) {
       appState.isolatedClinicianId = appState.isolatedClinicianId === clinicianId ? null : clinicianId;
       applyFilters();
+      // applyFilters() rebuilds sidebar + markers but does NOT touch the
+      // profile header's Isolate buttons. Without these the "Isolate
+      // Clinician" button never visually flips to its active/Clear state.
+      // (Isolate Visits sync calls already live inside
+      // refreshCompletedServiceIsolationViews; we mirror them here.)
+      syncProfileClinicianIsolationButton();
+      syncProfileVisitIsolationButton();
     }
 
     function getPopupHtml(clinician) {
