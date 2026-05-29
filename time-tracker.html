@@ -98,7 +98,10 @@
     .card-title { font-size: 13px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
 
     /* ── STAFF VIEW ── */
-    #staff-view { max-width: 480px; margin: 0 auto; }
+    #staff-view { max-width: 720px; margin: 0 auto; }
+    /* The clock + stats stay visually compact even with the wider container. */
+    #staff-view .clock-card { max-width: 480px; margin-left: auto; margin-right: auto; }
+    #staff-view .stats-grid { max-width: 480px; margin-left: auto; margin-right: auto; }
 
     .clock-card { text-align: center; padding: 36px 24px; }
     .clock-status { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
@@ -1189,7 +1192,10 @@ function tsGetMyTZ() {
 
 async function tsLoad() {
   const period = getPayPeriod(tsPeriodOffset);
-  const tz     = tsGetMyTZ();
+  // Pay periods are anchored in US Central — use ADMIN_TZ for day-of-week
+  // and date labels so the staff view shows the same dates the admin sees,
+  // regardless of the staff member's local timezone.
+  const tz     = ADMIN_TZ;
 
   // Build 14 day rows (matches the portal pay period).
   tsRows = [];
@@ -1231,7 +1237,7 @@ async function tsLoad() {
 
 function tsRender(period) {
   const periodLabel = document.getElementById('ts-period-label');
-  if (periodLabel) periodLabel.textContent = fmtPeriod(period, tsGetMyTZ());
+  if (periodLabel) periodLabel.textContent = fmtPeriod(period, ADMIN_TZ);
 
   const tbody = document.getElementById('ts-body');
   if (!tbody) return;
