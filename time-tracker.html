@@ -211,6 +211,11 @@
     .add-adj-btn { padding: 3px 10px; border: 1px dashed var(--border); border-radius: 12px; background: var(--white); font-size: 11px; font-weight: 700; color: var(--blue); cursor: pointer; }
     .add-adj-btn:hover { border-color: var(--blue); background: var(--blue-light); }
     .receipt-link { text-decoration: none; font-size: 12px; }
+    .adj-row-controls { float: right; display: inline-flex; gap: 4px; opacity: 0.55; transition: opacity 0.15s; }
+    .pay-table tr.adj-subrow:hover .adj-row-controls { opacity: 1; }
+    .adj-edit-btn, .adj-del-btn { padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--white); font-size: 11px; line-height: 1; cursor: pointer; }
+    .adj-edit-btn:hover { border-color: var(--blue); background: var(--blue-light); }
+    .adj-del-btn:hover  { border-color: var(--red);  background: var(--red-bg); color: var(--red); }
     /* Pay Period sort/filter toolbar */
     .pp-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .pp-toolbar-label { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 4px; }
@@ -812,6 +817,8 @@ let db, currentUser, currentRole, staffConfig = [], periodOffset = 0;
 let clockedInEntry = null, liveClockTimer = null;
 // Pay Period table sort/filter state (data-entry aids)
 let ppSearch = '', ppPayFilter = 'all', ppSearchTimer = null;
+// When non-null, saveAdjustment updates this row instead of inserting.
+let editingAdj = null;
 
 // ══════════════════════════════════════════════════════════════
 //  INIT
@@ -1861,8 +1868,12 @@ async function renderPayPeriod() {
     tbody.addEventListener('keydown', onPayHoursKeydown);
     tbody.addEventListener('click', onWiseMemoCopy);
     tbody.addEventListener('click', e => {
-      const btn = e.target.closest('.add-adj-btn');
-      if (btn) openAdjModal(btn.dataset.uid);
+      const addBtn = e.target.closest('.add-adj-btn');
+      if (addBtn) { openAdjModal(addBtn.dataset.uid); return; }
+      const editBtn = e.target.closest('.adj-edit-btn');
+      if (editBtn) { editAdjustment(editBtn.dataset.id); return; }
+      const delBtn = e.target.closest('.adj-del-btn');
+      if (delBtn) { deleteAdjustment(delBtn.dataset.id, delBtn.dataset.receipt); return; }
     });
   }
 }
@@ -1967,7 +1978,12 @@ function renderAdjSubRow(a, isPH, period, feePct, phpRate) {
   const receiptLink = a.receipt_url
     ? ` <a class="receipt-link" href="${a.receipt_url}" target="_blank" rel="noopener" title="View receipt">📎</a>`
     : '';
-  const nameCell = `<td class="name-cell adj-name">↳ ${label}${ref ? `<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${ref}${receiptLink}</span>` : receiptLink}</td>`;
+  const controls = `
+    <span class="adj-row-controls">
+      <button type="button" class="adj-edit-btn" data-id="${a.id}" title="Edit adjustment">✎</button>
+      <button type="button" class="adj-del-btn"  data-id="${a.id}" data-receipt="${a.receipt_url || ''}" title="Delete adjustment">🗑</button>
+    </span>`;
+  const nameCell = `<td class="name-cell adj-name">↳ ${label}${ref ? `<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${ref}${receiptLink}</span>` : receiptLink}${controls}</td>`;
   const adjChip  = `<td><span class="adj-chip adj-pos">+$${amt.toFixed(2)}</span></td>`;
 
   if (isPH) {
@@ -2275,16 +2291,73 @@ function getTZOffset(tz, date) {
 // ══════════════════════════════════════════════════════════════
 //  ADJUSTMENT MODAL
 // ══════════════════════════════════════════════════════════════
-function openAdjModal(preUid) {
+function openAdjModal(preUid, editAdj) {
+  editingAdj = editAdj || null;
   populateStaffDropdown('adj-staff');
-  if (preUid) document.getElementById('adj-staff').value = preUid;
-  document.getElementById('adj-type').value     = 'bonus';
-  document.getElementById('adj-amount').value   = '';
-  document.getElementById('adj-note').value     = '';
-  document.getElementById('adj-currency').value = 'PHP';
-  document.getElementById('adj-receipt').value  = '';
+  document.getElementById('adj-staff').disabled = Boolean(editAdj); // lock staff in edit mode
+
+  if (editAdj) {
+    document.getElementById('adj-staff').value = editAdj.user_id;
+    const inferredKind = editAdj.kind ||
+      (parseFloat(editAdj.amount) < 0 ? 'deduction' : 'bonus');
+    document.getElementById('adj-type').value = inferredKind;
+    // For reimbursement, show the original peso/USD amount; else the absolute USD.
+    const amt = editAdj.original_amount != null
+      ? editAdj.original_amount
+      : Math.abs(parseFloat(editAdj.amount));
+    document.getElementById('adj-amount').value   = amt;
+    document.getElementById('adj-currency').value = editAdj.original_currency || 'PHP';
+    document.getElementById('adj-note').value     = editAdj.note || '';
+  } else {
+    if (preUid) document.getElementById('adj-staff').value = preUid;
+    document.getElementById('adj-type').value     = 'bonus';
+    document.getElementById('adj-amount').value   = '';
+    document.getElementById('adj-note').value     = '';
+    document.getElementById('adj-currency').value = 'PHP';
+  }
+  document.getElementById('adj-receipt').value = '';
+
+  // Show existing-receipt link inside the receipt group (edit mode only).
+  const oldLink = document.getElementById('adj-existing-receipt');
+  if (oldLink) oldLink.remove();
+  if (editAdj && editAdj.receipt_url) {
+    const link = document.createElement('div');
+    link.id = 'adj-existing-receipt';
+    link.style.cssText = 'font-size:12px;margin-top:6px;color:var(--gray);';
+    link.innerHTML = `Existing receipt: <a href="${editAdj.receipt_url}" target="_blank" rel="noopener" style="color:var(--blue);">📎 view</a> &middot; <span style="color:var(--gray);">upload a new file to replace</span>`;
+    document.getElementById('adj-receipt-group').appendChild(link);
+  }
+
+  // Modal title + save-button label reflect mode.
+  const h = document.querySelector('#adj-modal h2');
+  if (h) h.textContent = editAdj ? 'Edit Adjustment' : 'Add Adjustment';
+  const saveBtn = document.querySelector('#adj-modal .btn-confirm');
+  if (saveBtn) saveBtn.textContent = editAdj ? 'Update' : 'Save';
+
   syncAdjTypeUi();
   document.getElementById('adj-modal').classList.add('open');
+}
+
+async function editAdjustment(id) {
+  const { data, error } = await db.from('pay_period_adjustments')
+    .select('*').eq('id', id).single();
+  if (error || !data) { showToast('Could not load adjustment.'); return; }
+  openAdjModal(data.user_id, data);
+}
+
+async function deleteAdjustment(id, receiptUrl) {
+  if (!confirm('Delete this adjustment? This cannot be undone.')) return;
+  const { error } = await db.from('pay_period_adjustments').delete().eq('id', id);
+  if (error) { showToast('Delete failed: ' + error.message); return; }
+  // Best-effort cleanup of an attached receipt (silently ignore if missing).
+  if (receiptUrl) {
+    try {
+      const m = receiptUrl.match(/reimbursement-receipts\/([^?]+)/);
+      if (m && m[1]) await db.storage.from('reimbursement-receipts').remove([m[1]]);
+    } catch (_) { /* non-fatal */ }
+  }
+  showToast('Adjustment deleted.');
+  renderPayPeriod();
 }
 
 // Show/hide the reimbursement-only fields (currency, conversion, receipt).
@@ -2314,10 +2387,11 @@ function syncAdjConversion() {
 }
 
 async function saveAdjustment() {
-  const uid    = document.getElementById('adj-staff').value;
-  const type   = document.getElementById('adj-type').value;
-  const amount = parseFloat(document.getElementById('adj-amount').value);
-  const note   = document.getElementById('adj-note').value.trim();
+  const editing = editingAdj;                                   // snapshot for this save
+  const uid     = document.getElementById('adj-staff').value;
+  const type    = document.getElementById('adj-type').value;
+  const amount  = parseFloat(document.getElementById('adj-amount').value);
+  const note    = document.getElementById('adj-note').value.trim();
 
   if (!uid || isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.'); return; }
 
@@ -2327,16 +2401,18 @@ async function saveAdjustment() {
   // Resolve USD amount + reimbursement extras.
   let finalAmt = type === 'deduction' ? -amount : amount;
   let origAmount = null, origCurrency = null, fxRate = null, receiptUrl = null;
+  let oldReceiptToCleanup = null;
 
   if (type === 'reimbursement') {
     const cur     = document.getElementById('adj-currency').value;
     const phpRate = parseFloat(document.getElementById('php-rate')?.value || 59.69);
-    finalAmt      = cur === 'PHP' ? amount / phpRate : amount;   // store USD, always positive
+    finalAmt      = cur === 'PHP' ? amount / phpRate : amount;  // store USD, always positive
     origAmount    = amount;
     origCurrency  = cur;
     fxRate        = phpRate;
 
-    // Optional receipt upload → public bucket.
+    // Optional receipt upload → public bucket. Editing without a new file
+    // preserves the existing receipt.
     const file = document.getElementById('adj-receipt').files[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) { showToast('Receipt must be under 5MB.'); return; }
@@ -2348,21 +2424,49 @@ async function saveAdjustment() {
         .upload(path, file, { upsert: true, contentType: file.type });
       if (upErr) { showToast('Upload error: ' + upErr.message); return; }
       receiptUrl = db.storage.from('reimbursement-receipts').getPublicUrl(path).data.publicUrl;
+      if (editing && editing.receipt_url && editing.receipt_url !== receiptUrl) {
+        oldReceiptToCleanup = editing.receipt_url;
+      }
+    } else if (editing && editing.receipt_url) {
+      receiptUrl = editing.receipt_url;                         // keep existing
     }
+  } else if (editing && editing.receipt_url) {
+    // Switched away from reimbursement → drop the receipt.
+    oldReceiptToCleanup = editing.receipt_url;
   }
 
-  const { error } = await db.from('pay_period_adjustments').insert({
-    user_id: uid, period_start: periodDate, amount: finalAmt,
-    note: note || null, created_by: currentUser.id,
-    kind: type,
-    receipt_url: receiptUrl,
-    original_amount: origAmount,
+  const payload = {
+    amount:           finalAmt,
+    note:             note || null,
+    kind:             type,
+    receipt_url:      receiptUrl,
+    original_amount:  origAmount,
     original_currency: origCurrency,
-    fx_rate: fxRate
-  });
+    fx_rate:          fxRate
+  };
 
-  if (error) { showToast('Error: ' + error.message); return; }
-  showToast('Adjustment saved!');
+  let dbErr;
+  if (editing) {
+    ({ error: dbErr } = await db.from('pay_period_adjustments')
+      .update(payload).eq('id', editing.id));
+  } else {
+    payload.user_id      = uid;
+    payload.period_start = periodDate;
+    payload.created_by   = currentUser.id;
+    ({ error: dbErr } = await db.from('pay_period_adjustments').insert(payload));
+  }
+  if (dbErr) { showToast('Error: ' + dbErr.message); return; }
+
+  // Best-effort old-receipt cleanup (replaced or dropped).
+  if (oldReceiptToCleanup) {
+    try {
+      const m = oldReceiptToCleanup.match(/reimbursement-receipts\/([^?]+)/);
+      if (m && m[1]) await db.storage.from('reimbursement-receipts').remove([m[1]]);
+    } catch (_) { /* non-fatal */ }
+  }
+
+  showToast(editing ? 'Adjustment updated.' : 'Adjustment saved!');
+  editingAdj = null;
   closeModal('adj-modal');
   renderPayPeriod();
 }
