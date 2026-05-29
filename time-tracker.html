@@ -216,6 +216,28 @@
     .adj-edit-btn, .adj-del-btn { padding: 1px 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--white); font-size: 11px; line-height: 1; cursor: pointer; }
     .adj-edit-btn:hover { border-color: var(--blue); background: var(--blue-light); }
     .adj-del-btn:hover  { border-color: var(--red);  background: var(--red-bg); color: var(--red); }
+    /* My Timesheet (staff self-entry) */
+    .timesheet-card { padding: 18px; margin-top: 16px; }
+    .timesheet-card .ts-header { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 6px; }
+    .timesheet-card h3 { margin: 0; color: var(--blue); font-size: 16px; }
+    .ts-nav { display: flex; gap: 6px; align-items: center; font-size: 13px; }
+    .ts-period-label { font-weight: 700; color: var(--blue); min-width: 140px; text-align: center; }
+    .ts-status { font-size: 12px; color: var(--gray); margin-bottom: 10px; }
+    .ts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .ts-table th { background: var(--blue); color: var(--white); padding: 7px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
+    .ts-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .ts-row.weekend td { background: #FAFAFC; color: var(--gray); }
+    .ts-row .ts-day  { font-weight: 700; color: var(--blue); width: 64px; }
+    .ts-row.weekend .ts-day { color: var(--gray); }
+    .ts-row .ts-date { width: 60px; color: var(--gray); }
+    .ts-hour-input { width: 64px; padding: 4px 8px; border: 1.5px solid var(--border); border-radius: 5px; font-size: 13px; font-weight: 700; text-align: right; background: var(--white); }
+    .ts-hour-input:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 2px var(--blue-light); }
+    .ts-note-input { width: 100%; padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; background: var(--white); }
+    .ts-note-input:focus { border-color: var(--blue); outline: none; }
+    .ts-total-row td { background: var(--gold-light); font-weight: 800; padding: 8px 10px; border-top: 2px solid var(--gold); border-bottom: none; }
+    .ts-submit-btn { display: block; margin: 14px 0 0 auto; padding: 10px 26px; background: linear-gradient(135deg, var(--blue) 0%, #1B3F75 100%); color: var(--white); border: none; border-radius: 7px; font-size: 13px; font-weight: 800; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+    .ts-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(11,46,99,0.25); }
+    .ts-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
     /* Pay Period sort/filter toolbar */
     .pp-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .pp-toolbar-label { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 4px; }
@@ -477,6 +499,31 @@
       </div>
 
       <div class="hrs-warning" id="hrs-warning">⚠️ You have been clocked in for 9.5 hours. You will be automatically clocked out in 30 minutes.</div>
+
+      <!-- My Timesheet (portal-native replacement for the emailed Excel) -->
+      <div class="card timesheet-card" id="timesheet-card">
+        <div class="ts-header">
+          <h3>📝 My Timesheet</h3>
+          <div class="ts-nav">
+            <button class="btn-period" type="button" onclick="tsChangePeriod(-1)">◀ Prev</button>
+            <span class="ts-period-label" id="ts-period-label">Loading…</span>
+            <button class="btn-period" type="button" onclick="tsChangePeriod(1)">Next ▶</button>
+          </div>
+        </div>
+        <div class="ts-status" id="ts-status">Loading…</div>
+        <table class="ts-table">
+          <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Notes</th></tr></thead>
+          <tbody id="ts-body"></tbody>
+          <tfoot>
+            <tr class="ts-total-row">
+              <td colspan="2" style="text-align:right;">Period Total</td>
+              <td id="ts-total">0.00 h</td>
+              <td></td>
+            </tr>
+          </tfoot>
+        </table>
+        <button class="ts-submit-btn" type="button" id="ts-submit-btn" onclick="tsSubmit()">Submit Timesheet</button>
+      </div>
 
       <div class="recent-title">Recent Shifts</div>
       <div id="recent-list"></div>
@@ -819,6 +866,9 @@ let clockedInEntry = null, liveClockTimer = null;
 let ppSearch = '', ppPayFilter = 'all', ppSearchTimer = null;
 // When non-null, saveAdjustment updates this row instead of inserting.
 let editingAdj = null;
+// My Timesheet (staff self-entry) — module state.
+let tsPeriodOffset = 0;
+let tsRows = [];
 
 // ══════════════════════════════════════════════════════════════
 //  INIT
@@ -898,6 +948,7 @@ async function showApp() {
     document.getElementById('staff-view').style.display = 'block';
     document.getElementById('admin-view').style.display = 'none';
     await loadStaffView();
+    await tsLoad();
   }
 
   // Enter key on login
@@ -1121,6 +1172,167 @@ async function loadStaffView() {
         <div>${editBtn}</div>
       </div>`;
   }).join('');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MY TIMESHEET (staff self-entry)
+// ══════════════════════════════════════════════════════════════
+// Portal-native replacement for the emailed Excel timesheet. Each day
+// with hrs > 0 saves a synthetic is_manual time_entry whose manual_note
+// starts with "Timesheet|" — that tag lets the staff side manage its
+// own per-day rows independently of the admin's aggregate row.
+
+function tsGetMyTZ() {
+  const mc = staffConfig.find(s => s.user_id === currentUser.id);
+  return mc?.timezone || 'Asia/Manila';
+}
+
+async function tsLoad() {
+  const period = getPayPeriod(tsPeriodOffset);
+  const tz     = tsGetMyTZ();
+
+  // Build 14 day rows (matches the portal pay period).
+  tsRows = [];
+  for (let i = 0; i < 14; i++) {
+    const day      = new Date(period.start.getTime() + i * 86400000);
+    const dayLabel = day.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
+    tsRows.push({
+      date:       day,
+      dayLabel:   dayLabel,
+      dateLabel:  day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
+      weekend:    dayLabel === 'Sat' || dayLabel === 'Sun',
+      hrs:        '',
+      note:       '',
+      existingId: null
+    });
+  }
+
+  // Fetch the user's existing Timesheet-tagged entries for the period.
+  const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
+  const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
+  const { data } = await db.from('time_entries').select('*')
+    .eq('user_id', currentUser.id).eq('is_manual', true)
+    .gte('clock_in', bufStart).lte('clock_in', bufEnd)
+    .like('manual_note', 'Timesheet|%');
+
+  (data || []).forEach(e => {
+    const ci  = new Date(e.clock_in).getTime();
+    const idx = Math.round((ci - period.start.getTime()) / 86400000);
+    if (idx >= 0 && idx < 14) {
+      const hrs = (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
+      tsRows[idx].hrs        = Number(hrs.toFixed(2));
+      tsRows[idx].note       = String(e.manual_note || '').slice('Timesheet|'.length);
+      tsRows[idx].existingId = e.id;
+    }
+  });
+
+  tsRender(period);
+}
+
+function tsRender(period) {
+  const periodLabel = document.getElementById('ts-period-label');
+  if (periodLabel) periodLabel.textContent = fmtPeriod(period, tsGetMyTZ());
+
+  const tbody = document.getElementById('ts-body');
+  if (!tbody) return;
+  tbody.innerHTML = tsRows.map((r, i) => `
+    <tr class="ts-row ${r.weekend ? 'weekend' : ''}">
+      <td class="ts-day">${r.dayLabel}</td>
+      <td class="ts-date">${r.dateLabel}</td>
+      <td class="ts-hours"><input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0" /></td>
+      <td><input type="text" class="ts-note-input" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${r.weekend ? '(weekend, optional)' : 'optional note'}" /></td>
+    </tr>`).join('');
+
+  // Wire delegated input listener once — survives tbody innerHTML swaps.
+  if (!tbody.dataset.wired) {
+    tbody.dataset.wired = '1';
+    tbody.addEventListener('input', e => {
+      const inp = e.target.closest('[data-idx]');
+      if (!inp) return;
+      const i     = parseInt(inp.dataset.idx, 10);
+      const field = inp.dataset.field;
+      if (!(i >= 0 && i < tsRows.length)) return;
+      tsRows[i][field] = inp.value;
+      if (field === 'hrs') tsUpdateTotal();
+    });
+  }
+
+  tsUpdateTotal();
+  tsUpdateStatus();
+}
+
+function tsUpdateTotal() {
+  const el = document.getElementById('ts-total');
+  if (!el) return;
+  const total = tsRows.reduce((sum, r) => {
+    const h = parseFloat(r.hrs);
+    return sum + (isNaN(h) ? 0 : h);
+  }, 0);
+  el.textContent = total.toFixed(2) + ' h';
+}
+
+function tsUpdateStatus() {
+  const el = document.getElementById('ts-status');
+  if (!el) return;
+  const savedDays = tsRows.filter(r => r.existingId).length;
+  const savedHrs  = tsRows.reduce((s, r) => {
+    if (!r.existingId) return s;
+    const h = parseFloat(r.hrs);
+    return s + (isNaN(h) ? 0 : h);
+  }, 0);
+  el.textContent = savedDays
+    ? `✓ Saved ${savedDays} day(s) · ${savedHrs.toFixed(1)} h for this period.`
+    : 'Nothing saved yet for this period.';
+}
+
+function tsChangePeriod(dir) {
+  tsPeriodOffset += dir;
+  tsLoad();
+}
+
+async function tsSubmit() {
+  const btn = document.getElementById('ts-submit-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
+  let saved = 0, cleared = 0, errors = 0;
+
+  for (let i = 0; i < tsRows.length; i++) {
+    const day    = tsRows[i].date;
+    const dayEnd = new Date(day.getTime() + 86400000);
+    try {
+      // Delete only THIS day's Timesheet-tagged row for THIS user — admin
+      // aggregates (manual_note != 'Timesheet|...') stay untouched.
+      await db.from('time_entries').delete()
+        .eq('user_id', currentUser.id).eq('is_manual', true)
+        .like('manual_note', 'Timesheet|%')
+        .gte('clock_in', day.toISOString())
+        .lt('clock_in',  dayEnd.toISOString());
+
+      const hrs = parseFloat(tsRows[i].hrs);
+      if (!isNaN(hrs) && hrs > 0) {
+        const { error } = await db.from('time_entries').insert({
+          user_id:     currentUser.id,
+          clock_in:    day.toISOString(),
+          clock_out:   new Date(day.getTime() + hrs * 3600000).toISOString(),
+          is_manual:   true,
+          manual_note: 'Timesheet|' + (tsRows[i].note || ''),
+          created_by:  currentUser.id
+        });
+        if (error) throw error;
+        saved++;
+      } else if (tsRows[i].existingId) {
+        cleared++;
+      }
+    } catch (err) {
+      console.error('Timesheet save failed for day', i, err);
+      errors++;
+    }
+  }
+
+  if (btn) { btn.disabled = false; btn.textContent = 'Submit Timesheet'; }
+  showToast(errors
+    ? `Submitted with ${errors} error(s)`
+    : `Submitted ${saved} day(s)${cleared ? ` · cleared ${cleared}` : ''}`);
+  await tsLoad();
 }
 
 function updateClockUI(tz) {
