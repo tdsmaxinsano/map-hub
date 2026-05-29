@@ -232,6 +232,14 @@
     .ts-badge-submitted { background: #FEF3C7; color: #92400E; }
     .ts-badge-approved  { background: var(--green-bg); color: var(--green); }
     .ts-badge-rejected  { background: var(--red-bg);   color: var(--red); text-transform: none; letter-spacing: 0; }
+    /* Pay-period submission pill (used on Dashboard cards, Pay Period rows, Shifts modal) */
+    .pps-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 11px; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; }
+    .pps-draft     { background: #F1F5F9; color: var(--gray); border: 1px dashed var(--border); }
+    .pps-submitted { background: #FEF3C7; color: #92400E; }
+    .pps-approved  { background: var(--green-bg); color: var(--green); }
+    .pps-rejected  { background: var(--red-bg);   color: var(--red); }
+    .pps-approve-card-btn { margin-top: 8px; padding: 6px 12px; background: var(--green); color: var(--white); border: none; border-radius: 5px; font-size: 12px; font-weight: 800; cursor: pointer; width: 100%; }
+    .pps-approve-card-btn:hover { filter: brightness(0.95); }
     .ts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .ts-table th { background: var(--blue); color: var(--white); padding: 7px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
     .ts-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
@@ -808,6 +816,27 @@
       </thead>
       <tbody id="shifts-tbody"></tbody>
     </table>
+
+    <!-- Adjustments & receipts for this user + period -->
+    <h3 style="font-size:14px;color:var(--blue);margin:22px 0 8px;">Adjustments & Receipts</h3>
+    <table class="shifts-table" id="shifts-adj-table">
+      <colgroup>
+        <col style="width:100px" /><col style="width:140px" /><col style="width:90px" />
+        <col /><col style="width:60px" />
+      </colgroup>
+      <thead>
+        <tr><th>Date</th><th>Kind</th><th>Amount</th><th>Note</th><th>Receipt</th></tr>
+      </thead>
+      <tbody id="shifts-adj-tbody"></tbody>
+    </table>
+
+    <!-- Approval footer -->
+    <div id="shifts-approve-footer" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);">
+      <span id="shifts-status-pill" class="pps-pill pps-draft">Draft</span>
+      <span id="shifts-status-meta" style="font-size:12px;color:var(--gray);flex:1;"></span>
+      <button class="btn-confirm" style="width:auto;padding:8px 18px;" id="shifts-approve-btn" onclick="shiftsApprove()">✓ Approve</button>
+      <button class="btn-cancel"  style="width:auto;padding:8px 14px;" id="shifts-reject-btn"  onclick="shiftsReject()">↩ Send Back</button>
+    </div>
   </div>
 </div>
 
@@ -1698,12 +1727,19 @@ async function renderDashboard() {
     return;
   }
 
-  // Load all entries for current period (+ a day buffer)
-  const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
-  const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
-  const { data: entries } = await db.from('time_entries').select('*')
-    .gte('clock_in', bufStart).lte('clock_in', bufEnd);
+  // Load all entries for current period (+ a day buffer) + submissions for the period.
+  const bufStart   = new Date(period.start.getTime() - 86400000).toISOString();
+  const bufEnd     = new Date(period.end.getTime()   + 86400000).toISOString();
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const [
+    { data: entries },
+    { data: subs }
+  ] = await Promise.all([
+    db.from('time_entries').select('*').gte('clock_in', bufStart).lte('clock_in', bufEnd),
+    db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+  ]);
   const allEntries = entries || [];
+  const subByUser  = new Map((subs || []).map(s => [s.user_id, s]));
 
   const activeHtml = staffConfig.filter(s => s.is_active).map(s => {
     const myEntries = allEntries.filter(e => e.user_id === s.user_id);
@@ -1711,19 +1747,36 @@ async function renderDashboard() {
     const todayHrs  = hoursToday(myEntries, s.timezone);
     const periodHrs = hoursInPeriod(myEntries, period);
     const estPay    = (periodHrs * s.hourly_rate).toFixed(2);
+    const sub       = subByUser.get(s.user_id);
 
     const ci = openEntry ? new Date(openEntry.clock_in).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: s.timezone }) : null;
+
+    // Submission pill + (if submitted) an inline Approve button.
+    let pps = '<span class="pps-pill pps-draft">Draft</span>';
+    let approveCardBtn = '';
+    if (sub) {
+      if (sub.status === 'submitted') {
+        pps = '<span class="pps-pill pps-submitted">Submitted</span>';
+        approveCardBtn = `<button class="pps-approve-card-btn" onclick="dashApprove(this, '${s.user_id}')">✓ Approve Period</button>`;
+      } else if (sub.status === 'approved') {
+        pps = '<span class="pps-pill pps-approved">✓ Approved</span>';
+      } else if (sub.status === 'rejected') {
+        pps = '<span class="pps-pill pps-rejected">⚠ Sent back</span>';
+      }
+    }
 
     return `
       <div class="staff-card ${openEntry ? 'active-now' : ''}">
         <div class="staff-name">${s.display_name}</div>
-        <div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
           <span class="staff-badge ${openEntry ? 'in' : 'out'}">${openEntry ? '● In since ' + ci : '○ Out'}</span>
+          ${pps}
         </div>
         <div class="staff-stat"><span>Today</span><span>${fmtHrs(todayHrs)}h</span></div>
         <div class="staff-stat"><span>This period</span><span>${fmtHrs(periodHrs)}h</span></div>
         <div class="staff-stat"><span>Est. pay</span><span>$${estPay}</span></div>
         <div class="staff-stat"><span>Rate</span><span>$${parseFloat(s.hourly_rate).toFixed(2)}/hr</span></div>
+        ${approveCardBtn}
         ${openEntry ? `
           <button class="btn-clockout-admin" onclick="adminClockOut('${openEntry.id}', '${s.display_name}', this)">⏹ Clock Out ${s.display_name}</button>
           <button class="btn-delete-entry"   onclick="adminDeleteEntry('${openEntry.id}', '${s.display_name}', this)">🗑 Delete — Mistake Clock-In</button>
@@ -1752,6 +1805,34 @@ async function renderDashboard() {
     || '<div class="no-data">No active staff found.</div>';
 }
 
+// Inline Approve from a Pay Period table row.
+async function payPeriodApprove(btn, userId) {
+  btn.disabled = true; btn.textContent = 'Approving…';
+  const period     = getPayPeriod(periodOffset);  // approve the period the admin is viewing
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const { error } = await db.rpc('approve_pay_period', {
+    p_user_id: userId, p_period_start: periodDate
+  });
+  if (error) { showToast('Approve failed: ' + error.message); btn.disabled = false; btn.textContent = '✓ Approve'; return; }
+  showToast('Approved.');
+  renderPayPeriod();
+  if (typeof renderDashboard === 'function') renderDashboard();
+}
+
+// Inline Approve from the Dashboard card.
+async function dashApprove(btn, userId) {
+  btn.disabled = true; btn.textContent = 'Approving…';
+  const period     = getPayPeriod(0);
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const { error } = await db.rpc('approve_pay_period', {
+    p_user_id: userId, p_period_start: periodDate
+  });
+  if (error) { showToast('Approve failed: ' + error.message); btn.disabled = false; btn.textContent = '✓ Approve Period'; return; }
+  showToast('Approved.');
+  renderDashboard();
+  if (typeof renderPayPeriod === 'function') renderPayPeriod();
+}
+
 // Open the Settings tab and scroll to a specific staff row so admin can
 // configure a newly-signed-up user (rate, timezone, activate, etc.).
 function openStaffSetup(userId) {
@@ -1774,77 +1855,202 @@ function openStaffSetup(userId) {
 // ══════════════════════════════════════════════════════════════
 //  SHIFTS MODAL
 // ══════════════════════════════════════════════════════════════
-let shiftsContext = { userId: null, name: null, tz: null };
+let shiftsContext = { userId: null, name: null, tz: null, submission: null };
+let shiftsLiveTimer = null;
 
 async function openShiftsModal(userId, name, tz) {
-  shiftsContext = { userId, name, tz };
+  shiftsContext = { userId, name, tz, submission: null };
   document.getElementById('shifts-modal-title').textContent = `${name} — Shifts`;
   document.getElementById('shifts-modal').classList.add('open');
+  startShiftsLiveTimer();
   await loadShifts();
+}
+
+// 1s tick keeps OPEN shifts' running-hours cell live while the modal is open.
+function startShiftsLiveTimer() {
+  if (shiftsLiveTimer) clearInterval(shiftsLiveTimer);
+  shiftsLiveTimer = setInterval(() => {
+    document.querySelectorAll('#shifts-tbody [data-running-since]').forEach(el => {
+      const t0  = parseInt(el.dataset.runningSince, 10);
+      const hrs = (Date.now() - t0) / 3600000;
+      el.textContent = hrs.toFixed(2) + 'h';
+    });
+  }, 1000);
 }
 
 async function loadShifts() {
   const { userId } = shiftsContext;
   const DISP_TZ  = ADMIN_TZ; // always show in US Central
-  const period   = getPayPeriod(periodOffset);
+  // BUG FIX: modal used `periodOffset` (the Pay Period tab's offset),
+  // so opening it from Dashboard while the admin was viewing a past
+  // Pay Period would show the wrong shifts. Always use current (0).
+  const period   = getPayPeriod(0);
   const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
   const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
 
   document.getElementById('shifts-period-label').textContent = 'Pay period: ' + fmtPeriod(period);
 
-  const { data: entries, error } = await db.from('time_entries')
-    .select('*').eq('user_id', userId)
-    .gte('clock_in', bufStart).lte('clock_in', bufEnd)
-    .order('clock_in', { ascending: false });
+  // Parallel: shifts + adjustments + this user's submission state.
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const [
+    { data: entries, error: errEntries },
+    { data: adjs },
+    { data: subs }
+  ] = await Promise.all([
+    db.from('time_entries').select('*').eq('user_id', userId)
+      .gte('clock_in', bufStart).lte('clock_in', bufEnd)
+      .order('clock_in', { ascending: false }),
+    db.from('pay_period_adjustments').select('*').eq('user_id', userId).eq('period_start', periodDate),
+    db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+  ]);
 
-  if (error) { showToast('Error loading shifts: ' + error.message); return; }
+  if (errEntries) { showToast('Error loading shifts: ' + errEntries.message); return; }
+  shiftsContext.submission = (subs && subs.length) ? subs[0] : null;
+
   const MIN_SHIFT_MS = 60000; // 1 minute minimum
   const raw = entries || [];
 
-  // Split: meaningful shifts vs sub-1-min ghosts
+  // Split: meaningful shifts vs sub-1-min ghosts (open shifts always shown).
   const all      = raw.filter(e => !e.clock_out || (new Date(e.clock_out) - new Date(e.clock_in)) >= MIN_SHIFT_MS);
   const ghostCnt = raw.length - all.length;
 
   const totalHrs = all.reduce((sum, e) => {
-    if (!e.clock_out) return sum;
-    return sum + (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
+    const co = e.clock_out ? new Date(e.clock_out) : new Date();    // count open shifts at "now"
+    return sum + (co - new Date(e.clock_in)) / 3600000;
   }, 0);
   const ghostNote = ghostCnt > 0 ? `  •  ${ghostCnt} sub-minute entr${ghostCnt === 1 ? 'y' : 'ies'} hidden` : '';
   document.getElementById('shifts-total-line').textContent =
     `${all.length} entr${all.length === 1 ? 'y' : 'ies'}  •  ${fmtHrs(totalHrs)} total hours this period${ghostNote}`;
 
+  // Shifts tbody.
   if (!all.length) {
     document.getElementById('shifts-tbody').innerHTML =
       '<tr><td colspan="6" style="text-align:center;color:var(--gray);padding:24px;">No shifts this period.</td></tr>';
-    return;
+  } else {
+    document.getElementById('shifts-tbody').innerHTML = all.map(e => {
+      const ci   = new Date(e.clock_in);
+      const co   = e.clock_out ? new Date(e.clock_out) : null;
+      const open = !co;
+
+      const dateStr = ci.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: DISP_TZ });
+      const inStr   = ci.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: DISP_TZ });
+      const outStr  = co
+        ? co.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: DISP_TZ })
+        : '<span style="color:#bbb;">—</span>';
+
+      // OPEN shifts: live-tick the running hours cell.
+      const hrsCell = open
+        ? `<span data-running-since="${ci.getTime()}">${((Date.now() - ci.getTime()) / 3600000).toFixed(2)}h</span>`
+        : ((co - ci) / 3600000).toFixed(2) + 'h';
+
+      const typeBadge = e.is_manual
+        ? `<span style="background:var(--gold-light);color:var(--gold);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">Manual</span>`
+        : `<span style="background:#F0F4F8;color:var(--gray);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">System</span>`;
+      const openBadge = open ? `<span class="open-entry-badge">RUNNING</span>` : '';
+
+      return `<tr class="viewing" id="shift-row-${e.id}">
+        <td style="white-space:nowrap;">${dateStr}</td>
+        <td style="white-space:nowrap;">${inStr}</td>
+        <td style="white-space:nowrap;">${outStr}${openBadge}</td>
+        <td style="white-space:nowrap;">${hrsCell}</td>
+        <td>${typeBadge}</td>
+        <td style="white-space:nowrap;">
+          <button class="shift-edit-btn"   onclick="startEditShift('${e.id}', '${e.clock_in}', '${e.clock_out||''}')">Edit</button>
+          <button class="shift-delete-btn" onclick="deleteShift('${e.id}')">Del</button>
+        </td>
+      </tr>`;
+    }).join('');
   }
 
-  document.getElementById('shifts-tbody').innerHTML = all.map(e => {
-    const ci  = new Date(e.clock_in);
-    const co  = e.clock_out ? new Date(e.clock_out) : null;
-    const hrs = co ? ((co - ci) / 3600000).toFixed(2) : '—';
+  // Adjustments + receipts tbody.
+  const adjBody = document.getElementById('shifts-adj-tbody');
+  if (adjBody) {
+    if (!adjs || !adjs.length) {
+      adjBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--gray);padding:14px;">No adjustments or receipts this period.</td></tr>';
+    } else {
+      adjBody.innerHTML = adjs.map(a => {
+        const amt   = parseFloat(a.amount);
+        const sign  = amt >= 0 ? '+' : '-';
+        const kind  = a.kind || (amt < 0 ? 'deduction' : 'bonus');
+        const kindLabel = { reimbursement: '🧾 Reimbursement', bonus: '✨ Bonus', deduction: '➖ Deduction' }[kind] || kind;
+        let noteCell = a.note ? escAttr(a.note) : '<span style="color:#bbb;">—</span>';
+        if (a.original_currency === 'PHP' && a.original_amount != null) {
+          noteCell = `₱${Number(a.original_amount).toLocaleString()} → $${Math.abs(amt).toFixed(2)}` + (a.note ? ` · ${escAttr(a.note)}` : '');
+        }
+        const receipt = a.receipt_url
+          ? `<a href="${a.receipt_url}" target="_blank" rel="noopener" title="View receipt">📎 view</a>`
+          : '<span style="color:#bbb;">—</span>';
+        const date = a.created_at
+          ? new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: DISP_TZ })
+          : '—';
+        return `<tr>
+          <td style="white-space:nowrap;">${date}</td>
+          <td style="white-space:nowrap;">${kindLabel}</td>
+          <td style="white-space:nowrap;font-weight:700;color:${amt >= 0 ? 'var(--green)' : 'var(--red)'};">${sign}$${Math.abs(amt).toFixed(2)}</td>
+          <td>${noteCell}</td>
+          <td>${receipt}</td>
+        </tr>`;
+      }).join('');
+    }
+  }
 
-    const dateStr = ci.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: DISP_TZ });
-    const inStr   = ci.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: DISP_TZ });
-    const outStr  = co ? co.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: DISP_TZ }) : '<span style="color:#bbb;">—</span>';
+  // Approval footer.
+  renderShiftsApprovalFooter();
+}
 
-    const typeBadge = e.is_manual
-      ? `<span style="background:var(--gold-light);color:var(--gold);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">Manual</span>`
-      : `<span style="background:#F0F4F8;color:var(--gray);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">System</span>`;
-    const openBadge = !co ? `<span class="open-entry-badge">OPEN</span>` : '';
+function renderShiftsApprovalFooter() {
+  const sub  = shiftsContext.submission;
+  const pill = document.getElementById('shifts-status-pill');
+  const meta = document.getElementById('shifts-status-meta');
+  const approveBtn = document.getElementById('shifts-approve-btn');
+  const rejectBtn  = document.getElementById('shifts-reject-btn');
+  if (!pill || !meta) return;
+  pill.className = 'pps-pill';
+  if (sub && sub.status === 'submitted') {
+    pill.classList.add('pps-submitted'); pill.textContent = 'Submitted';
+    meta.textContent = sub.submitted_at ? 'on ' + new Date(sub.submitted_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: ADMIN_TZ }) : '';
+    approveBtn.style.display = ''; rejectBtn.style.display = '';
+  } else if (sub && sub.status === 'approved') {
+    pill.classList.add('pps-approved'); pill.textContent = '✓ Approved';
+    meta.textContent = sub.approved_at ? 'on ' + new Date(sub.approved_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: ADMIN_TZ }) : '';
+    approveBtn.style.display = 'none'; rejectBtn.style.display = '';
+  } else if (sub && sub.status === 'rejected') {
+    pill.classList.add('pps-rejected'); pill.textContent = '⚠ Sent back';
+    meta.textContent = sub.admin_notes ? '“' + sub.admin_notes + '”' : '';
+    approveBtn.style.display = ''; rejectBtn.style.display = 'none';
+  } else {
+    pill.classList.add('pps-draft'); pill.textContent = 'Draft';
+    meta.textContent = 'Employee has not submitted this period yet.';
+    approveBtn.style.display = ''; rejectBtn.style.display = '';
+  }
+}
 
-    return `<tr class="viewing" id="shift-row-${e.id}">
-      <td style="white-space:nowrap;">${dateStr}</td>
-      <td style="white-space:nowrap;">${inStr}</td>
-      <td style="white-space:nowrap;">${outStr}${openBadge}</td>
-      <td style="white-space:nowrap;">${hrs !== '—' ? hrs + 'h' : '—'}</td>
-      <td>${typeBadge}</td>
-      <td style="white-space:nowrap;">
-        <button class="shift-edit-btn"   onclick="startEditShift('${e.id}', '${e.clock_in}', '${e.clock_out||''}')">Edit</button>
-        <button class="shift-delete-btn" onclick="deleteShift('${e.id}')">Del</button>
-      </td>
-    </tr>`;
-  }).join('');
+async function shiftsApprove() {
+  const period     = getPayPeriod(0);
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const { error } = await db.rpc('approve_pay_period', {
+    p_user_id: shiftsContext.userId, p_period_start: periodDate
+  });
+  if (error) { showToast('Approve failed: ' + error.message); return; }
+  showToast('Approved.');
+  await loadShifts();
+  if (typeof renderDashboard === 'function') renderDashboard();
+  if (typeof renderPayPeriod === 'function') renderPayPeriod();
+}
+
+async function shiftsReject() {
+  const note = prompt('Send this period back to the employee. Add a note explaining what needs to be fixed:');
+  if (!note || !note.trim()) return;
+  const period     = getPayPeriod(0);
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const { error } = await db.rpc('reject_pay_period', {
+    p_user_id: shiftsContext.userId, p_period_start: periodDate, p_note: note.trim()
+  });
+  if (error) { showToast('Send-back failed: ' + error.message); return; }
+  showToast('Sent back.');
+  await loadShifts();
+  if (typeof renderDashboard === 'function') renderDashboard();
+  if (typeof renderPayPeriod === 'function') renderPayPeriod();
 }
 
 function startEditShift(id, clockIn, clockOut) {
@@ -1970,13 +2176,16 @@ async function renderPayPeriod() {
   const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
   const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
 
-  const [{ data: entries }, { data: adjs }] = await Promise.all([
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const [{ data: entries }, { data: adjs }, { data: subs }] = await Promise.all([
     db.from('time_entries').select('*').gte('clock_in', bufStart).lte('clock_in', bufEnd),
-    db.from('pay_period_adjustments').select('*').eq('period_start', period.start.toISOString().slice(0,10))
+    db.from('pay_period_adjustments').select('*').eq('period_start', periodDate),
+    db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
   ]);
 
   const allEntries = entries || [];
   const allAdjs    = adjs    || [];
+  const subByUser  = new Map((subs || []).map(s => [s.user_id, s]));
 
   // ── Diagnostic strip — confirms what was queried vs what falls inside
   //    the period after filtering. Helps reproduce period-nav bugs. ──
@@ -2063,6 +2272,21 @@ async function renderPayPeriod() {
     const hoursCell = `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h</td>`;
     const addAdjCell = `<td><button type="button" class="add-adj-btn" data-uid="${s.user_id}">+ adj</button></td>`;
 
+    // Pay-period submission pill — lives next to the staff name.
+    const sub = subByUser.get(s.user_id);
+    let ppsPill = '<span class="pps-pill pps-draft">Draft</span>';
+    let ppsApprove = '';
+    if (sub) {
+      if (sub.status === 'submitted') {
+        ppsPill = '<span class="pps-pill pps-submitted">Submitted</span>';
+        ppsApprove = ` <button type="button" class="add-adj-btn" style="border-color:var(--green);color:var(--green);" onclick="payPeriodApprove(this, '${s.user_id}')">✓ Approve</button>`;
+      } else if (sub.status === 'approved') {
+        ppsPill = '<span class="pps-pill pps-approved">✓ Approved</span>';
+      } else if (sub.status === 'rejected') {
+        ppsPill = '<span class="pps-pill pps-rejected">⚠ Sent back</span>';
+      }
+    }
+
     let html;
     if (isPH) {
       // DCS absorbs fee — send enough so staff receives exactly baseNet
@@ -2072,7 +2296,7 @@ async function renderPayPeriod() {
       const memo    = buildWiseMemo(period, hrs, s.hourly_rate);
       html = `
         <tr>
-          <td class="name-cell">${s.display_name}<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${s.wise_name || '<em>No Wise name set</em>'}</span></td>
+          <td class="name-cell">${s.display_name} ${ppsPill}${ppsApprove}<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${s.wise_name || '<em>No Wise name set</em>'}</span></td>
           <td>${payBadge}</td>
           ${hoursCell}
           <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
@@ -2086,7 +2310,7 @@ async function renderPayPeriod() {
     } else {
       html = `
         <tr>
-          <td class="name-cell">${s.display_name}</td>
+          <td class="name-cell">${s.display_name} ${ppsPill}${ppsApprove}</td>
           <td>${payBadge}</td>
           ${hoursCell}
           <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
