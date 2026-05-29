@@ -196,6 +196,19 @@
     .pay-table tr:hover td { background: var(--blue-light); }
     .pay-table .total-row td { font-weight: 800; background: var(--gold-light); border-top: 2px solid var(--gold); }
     .pay-table .name-cell { font-weight: 700; color: var(--blue); }
+    /* Inline manual-hours entry in the Pay Period table */
+    .inline-hours { width: 64px; padding: 5px 8px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 13px; font-weight: 700; text-align: right; background: var(--white); }
+    .inline-hours:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px var(--blue-light); }
+    .inline-hours:disabled { opacity: 0.5; }
+    /* Pay Period sort/filter toolbar */
+    .pp-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+    .pp-toolbar-label { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 4px; }
+    .pp-toolbar-hint { font-size: 11px; color: var(--gray); margin-left: auto; }
+    .pp-search { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; min-width: 220px; }
+    .pp-search:focus { border-color: var(--blue); outline: none; }
+    .pp-chip { padding: 6px 14px; border: 1.5px solid var(--border); border-radius: 16px; background: var(--white); font-size: 12px; font-weight: 700; color: var(--gray); cursor: pointer; transition: all 0.15s; }
+    .pp-chip:hover { border-color: var(--blue); color: var(--blue); }
+    .pp-chip.active { background: var(--blue); border-color: var(--blue); color: var(--white); }
     .adj-chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 4px; margin: 1px; }
     .adj-pos { background: var(--green-bg); color: var(--green); }
     .adj-neg { background: var(--red-bg); color: var(--red); }
@@ -514,7 +527,6 @@
             <div id="pp-debug" style="font-size:10.5px;color:var(--gray);margin-top:3px;font-family:ui-monospace,monospace;letter-spacing:0.2px;"></div>
           </div>
           <button class="btn-period" onclick="changePeriod(1)">Next ▶</button>
-          <button class="btn-gold admin-only" onclick="openBulkHoursModal()">✏ Enter Hours</button>
           <button class="btn-gold" onclick="checkAndExportWise()" id="wise-export-btn">⬇ Export to Wise</button>
           <button class="btn-gold" onclick="openAdjModal()">+ Adjustment</button>
         </div>
@@ -540,6 +552,16 @@
               PHP rate is for reference only.<br/>Wise fee is estimated — actual appears in Wise on upload.
             </div>
           </div>
+        </div>
+
+        <!-- Sort / filter toolbar (data-entry aid) -->
+        <div class="pp-toolbar">
+          <input type="text" class="pp-search" id="pp-search" placeholder="🔍 Search staff by name…" oninput="onPpSearch(this.value)" />
+          <span class="pp-toolbar-label">Pay type</span>
+          <button class="pp-chip active" data-filter="all" onclick="setPpFilter('all')">All</button>
+          <button class="pp-chip" data-filter="ph" onclick="setPpFilter('ph')">🇵🇭 Wise</button>
+          <button class="pp-chip" data-filter="us" onclick="setPpFilter('us')">🇺🇸 USD</button>
+          <span class="pp-toolbar-hint">Sorted A–Z by name</span>
         </div>
 
         <div class="card" style="padding:0; overflow:hidden;">
@@ -739,19 +761,6 @@
   </div>
 </div>
 
-<!-- Bulk Hours Modal -->
-<div class="modal-overlay" id="bulk-hours-modal">
-  <div class="modal" style="max-width:440px;">
-    <h2>Enter Hours</h2>
-    <p id="bulk-period-label" style="font-size:13px;color:var(--gray);margin-bottom:16px;"></p>
-    <div id="bulk-hours-rows"></div>
-    <div class="modal-btns" style="margin-top:20px;">
-      <button class="btn-cancel" onclick="closeModal('bulk-hours-modal')">Cancel</button>
-      <button class="btn-confirm" onclick="saveBulkHours()">Save All</button>
-    </div>
-  </div>
-</div>
-
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -772,6 +781,8 @@ const ADMIN_TZ   = 'America/Chicago';
 // ══════════════════════════════════════════════════════════════
 let db, currentUser, currentRole, staffConfig = [], periodOffset = 0;
 let clockedInEntry = null, liveClockTimer = null;
+// Pay Period table sort/filter state (data-entry aids)
+let ppSearch = '', ppPayFilter = 'all', ppSearchTimer = null;
 
 // ══════════════════════════════════════════════════════════════
 //  INIT
@@ -1696,7 +1707,9 @@ async function renderPayPeriod() {
   let grandPhTotal = 0, grandUsTotal = 0, grandWise = 0;
   const tbody = document.getElementById('pay-table-body');
 
-  const rows = staffConfig.filter(s => s.is_active).map(s => {
+  // Per-staff payroll snapshot — used for BOTH the always-accurate grand
+  // totals (over all active staff) and the filtered row render.
+  function computeStaff(s) {
     const myEntries = allEntries.filter(e => e.user_id === s.user_id);
     const hrs       = hoursInPeriod(myEntries, period);
     const earned    = hrs * parseFloat(s.hourly_rate);
@@ -1704,6 +1717,31 @@ async function renderPayPeriod() {
     const adjTotal  = myAdjs.reduce((sum, a) => sum + parseFloat(a.amount), 0);
     const netPay    = earned + adjTotal;
     const isPH      = (s.pay_type || 'philippines') === 'philippines';
+    return { hrs, earned, myAdjs, netPay, isPH };
+  }
+
+  const allActive = staffConfig.filter(s => s.is_active);
+
+  // Grand totals over ALL active staff — independent of search/filter so the
+  // "Total to Send via Wise" footer always reflects the true payroll figure.
+  allActive.forEach(s => {
+    const c = computeStaff(s);
+    if (c.isPH) { grandPhTotal += c.netPay; grandWise += c.netPay / (1 - feePct); }
+    else        { grandUsTotal += c.netPay; }
+  });
+
+  // Visible subset: pay-type filter + name search, then sort A–Z by name.
+  const q = (ppSearch || '').trim().toLowerCase();
+  const visible = allActive.filter(s => {
+    const isPH = (s.pay_type || 'philippines') === 'philippines';
+    if (ppPayFilter === 'ph' && !isPH) return false;
+    if (ppPayFilter === 'us' &&  isPH) return false;
+    if (q && !String(s.display_name || '').toLowerCase().includes(q)) return false;
+    return true;
+  }).sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || '')));
+
+  const rows = visible.map(s => {
+    const { hrs, earned, myAdjs, netPay, isPH } = computeStaff(s);
 
     const adjChips = myAdjs.map(a => {
       const cls  = parseFloat(a.amount) >= 0 ? 'adj-pos' : 'adj-neg';
@@ -1715,18 +1753,20 @@ async function renderPayPeriod() {
       ? `<span style="background:#E8F0F8;color:var(--blue);font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;">🇵🇭 Wise</span>`
       : `<span style="background:#F5F5F5;color:#555;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;">🇺🇸 USD</span>`;
 
+    // Inline-editable hours cell. (Pay Period tab is admin-only — it lives
+    // inside #admin-view — so no extra role gate is needed here.)
+    const hoursCell = `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h</td>`;
+
     if (isPH) {
       // DCS absorbs fee — send enough so staff receives exactly netPay
       const toSend   = netPay / (1 - feePct);
       const wiseFee  = toSend - netPay;
       const phpAmt   = netPay * phpRate;
-      grandPhTotal  += netPay;
-      grandWise     += toSend;
       return `
         <tr>
           <td class="name-cell">${s.display_name}<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${s.wise_name || '<em>No Wise name set</em>'}</span></td>
           <td>${payBadge}</td>
-          <td>${fmtHrs(hrs)}h</td>
+          ${hoursCell}
           <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
           <td>$${earned.toFixed(2)}</td>
           <td>${adjChips}</td>
@@ -1736,12 +1776,11 @@ async function renderPayPeriod() {
           <td style="color:var(--gray);font-size:12px;">≈ ${Math.round(phpAmt).toLocaleString()} PHP</td>
         </tr>`;
     } else {
-      grandUsTotal += netPay;
       return `
         <tr>
           <td class="name-cell">${s.display_name}</td>
           <td>${payBadge}</td>
-          <td>${fmtHrs(hrs)}h</td>
+          ${hoursCell}
           <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
           <td>$${earned.toFixed(2)}</td>
           <td>${adjChips}</td>
@@ -1751,22 +1790,103 @@ async function renderPayPeriod() {
     }
   });
 
-  // Totals
-  rows.push(`
-    <tr class="total-row">
-      <td colspan="6" style="text-align:right;">🇵🇭 Philippines — Total to Send via Wise</td>
-      <td>$${grandPhTotal.toFixed(2)}</td>
-      <td></td>
-      <td style="color:var(--green);">$${grandWise.toFixed(2)}</td>
-      <td></td>
-    </tr>
-    <tr class="total-row">
-      <td colspan="6" style="text-align:right;">🇺🇸 US Staff — Total</td>
-      <td>$${grandUsTotal.toFixed(2)}</td>
-      <td colspan="3"></td>
-    </tr>`);
+  if (!visible.length) {
+    rows.push(`<tr><td colspan="10" style="text-align:center;color:var(--gray);padding:18px;">No staff match your search/filter.</td></tr>`);
+  }
+
+  // Totals — hide the opposing total row when a pay-type filter is active.
+  if (ppPayFilter !== 'us') {
+    rows.push(`
+      <tr class="total-row">
+        <td colspan="6" style="text-align:right;">🇵🇭 Philippines — Total to Send via Wise</td>
+        <td>$${grandPhTotal.toFixed(2)}</td>
+        <td></td>
+        <td style="color:var(--green);">$${grandWise.toFixed(2)}</td>
+        <td></td>
+      </tr>`);
+  }
+  if (ppPayFilter !== 'ph') {
+    rows.push(`
+      <tr class="total-row">
+        <td colspan="6" style="text-align:right;">🇺🇸 US Staff — Total</td>
+        <td>$${grandUsTotal.toFixed(2)}</td>
+        <td colspan="3"></td>
+      </tr>`);
+  }
 
   tbody.innerHTML = rows.join('');
+
+  // Wire inline-hours editing once — delegation survives innerHTML swaps.
+  if (!tbody.dataset.inlineWired) {
+    tbody.dataset.inlineWired = '1';
+    tbody.addEventListener('change', onPayHoursChange);
+    tbody.addEventListener('keydown', onPayHoursKeydown);
+  }
+}
+
+// ── Pay Period: sort/filter controls ──────────────────────────
+function onPpSearch(v) {
+  ppSearch = v;
+  clearTimeout(ppSearchTimer);
+  ppSearchTimer = setTimeout(() => renderPayPeriod(), 200);
+}
+function setPpFilter(f) {
+  ppPayFilter = f;
+  document.querySelectorAll('.pp-chip').forEach(c =>
+    c.classList.toggle('active', c.dataset.filter === f));
+  renderPayPeriod();
+}
+
+// ── Pay Period: inline manual-hours entry ─────────────────────
+// Writes a single synthetic is_manual time_entry per staff/period (same shape
+// the old bulk modal used). Clears the manual entry when set to 0. Real
+// clock-in/out shifts are never touched.
+async function saveManualHoursForStaff(uid, hrs, period) {
+  const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
+  const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
+  await db.from('time_entries')
+    .delete()
+    .eq('user_id', uid)
+    .eq('is_manual', true)
+    .gte('clock_in', bufStart)
+    .lte('clock_in', bufEnd);
+  if (hrs > 0) {
+    const { error } = await db.from('time_entries').insert({
+      user_id: uid,
+      clock_in: period.start.toISOString(),
+      clock_out: new Date(period.start.getTime() + hrs * 3600000).toISOString(),
+      is_manual: true,
+      manual_note: 'Manual hours entry',
+      created_by: currentUser.id
+    });
+    if (error) throw error;
+  }
+}
+
+async function onPayHoursChange(e) {
+  const input = e.target.closest('.inline-hours');
+  if (!input) return;
+  const uid = input.dataset.uid;
+  let hrs = parseFloat(input.value);
+  if (isNaN(hrs) || hrs < 0) hrs = 0;
+  const period = getPayPeriod(periodOffset);
+  const scrollY = window.scrollY;
+  input.disabled = true;
+  try {
+    await saveManualHoursForStaff(uid, hrs, period);
+    await renderPayPeriod();
+    window.scrollTo(0, scrollY);
+  } catch (err) {
+    console.error('Manual hours save failed', uid, err);
+    showToast('Save failed — try again');
+    input.disabled = false;
+  }
+}
+
+function onPayHoursKeydown(e) {
+  const input = e.target.closest('.inline-hours');
+  if (!input) return;
+  if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
 }
 
 function changePeriod(dir) {
@@ -1957,84 +2077,6 @@ async function saveStaffConfig(uid, btn) {
 // ══════════════════════════════════════════════════════════════
 //  MANUAL ENTRY MODAL
 // ══════════════════════════════════════════════════════════════
-// ── Bulk Hours Entry ──────────────────────────────────────────
-async function openBulkHoursModal() {
-  const period = getPayPeriod(periodOffset);
-  document.getElementById('bulk-period-label').textContent = fmtPeriod(period);
-
-  // Fetch existing manual entries for this period to pre-fill
-  const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
-  const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
-  const { data: existing } = await db.from('time_entries')
-    .select('*')
-    .gte('clock_in', bufStart)
-    .lte('clock_in', bufEnd);
-
-  const existingHrs = {};
-  (existing || []).forEach(e => {
-    const h = (e.duration_minutes || 0) / 60;
-    existingHrs[e.user_id] = (existingHrs[e.user_id] || 0) + h;
-  });
-
-  const active = staffConfig.filter(s => s.is_active);
-  const rows = active.map(s => {
-    const hrs = existingHrs[s.user_id] ? existingHrs[s.user_id].toFixed(2) : '';
-    return `
-      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">
-        <span style="flex:1;font-weight:700;color:var(--blue);">${s.display_name}</span>
-        <input type="number" data-uid="${s.user_id}" value="${hrs}"
-               min="0" step="0.5" placeholder="0"
-               style="width:80px;padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:14px;font-weight:700;text-align:right;" />
-        <span style="font-size:13px;color:var(--gray);min-width:24px;">hrs</span>
-      </div>`;
-  }).join('');
-
-  document.getElementById('bulk-hours-rows').innerHTML = rows ||
-    '<p style="color:var(--gray);">No active staff found.</p>';
-  document.getElementById('bulk-hours-modal').classList.add('open');
-}
-
-async function saveBulkHours() {
-  const period = getPayPeriod(periodOffset);
-  const inputs = document.querySelectorAll('#bulk-hours-rows input[data-uid]');
-  let saved = 0, errors = 0;
-
-  for (const input of inputs) {
-    const uid  = input.dataset.uid;
-    const hrs  = parseFloat(input.value);
-    if (!uid || isNaN(hrs) || hrs <= 0) continue;
-
-    const clockIn  = period.start.toISOString();
-    const clockOut = new Date(period.start.getTime() + hrs * 3600000).toISOString();
-
-    // Remove any existing is_manual entries for this staff in this period
-    const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
-    const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
-    await db.from('time_entries')
-      .delete()
-      .eq('user_id', uid)
-      .eq('is_manual', true)
-      .gte('clock_in', bufStart)
-      .lte('clock_in', bufEnd);
-
-    const { error } = await db.from('time_entries').insert({
-      user_id: uid,
-      clock_in: clockIn,
-      clock_out: clockOut,
-      is_manual: true,
-      manual_note: 'Bulk hours entry',
-      created_by: currentUser.id
-    });
-
-    if (error) { console.error(uid, error); errors++; }
-    else saved++;
-  }
-
-  closeModal('bulk-hours-modal');
-  await renderPayPeriod();
-  showToast(errors ? `Saved ${saved}, ${errors} error(s)` : `Hours saved for ${saved} staff`);
-}
-
 // ── Manual Entry ──────────────────────────────────────────────
 function openManualModal() {
   populateStaffDropdown('man-staff');
