@@ -200,6 +200,10 @@
     .inline-hours { width: 64px; padding: 5px 8px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 13px; font-weight: 700; text-align: right; background: var(--white); }
     .inline-hours:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 3px var(--blue-light); }
     .inline-hours:disabled { opacity: 0.5; }
+    /* Wise payment-memo copy button (PH rows) */
+    .wise-memo-copy { margin-left: 6px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--white); font-size: 12px; line-height: 1; cursor: pointer; vertical-align: middle; }
+    .wise-memo-copy:hover { border-color: var(--blue); background: var(--blue-light); }
+    .wise-memo-copy:active { transform: translateY(1px); }
     /* Pay Period sort/filter toolbar */
     .pp-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .pp-toolbar-label { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 4px; }
@@ -1762,6 +1766,8 @@ async function renderPayPeriod() {
       const toSend   = netPay / (1 - feePct);
       const wiseFee  = toSend - netPay;
       const phpAmt   = netPay * phpRate;
+      // Wise payment memo — special-char-free, ready to paste into Wise.
+      const memo     = buildWiseMemo(period, hrs, s.hourly_rate);
       return `
         <tr>
           <td class="name-cell">${s.display_name}<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${s.wise_name || '<em>No Wise name set</em>'}</span></td>
@@ -1772,7 +1778,7 @@ async function renderPayPeriod() {
           <td>${adjChips}</td>
           <td><strong>$${netPay.toFixed(2)}</strong></td>
           <td style="color:var(--red);font-size:12px;">~$${wiseFee.toFixed(2)}</td>
-          <td style="font-weight:800;color:var(--green);">$${toSend.toFixed(2)}</td>
+          <td style="font-weight:800;color:var(--green);">$${toSend.toFixed(2)} <button type="button" class="wise-memo-copy" data-memo="${memo}" title="Copy: ${memo}">📋</button></td>
           <td style="color:var(--gray);font-size:12px;">≈ ${Math.round(phpAmt).toLocaleString()} PHP</td>
         </tr>`;
     } else {
@@ -1816,11 +1822,13 @@ async function renderPayPeriod() {
 
   tbody.innerHTML = rows.join('');
 
-  // Wire inline-hours editing once — delegation survives innerHTML swaps.
+  // Wire inline-hours editing + Wise-memo copy once — delegation survives
+  // innerHTML swaps.
   if (!tbody.dataset.inlineWired) {
     tbody.dataset.inlineWired = '1';
     tbody.addEventListener('change', onPayHoursChange);
     tbody.addEventListener('keydown', onPayHoursKeydown);
+    tbody.addEventListener('click', onWiseMemoCopy);
   }
 }
 
@@ -1887,6 +1895,48 @@ function onPayHoursKeydown(e) {
   const input = e.target.closest('.inline-hours');
   if (!input) return;
   if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
+}
+
+// ── Pay Period: Wise payment memo ─────────────────────────────
+// Builds a special-char-free description to paste into Wise, e.g.
+//   "Payroll 0427 to 0508 40 X 466"  (period MMDD→MMDD, hours X rate).
+// Wise rejects special chars, so the rate's decimal is dropped (4.66→466)
+// and fractional hours have their dot replaced with a space (40.5→"40 5").
+function mmdd(d) {
+  return d.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', timeZone: ADMIN_TZ }).replace('/', '');
+}
+function buildWiseMemo(period, hrs, rate) {
+  const h = fmtHrs(hrs).replace(/\.?0+$/, '').replace('.', ' '); // 40 / 40 5 / 40 25
+  const r = parseFloat(rate).toFixed(2).replace('.', '');         // 466 / 400 / 430
+  const memo = `Payroll ${mmdd(period.start)} to ${mmdd(period.end)} ${h} X ${r}`;
+  return memo.replace(/[^A-Za-z0-9 ]/g, '');                      // Wise-safe guard
+}
+function fallbackCopyMemo(text, done) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (done) done();
+  } catch (err) {
+    console.error('Copy failed', err);
+    showToast('Copy failed — select and copy manually');
+  }
+}
+function onWiseMemoCopy(e) {
+  const btn = e.target.closest('.wise-memo-copy');
+  if (!btn) return;
+  const memo = btn.dataset.memo || '';
+  const done = () => showToast('Copied: ' + memo);
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(memo).then(done, () => fallbackCopyMemo(memo, done));
+  } else {
+    fallbackCopyMemo(memo, done);
+  }
 }
 
 function changePeriod(dir) {
