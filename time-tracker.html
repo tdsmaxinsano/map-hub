@@ -204,6 +204,13 @@
     .wise-memo-copy { margin-left: 6px; padding: 2px 6px; border: 1px solid var(--border); border-radius: 5px; background: var(--white); font-size: 12px; line-height: 1; cursor: pointer; vertical-align: middle; }
     .wise-memo-copy:hover { border-color: var(--blue); background: var(--blue-light); }
     .wise-memo-copy:active { transform: translateY(1px); }
+    /* Adjustment sub-rows (bonus / reimbursement under each person) */
+    .pay-table tr.adj-subrow td { background: #FBFCFE; border-bottom: 1px solid var(--border); }
+    .pay-table tr.adj-subrow:hover td { background: #F4F8FF; }
+    .pay-table .adj-name { font-weight: 600; color: var(--gray); font-size: 12px; padding-left: 22px; }
+    .add-adj-btn { padding: 3px 10px; border: 1px dashed var(--border); border-radius: 12px; background: var(--white); font-size: 11px; font-weight: 700; color: var(--blue); cursor: pointer; }
+    .add-adj-btn:hover { border-color: var(--blue); background: var(--blue-light); }
+    .receipt-link { text-decoration: none; font-size: 12px; }
     /* Pay Period sort/filter toolbar */
     .pp-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .pp-toolbar-label { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 4px; }
@@ -650,18 +657,36 @@
     </div>
     <div class="form-group">
       <label>Type</label>
-      <select id="adj-type">
+      <select id="adj-type" onchange="syncAdjTypeUi()">
         <option value="bonus">Bonus (positive)</option>
         <option value="deduction">Deduction / Loan (negative)</option>
+        <option value="reimbursement">Reimbursement (purchase + receipt)</option>
       </select>
     </div>
-    <div class="form-group">
-      <label>Amount (USD)</label>
-      <input type="number" id="adj-amount" min="0" step="0.01" placeholder="0.00" />
+
+    <!-- Reimbursement-only: currency toggle + live USD conversion + receipt -->
+    <div class="form-group" id="adj-reimb-currency-group" style="display:none;">
+      <label>Purchase Currency</label>
+      <select id="adj-currency" onchange="syncAdjConversion()">
+        <option value="PHP">🇵🇭 PHP (peso)</option>
+        <option value="USD">🇺🇸 USD (dollar)</option>
+      </select>
     </div>
+
+    <div class="form-group">
+      <label id="adj-amount-label">Amount (USD)</label>
+      <input type="number" id="adj-amount" min="0" step="0.01" placeholder="0.00" oninput="syncAdjConversion()" />
+      <div id="adj-conversion" style="display:none;font-size:12px;font-weight:700;color:var(--blue);margin-top:6px;"></div>
+    </div>
+
+    <div class="form-group" id="adj-receipt-group" style="display:none;">
+      <label>Receipt (image or PDF, optional · ≤5MB)</label>
+      <input type="file" id="adj-receipt" accept="image/*,application/pdf" />
+    </div>
+
     <div class="form-group">
       <label>Note</label>
-      <textarea id="adj-note" rows="2" placeholder="e.g. Loan repayment, Performance bonus"></textarea>
+      <textarea id="adj-note" rows="2" placeholder="e.g. Loan repayment, Performance bonus, Office supplies"></textarea>
     </div>
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeModal('adj-modal')">Cancel</button>
@@ -1745,13 +1770,14 @@ async function renderPayPeriod() {
   }).sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || '')));
 
   const rows = visible.map(s => {
-    const { hrs, earned, myAdjs, netPay, isPH } = computeStaff(s);
+    const { hrs, earned, myAdjs, isPH } = computeStaff(s);
 
-    const adjChips = myAdjs.map(a => {
-      const cls  = parseFloat(a.amount) >= 0 ? 'adj-pos' : 'adj-neg';
-      const sign = parseFloat(a.amount) >= 0 ? '+' : '-';
-      return `<span class="adj-chip ${cls}" title="${a.note || ''}">${sign}$${Math.abs(parseFloat(a.amount)).toFixed(2)}</span>`;
-    }).join('') || '<span style="color:#ccc;font-size:11px;">—</span>';
+    // Split adjustments: positive ones become their own sendable rows;
+    // negative ones (deductions) fold into the main row's base.
+    const posAdjs  = myAdjs.filter(a => parseFloat(a.amount) > 0);
+    const negTotal = myAdjs.filter(a => parseFloat(a.amount) < 0)
+                           .reduce((sum, a) => sum + parseFloat(a.amount), 0);
+    const baseNet  = earned + negTotal;
 
     const payBadge = isPH
       ? `<span style="background:#E8F0F8;color:var(--blue);font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;">🇵🇭 Wise</span>`
@@ -1760,40 +1786,45 @@ async function renderPayPeriod() {
     // Inline-editable hours cell. (Pay Period tab is admin-only — it lives
     // inside #admin-view — so no extra role gate is needed here.)
     const hoursCell = `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h</td>`;
+    const addAdjCell = `<td><button type="button" class="add-adj-btn" data-uid="${s.user_id}">+ adj</button></td>`;
 
+    let html;
     if (isPH) {
-      // DCS absorbs fee — send enough so staff receives exactly netPay
-      const toSend   = netPay / (1 - feePct);
-      const wiseFee  = toSend - netPay;
-      const phpAmt   = netPay * phpRate;
-      // Wise payment memo — special-char-free, ready to paste into Wise.
-      const memo     = buildWiseMemo(period, hrs, s.hourly_rate);
-      return `
+      // DCS absorbs fee — send enough so staff receives exactly baseNet
+      const toSend  = baseNet / (1 - feePct);
+      const wiseFee = toSend - baseNet;
+      const phpAmt  = baseNet * phpRate;
+      const memo    = buildWiseMemo(period, hrs, s.hourly_rate);
+      html = `
         <tr>
           <td class="name-cell">${s.display_name}<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${s.wise_name || '<em>No Wise name set</em>'}</span></td>
           <td>${payBadge}</td>
           ${hoursCell}
           <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
           <td>$${earned.toFixed(2)}</td>
-          <td>${adjChips}</td>
-          <td><strong>$${netPay.toFixed(2)}</strong></td>
+          ${addAdjCell}
+          <td><strong>$${baseNet.toFixed(2)}</strong></td>
           <td style="color:var(--red);font-size:12px;">~$${wiseFee.toFixed(2)}</td>
           <td style="font-weight:800;color:var(--green);">$${toSend.toFixed(2)} <button type="button" class="wise-memo-copy" data-memo="${memo}" title="Copy: ${memo}">📋</button></td>
           <td style="color:var(--gray);font-size:12px;">≈ ${Math.round(phpAmt).toLocaleString()} PHP</td>
         </tr>`;
     } else {
-      return `
+      html = `
         <tr>
           <td class="name-cell">${s.display_name}</td>
           <td>${payBadge}</td>
           ${hoursCell}
           <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
           <td>$${earned.toFixed(2)}</td>
-          <td>${adjChips}</td>
-          <td><strong>$${netPay.toFixed(2)}</strong></td>
+          ${addAdjCell}
+          <td><strong>$${baseNet.toFixed(2)}</strong></td>
           <td colspan="3" style="color:var(--gray);font-size:12px;">Direct payment</td>
         </tr>`;
     }
+
+    // One sendable sub-row per positive adjustment, right under the person.
+    html += posAdjs.map(a => renderAdjSubRow(a, isPH, period, feePct, phpRate)).join('');
+    return html;
   });
 
   if (!visible.length) {
@@ -1822,13 +1853,17 @@ async function renderPayPeriod() {
 
   tbody.innerHTML = rows.join('');
 
-  // Wire inline-hours editing + Wise-memo copy once — delegation survives
-  // innerHTML swaps.
+  // Wire inline-hours editing + Wise-memo copy + inline add-adjustment once —
+  // delegation survives innerHTML swaps.
   if (!tbody.dataset.inlineWired) {
     tbody.dataset.inlineWired = '1';
     tbody.addEventListener('change', onPayHoursChange);
     tbody.addEventListener('keydown', onPayHoursKeydown);
     tbody.addEventListener('click', onWiseMemoCopy);
+    tbody.addEventListener('click', e => {
+      const btn = e.target.closest('.add-adj-btn');
+      if (btn) openAdjModal(btn.dataset.uid);
+    });
   }
 }
 
@@ -1910,6 +1945,61 @@ function buildWiseMemo(period, hrs, rate) {
   const r = parseFloat(rate).toFixed(2).replace('.', '');         // 466 / 400 / 430
   const memo = `Payroll ${mmdd(period.start)} to ${mmdd(period.end)} ${h} X ${r}`;
   return memo.replace(/[^A-Za-z0-9 ]/g, '');                      // Wise-safe guard
+}
+// Wise-safe memo for an individual adjustment, e.g. "Performance bonus 0510 to 0523 50".
+function buildAdjMemo(period, note, amount) {
+  const label = String(note || '').replace(/[^A-Za-z0-9 ]/g, '').trim() || 'Adjustment';
+  const amt   = Math.abs(amount).toFixed(2).replace(/\.?0+$/, '').replace('.', ' '); // 50 / 16 75
+  return `${label} ${mmdd(period.start)} to ${mmdd(period.end)} ${amt}`.replace(/[^A-Za-z0-9 ]/g, '');
+}
+
+// Renders one sendable adjustment sub-row beneath a person's main row.
+function renderAdjSubRow(a, isPH, period, feePct, phpRate) {
+  const amt   = Math.abs(parseFloat(a.amount));
+  const label = a.kind === 'reimbursement' ? 'Reimbursement' : (a.note || 'Bonus');
+  // Reference line: original peso spend for reimbursements.
+  let ref = '';
+  if (a.kind === 'reimbursement' && a.original_currency === 'PHP' && a.original_amount != null) {
+    ref = `₱${Number(a.original_amount).toLocaleString()} ≈ $${amt.toFixed(2)}`;
+  } else if (a.note) {
+    ref = a.note;
+  }
+  const receiptLink = a.receipt_url
+    ? ` <a class="receipt-link" href="${a.receipt_url}" target="_blank" rel="noopener" title="View receipt">📎</a>`
+    : '';
+  const nameCell = `<td class="name-cell adj-name">↳ ${label}${ref ? `<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${ref}${receiptLink}</span>` : receiptLink}</td>`;
+  const adjChip  = `<td><span class="adj-chip adj-pos">+$${amt.toFixed(2)}</span></td>`;
+
+  if (isPH) {
+    const toSend  = amt / (1 - feePct);
+    const wiseFee = toSend - amt;
+    const phpAmt  = amt * phpRate;
+    const memo    = buildAdjMemo(period, label, amt);
+    return `
+      <tr class="adj-subrow">
+        ${nameCell}
+        <td></td>
+        <td>—</td>
+        <td>—</td>
+        <td>—</td>
+        ${adjChip}
+        <td><strong>$${amt.toFixed(2)}</strong></td>
+        <td style="color:var(--red);font-size:12px;">~$${wiseFee.toFixed(2)}</td>
+        <td style="font-weight:800;color:var(--green);">$${toSend.toFixed(2)} <button type="button" class="wise-memo-copy" data-memo="${memo}" title="Copy: ${memo}">📋</button></td>
+        <td style="color:var(--gray);font-size:12px;">≈ ${Math.round(phpAmt).toLocaleString()} PHP</td>
+      </tr>`;
+  }
+  return `
+    <tr class="adj-subrow">
+      ${nameCell}
+      <td></td>
+      <td>—</td>
+      <td>—</td>
+      <td>—</td>
+      ${adjChip}
+      <td><strong>$${amt.toFixed(2)}</strong></td>
+      <td colspan="3" style="color:var(--gray);font-size:12px;">Direct payment</td>
+    </tr>`;
 }
 function fallbackCopyMemo(text, done) {
   try {
@@ -2185,11 +2275,42 @@ function getTZOffset(tz, date) {
 // ══════════════════════════════════════════════════════════════
 //  ADJUSTMENT MODAL
 // ══════════════════════════════════════════════════════════════
-function openAdjModal() {
+function openAdjModal(preUid) {
   populateStaffDropdown('adj-staff');
-  document.getElementById('adj-amount').value = '';
-  document.getElementById('adj-note').value = '';
+  if (preUid) document.getElementById('adj-staff').value = preUid;
+  document.getElementById('adj-type').value     = 'bonus';
+  document.getElementById('adj-amount').value   = '';
+  document.getElementById('adj-note').value     = '';
+  document.getElementById('adj-currency').value = 'PHP';
+  document.getElementById('adj-receipt').value  = '';
+  syncAdjTypeUi();
   document.getElementById('adj-modal').classList.add('open');
+}
+
+// Show/hide the reimbursement-only fields (currency, conversion, receipt).
+function syncAdjTypeUi() {
+  const isReimb = document.getElementById('adj-type').value === 'reimbursement';
+  document.getElementById('adj-reimb-currency-group').style.display = isReimb ? '' : 'none';
+  document.getElementById('adj-receipt-group').style.display        = isReimb ? '' : 'none';
+  document.getElementById('adj-amount-label').textContent =
+    isReimb ? 'Amount Spent' : 'Amount (USD)';
+  syncAdjConversion();
+}
+
+// Live PHP→USD (or USD passthrough) preview using the Pay Period PHP rate.
+function syncAdjConversion() {
+  const box = document.getElementById('adj-conversion');
+  const isReimb = document.getElementById('adj-type').value === 'reimbursement';
+  if (!isReimb) { box.style.display = 'none'; return; }
+  const cur     = document.getElementById('adj-currency').value;
+  const entered = parseFloat(document.getElementById('adj-amount').value);
+  const phpRate = parseFloat(document.getElementById('php-rate')?.value || 59.69);
+  if (isNaN(entered) || entered <= 0) { box.style.display = 'none'; return; }
+  const usd = cur === 'PHP' ? entered / phpRate : entered;
+  box.style.display = '';
+  box.textContent = cur === 'PHP'
+    ? `₱${entered.toLocaleString()} ÷ ${phpRate} = $${usd.toFixed(2)} USD`
+    : `= $${usd.toFixed(2)} USD`;
 }
 
 async function saveAdjustment() {
@@ -2201,12 +2322,43 @@ async function saveAdjustment() {
   if (!uid || isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.'); return; }
 
   const period     = getPayPeriod(periodOffset);
-  const finalAmt   = type === 'deduction' ? -amount : amount;
   const periodDate = period.start.toISOString().slice(0, 10);
+
+  // Resolve USD amount + reimbursement extras.
+  let finalAmt = type === 'deduction' ? -amount : amount;
+  let origAmount = null, origCurrency = null, fxRate = null, receiptUrl = null;
+
+  if (type === 'reimbursement') {
+    const cur     = document.getElementById('adj-currency').value;
+    const phpRate = parseFloat(document.getElementById('php-rate')?.value || 59.69);
+    finalAmt      = cur === 'PHP' ? amount / phpRate : amount;   // store USD, always positive
+    origAmount    = amount;
+    origCurrency  = cur;
+    fxRate        = phpRate;
+
+    // Optional receipt upload → public bucket.
+    const file = document.getElementById('adj-receipt').files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) { showToast('Receipt must be under 5MB.'); return; }
+      showToast('Uploading receipt…');
+      const ext  = (file.name.split('.').pop() || 'dat').toLowerCase();
+      const path = `receipts/${uid}-${periodDate}-${Date.now()}.${ext}`;
+      const { error: upErr } = await db.storage
+        .from('reimbursement-receipts')
+        .upload(path, file, { upsert: true, contentType: file.type });
+      if (upErr) { showToast('Upload error: ' + upErr.message); return; }
+      receiptUrl = db.storage.from('reimbursement-receipts').getPublicUrl(path).data.publicUrl;
+    }
+  }
 
   const { error } = await db.from('pay_period_adjustments').insert({
     user_id: uid, period_start: periodDate, amount: finalAmt,
-    note: note || null, created_by: currentUser.id
+    note: note || null, created_by: currentUser.id,
+    kind: type,
+    receipt_url: receiptUrl,
+    original_amount: origAmount,
+    original_currency: origCurrency,
+    fx_rate: fxRate
   });
 
   if (error) { showToast('Error: ' + error.message); return; }
