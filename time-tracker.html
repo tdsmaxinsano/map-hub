@@ -225,7 +225,13 @@
     .timesheet-card h3 { margin: 0; color: var(--blue); font-size: 16px; }
     .ts-nav { display: flex; gap: 6px; align-items: center; font-size: 13px; }
     .ts-period-label { font-weight: 700; color: var(--blue); min-width: 140px; text-align: center; }
-    .ts-status { font-size: 12px; color: var(--gray); margin-bottom: 10px; }
+    .ts-status { font-size: 12px; color: var(--gray); margin-bottom: 10px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .ts-saved-line { color: var(--gray); }
+    .ts-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 800; letter-spacing: 0.3px; text-transform: uppercase; }
+    .ts-badge-draft     { background: #F1F5F9; color: var(--gray); border: 1px dashed var(--border); }
+    .ts-badge-submitted { background: #FEF3C7; color: #92400E; }
+    .ts-badge-approved  { background: var(--green-bg); color: var(--green); }
+    .ts-badge-rejected  { background: var(--red-bg);   color: var(--red); text-transform: none; letter-spacing: 0; }
     .ts-table { width: 100%; border-collapse: collapse; font-size: 13px; }
     .ts-table th { background: var(--blue); color: var(--white); padding: 7px 10px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; }
     .ts-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: middle; }
@@ -872,6 +878,7 @@ let editingAdj = null;
 // My Timesheet (staff self-entry) — module state.
 let tsPeriodOffset = 0;
 let tsRows = [];
+let tsSubmission = null;            // current pay_period_submissions row (or null = draft)
 
 // ══════════════════════════════════════════════════════════════
 //  INIT
@@ -1232,6 +1239,11 @@ async function tsLoad() {
     }
   });
 
+  // Fetch this user's submission status for the period (if any).
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const { data: subs } = await db.rpc('list_pay_period_submissions', { p_period_start: periodDate });
+  tsSubmission = (subs && subs.length) ? subs[0] : null;
+
   tsRender(period);
 }
 
@@ -1286,9 +1298,35 @@ function tsUpdateStatus() {
     const h = parseFloat(r.hrs);
     return s + (isNaN(h) ? 0 : h);
   }, 0);
-  el.textContent = savedDays
-    ? `✓ Saved ${savedDays} day(s) · ${savedHrs.toFixed(1)} h for this period.`
+
+  const savedLine = savedDays
+    ? `Saved ${savedDays} day(s) · ${savedHrs.toFixed(1)} h for this period.`
     : 'Nothing saved yet for this period.';
+
+  // Submission badge mirrors the 4-state machine.
+  let badge = '<span class="ts-badge ts-badge-draft">Draft — not yet submitted</span>';
+  if (tsSubmission) {
+    const fmt = ts => ts ? new Date(ts).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: ADMIN_TZ }) : '';
+    if (tsSubmission.status === 'submitted') {
+      badge = `<span class="ts-badge ts-badge-submitted">🟢 Submitted ${fmt(tsSubmission.submitted_at)} — awaiting admin approval</span>`;
+    } else if (tsSubmission.status === 'approved') {
+      badge = `<span class="ts-badge ts-badge-approved">✓ Approved ${fmt(tsSubmission.approved_at)} — final</span>`;
+    } else if (tsSubmission.status === 'rejected') {
+      const note = tsSubmission.admin_notes ? ` — “${escAttr(tsSubmission.admin_notes)}”` : '';
+      badge = `<span class="ts-badge ts-badge-rejected">⚠ Sent back for review${note}</span>`;
+    }
+  }
+  el.innerHTML = badge + `<div class="ts-saved-line">${savedLine}</div>`;
+
+  // Adjust the submit-button label to reflect intent.
+  const btn = document.getElementById('ts-submit-btn');
+  if (btn) {
+    btn.textContent = (tsSubmission && tsSubmission.status === 'submitted')
+      ? 'Re-submit Timesheet'
+      : (tsSubmission && tsSubmission.status === 'rejected')
+        ? 'Submit Fixes for Review'
+        : 'Submit Timesheet';
+  }
 }
 
 function tsChangePeriod(dir) {
@@ -1334,7 +1372,19 @@ async function tsSubmit() {
     }
   }
 
-  if (btn) { btn.disabled = false; btn.textContent = 'Submit Timesheet'; }
+  // Stamp the per-period submission (status → submitted). Bypass if all
+  // days were errors so we don't claim a clean submit when nothing landed.
+  if (errors === 0 || saved > 0) {
+    try {
+      const period     = getPayPeriod(tsPeriodOffset);
+      const periodDate = period.start.toISOString().slice(0, 10);
+      await db.rpc('submit_pay_period', { p_period_start: periodDate });
+    } catch (err) {
+      console.error('submit_pay_period failed', err);
+    }
+  }
+
+  if (btn) btn.disabled = false;
   showToast(errors
     ? `Submitted with ${errors} error(s)`
     : `Submitted ${saved} day(s)${cleared ? ` · cleared ${cleared}` : ''}`);
