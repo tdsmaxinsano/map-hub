@@ -251,6 +251,8 @@
     .ts-hour-input:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 2px var(--blue-light); }
     .ts-note-input { width: 100%; padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; background: var(--white); }
     .ts-note-input:focus { border-color: var(--blue); outline: none; }
+    .ts-auto-hint { font-size: 10px; color: var(--gray); margin-top: 2px; letter-spacing: 0.2px; }
+    .ts-auto-hint.struck { text-decoration: line-through; color: #B45309; font-weight: 700; }
     .ts-absence { width: 140px; }
     .ts-absence-select { width: 130px; padding: 4px 6px; border: 1.5px solid var(--border); border-radius: 5px; font-size: 12px; font-weight: 600; background: var(--white); color: var(--text); }
     .ts-absence-select:focus { border-color: var(--blue); outline: none; }
@@ -1114,16 +1116,36 @@ function fmtPeriod(p, tz = ADMIN_TZ) {
   return `${p.start.toLocaleDateString('en-US', o)} – ${p.end.toLocaleDateString('en-US', o)}`;
 }
 
-function hoursInPeriod(entries, period) {
-  let hrs = 0;
+// Per-day override semantics: if a day has any Timesheet| manual entry
+// (an explicit staff override from "My Timesheet"), ONLY those Timesheet
+// entries count for that day — clock-in shifts are visually preserved
+// in the Shifts modal but not double-summed in payroll totals. Days
+// without a Timesheet override sum normally (clock-ins + any admin
+// aggregate).
+function isTimesheetOverride(e) {
+  return String(e && e.manual_note || '').startsWith('Timesheet|');
+}
+function hoursInPeriod(entries, period, tz = ADMIN_TZ) {
+  // Bucket by ADMIN_TZ calendar day (matches how Timesheet| rows are anchored).
+  const byDay = new Map();
   for (const e of entries) {
     const ci = new Date(e.clock_in);
-    const co = e.clock_out ? new Date(e.clock_out) : new Date();
-    if (ci >= period.start && ci <= period.end) {
-      hrs += Math.max(0, (co - ci) / 3600000);
+    if (!(ci >= period.start && ci <= period.end)) continue;
+    const dayKey = ci.toLocaleDateString('en-US', { timeZone: tz });
+    if (!byDay.has(dayKey)) byDay.set(dayKey, []);
+    byDay.get(dayKey).push(e);
+  }
+  let total = 0;
+  for (const dayEntries of byDay.values()) {
+    const overrides = dayEntries.filter(isTimesheetOverride);
+    const source    = overrides.length ? overrides : dayEntries;
+    for (const e of source) {
+      const ci = new Date(e.clock_in);
+      const co = e.clock_out ? new Date(e.clock_out) : new Date();
+      total += Math.max(0, (co - ci) / 3600000);
     }
   }
-  return hrs;
+  return total;
 }
 
 function hoursToday(entries, tz) {
@@ -1183,12 +1205,18 @@ async function loadStaffView() {
   document.getElementById('stat-period').textContent = fmtHrs(hoursInPeriod(allEntries, period));
 
   const MIN_SHIFT_MINUTES = 1;
+  // Recent Shifts shows REAL clock-in/out shifts only. My Timesheet days
+  // (is_manual=true with synthetic 00:00 clock_in / 00:00 + hrs clock_out)
+  // are already visible in the timesheet card above — listing them here
+  // with fake "08:00 AM → 01:00 PM" times is redundant + misleading.
   const completed = allEntries
-    .filter(e => e.clock_out && (new Date(e.clock_out) - new Date(e.clock_in)) >= MIN_SHIFT_MINUTES * 60000)
+    .filter(e => !e.is_manual
+              && e.clock_out
+              && (new Date(e.clock_out) - new Date(e.clock_in)) >= MIN_SHIFT_MINUTES * 60000)
     .slice(0, 10);
   const list = document.getElementById('recent-list');
   if (!completed.length) {
-    list.innerHTML = '<div class="no-data">No completed shifts yet.</div>';
+    list.innerHTML = '<div class="no-data">No clock-in/out shifts yet — your timesheet days are shown above.</div>';
     return;
   }
 
@@ -1261,34 +1289,48 @@ async function tsLoad() {
     const dayLabel = day.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
     tsRows.push({
       date:        day,
+      dayKey:      day.toLocaleDateString('en-US', { timeZone: tz }),     // matches hoursInPeriod bucketing
       dayLabel:    dayLabel,
       dateLabel:   day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
       weekend:     dayLabel === 'Sat' || dayLabel === 'Sun',
       hrs:         '',
+      autoHrs:     0,                                                     // sum of clock-ins on this day
       note:        '',
       absenceKind: '',
-      existingId:  null
+      existingId:  null                                                   // override entry id, if any
     });
   }
 
-  // Fetch the user's existing Timesheet-tagged entries for the period.
+  // Fetch ALL of this user's entries for the period so we can auto-populate
+  // hours from clock-ins AND surface the Timesheet| override entries.
   const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
   const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
   const { data } = await db.from('time_entries').select('*')
-    .eq('user_id', currentUser.id).eq('is_manual', true)
-    .gte('clock_in', bufStart).lte('clock_in', bufEnd)
-    .like('manual_note', 'Timesheet|%');
+    .eq('user_id', currentUser.id)
+    .gte('clock_in', bufStart).lte('clock_in', bufEnd);
 
+  // Bucket fetched entries by ADMIN_TZ day, then per row compute auto +
+  // override. Auto = sum of non-Timesheet entries (clock-ins). Override =
+  // the single Timesheet| entry (if any).
+  const dayRowByKey = new Map(tsRows.map(r => [r.dayKey, r]));
   (data || []).forEach(e => {
-    const ci  = new Date(e.clock_in).getTime();
-    const idx = Math.round((ci - period.start.getTime()) / 86400000);
-    if (idx >= 0 && idx < 14) {
-      const hrs = (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
-      tsRows[idx].hrs         = hrs > 0 ? Number(hrs.toFixed(2)) : '';
-      tsRows[idx].note        = String(e.manual_note || '').slice('Timesheet|'.length);
-      tsRows[idx].absenceKind = e.absence_kind || '';
-      tsRows[idx].existingId  = e.id;
+    const dayKey = new Date(e.clock_in).toLocaleDateString('en-US', { timeZone: tz });
+    const row = dayRowByKey.get(dayKey);
+    if (!row) return;
+    if (isTimesheetOverride(e)) {
+      const oh = (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
+      row.hrs         = oh > 0 ? Number(oh.toFixed(2)) : '';
+      row.note        = String(e.manual_note || '').slice('Timesheet|'.length);
+      row.absenceKind = e.absence_kind || '';
+      row.existingId  = e.id;
+    } else {
+      const ah = (e.clock_out ? new Date(e.clock_out) - new Date(e.clock_in) : 0) / 3600000;
+      row.autoHrs += Math.max(0, ah);
     }
+  });
+  // For days WITHOUT an override, pre-fill the input with the auto value.
+  tsRows.forEach(r => {
+    if (!r.existingId && r.autoHrs > 0) r.hrs = Number(r.autoHrs.toFixed(2));
   });
 
   // Fetch this user's submission status for the period (if any).
@@ -1310,11 +1352,23 @@ function tsRender(period) {
       `<option value="${o.value}" ${r.absenceKind === o.value ? 'selected' : ''}>${o.label}</option>`
     ).join('');
     const offTint = r.absenceKind ? ' ts-row-off' : '';
+    // Auto-hint: shows "Auto: X.XXh" below the input when the day has any
+    // clock-in hours. Strikethrough class applied when the input value
+    // differs from the auto value (an active override).
+    const hasAuto    = r.autoHrs > 0;
+    const inputVal   = parseFloat(r.hrs);
+    const isOverride = hasAuto && !isNaN(inputVal) && Math.abs(inputVal - r.autoHrs) > 0.001;
+    const hintHtml   = hasAuto
+      ? `<div class="ts-auto-hint ${isOverride ? 'struck' : ''}" data-auto="${r.autoHrs.toFixed(2)}">Auto: ${r.autoHrs.toFixed(2)}h</div>`
+      : '';
     return `
     <tr class="ts-row ${r.weekend ? 'weekend' : ''}${offTint}">
       <td class="ts-day">${r.dayLabel}</td>
       <td class="ts-date">${r.dateLabel}</td>
-      <td class="ts-hours"><input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0" /></td>
+      <td class="ts-hours">
+        <input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0" />
+        ${hintHtml}
+      </td>
       <td class="ts-absence"><select class="ts-absence-select" data-idx="${i}" data-field="absenceKind">${absenceOptions}</select></td>
       <td><input type="text" class="ts-note-input" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${r.weekend ? '(weekend, optional)' : 'optional note'}" /></td>
     </tr>`;
@@ -1330,7 +1384,18 @@ function tsRender(period) {
       const field = inp.dataset.field;
       if (!(i >= 0 && i < tsRows.length)) return;
       tsRows[i][field] = inp.value;
-      if (field === 'hrs') tsUpdateTotal();
+      if (field === 'hrs') {
+        tsUpdateTotal();
+        // Live strikethrough on the Auto: hint when value diverges from auto.
+        const tr   = inp.closest('tr');
+        const hint = tr && tr.querySelector('.ts-auto-hint');
+        if (hint) {
+          const auto = parseFloat(hint.dataset.auto);
+          const val  = parseFloat(inp.value);
+          const struck = !isNaN(auto) && !isNaN(val) && Math.abs(val - auto) > 0.001;
+          hint.classList.toggle('struck', struck);
+        }
+      }
       if (field === 'absenceKind') {
         const tr = inp.closest('tr');
         if (tr) tr.classList.toggle('ts-row-off', !!inp.value);
@@ -1416,12 +1481,16 @@ async function tsSubmit() {
         .gte('clock_in', day.toISOString())
         .lt('clock_in',  dayEnd.toISOString());
 
-      const hrsNum   = parseFloat(tsRows[i].hrs);
-      const hrs      = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
-      const kind     = tsRows[i].absenceKind || null;
-      // Insert if the day has hours OR an absence reason (absence-only days
-      // store as a zero-duration row so the reason rides along).
-      if (hrs > 0 || kind) {
+      const hrsNum  = parseFloat(tsRows[i].hrs);
+      const hrs     = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
+      const auto    = Number(tsRows[i].autoHrs) || 0;
+      const kind    = tsRows[i].absenceKind || null;
+      const note    = (tsRows[i].note || '').trim();
+      // Only persist an override when it differs from the clock-in auto OR
+      // there's an absence/note to capture. Otherwise just let the auto
+      // value stand (and clean up any stale override).
+      const needsOverride = (Math.abs(hrs - auto) > 0.001) || kind || note;
+      if (needsOverride) {
         const { error } = await db.from('time_entries').insert({
           user_id:      currentUser.id,
           clock_in:     day.toISOString(),
@@ -1955,10 +2024,9 @@ async function loadShifts() {
   const all      = raw.filter(e => !e.clock_out || (new Date(e.clock_out) - new Date(e.clock_in)) >= MIN_SHIFT_MS);
   const ghostCnt = raw.length - all.length;
 
-  const totalHrs = all.reduce((sum, e) => {
-    const co = e.clock_out ? new Date(e.clock_out) : new Date();    // count open shifts at "now"
-    return sum + (co - new Date(e.clock_in)) / 3600000;
-  }, 0);
+  // Override-aware: hoursInPeriod() now applies per-day Timesheet-override
+  // semantics, so the displayed total matches what payroll will use.
+  const totalHrs = hoursInPeriod(all, period, DISP_TZ);
   const ghostNote = ghostCnt > 0 ? `  •  ${ghostCnt} sub-minute entr${ghostCnt === 1 ? 'y' : 'ies'} hidden` : '';
   document.getElementById('shifts-total-line').textContent =
     `${all.length} entr${all.length === 1 ? 'y' : 'ies'}  •  ${fmtHrs(totalHrs)} total hours this period${ghostNote}`;
@@ -1984,9 +2052,17 @@ async function loadShifts() {
         ? `<span data-running-since="${ci.getTime()}">${((Date.now() - ci.getTime()) / 3600000).toFixed(2)}h</span>`
         : ((co - ci) / 3600000).toFixed(2) + 'h';
 
-      const typeBadge = e.is_manual
-        ? `<span style="background:var(--gold-light);color:var(--gold);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">Manual</span>`
-        : `<span style="background:#F0F4F8;color:var(--gray);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">System</span>`;
+      // Three badge variants make it easier to tell which row drove the
+      // payroll number: System = clock-in shift, Timesheet = staff
+      // override (replaces clock-in for that day), Manual = admin aggregate.
+      let typeBadge;
+      if (!e.is_manual) {
+        typeBadge = `<span style="background:#F0F4F8;color:var(--gray);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">System</span>`;
+      } else if (isTimesheetOverride(e)) {
+        typeBadge = `<span style="background:#DBEAFE;color:#1E40AF;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">Timesheet</span>`;
+      } else {
+        typeBadge = `<span style="background:var(--gold-light);color:var(--gold);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">Manual</span>`;
+      }
       const absChip = e.absence_kind
         ? ` <span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">${absenceLabel(e.absence_kind)}</span>`
         : '';
