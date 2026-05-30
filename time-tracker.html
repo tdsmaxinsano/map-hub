@@ -251,6 +251,12 @@
     .ts-hour-input:focus { border-color: var(--blue); outline: none; box-shadow: 0 0 0 2px var(--blue-light); }
     .ts-note-input { width: 100%; padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; background: var(--white); }
     .ts-note-input:focus { border-color: var(--blue); outline: none; }
+    .ts-absence { width: 140px; }
+    .ts-absence-select { width: 130px; padding: 4px 6px; border: 1.5px solid var(--border); border-radius: 5px; font-size: 12px; font-weight: 600; background: var(--white); color: var(--text); }
+    .ts-absence-select:focus { border-color: var(--blue); outline: none; }
+    .ts-row.ts-row-off td { background: #FFF7ED; }                    /* amber tint for days off  */
+    .ts-row.weekend.ts-row-off td { background: #FFF1DF; }             /* slightly stronger if weekend + off */
+    .ts-row.ts-row-off .ts-day { color: #B45309; }                     /* amber-700 */
     .ts-total-row td { background: var(--gold-light); font-weight: 800; padding: 8px 10px; border-top: 2px solid var(--gold); border-bottom: none; }
     .ts-submit-btn { display: block; margin: 14px 0 0 auto; padding: 10px 26px; background: linear-gradient(135deg, var(--blue) 0%, #1B3F75 100%); color: var(--white); border: none; border-radius: 7px; font-size: 13px; font-weight: 800; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
     .ts-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(11,46,99,0.25); }
@@ -529,13 +535,13 @@
         </div>
         <div class="ts-status" id="ts-status">Loading…</div>
         <table class="ts-table">
-          <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Day Off</th><th>Notes</th></tr></thead>
           <tbody id="ts-body"></tbody>
           <tfoot>
             <tr class="ts-total-row">
               <td colspan="2" style="text-align:right;">Period Total</td>
               <td id="ts-total">0.00 h</td>
-              <td></td>
+              <td colspan="2"></td>
             </tr>
           </tfoot>
         </table>
@@ -1217,9 +1223,24 @@ async function loadStaffView() {
 //  MY TIMESHEET (staff self-entry)
 // ══════════════════════════════════════════════════════════════
 // Portal-native replacement for the emailed Excel timesheet. Each day
-// with hrs > 0 saves a synthetic is_manual time_entry whose manual_note
-// starts with "Timesheet|" — that tag lets the staff side manage its
-// own per-day rows independently of the admin's aggregate row.
+// with hrs > 0 OR a Day Off reason saves a synthetic is_manual
+// time_entry whose manual_note starts with "Timesheet|" — that tag
+// lets the staff side manage its own per-day rows independently of
+// the admin's aggregate row. Absence-only days store with clock_in
+// == clock_out (zero duration) + absence_kind set.
+
+const ABSENCE_OPTIONS = [
+  { value: '',              label: '—',             chip: '' },
+  { value: 'vacation',      label: '🏖 Vacation',     chip: 'Vacation' },
+  { value: 'sick',          label: '🤒 Sick',         chip: 'Sick' },
+  { value: 'personal',      label: '👤 Personal',     chip: 'Personal' },
+  { value: 'power_outage',  label: '⚡ Power Outage', chip: 'Power' },
+  { value: 'internet',      label: '📶 Internet',     chip: 'Internet' }
+];
+function absenceLabel(kind) {
+  const o = ABSENCE_OPTIONS.find(x => x.value === kind);
+  return o ? o.chip : '';
+}
 
 function tsGetMyTZ() {
   const mc = staffConfig.find(s => s.user_id === currentUser.id);
@@ -1239,13 +1260,14 @@ async function tsLoad() {
     const day      = new Date(period.start.getTime() + i * 86400000);
     const dayLabel = day.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
     tsRows.push({
-      date:       day,
-      dayLabel:   dayLabel,
-      dateLabel:  day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
-      weekend:    dayLabel === 'Sat' || dayLabel === 'Sun',
-      hrs:        '',
-      note:       '',
-      existingId: null
+      date:        day,
+      dayLabel:    dayLabel,
+      dateLabel:   day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
+      weekend:     dayLabel === 'Sat' || dayLabel === 'Sun',
+      hrs:         '',
+      note:        '',
+      absenceKind: '',
+      existingId:  null
     });
   }
 
@@ -1262,9 +1284,10 @@ async function tsLoad() {
     const idx = Math.round((ci - period.start.getTime()) / 86400000);
     if (idx >= 0 && idx < 14) {
       const hrs = (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
-      tsRows[idx].hrs        = Number(hrs.toFixed(2));
-      tsRows[idx].note       = String(e.manual_note || '').slice('Timesheet|'.length);
-      tsRows[idx].existingId = e.id;
+      tsRows[idx].hrs         = hrs > 0 ? Number(hrs.toFixed(2)) : '';
+      tsRows[idx].note        = String(e.manual_note || '').slice('Timesheet|'.length);
+      tsRows[idx].absenceKind = e.absence_kind || '';
+      tsRows[idx].existingId  = e.id;
     }
   });
 
@@ -1282,18 +1305,25 @@ function tsRender(period) {
 
   const tbody = document.getElementById('ts-body');
   if (!tbody) return;
-  tbody.innerHTML = tsRows.map((r, i) => `
-    <tr class="ts-row ${r.weekend ? 'weekend' : ''}">
+  tbody.innerHTML = tsRows.map((r, i) => {
+    const absenceOptions = ABSENCE_OPTIONS.map(o =>
+      `<option value="${o.value}" ${r.absenceKind === o.value ? 'selected' : ''}>${o.label}</option>`
+    ).join('');
+    const offTint = r.absenceKind ? ' ts-row-off' : '';
+    return `
+    <tr class="ts-row ${r.weekend ? 'weekend' : ''}${offTint}">
       <td class="ts-day">${r.dayLabel}</td>
       <td class="ts-date">${r.dateLabel}</td>
       <td class="ts-hours"><input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0" /></td>
+      <td class="ts-absence"><select class="ts-absence-select" data-idx="${i}" data-field="absenceKind">${absenceOptions}</select></td>
       <td><input type="text" class="ts-note-input" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${r.weekend ? '(weekend, optional)' : 'optional note'}" /></td>
-    </tr>`).join('');
+    </tr>`;
+  }).join('');
 
-  // Wire delegated input listener once — survives tbody innerHTML swaps.
+  // Wire delegated input + change listeners once — survive tbody innerHTML swaps.
   if (!tbody.dataset.wired) {
     tbody.dataset.wired = '1';
-    tbody.addEventListener('input', e => {
+    const handleEdit = e => {
       const inp = e.target.closest('[data-idx]');
       if (!inp) return;
       const i     = parseInt(inp.dataset.idx, 10);
@@ -1301,7 +1331,13 @@ function tsRender(period) {
       if (!(i >= 0 && i < tsRows.length)) return;
       tsRows[i][field] = inp.value;
       if (field === 'hrs') tsUpdateTotal();
-    });
+      if (field === 'absenceKind') {
+        const tr = inp.closest('tr');
+        if (tr) tr.classList.toggle('ts-row-off', !!inp.value);
+      }
+    };
+    tbody.addEventListener('input',  handleEdit);
+    tbody.addEventListener('change', handleEdit);
   }
 
   tsUpdateTotal();
@@ -1380,15 +1416,20 @@ async function tsSubmit() {
         .gte('clock_in', day.toISOString())
         .lt('clock_in',  dayEnd.toISOString());
 
-      const hrs = parseFloat(tsRows[i].hrs);
-      if (!isNaN(hrs) && hrs > 0) {
+      const hrsNum   = parseFloat(tsRows[i].hrs);
+      const hrs      = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
+      const kind     = tsRows[i].absenceKind || null;
+      // Insert if the day has hours OR an absence reason (absence-only days
+      // store as a zero-duration row so the reason rides along).
+      if (hrs > 0 || kind) {
         const { error } = await db.from('time_entries').insert({
-          user_id:     currentUser.id,
-          clock_in:    day.toISOString(),
-          clock_out:   new Date(day.getTime() + hrs * 3600000).toISOString(),
-          is_manual:   true,
-          manual_note: 'Timesheet|' + (tsRows[i].note || ''),
-          created_by:  currentUser.id
+          user_id:      currentUser.id,
+          clock_in:     day.toISOString(),
+          clock_out:    new Date(day.getTime() + hrs * 3600000).toISOString(),
+          is_manual:    true,
+          manual_note:  'Timesheet|' + (tsRows[i].note || ''),
+          absence_kind: kind,
+          created_by:   currentUser.id
         });
         if (error) throw error;
         saved++;
@@ -1946,6 +1987,9 @@ async function loadShifts() {
       const typeBadge = e.is_manual
         ? `<span style="background:var(--gold-light);color:var(--gold);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">Manual</span>`
         : `<span style="background:#F0F4F8;color:var(--gray);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">System</span>`;
+      const absChip = e.absence_kind
+        ? ` <span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px;">${absenceLabel(e.absence_kind)}</span>`
+        : '';
       const openBadge = open ? `<span class="open-entry-badge">RUNNING</span>` : '';
 
       return `<tr class="viewing" id="shift-row-${e.id}">
@@ -1953,7 +1997,7 @@ async function loadShifts() {
         <td style="white-space:nowrap;">${inStr}</td>
         <td style="white-space:nowrap;">${outStr}${openBadge}</td>
         <td style="white-space:nowrap;">${hrsCell}</td>
-        <td>${typeBadge}</td>
+        <td>${typeBadge}${absChip}</td>
         <td style="white-space:nowrap;">
           <button class="shift-edit-btn"   onclick="startEditShift('${e.id}', '${e.clock_in}', '${e.clock_out||''}')">Edit</button>
           <button class="shift-delete-btn" onclick="deleteShift('${e.id}')">Del</button>
