@@ -537,7 +537,7 @@
         </div>
         <div class="ts-status" id="ts-status">Loading…</div>
         <table class="ts-table">
-          <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Day Off</th><th>Notes</th></tr></thead>
+          <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Time Off</th><th>Notes</th></tr></thead>
           <tbody id="ts-body"></tbody>
           <tfoot>
             <tr class="ts-total-row">
@@ -2768,6 +2768,10 @@ async function renderSettings() {
           <option value="false" ${!s.is_active?'selected':''}>No</option>
         </select>
       </div>
+      <div class="setting-group">
+        <label>🎂 Birthday</label>
+        <input type="date" class="s-dob" value="${s.dob || ''}" style="width:150px;" />
+      </div>
       <div class="setting-group wise-fields" style="${(s.pay_type||'philippines')==='us'?'display:none':''}">
         <label>Wise Recipient ID</label>
         <input type="text" class="s-wise-id" value="${s.wise_recipient_id||''}" placeholder="UUID from Wise" style="width:220px;font-size:11px;" />
@@ -2814,6 +2818,7 @@ async function saveStaffConfig(uid, btn) {
   const wiseId  = row.querySelector('.s-wise-id')?.value.trim() || null;
   const wiseName= row.querySelector('.s-wise-name')?.value.trim() || null;
   const wiseEmail=row.querySelector('.s-wise-email')?.value.trim() || null;
+  const dob     = row.querySelector('.s-dob')?.value || null;
 
   btn.textContent = '...';
 
@@ -2828,11 +2833,12 @@ async function saveStaffConfig(uid, btn) {
     if (nameEl) nameEl.dataset.orig = newName;
   }
 
-  // (b) Operational fields (rate / tz / active / pay_type / wise_*)
+  // (b) Operational fields (rate / tz / active / pay_type / wise_* / dob)
   const { error } = await db.from('staff_config').update({
     hourly_rate: rate, timezone: tz, is_active: active,
     pay_type: payType, wise_recipient_id: wiseId,
     wise_name: wiseName, wise_email: wiseEmail,
+    dob: dob,
     updated_at: new Date().toISOString()
   }).eq('user_id', uid);
   if (error) { showToast('Error: ' + error.message); btn.textContent = 'Save'; return; }
