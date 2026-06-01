@@ -429,6 +429,30 @@
   }
   .cpr-clin-flag-badge.cpr-flag-warn  { background: #fef3c7; color: #8a5a00; border: 1px solid #fbbf24; }
   .cpr-clin-flag-badge.cpr-flag-error { background: #fde8e8; color: #a53935; border: 1px solid #ef4444; }
+  /* Payment-method chip (per per-clinician row) — color per method drives Phase 3 export grouping */
+  .cpr-pay-chip {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    padding: 1px 7px; border-radius: 10px; margin-left: 8px;
+    letter-spacing: 0.2px; vertical-align: 1px;
+  }
+  .cpr-pay-chip.cpr-pay-check          { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
+  .cpr-pay-chip.cpr-pay-direct_deposit { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .cpr-pay-chip.cpr-pay-zelle          { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
+  .cpr-pay-chip.cpr-pay-w2             { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  /* Per-method summary strip above the per-clinician table */
+  .cpr-pay-summary {
+    margin: 14px 0 8px; padding: 8px 12px; background: #f8fafc;
+    border: 1px solid #e2e8f0; border-radius: 8px;
+    font-size: 12px; color: #1f2a44; display: flex; gap: 6px; flex-wrap: wrap; align-items: center;
+  }
+  .cpr-pay-summary-label { font-weight: 800; color: var(--muted); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.5px; margin-right: 4px; }
+  .cpr-pay-summary-item  { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 10px; font-weight: 700; }
+  .cpr-pay-summary-item.cpr-pay-check          { background: #f1f5f9; color: #475569; }
+  .cpr-pay-summary-item.cpr-pay-direct_deposit { background: #dcfce7; color: #166534; }
+  .cpr-pay-summary-item.cpr-pay-zelle          { background: #ede9fe; color: #5b21b6; }
+  .cpr-pay-summary-item.cpr-pay-w2             { background: #dbeafe; color: #1e40af; }
+  .cpr-pay-summary-item.cpr-pay-unmapped       { background: #fee2e2; color: #991b1b; }
+  .cpr-pay-summary-amt { font-weight: 600; opacity: 0.85; }
   /* Parent rows that have flagged children also get a subtle left bar so you
      can find them at a glance from the collapsed list */
   .cpr-clin-table tbody tr.has-flag-warn  td.col-caret { box-shadow: inset 4px 0 0 0 #fbbf24; }
@@ -1850,6 +1874,48 @@ async function loadCprHistory() {
 // ══════════════════════════════════════════════════════════════════
 let cprViewState = { run: null, dirty: false, expanded: new Set(), addFormOpen: new Set() };
 
+// Payment-method classification (mirrors PAY_METHOD_OPTIONS in roster-review.html,
+// driven by clinician_profiles.payment_method from migration 20). Used to render
+// per-row chips + the per-method summary strip in the audit detail.
+const CPR_PAY_METHODS = [
+  { value: "check",          icon: "📄", short: "Check", long: "Check (QB bill)" },
+  { value: "direct_deposit", icon: "🏦", short: "DD",    long: "Direct Deposit" },
+  { value: "zelle",          icon: "💸", short: "Zelle", long: "Zelle" },
+  { value: "w2",             icon: "🧾", short: "W-2",   long: "W-2 Payroll" }
+];
+// Strips a trailing discipline-code suffix (e.g. "Basma Rafael PT" → "basma rafael")
+// so TB-export names line up with clinician_v2.name without the discipline tail.
+function cprClinLookupKey(name) {
+  return String(name || "")
+    .trim().toLowerCase()
+    .replace(/\s+(pt|pta|ot|ota|st|sta|slp|otr|rn|lpn|cna|md|do|dpt|np|pa)$/i, "");
+}
+// Module-scope name → payment_method map, refreshed each time a run is opened.
+let cprPaymentMethodByName = new Map();
+
+// One-shot fetch of every clinician's payment_method, keyed by a normalized
+// name. The audit payload only carries clinician names (not ids), so this
+// lookup lets the per-row chip + summary strip render without re-fetching
+// per row. Non-fatal on failure — the map just stays empty.
+async function cprLoadPaymentMethods() {
+  try {
+    const { data, error } = await db
+      .from("clinician_v2")
+      .select("name, clinician_profiles!inner(payment_method)");
+    if (error) throw error;
+    cprPaymentMethodByName = new Map();
+    (data || []).forEach(function(row) {
+      const k = cprClinLookupKey(row.name);
+      if (!k) return;
+      const pm = row.clinician_profiles && row.clinician_profiles.payment_method;
+      cprPaymentMethodByName.set(k, pm || "check");
+    });
+  } catch (err) {
+    console.warn("[cpr] payment-method fetch failed:", err && err.message);
+    cprPaymentMethodByName = new Map();
+  }
+}
+
 async function viewCprRun(runId) {
   const body  = document.getElementById("cpr-detail-body");
   const title = document.getElementById("cpr-detail-title");
@@ -1893,6 +1959,10 @@ async function viewCprRun(runId) {
       // so the user lands directly on their visits — effectively "isolate".
       search: ""
     };
+    // Fetch the payment-method lookup once per audit-open. Failure is
+    // non-fatal — the chip + summary just won't render for unmapped names.
+    await cprLoadPaymentMethods();
+
     cprRecompute();
     cprRenderDetail();
   } catch (err) {
@@ -2071,6 +2141,37 @@ function cprRenderDetail() {
     cprViewState.expanded.add(filteredPerClin[0].clinician);
   }
 
+  // Per-method summary strip — totals + counts grouped by payment_method.
+  // Helps the admin see at a glance how the period splits across check /
+  // direct deposit / zelle / w-2, and surfaces "Unmapped" names (TB vs
+  // roster name drift) before Phase 3 export.
+  const methodBuckets = {};
+  CPR_PAY_METHODS.forEach(function(m) { methodBuckets[m.value] = { count: 0, total: 0 }; });
+  methodBuckets.unmapped = { count: 0, total: 0 };
+  perClin.forEach(function(c) {
+    const k  = cprClinLookupKey(c.clinician);
+    const pm = cprPaymentMethodByName.has(k) ? cprPaymentMethodByName.get(k) : "unmapped";
+    const bucket = methodBuckets[pm] || methodBuckets.unmapped;
+    bucket.count += 1;
+    bucket.total += Number(c.pay_total) || 0;
+  });
+  const methodPieces = CPR_PAY_METHODS.map(function(m) {
+    const b = methodBuckets[m.value];
+    if (!b.count) return null;
+    return '<span class="cpr-pay-summary-item cpr-pay-' + m.value + '" title="' + escAttr(m.long) + '">' +
+      m.icon + ' ' + b.count + ' ' + escHtml(m.short) +
+      ' <span class="cpr-pay-summary-amt">(' + cprFmtMoney(b.total) + ')</span></span>';
+  }).filter(Boolean);
+  if (methodBuckets.unmapped.count) {
+    methodPieces.push('<span class="cpr-pay-summary-item cpr-pay-unmapped" title="No roster match — TB name vs clinician_v2.name drift">' +
+      '❓ ' + methodBuckets.unmapped.count + ' Unmapped <span class="cpr-pay-summary-amt">(' +
+      cprFmtMoney(methodBuckets.unmapped.total) + ')</span></span>');
+  }
+  if (methodPieces.length) {
+    html += '<div class="cpr-pay-summary"><span class="cpr-pay-summary-label">Payment methods:</span> ' +
+      methodPieces.join(' · ') + '</div>';
+  }
+
   // Header strip — search input + result counter + clear button
   const searchEsc = escAttr(cprViewState.search || "");
   const headerLabel = searchTerm
@@ -2121,11 +2222,21 @@ function cprRenderDetail() {
       ? (c.flag_severity === "error" ? "has-flag-error" : "has-flag-warn")
       : "";
 
+    // Payment-method chip — looked up from cprPaymentMethodByName (populated
+    // by cprLoadPaymentMethods on audit open). Missing → renders nothing
+    // (those rows are counted as Unmapped in the summary strip above).
+    const pmKey  = cprClinLookupKey(c.clinician);
+    const pm     = cprPaymentMethodByName.get(pmKey);
+    const pmMeta = pm ? CPR_PAY_METHODS.find(function(m) { return m.value === pm; }) : null;
+    const payChip = pmMeta
+      ? ' <span class="cpr-pay-chip cpr-pay-' + pmMeta.value + '" title="' + escAttr(pmMeta.long) + '">' + pmMeta.icon + ' ' + escHtml(pmMeta.short) + '</span>'
+      : '';
+
     // Use data-cidx (index into perClin) instead of inline string interpolation
     // of the clinician name — sidesteps any apostrophe/quote-escaping issues.
     html += '<tr class="cpr-clin-row ' + (exp ? "is-open" : "") + ' ' + rowFlagCls + '" data-cidx="' + idx + '">' +
       '<td class="col-caret">' + (exp ? '▾' : '▸') + '</td>' +
-      '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + flagBadge + '</td>' +
+      '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + payChip + flagBadge + '</td>' +
       '<td class="col-disc"><span>' + escHtml(c.discipline || "—") + '</span></td>' +
       '<td class="col-vc">' + escHtml(vcLabel) + '</td>' +
       '<td class="col-pay">' + cprFmtMoney(c.pay_total) + deltaHtml + '</td>' +
