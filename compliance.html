@@ -722,6 +722,36 @@
     .eval-sched-missed                .eval-sched-head { color: #a53935; }
     .eval-sched-no_eval               .eval-sched-head { color: #a53935; }
     .eval-sched-unknown               .eval-sched-head { color: #aaa; font-weight: 400; }
+    /* Proposed Eval column (migration 27) — employee planning + drift tracking */
+    .eval-proposed-cell { font-size: 11.5px; line-height: 1.35; vertical-align: top; }
+    .eval-proposed-cell-inner { display: flex; flex-direction: column; gap: 3px; }
+    .eval-proposed-line { font-weight: 600; }
+    .eval-proposed-strike { text-decoration: line-through; color: #94a3b8; font-weight: 600; }
+    .eval-proposed-tb { color: #1e40af; font-weight: 800; }
+    .eval-proposed-conf { color: #166534; font-weight: 700; font-size: 11px; }
+    .eval-proposed-pending { color: #8a5a00; font-weight: 700; }
+    .eval-proposed-drift-flag { display: inline-block; font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 8px; background: #fee2e2; color: #991b1b; margin-left: 2px; }
+    .eval-proposed-confirmed .eval-proposed-line { color: #166534; }
+    .eval-proposed-drift     .eval-proposed-line { color: #991b1b; }
+    .eval-proposed-awaiting  .eval-proposed-line { color: #8a5a00; }
+    .eval-proposed-clin-sub { font-size: 10.5px; color: #475569; font-style: italic; }
+    .eval-proposed-note-sub { font-size: 10.5px; color: #64748b; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 190px; }
+    .eval-proposed-actions { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 2px; }
+    .eval-proposed-actions button { padding: 2px 8px; border: 1px solid #86efac; background: #dcfce7; color: #166534; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .eval-proposed-actions .eval-proposed-edit-btn { border-color: #cbd5e1; background: #fff; color: #475569; }
+    .eval-proposed-actions button:hover { filter: brightness(0.95); }
+    .eval-proposed-mini-actions { display: flex; gap: 2px; margin-top: 2px; opacity: 0.6; transition: opacity 0.15s; }
+    .eval-proposed-cell:hover .eval-proposed-mini-actions { opacity: 1; }
+    .eval-proposed-mini-btn { padding: 1px 6px; border: 1px solid var(--border); background: var(--white); border-radius: 4px; font-size: 10px; cursor: pointer; }
+    .eval-proposed-mini-btn:hover { background: #f1f5f9; }
+    .eval-proposed-add-btn { padding: 4px 10px; border: 1px dashed #cbd5e1; background: var(--white); color: #475569; border-radius: 12px; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .eval-proposed-add-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .eval-proposed-editor { display: flex; flex-direction: column; gap: 4px; padding: 4px; background: #f8fafc; border-radius: 6px; }
+    .eval-proposed-editor input { padding: 4px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 11px; }
+    .eval-proposed-editor input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+    .eval-proposed-editor-btns { display: flex; gap: 4px; }
+    .eval-proposed-save-btn   { padding: 3px 10px; border: none; background: var(--blue); color: #fff; border-radius: 4px; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .eval-proposed-cancel-btn { padding: 3px 10px; border: 1px solid var(--border); background: var(--white); color: #64748b; border-radius: 4px; font-size: 11px; cursor: pointer; }
 
     .eval-sla-chip {
       display: inline-block; margin-top: 4px;
@@ -2642,7 +2672,7 @@ function renderEvalIntakeFlat(intakeKeys, intakeGroups) {
     var items = intakeGroups[dKey];
     var label = dKey ? formatEvalDate(dKey) : "(no date)";
     return (
-      '<tr class="eval-date-divider-row"><td colspan="10">' +
+      '<tr class="eval-date-divider-row"><td colspan="11">' +
         '<div class="eval-date-divider">' +
           '<span class="eval-date-divider-label">' + escHtml(label) + '</span>' +
           '<span class="eval-date-divider-count">' + items.length + '</span>' +
@@ -2681,6 +2711,7 @@ const EVAL_TABLE_HEAD =
     '<th style="width:60px">Svc</th>' +
     '<th style="width:140px">Episode</th>' +
     '<th style="width:170px">Eval Sched</th>' +
+    '<th style="width:200px" title="Employee-entered plan; compares against TB Eval Sched on next import">Proposed Eval</th>' +
     '<th style="width:220px">Agency</th>' +
     '<th style="width:210px">Clinician</th>' +
     '<th style="width:150px">Category</th>' +
@@ -2716,6 +2747,7 @@ function renderEvalRow(r) {
     '<td><span class="eval-svc-pill">' + escHtml(r.service || "—") + '</span></td>' +
     '<td class="eval-episode">' + escHtml(episode) + '</td>' +
     '<td class="eval-sched-cell">' + renderEvalSchedCell(r) + '</td>' +
+    '<td class="eval-proposed-cell">' + renderProposedEvalCell(r) + '</td>' +
     '<td>' + escHtml(formatClinicianDisplayName(r.home_health_agency || "")) + '</td>' +
     '<td class="eval-clin-cell" title="Clinician comes from TB — re-import to refresh">' +
       (clinName
@@ -2835,6 +2867,208 @@ function renderEvalSchedCell(r) {
     (s.sub ? '<div class="eval-sched-sub">' + escHtml(s.sub) + '</div>' : '') +
     slaChip +
   '</div>';
+}
+
+// ──────────────────────────────────────────────────────────────────────
+// Proposed Eval cell — employee planning + drift tracking (migration 27)
+// Four display states based on (proposed_eval_date, next_eval_date,
+// last_acknowledged_at):
+//   • Empty    — no proposed set → "+ Propose" button
+//   • Awaiting — proposed set, TB has no next_eval_date yet → "Proposed 5/22 ⏳"
+//   • Confirmed — proposed == TB → "~~5/22~~ ✓ confirmed" (+ Ack until acked)
+//   • Drift    — proposed != TB → "~~Proposed 5/22~~ → TB: 5/26 ⚠"
+// ──────────────────────────────────────────────────────────────────────
+var evalProposedEditingId = null;   // which row's inline editor is open
+
+function evalFmtDateShort(s) {
+  if (!s) return "";
+  var d = (s instanceof Date) ? s : new Date(String(s) + "T00:00:00");
+  if (isNaN(d.getTime())) return String(s);
+  return d.toLocaleDateString("en-US", { month: "numeric", day: "numeric" });
+}
+
+function renderProposedEvalCell(r) {
+  // Editor mode — overrides any of the display states.
+  if (evalProposedEditingId === r.id) {
+    var dv = r.proposed_eval_date      || "";
+    var cv = escAttr(r.proposed_eval_clinician || "");
+    var nv = escAttr(r.proposed_eval_note      || "");
+    return '<div class="eval-proposed-editor">' +
+      '<input type="date" class="eval-proposed-date" value="' + escAttr(dv) + '" />' +
+      '<input type="text" class="eval-proposed-clin" placeholder="Clinician (optional)" value="' + cv + '" />' +
+      '<input type="text" class="eval-proposed-note" placeholder="Note (optional)" value="' + nv + '" />' +
+      '<div class="eval-proposed-editor-btns">' +
+        '<button class="eval-proposed-save-btn"   onclick="evalProposedSave(\'' + escAttr(r.id) + '\')">Save</button>' +
+        '<button class="eval-proposed-cancel-btn" onclick="evalProposedCancelEdit()">Cancel</button>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // State 1 — Empty
+  if (!r.proposed_eval_date) {
+    return '<button class="eval-proposed-add-btn" onclick="evalProposedOpenEditor(\'' + escAttr(r.id) + '\')">+ Propose</button>';
+  }
+
+  var proposedStr = evalFmtDateShort(r.proposed_eval_date);
+  var tbStr       = r.next_eval_date ? evalFmtDateShort(r.next_eval_date) : "";
+  var hasTb       = !!r.next_eval_date;
+  var match       = hasTb && String(r.proposed_eval_date) === String(r.next_eval_date);
+  var hasDrift    = hasTb && !match;
+  var acked       = !!r.last_acknowledged_at;
+
+  var state, body = "", ackBtn = "";
+  if (match) {
+    state = "confirmed";
+    body = '<span class="eval-proposed-strike">' + escHtml(proposedStr) + '</span> ' +
+           '<span class="eval-proposed-conf">✓ confirmed</span>';
+    if (!acked) {
+      ackBtn = '<button class="eval-proposed-ack-btn" title="Acknowledge the match" ' +
+        'onclick="evalProposedAck(\'' + escAttr(r.id) + '\', \'confirmed\')">✓ Ack</button>';
+    }
+  } else if (hasDrift) {
+    state = "drift";
+    body = '<span class="eval-proposed-strike">Proposed ' + escHtml(proposedStr) + '</span> → ' +
+           '<strong class="eval-proposed-tb">TB: ' + escHtml(tbStr) + '</strong> ' +
+           '<span class="eval-proposed-drift-flag">⚠ rescheduled</span>';
+    if (!acked) {
+      ackBtn =
+        '<button class="eval-proposed-ack-btn" title="Accept the new TB date" ' +
+          'onclick="evalProposedAck(\'' + escAttr(r.id) + '\', \'drift_acknowledged\')">✓ Ack change</button>' +
+        '<button class="eval-proposed-edit-btn" title="Update proposed to a new value" ' +
+          'onclick="evalProposedOpenEditor(\'' + escAttr(r.id) + '\')">✎ Update</button>';
+    }
+  } else {
+    state = "awaiting";
+    body = '<span class="eval-proposed-pending">Proposed ' + escHtml(proposedStr) + ' ⏳</span>';
+  }
+
+  var clinSub = r.proposed_eval_clinician
+    ? '<div class="eval-proposed-clin-sub">' + escHtml(r.proposed_eval_clinician) + '</div>'
+    : "";
+  var noteSub = r.proposed_eval_note
+    ? '<div class="eval-proposed-note-sub" title="' + escAttr(r.proposed_eval_note) + '">' + escHtml(r.proposed_eval_note) + '</div>'
+    : "";
+
+  return '<div class="eval-proposed-cell-inner eval-proposed-' + state + '">' +
+    '<div class="eval-proposed-line">' + body + '</div>' +
+    clinSub + noteSub +
+    (ackBtn ? '<div class="eval-proposed-actions">' + ackBtn + '</div>' : '') +
+    '<div class="eval-proposed-mini-actions">' +
+      '<button class="eval-proposed-mini-btn" title="Edit proposal" onclick="evalProposedOpenEditor(\'' + escAttr(r.id) + '\')">✎</button>' +
+      '<button class="eval-proposed-mini-btn" title="Clear proposal" onclick="evalProposedClear(\'' + escAttr(r.id) + '\')">✕</button>' +
+      '<button class="eval-proposed-mini-btn" title="View history" onclick="evalProposedHistory(\'' + escAttr(r.id) + '\')">📜</button>' +
+    '</div>' +
+  '</div>';
+}
+
+function evalProposedOpenEditor(id) {
+  evalProposedEditingId = id;
+  renderEvaluationCompliance();
+  // Focus the date input after the re-render.
+  setTimeout(function() {
+    var d = document.querySelector(".eval-proposed-editor .eval-proposed-date");
+    if (d) d.focus();
+  }, 0);
+}
+
+function evalProposedCancelEdit() {
+  evalProposedEditingId = null;
+  renderEvaluationCompliance();
+}
+
+async function evalProposedSave(id) {
+  var editor = document.querySelector(".eval-proposed-editor");
+  if (!editor) return;
+  var dateInput = editor.querySelector(".eval-proposed-date");
+  var clinInput = editor.querySelector(".eval-proposed-clin");
+  var noteInput = editor.querySelector(".eval-proposed-note");
+  var date = dateInput ? dateInput.value : "";
+  var clin = clinInput ? clinInput.value.trim() : "";
+  var note = noteInput ? noteInput.value.trim() : "";
+  if (!date) {
+    showToast("Please pick a proposed date.", "error");
+    return;
+  }
+  try {
+    var res = await db.rpc("set_proposed_eval", {
+      p_item_id:   id,
+      p_date:      date,
+      p_clinician: clin || null,
+      p_note:      note || null
+    });
+    if (res.error) throw res.error;
+    var updated = Array.isArray(res.data) ? res.data[0] : res.data;
+    if (updated) {
+      var idx = evalItems.findIndex(function(x) { return x.id === id; });
+      if (idx > -1) evalItems[idx] = updated;
+    }
+    evalProposedEditingId = null;
+    renderEvaluationCompliance();
+    showToast("Proposed eval set.");
+  } catch (err) {
+    showToast("Save failed: " + (err.message || String(err)), "error");
+  }
+}
+
+async function evalProposedAck(id, action) {
+  try {
+    var res = await db.rpc("acknowledge_proposed_eval", { p_item_id: id, p_action: action });
+    if (res.error) throw res.error;
+    var updated = Array.isArray(res.data) ? res.data[0] : res.data;
+    if (updated) {
+      var idx = evalItems.findIndex(function(x) { return x.id === id; });
+      if (idx > -1) evalItems[idx] = updated;
+    }
+    renderEvaluationCompliance();
+    showToast(action === "confirmed" ? "Acknowledged." : "Drift acknowledged.");
+  } catch (err) {
+    showToast("Acknowledge failed: " + (err.message || String(err)), "error");
+  }
+}
+
+async function evalProposedClear(id) {
+  if (!confirm("Clear the proposed eval for this row?")) return;
+  try {
+    var res = await db.rpc("clear_proposed_eval", { p_item_id: id });
+    if (res.error) throw res.error;
+    var updated = Array.isArray(res.data) ? res.data[0] : res.data;
+    if (updated) {
+      var idx = evalItems.findIndex(function(x) { return x.id === id; });
+      if (idx > -1) evalItems[idx] = updated;
+    }
+    renderEvaluationCompliance();
+    showToast("Proposed eval cleared.");
+  } catch (err) {
+    showToast("Clear failed: " + (err.message || String(err)), "error");
+  }
+}
+
+async function evalProposedHistory(id) {
+  try {
+    var res = await db.rpc("list_proposed_history", { p_item_id: id });
+    if (res.error) throw res.error;
+    var rows = res.data || [];
+    if (!rows.length) {
+      alert("📜 No history entries yet for this row.");
+      return;
+    }
+    var lines = rows.map(function(h) {
+      var dt   = h.at ? new Date(h.at).toLocaleString() : "";
+      var from = h.from_date ? evalFmtDateShort(h.from_date) : "—";
+      var to   = h.to_date   ? evalFmtDateShort(h.to_date)   : "—";
+      var actionLabel = ({
+        proposed:           "🆕 Proposed",
+        updated:            "✎ Updated",
+        confirmed:          "✓ Confirmed (TB match)",
+        drift_acknowledged: "⚠ Drift acknowledged",
+        cleared:            "🗑 Cleared"
+      })[h.action] || h.action;
+      return "[" + dt + "]  " + actionLabel + "   " + from + " → " + to;
+    }).join("\n");
+    alert("📜 Proposed Eval History\n\n" + lines);
+  } catch (err) {
+    showToast("History fetch failed: " + (err.message || String(err)), "error");
+  }
 }
 
 // Status Notes cell — 4 stacked rows:
