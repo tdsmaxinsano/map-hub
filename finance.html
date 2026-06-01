@@ -469,6 +469,42 @@
   .cpr-pay-section.cpr-pay-section-w2             td { background: #dbeafe; color: #1e40af; }
   .cpr-pay-section.cpr-pay-section-unmapped       td { background: #fee2e2; color: #991b1b; }
   .cpr-pay-section:hover td { filter: brightness(0.97); }
+  /* ── Clinicians-by-Pay-Method overview card ── */
+  #clin-pay-overview-card .cpo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; user-select: none; }
+  #clin-pay-overview-card .cpo-head h3 { margin: 0; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  #clin-pay-overview-card .cpo-card-caret { display: inline-block; width: 14px; font-weight: 800; color: var(--muted); transition: transform 0.12s; }
+  #clin-pay-overview-card.is-open .cpo-card-caret { transform: rotate(90deg); }
+  #clin-pay-overview-card .cpo-head-right { display: flex; align-items: center; gap: 8px; }
+  #clin-pay-overview-card .cpo-card-meta { font-size: 12px; color: var(--muted); }
+  #clin-pay-overview-card .cpo-body { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+  .cpo-section-head {
+    padding: 8px 14px; cursor: pointer; user-select: none;
+    font-weight: 800; font-size: 12.5px;
+    border-radius: 8px;
+    display: flex; align-items: center; gap: 6px;
+    transition: filter 0.12s;
+  }
+  .cpo-section-head .cpo-section-caret { display: inline-block; width: 14px; }
+  .cpo-section-head .cpo-section-count { font-weight: 600; opacity: 0.85; margin-left: 8px; }
+  .cpo-section-head:hover { filter: brightness(0.97); }
+  .cpo-section-check          { background: #f1f5f9; color: #475569; }
+  .cpo-section-direct_deposit { background: #dcfce7; color: #166534; }
+  .cpo-section-zelle          { background: #ede9fe; color: #5b21b6; }
+  .cpo-section-w2             { background: #dbeafe; color: #1e40af; }
+  .cpo-section-unmapped       { background: #fee2e2; color: #991b1b; }
+  .cpo-section-body { padding: 4px 14px 8px 28px; display: flex; flex-direction: column; gap: 3px; }
+  .cpo-clin-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+  .cpo-clin-row .cpo-clin-name { color: var(--text); }
+  .cpo-clin-row .cpo-clin-disc {
+    display: inline-block; font-size: 10px; font-weight: 800; padding: 1px 6px;
+    border-radius: 8px; background: #e2e8f0; color: #334155; margin-left: 6px;
+  }
+  .cpo-clin-row .cpo-roster-link {
+    margin-left: auto; font-size: 11px; padding: 2px 8px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--white); color: var(--text);
+    cursor: pointer; text-decoration: none;
+  }
+  .cpo-clin-row .cpo-roster-link:hover { background: #f1f5f9; }
   /* Parent rows that have flagged children also get a subtle left bar so you
      can find them at a glance from the collapsed list */
   .cpr-clin-table tbody tr.has-flag-warn  td.col-caret { box-shadow: inset 4px 0 0 0 #fbbf24; }
@@ -809,6 +845,18 @@
       </div>
     </div>
 
+    <!-- ── Clinicians-by-Pay-Method quick reference ── -->
+    <div class="card" id="clin-pay-overview-card">
+      <div class="cpo-head" id="cpo-toggle" role="button" tabindex="0">
+        <h3>👥 Clinicians by Pay Method <span class="cpo-card-caret" id="cpo-card-caret">▸</span></h3>
+        <div class="cpo-head-right">
+          <span class="cpo-card-meta" id="cpo-card-meta">click to expand</span>
+          <button type="button" class="btn-secondary" id="cpo-refresh" style="display:none;" title="Refresh from the database">🔄</button>
+        </div>
+      </div>
+      <div class="cpo-body" id="cpo-body" hidden></div>
+    </div>
+
     <!-- ── Clinician Payroll Audit (Phase 2) ── -->
     <div class="card" id="clin-pay-audit-card">
       <div class="clin-pay-cal-head">
@@ -1127,6 +1175,7 @@ function switchView(viewName, skipPushState) {
   if (viewName === "payroll") {
     renderClinPayCal(clinPayCalYear);
     loadCprHistory();
+    cpoBindCard();
   }
 }
 
@@ -2926,6 +2975,157 @@ if (typeof escHtml !== "function") {
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CLINICIANS-BY-PAY-METHOD OVERVIEW (Payroll reference card)
+// ══════════════════════════════════════════════════════════════════
+// Quick read-only roster of every Active clinician grouped by
+// payment_method. Lives at the top of the Payroll sub-view, starts
+// collapsed. Each per-method section is independently collapsible.
+// One round-trip to clinician_v2 + clinician_profiles!inner on first
+// expand; cached for subsequent toggles. 🔄 button re-fetches.
+
+let cpoExpandedMethods = new Set();   // per-method sections currently open
+let cpoCardOpen        = false;        // whole card open?
+let cpoClinicians      = null;         // [{id, name, discipline, payment_method}] cache
+
+async function cpoLoadAndRender(forceRefresh) {
+  const body = document.getElementById("cpo-body");
+  if (!body) return;
+  if (forceRefresh || cpoClinicians === null) {
+    body.innerHTML = '<div style="padding:14px;color:var(--muted);font-size:12px;">Loading…</div>';
+    try {
+      const { data, error } = await db
+        .from("clinician_v2")
+        .select("id, name, discipline, status, clinician_profiles!inner(payment_method)")
+        .eq("status", "Active")
+        .order("name");
+      if (error) throw error;
+      cpoClinicians = (data || []).map(function(r) {
+        return {
+          id:             r.id,
+          name:           r.name || "(unnamed)",
+          discipline:     r.discipline || "",
+          payment_method: (r.clinician_profiles && r.clinician_profiles.payment_method) || "check"
+        };
+      });
+    } catch (err) {
+      console.warn("[cpo] load failed:", err && err.message);
+      body.innerHTML = '<div style="padding:14px;color:#a53935;font-size:12px;">Failed to load: ' + escHtml(err && err.message || "Unknown error") + '</div>';
+      return;
+    }
+  }
+  cpoRender();
+}
+
+function cpoRender() {
+  const body = document.getElementById("cpo-body");
+  const meta = document.getElementById("cpo-card-meta");
+  if (!body || !cpoClinicians) return;
+
+  // Bucket by payment_method.
+  const buckets = {};
+  CPR_PAY_METHODS.forEach(function(m) { buckets[m.value] = []; });
+  buckets.unmapped = [];
+  cpoClinicians.forEach(function(c) {
+    const pm = c.payment_method || "check";
+    (buckets[pm] || buckets.unmapped).push(c);
+  });
+
+  // Meta line (always shown above the body): total + per-method counts.
+  if (meta) {
+    const total = cpoClinicians.length;
+    const parts = CPR_PAY_METHODS
+      .map(function(m) { const n = buckets[m.value].length; return n ? (m.icon + ' ' + n) : null; })
+      .filter(Boolean);
+    if (buckets.unmapped.length) parts.push('❓ ' + buckets.unmapped.length);
+    meta.textContent = total + ' active' + (parts.length ? ' · ' + parts.join(' · ') : '');
+  }
+
+  // Render section blocks.
+  const ordered = CPR_PAY_METHODS
+    .map(function(m) { return { method: m.value, meta: m, list: buckets[m.value] }; })
+    .concat([{ method: "unmapped",
+               meta: { value: "unmapped", icon: "❓", short: "Unmapped", long: "No payment_method set" },
+               list: buckets.unmapped }])
+    .filter(function(b) { return b.list.length > 0; });
+
+  body.innerHTML = ordered.map(function(b) {
+    const open  = cpoExpandedMethods.has(b.method);
+    const caret = open ? '▾' : '▸';
+    let html = '<div>';
+    html += '<div class="cpo-section-head cpo-section-' + b.method + '" data-method="' + b.method + '">' +
+      '<span class="cpo-section-caret">' + caret + '</span>' +
+      '<span>' + b.meta.icon + '</span>' +
+      '<span>' + escHtml(b.meta.long || b.meta.short) + '</span>' +
+      '<span class="cpo-section-count">· ' + b.list.length + (b.list.length === 1 ? ' clinician' : ' clinicians') + '</span>' +
+    '</div>';
+    if (open) {
+      html += '<div class="cpo-section-body">';
+      b.list.forEach(function(c) {
+        html += '<div class="cpo-clin-row">' +
+          '<span class="cpo-clin-name">' + escHtml(c.name) + '</span>' +
+          (c.discipline ? '<span class="cpo-clin-disc">' + escHtml(c.discipline) + '</span>' : '') +
+          '<a class="cpo-roster-link" data-roster-link href="roster-review.html" target="_blank" rel="noopener" title="Open Roster Review">↗ Roster</a>' +
+        '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    return html;
+  }).join('');
+}
+
+function cpoToggleCard() {
+  const card    = document.getElementById("clin-pay-overview-card");
+  const body    = document.getElementById("cpo-body");
+  const refresh = document.getElementById("cpo-refresh");
+  if (!card || !body) return;
+  cpoCardOpen = !cpoCardOpen;
+  if (cpoCardOpen) {
+    card.classList.add("is-open");
+    body.hidden = false;
+    if (refresh) refresh.style.display = "";
+    cpoLoadAndRender(false);
+  } else {
+    card.classList.remove("is-open");
+    body.hidden = true;
+    if (refresh) refresh.style.display = "none";
+  }
+}
+
+function cpoBindCard() {
+  const head    = document.getElementById("cpo-toggle");
+  const body    = document.getElementById("cpo-body");
+  const refresh = document.getElementById("cpo-refresh");
+  if (!head || head.dataset.bound) return;
+  head.dataset.bound = "1";
+  // Card-level toggle (avoid triggering on the Refresh button click).
+  head.addEventListener("click", function(ev) {
+    if (ev.target.closest("#cpo-refresh")) return;
+    cpoToggleCard();
+  });
+  head.addEventListener("keydown", function(ev) {
+    if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); cpoToggleCard(); }
+  });
+  if (refresh) {
+    refresh.addEventListener("click", function(ev) {
+      ev.stopPropagation();
+      cpoLoadAndRender(true);
+    });
+  }
+  if (body) {
+    body.addEventListener("click", function(ev) {
+      const head = ev.target.closest(".cpo-section-head");
+      if (head) {
+        const m = head.dataset.method;
+        if (cpoExpandedMethods.has(m)) cpoExpandedMethods.delete(m);
+        else cpoExpandedMethods.add(m);
+        cpoRender();
+      }
+    });
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
