@@ -6522,6 +6522,10 @@
                   <span class="profile-header-quickfact-label">🎂 DOB</span>
                   <span id="profile-header-dob" class="profile-header-quickfact-value"></span>
                 </div>
+                <div class="profile-header-quickfact-row" id="profile-header-llc-row" style="display:none;" title="LLC / business entity — bills are made out to this name (from Roster Review)">
+                  <span class="profile-header-quickfact-label">🏢 LLC</span>
+                  <span id="profile-header-llc" class="profile-header-quickfact-value"></span>
+                </div>
               </div>
               <div class="profile-header-actions">
                 <button id="profile-isolate-clinician" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Clinician</button>
@@ -8591,6 +8595,8 @@
         photo_url: profileRow.photo_url || record.photo_url || null,
         internal_rating: profileRow.internal_rating ?? record.internal_rating ?? null,
         dob: profileRow.dob || record.dob || null,
+        llc_name: profileRow.llc_name || record.llc_name || null,
+        llc_ein:  profileRow.llc_ein  || record.llc_ein  || null,
         profile_status: nextStatus,
         status: nextStatus,
         notes: profileRow.notes || record.notes || "",
@@ -12937,6 +12943,27 @@
       // 6) DOB / birthday — shows "Apr 21 (turns 47)" with celebratory tint
       //    when this week.
       renderDobQuickFact(clinicianId);
+
+      // 7) LLC / business entity — only renders when set on the profile;
+      //    edit happens in Roster Review (canonical write surface).
+      renderLlcQuickFact(clinicianId);
+    }
+
+    function renderLlcQuickFact(clinicianId) {
+      var row = document.getElementById("profile-header-llc-row");
+      var el  = document.getElementById("profile-header-llc");
+      if (!row || !el) return;
+      var clinician = clinicianId
+        ? appState.clinicians.find(function(c) { return c.id === clinicianId; })
+        : null;
+      var llc = clinician && clinician.llc_name ? String(clinician.llc_name).trim() : "";
+      if (!llc) {
+        row.style.display = "none";
+        el.textContent = "";
+        return;
+      }
+      row.style.display = "";
+      el.textContent = llc;
     }
 
     function renderDobQuickFact(clinicianId) {

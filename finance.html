@@ -498,6 +498,9 @@
   .cpo-bill-chip { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 8px; margin-left: 6px; }
   .cpo-bill-bill { background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; }
   .cpo-bill-w2   { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  .cpo-clin-llc  { font-size: 11px; color: #475569; font-weight: 600; margin-left: 6px; }
+  /* LLC sub-line in the audit per-clinician row (under the name) */
+  .cpr-clin-llc  { font-size: 11px; color: #475569; font-weight: 600; margin-top: 2px; }
   .cpo-section-body { padding: 4px 14px 8px 28px; display: flex; flex-direction: column; gap: 3px; }
   .cpo-clin-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
   .cpo-clin-row .cpo-clin-name { color: var(--text); }
@@ -1978,7 +1981,7 @@ async function cprLoadPaymentMethods() {
   try {
     const { data, error } = await db
       .from("clinician_v2")
-      .select("name, clinician_profiles!inner(payment_method, payment_delivery)");
+      .select("name, clinician_profiles!inner(payment_method, payment_delivery, llc_name)");
     if (error) throw error;
     cprPaymentByName = new Map();
     (data || []).forEach(function(row) {
@@ -1987,7 +1990,8 @@ async function cprLoadPaymentMethods() {
       const cp = row.clinician_profiles || {};
       cprPaymentByName.set(k, {
         bill:     cp.payment_method   || "bill",
-        delivery: cp.payment_delivery || "paper_check"
+        delivery: cp.payment_delivery || "paper_check",
+        llc:      cp.llc_name || ""
       });
     });
   } catch (err) {
@@ -2383,9 +2387,16 @@ function cprRenderDetail() {
 
     // Use data-cidx (index into perClin) instead of inline string interpolation
     // of the clinician name — sidesteps any apostrophe/quote-escaping issues.
+    // LLC sub-line — when the clinician operates through an LLC, show its
+    // name beneath their personal name so admin sees the payable-to entity
+    // at a glance (matches what the QB Bill will be made out to).
+    const llcLine = pmPair && pmPair.llc
+      ? '<div class="cpr-clin-llc" title="LLC / business entity">🏢 ' + escHtml(pmPair.llc) + '</div>'
+      : '';
+
     html += '<tr class="cpr-clin-row ' + (exp ? "is-open" : "") + ' ' + rowFlagCls + '" data-cidx="' + idx + '">' +
       '<td class="col-caret">' + (exp ? '▾' : '▸') + '</td>' +
-      '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + payChip + flagBadge + '</td>' +
+      '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + payChip + flagBadge + llcLine + '</td>' +
       '<td class="col-disc"><span>' + escHtml(c.discipline || "—") + '</span></td>' +
       '<td class="col-vc">' + escHtml(vcLabel) + '</td>' +
       '<td class="col-pay">' + cprFmtMoney(c.pay_total) + deltaHtml + '</td>' +
@@ -3037,7 +3048,7 @@ async function cpoLoadAndRender(forceRefresh) {
     try {
       const { data, error } = await db
         .from("clinician_v2")
-        .select("id, name, discipline, status, clinician_profiles!inner(payment_method, payment_delivery)")
+        .select("id, name, discipline, status, clinician_profiles!inner(payment_method, payment_delivery, llc_name)")
         .eq("status", "Active")
         .order("name");
       if (error) throw error;
@@ -3048,7 +3059,8 @@ async function cpoLoadAndRender(forceRefresh) {
           name:             r.name || "(unnamed)",
           discipline:       r.discipline || "",
           payment_method:   cp.payment_method   || "bill",
-          payment_delivery: cp.payment_delivery || "paper_check"
+          payment_delivery: cp.payment_delivery || "paper_check",
+          llc_name:         cp.llc_name || ""
         };
       });
     } catch (err) {
@@ -3109,9 +3121,13 @@ function cpoRender() {
         const billChip = billMeta
           ? '<span class="cpo-bill-chip cpo-bill-' + billMeta.value + '" title="' + escAttr(billMeta.long) + '">' + billMeta.icon + ' ' + escHtml(billMeta.short) + '</span>'
           : '';
+        const llcSub = c.llc_name
+          ? '<span class="cpo-clin-llc" title="LLC / business entity">🏢 ' + escHtml(c.llc_name) + '</span>'
+          : '';
         html += '<div class="cpo-clin-row">' +
           '<span class="cpo-clin-name">' + escHtml(c.name) + '</span>' +
           (c.discipline ? '<span class="cpo-clin-disc">' + escHtml(c.discipline) + '</span>' : '') +
+          llcSub +
           billChip +
           '<a class="cpo-roster-link" data-roster-link href="roster-review.html" target="_blank" rel="noopener" title="Open Roster Review">↗ Roster</a>' +
         '</div>';
