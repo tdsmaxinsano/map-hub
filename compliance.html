@@ -3218,14 +3218,18 @@ const EVAL_REQUIRED_COLS = [
 
 // === PATIENT VISITS CSV (phase-3 enrichment) ===
 const EVAL_VISITS_REQUIRED_COLS = [
-  { key: "visdt",  label: "Visit date",        candidates: ["Visit date (MM/DD/YYYY)", "Visit Date"] },
-  { key: "vistype",label: "Visit type",        candidates: ["Visit type", "Visit Type"] },
-  { key: "compdt", label: "Completed date",    candidates: ["Completed date", "Completed Date"] },
-  { key: "clin",   label: "Clinician",         candidates: ["Clinician"] },
-  { key: "pid",    label: "Patient ID",        candidates: ["Patient ID", "PatientID", "Patient Id"] },
-  { key: "svc",    label: "Service",           candidates: ["Service", "Discipline"] },
-  { key: "delay",  label: "Completion delay",  candidates: ["Completion delay", "Completion Delay"] },
-  { key: "visid",  label: "Visit ID",          candidates: ["Visit ID", "VisitID", "Visit Id"] }
+  { key: "visdt",   label: "Visit date",        candidates: ["Visit date (MM/DD/YYYY)", "Visit Date"] },
+  { key: "vistype", label: "Visit type",        candidates: ["Visit type", "Visit Type"] },
+  { key: "compdt",  label: "Completed date",    candidates: ["Completed date", "Completed Date"] },
+  { key: "clin",    label: "Clinician",         candidates: ["Clinician"] },
+  { key: "pid",     label: "Patient ID",        candidates: ["Patient ID", "PatientID", "Patient Id"] },
+  { key: "svc",     label: "Service",           candidates: ["Service", "Discipline"] },
+  { key: "delay",   label: "Completion delay",  candidates: ["Completion delay", "Completion Delay"] },
+  { key: "visid",   label: "Visit ID",          candidates: ["Visit ID", "VisitID", "Visit Id"] },
+  // Episode start — needed to disambiguate visits when a patient has had
+  // multiple referrals over time. Without this we'd attach a prior
+  // episode's eval to the current row.
+  { key: "epstart", label: "Start of episode",  candidates: ["Start of episode", "Episode Start", "Start Date", "Cert From"] }
 ];
 
 // ── Pay period helper ───────────────────────────────────────────────
@@ -3855,11 +3859,17 @@ async function handleEvalVisitsFile(file) {
       if (!pid || !svc) return;
       var visitDate = evalParseDate(r[col.visdt]);
       if (!visitDate) return;
+      // Per-visit episode start — REQUIRED for episode-aware matching so
+      // visits from prior referrals don't attach to the current row.
+      var epStart = evalParseDate(r[col.epstart]);
+      if (!epStart) return;
       totalRows++;
       var type = String(r[col.vistype] || "").trim().toUpperCase();
-      var key = pid + "|" + svc;
+      // Bucket key now includes the visit's episode start — same patient
+      // + service across two different referrals gets two separate buckets.
+      var key = pid + "|" + svc + "|" + epStart;
       var b = bucket[key] || (bucket[key] = {
-        patient_id: pid, service: svc,
+        patient_id: pid, service: svc, episode_start_date: epStart,
         eval_visit_date: null, eval_visit_type: null, eval_visit_clinician: null,
         eval_note_completed_at: null, eval_completion_hours: null, eval_visit_id: null,
         reeval_visit_date: null, reeval_note_completed_at: null,
