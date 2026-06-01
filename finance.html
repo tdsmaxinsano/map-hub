@@ -453,6 +453,22 @@
   .cpr-pay-summary-item.cpr-pay-w2             { background: #dbeafe; color: #1e40af; }
   .cpr-pay-summary-item.cpr-pay-unmapped       { background: #fee2e2; color: #991b1b; }
   .cpr-pay-summary-amt { font-weight: 600; opacity: 0.85; }
+  /* Collapsible payment-method section headers inside the per-clinician table */
+  .cpr-pay-section td {
+    padding: 9px 14px; cursor: pointer; user-select: none;
+    font-weight: 800; font-size: 12.5px;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .cpr-pay-section .cpr-pay-section-caret  { display: inline-block; width: 14px; margin-right: 4px; }
+  .cpr-pay-section .cpr-pay-section-icon   { margin-right: 4px; }
+  .cpr-pay-section .cpr-pay-section-label  { font-weight: 800; }
+  .cpr-pay-section .cpr-pay-section-count  { font-weight: 600; opacity: 0.85; margin-left: 8px; }
+  .cpr-pay-section.cpr-pay-section-check          td { background: #f1f5f9; color: #475569; }
+  .cpr-pay-section.cpr-pay-section-direct_deposit td { background: #dcfce7; color: #166534; }
+  .cpr-pay-section.cpr-pay-section-zelle          td { background: #ede9fe; color: #5b21b6; }
+  .cpr-pay-section.cpr-pay-section-w2             td { background: #dbeafe; color: #1e40af; }
+  .cpr-pay-section.cpr-pay-section-unmapped       td { background: #fee2e2; color: #991b1b; }
+  .cpr-pay-section:hover td { filter: brightness(0.97); }
   /* Parent rows that have flagged children also get a subtle left bar so you
      can find them at a glance from the collapsed list */
   .cpr-clin-table tbody tr.has-flag-warn  td.col-caret { box-shadow: inset 4px 0 0 0 #fbbf24; }
@@ -1872,7 +1888,7 @@ async function loadCprHistory() {
 // Visit exclusion + manual adjustments mutate this state, recompute
 // totals, then re-render. Save/Finalize pushes back to the DB.
 // ══════════════════════════════════════════════════════════════════
-let cprViewState = { run: null, dirty: false, expanded: new Set(), addFormOpen: new Set() };
+let cprViewState = { run: null, dirty: false, expanded: new Set(), addFormOpen: new Set(), expandedMethods: new Set() };
 
 // Payment-method classification (mirrors PAY_METHOD_OPTIONS in roster-review.html,
 // driven by clinician_profiles.payment_method from migration 20). Used to render
@@ -1957,7 +1973,10 @@ async function viewCprRun(runId) {
       // Search-filter for the per-clinician list. Substring + case-insensitive.
       // When the filter narrows to exactly one clinician we auto-expand it
       // so the user lands directly on their visits — effectively "isolate".
-      search: ""
+      search: "",
+      // Which payment-method sections are expanded in the per-clinician table.
+      // All collapsed by default — admin clicks a section header to open.
+      expandedMethods: new Set()
     };
     // Fetch the payment-method lookup once per audit-open. Failure is
     // non-fatal — the chip + summary just won't render for unmapped names.
@@ -2198,7 +2217,49 @@ function cprRenderDetail() {
     html += '<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No clinicians match "' + escHtml(cprViewState.search) + '"</td></tr>';
   }
 
+  // ── Bucket filteredPerClin by payment_method ──────────────────────────────
+  // Renders one collapsible section header per non-empty bucket. All sections
+  // closed by default (cprViewState.expandedMethods is empty); click a header
+  // to expand. When search is active, any bucket with matches auto-expands
+  // (without persisting into the manual set).
+  const sectionBuckets = {};
+  CPR_PAY_METHODS.forEach(function(m) { sectionBuckets[m.value] = []; });
+  sectionBuckets.unmapped = [];
   filteredPerClin.forEach(function(c) {
+    const k  = cprClinLookupKey(c.clinician);
+    const pm = cprPaymentMethodByName.has(k) ? cprPaymentMethodByName.get(k) : "unmapped";
+    (sectionBuckets[pm] || sectionBuckets.unmapped).push(c);
+  });
+  // Iteration order: CPR_PAY_METHODS first, then unmapped last.
+  const orderedBuckets = CPR_PAY_METHODS
+    .map(function(m) { return { method: m.value, meta: m, list: sectionBuckets[m.value] }; })
+    .concat([{ method: "unmapped",
+               meta: { value: "unmapped", icon: "❓", short: "Unmapped", long: "No roster match" },
+               list: sectionBuckets.unmapped }])
+    .filter(function(b) { return b.list.length > 0; });
+
+  orderedBuckets.forEach(function(bucket) {
+    const m       = bucket.method;
+    const meta    = bucket.meta;
+    // Auto-expand when search is active (so matches are visible without clicking).
+    const manualOpen = cprViewState.expandedMethods.has(m);
+    const open       = manualOpen || Boolean(searchTerm);
+    const caret      = open ? '▾' : '▸';
+    const sumPay     = bucket.list.reduce(function(s, c) { return s + (Number(c.pay_total) || 0); }, 0);
+    const countLbl   = bucket.list.length + (bucket.list.length === 1 ? ' clinician' : ' clinicians');
+
+    html += '<tr class="cpr-pay-section cpr-pay-section-' + m + (open ? ' is-open' : '') + '" data-method="' + m + '">' +
+      '<td colspan="5">' +
+        '<span class="cpr-pay-section-caret">' + caret + '</span>' +
+        '<span class="cpr-pay-section-icon">' + meta.icon + '</span> ' +
+        '<span class="cpr-pay-section-label">' + escHtml(meta.long || meta.short) + '</span>' +
+        '<span class="cpr-pay-section-count">· ' + countLbl + ' · ' + cprFmtMoney(sumPay) + '</span>' +
+      '</td>' +
+    '</tr>';
+
+    if (!open) return;   // collapsed: skip the child rows entirely
+
+    bucket.list.forEach(function(c) {
     // Use the index into the UNFILTERED list so click handlers index
     // into r.per_clinician_payload correctly even when filtered.
     const idx = perClin.indexOf(c);
@@ -2394,7 +2455,8 @@ function cprRenderDetail() {
       }
       html += '</td></tr>'; // /expand-row
     }
-  });
+  });    // /bucket.list.forEach
+  });    // /orderedBuckets.forEach
   html += '</tbody></table></div>';
 
   // ── Footer (Save / Finalize / Reopen) ────────────────────────────
@@ -2498,6 +2560,15 @@ function cprWireDetailEvents() {
     // Clear-search button
     if (t.dataset && t.dataset.action === "clear-clin-search") {
       cprViewState.search = "";
+      cprRenderDetail();
+      return;
+    }
+    // Pay-method section header click → toggle the bucket open/closed
+    const sectionRow = t.closest && t.closest(".cpr-pay-section");
+    if (sectionRow) {
+      const m = sectionRow.dataset.method;
+      if (cprViewState.expandedMethods.has(m)) cprViewState.expandedMethods.delete(m);
+      else cprViewState.expandedMethods.add(m);
       cprRenderDetail();
       return;
     }
