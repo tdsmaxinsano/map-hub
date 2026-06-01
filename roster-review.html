@@ -482,6 +482,15 @@
   .pay-method-select.pay-bill-select { min-width: 100px; margin-right: 4px; }
   .pay-method-select.pay-delv-select { min-width: 130px; }
   .pay-method-select:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  /* LLC fields (LLC Name + EIN) — small inline inputs */
+  .llc-name-input, .llc-ein-input {
+    padding: 4px 8px; font-size: 12px; font-family: inherit;
+    border: 1px solid var(--border); border-radius: 6px;
+    background: #fff;
+  }
+  .llc-name-input { min-width: 200px; }
+  .llc-ein-input  { min-width: 120px; font-family: ui-monospace, SFMono-Regular, monospace; }
+  .llc-name-input:focus, .llc-ein-input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 
   /* ── Bulk Visits Import modal (admin-only) ── */
   .modal-overlay {
@@ -615,6 +624,8 @@
           <th data-col="emr">EMR</th>
           <th data-col="dob">DOB <span style="opacity:0.5;">🎂</span></th>
           <th data-col="payMethod">Bill Type / Delivery</th>
+          <th data-col="llcName">LLC Name</th>
+          <th data-col="llcEin">EIN</th>
         </tr>
       </thead>
       <tbody id="roster-body">
@@ -731,7 +742,13 @@ const COLUMNS = [
   // OFF (column hidden until admin opts in via Columns ▾). Inline
   // dropdown writes to clinician_profiles.payment_method. Default value
   // for every clinician is 'check' (the existing QB-bill workflow).
-  { key: "payMethod",    label: "Bill Type / Delivery",   defaultOn: true }
+  { key: "payMethod",    label: "Bill Type / Delivery",   defaultOn: true },
+  // LLC — business entity the clinician operates through. The QB Bill
+  // is made out to the LLC name (not the person). Default-on so admin
+  // sees who needs an LLC set. EIN is opt-in (admin reference for 1099
+  // setup, not for day-to-day glance).
+  { key: "llcName",      label: "LLC Name",     defaultOn: true  },
+  { key: "llcEin",       label: "EIN",          defaultOn: false }
 ];
 
 // Pay-method dropdown options. Order matches the four allowed DB values.
@@ -1040,7 +1057,7 @@ async function loadRoster() {
       .order("name", { ascending: true })
       .limit(5000),
     db.from("clinician_profiles")
-      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, dob, payment_method, payment_delivery")
+      .select("clinician_id, status, pause_start_date, pause_end_date, pause_reason, do_not_rehire, restrictions, notes, last_reviewed_at, last_reviewed_by, start_date, internal_rating, phone, email, emr_capabilities, therapy_boss_unavailable, tags, emergency_contact_name, emergency_contact_phone, emergency_contact_relation, dob, payment_method, payment_delivery, llc_name, llc_ein")
       .limit(5000),
     db.from("home_health_agencies")
       .select("id, name")
@@ -1092,7 +1109,9 @@ async function loadRoster() {
       dob: p.dob || null,
       // Pay method (default 'check' per migration 20)
       payment_method:   p.payment_method   || "bill",
-      payment_delivery: p.payment_delivery || "paper_check"
+      payment_delivery: p.payment_delivery || "paper_check",
+      llc_name:         p.llc_name || "",
+      llc_ein:          p.llc_ein  || ""
     };
   });
 
@@ -1390,6 +1409,18 @@ function buildRow(r) {
       return `<td data-col="payMethod" class="pay-method-cell">
         <select class="pay-method-select pay-bill-select" data-cid="${cid}"${dis} title="Billing type">${billOpts}</select>
         <select class="pay-method-select pay-delv-select" data-cid="${cid}"${dis} title="Delivery">${delvOpts}</select>
+      </td>`;
+    })(),
+    llcName: (() => {
+      const dis = canEdit ? "" : " disabled";
+      return `<td data-col="llcName">
+        <input type="text" class="llc-name-input" data-cid="${cid}" value="${escAttr(r.llc_name || "")}" placeholder="(none — paid as individual)"${dis} />
+      </td>`;
+    })(),
+    llcEin: (() => {
+      const dis = canEdit ? "" : " disabled";
+      return `<td data-col="llcEin">
+        <input type="text" class="llc-ein-input" data-cid="${cid}" value="${escAttr(r.llc_ein || "")}" placeholder="XX-XXXXXXX"${dis} />
       </td>`;
     })()
   };
@@ -1725,6 +1756,28 @@ async function savePayDelivery(cid, value) {
   catch (e) { row.payment_delivery = prev; renderAll(); return; }
   const opt = PAY_DELIVERIES.find(o => o.value === value);
   showToast("Delivery → " + (opt ? opt.short : value));
+}
+
+async function saveLlcName(cid, value) {
+  const row = getRow(cid);
+  if (!row) return;
+  const prev = row.llc_name;
+  const v    = (value || "").trim();
+  row.llc_name = v;
+  try { await saveProfileField(cid, "llc_name", v || null); }
+  catch (e) { row.llc_name = prev; renderAll(); return; }
+  showToast(v ? ("LLC → " + v) : "LLC cleared");
+}
+
+async function saveLlcEin(cid, value) {
+  const row = getRow(cid);
+  if (!row) return;
+  const prev = row.llc_ein;
+  const v    = (value || "").trim();
+  row.llc_ein = v;
+  try { await saveProfileField(cid, "llc_ein", v || null); }
+  catch (e) { row.llc_ein = prev; renderAll(); return; }
+  showToast(v ? "EIN saved" : "EIN cleared");
 }
 
 async function saveNotes(cid, text) {
@@ -2460,6 +2513,10 @@ document.getElementById("roster-body").addEventListener("change", async e => {
     await savePayBillType(t.dataset.cid, t.value);
   } else if (t.classList.contains("pay-delv-select")) {
     await savePayDelivery(t.dataset.cid, t.value);
+  } else if (t.classList.contains("llc-name-input")) {
+    await saveLlcName(t.dataset.cid, t.value);
+  } else if (t.classList.contains("llc-ein-input")) {
+    await saveLlcEin(t.dataset.cid, t.value);
   } else if (t.classList.contains("reason-select")) {
     // Pause reason dropdown — when changed, save the value (unless "Other"
     // which reveals a text input the user types into).
