@@ -341,12 +341,12 @@
         <strong>AGENCY NAME · OTF · OTFA · PTF · PTFA · STE · STEO · Payment · Communication · CONT_Location · ACTIVE · Contract Start Date · Preferred Payment Method · Sent Via · Contact Collections · Notes / Comments</strong>.
         Agency names are matched against the portal's existing agencies list (case + punctuation insensitive).
       </p>
-      <label class="dropzone" id="import-dropzone">
+      <div class="dropzone" id="import-dropzone" tabindex="0" role="button">
         <div class="dropzone-icon">📊</div>
         <div class="dropzone-title">Drop XLSX here or click to browse</div>
         <div class="dropzone-hint">Accepted: .xlsx (SheetJS-parsed). One sheet, header row in row 1.</div>
-        <input type="file" id="import-file-input" accept=".xlsx,.xls" />
-      </label>
+      </div>
+      <input type="file" id="import-file-input" accept=".xlsx,.xls" style="display:none;" />
       <div id="import-preview" style="display:none;">
         <div class="preview-strip" id="preview-strip"></div>
         <div id="unmatched-wrap" style="display:none;">
@@ -817,8 +817,20 @@ function closeDrawer(id) { document.getElementById(id).classList.remove("open");
 
 const dropzone = document.getElementById("import-dropzone");
 const fileInput = document.getElementById("import-file-input");
+// Click + keyboard activation (no more <label> double-trigger — the
+// dropzone is now a plain <div> and only this handler opens the picker).
 dropzone.addEventListener("click", () => fileInput.click());
-fileInput.addEventListener("change", (e) => { if (e.target.files[0]) handleImportFile(e.target.files[0]); });
+dropzone.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fileInput.click(); }
+});
+fileInput.addEventListener("change", (e) => {
+  const f = e.target.files[0];
+  // Reset value AFTER capture so selecting the same file again
+  // re-fires `change`. Without this, a second drop of the same file
+  // is silently ignored by the browser.
+  e.target.value = "";
+  if (f) handleImportFile(f);
+});
 ["dragenter", "dragover"].forEach(evt =>
   dropzone.addEventListener(evt, (e) => { e.preventDefault(); dropzone.classList.add("is-dragover"); })
 );
