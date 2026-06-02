@@ -4393,16 +4393,20 @@ const ATTACH = (() => {
   }
 
   // ── Filename → candidate invoice numbers (case-insensitive). Tries
-  //    exact match first, then strips common TB prefixes (INV-, INVOICE-,
-  //    INV_, INVOICE_) and tries again.
+  //    exact match first, then strips common TB prefixes (BILL, INV-,
+  //    INVOICE-, INV_, INVOICE_) and tries again. TB's actual naming
+  //    convention is "Bill 6516.pdf" — note the space between Bill and
+  //    the number — so the separator class includes whitespace.
   function fileBaseName(name) {
     const stem = name.replace(/\.[^.]+$/, "");
     return stem;
   }
   function smartCandidates(stem) {
     const out = [stem];
-    const m1  = stem.match(/^(?:INV|INVOICE)[-_\s]*(.+)$/i);
-    if (m1) out.push(m1[1]);
+    // Strip common prefixes — BILL / INV / INVOICE — followed by any
+    // separator (-, _, or whitespace). TB uses "Bill 6516".
+    const m1  = stem.match(/^(?:BILL|INV|INVOICE)[-_\s]*(.+)$/i);
+    if (m1) out.push(m1[1].trim());
     // Strip any leading non-alphanumeric run too — handles oddballs like " 12345"
     const m2 = stem.replace(/^[^A-Za-z0-9]+/, "");
     if (m2 && m2 !== stem) out.push(m2);
