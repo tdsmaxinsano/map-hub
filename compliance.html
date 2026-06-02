@@ -616,6 +616,14 @@
     /* Clinician cell — read-only plain text, supports multi-clinician rows */
     .eval-clin-cell { font-size: 12px; line-height: 1.35; }
     .eval-clin-text { display: flex; flex-direction: column; gap: 2px; }
+    .eval-clin-asst {
+      font-size: 10.5px; font-weight: 600; color: #64748b;
+      background: #f1f5f9; border: 1px dashed #cbd5e1;
+      padding: 1px 6px; border-radius: 10px;
+      display: inline-block; margin-top: 2px;
+      cursor: help;
+    }
+    .eval-clin-asst:hover { background: #e2e8f0; color: #334155; }
     .eval-clin-name { color: #18274a; font-weight: 600; white-space: normal; word-break: break-word; }
     .eval-clin-empty { color: #aaa; font-style: italic; font-size: 11px; }
 
@@ -2634,14 +2642,45 @@ function renderEvaluationCompliance() {
 // horizontal clipping. Single-clinician rows just render one line.
 // Each name is title-cased via formatClinicianDisplayName so TB's mix of
 // ALL-CAPS / lower / Title cases ends up consistent on screen.
+// Evals are a supervisor's job (PT / OT / ST / SLP / etc.) — so by default
+// we only render the supervisor(s) in the cell and tuck assistants into
+// a hover tooltip via the `title` attribute. If a row has NO identifiable
+// supervisor (e.g. only an assistant assigned) we fall back to showing
+// every name so nothing disappears silently.
+var EVAL_ASSISTANT_CODES = ["PTA","OTA","STA","COTA","SLPA","LPN","CNA","HHA"];
+
+function evalIsAssistant(name) {
+  var t = String(name || "").trim();
+  if (!t) return false;
+  var lastTok = t.split(/\s+/).pop().toUpperCase().replace(/[.,]/g, "");
+  return EVAL_ASSISTANT_CODES.indexOf(lastTok) > -1;
+}
+
 function renderClinNames(raw) {
-  return String(raw || "")
+  var names = String(raw || "")
     .split(/\s*;\s*/)
-    .filter(function(n) { return n.length > 0; })
-    .map(function(n) {
-      return '<div class="eval-clin-name">' + escHtml(formatClinicianDisplayName(n)) + '</div>';
-    })
-    .join("");
+    .map(function(n) { return n.trim(); })
+    .filter(function(n) { return n.length > 0; });
+  if (!names.length) return "";
+
+  var supervisors = names.filter(function(n) { return !evalIsAssistant(n); });
+  var assistants  = names.filter(function(n) { return  evalIsAssistant(n); });
+
+  // Fallback when classification yields no supervisor — show all names so
+  // a row never goes blank just because TB only listed assistants.
+  var display = supervisors.length ? supervisors : names;
+
+  var html = display.map(function(n) {
+    return '<div class="eval-clin-name">' + escHtml(formatClinicianDisplayName(n)) + '</div>';
+  }).join("");
+
+  if (assistants.length && supervisors.length) {
+    var tip = "Assistant" + (assistants.length === 1 ? "" : "s") + ": " +
+              assistants.map(formatClinicianDisplayName).join(", ");
+    var label = "+" + assistants.length + " " + (assistants.length === 1 ? "assistant" : "assistants");
+    html += '<div class="eval-clin-asst" title="' + escAttr(tip) + '">👥 ' + escHtml(label) + '</div>';
+  }
+  return html;
 }
 
 function formatEvalDate(iso) {
