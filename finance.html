@@ -4348,20 +4348,21 @@ const IIF = (function() {
 // ══════════════════════════════════════════════════════════════════
 // ATTACH — Attachments Bundler (SaaSant-ready zip)
 // Drops IIF → extracts invoice #s. Drops PDFs → matches by filename.
-// Generates a zip with: Mapping.xlsx (Reference Number + File Name
-// columns, sheet named "Sheet1") + every matched PDF, ready to upload
-// via SaaSant → Attachments. SaaSant matches the Reference Number
+// Generates a zip with: Mapping.xlsx (Invoice No + File Name columns,
+// sheet named "Sheet1") + every matched PDF, ready to upload via
+// SaaSant → Attachments → Invoice. SaaSant matches the Invoice No
 // against the QB invoice the IIF already created.
 //
-// IMPORTANT: SaaSant's auto-mapper matches on the QB FIELD KEY, not
-// the display label. The mapping screen shows "Reference No/Name" as
-// the display label (because the same field maps to Invoice No / Bill
-// No / Customer Name depending on transaction type), but the matcher
-// expects the literal header string "Reference Number" — that's what
-// SaaSant's own support article documents. Using "Reference No/Name"
-// (their sample's header text) makes the mapping screen appear but
-// leaves the Reference field empty, forcing manual dropdown selection
-// on every upload. Sheet name MUST stay "Sheet1".
+// IMPORTANT: SaaSant's auto-mapper uses a PER-TRANSACTION-TYPE
+// dictionary. The mapping screen shows "Reference No/Name" as the
+// display label, but the matcher's auto-detect key for the Reference
+// column depends on which transaction type you picked in the upload
+// flow. For Invoice attachments, the key is the literal string
+// "Invoice No" (per SaaSant's Invoice-import docs). We previously
+// tried "Reference No/Name" (their sample template's header text)
+// and "Reference Number" (a generic candidate) — both failed to
+// auto-match because they're not what the Invoice dictionary expects.
+// Sheet name MUST stay "Sheet1".
 // Docs: https://support.saasant.com/support/solutions/articles/14000141689
 // ══════════════════════════════════════════════════════════════════
 const ATTACH = (() => {
@@ -4540,8 +4541,8 @@ const ATTACH = (() => {
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Sheet1");
       ws.columns = [
-        { header: "Reference Number", key: "ref",  width: 22 },
-        { header: "File Name",        key: "file", width: 40 }
+        { header: "Invoice No", key: "ref",  width: 22 },
+        { header: "File Name",  key: "file", width: 40 }
       ];
       matched.forEach(m => ws.addRow({ ref: m.invoiceNo, file: m.fileName }));
       // Header bold (cosmetic only — SaaSant matches on text not style).
