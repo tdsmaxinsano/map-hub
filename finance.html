@@ -4348,10 +4348,16 @@ const IIF = (function() {
 // ══════════════════════════════════════════════════════════════════
 // ATTACH — Attachments Bundler (SaaSant-ready zip)
 // Drops IIF → extracts invoice #s. Drops PDFs → matches by filename.
-// Generates a zip with: attachments.xlsx (Reference Number + File Name
-// columns) + every matched PDF, ready to upload via SaaSant → Upload
-// Attachment. SaaSant matches the Reference Number against the QB
-// invoice the IIF already created.
+// Generates a zip with: Mapping.xlsx (Reference No/Name + File Name
+// columns, sheet named "Sheet1") + every matched PDF, ready to upload
+// via SaaSant → Attachments. SaaSant matches the Reference No/Name
+// against the QB invoice the IIF already created.
+//
+// IMPORTANT: SaaSant's auto-mapper looks for the EXACT header strings
+// "Reference No/Name" and "File Name" (per their official Mapping.xlsx
+// sample), and reads from a sheet named "Sheet1". Earlier this card
+// generated headers "Reference Number" + sheet "Attachments" — neither
+// matched, so the mapping screen never appeared on upload.
 // Docs: https://support.saasant.com/support/solutions/articles/14000141689
 // ══════════════════════════════════════════════════════════════════
 const ATTACH = (() => {
@@ -4524,21 +4530,24 @@ const ATTACH = (() => {
     if (typeof ExcelJS === "undefined") { setStatus("ExcelJS didn't load — refresh and try again.", "error"); return; }
     setStatus(`Building zip with ${matched.length} attachment(s)…`);
     try {
-      // 1. Build the index xlsx (Reference Number + File Name)
+      // 1. Build the index xlsx — header strings + sheet name must EXACTLY
+      //    match SaaSant's Mapping.xlsx sample, or their auto-mapper won't
+      //    detect the columns and the mapping screen never appears.
       const wb = new ExcelJS.Workbook();
-      const ws = wb.addWorksheet("Attachments");
+      const ws = wb.addWorksheet("Sheet1");
       ws.columns = [
-        { header: "Reference Number", key: "ref",  width: 22 },
-        { header: "File Name",        key: "file", width: 40 }
+        { header: "Reference No/Name", key: "ref",  width: 22 },
+        { header: "File Name",         key: "file", width: 40 }
       ];
       matched.forEach(m => ws.addRow({ ref: m.invoiceNo, file: m.fileName }));
-      // Header bold
+      // Header bold (cosmetic only — SaaSant matches on text not style).
       ws.getRow(1).font = { bold: true };
       const xlsxBuf = await wb.xlsx.writeBuffer();
 
-      // 2. Build the zip
+      // 2. Build the zip. Filename "Mapping.xlsx" mirrors SaaSant's
+      //    template name so the upload looks familiar to admin.
       const zip = new JSZip();
-      zip.file("attachments.xlsx", xlsxBuf);
+      zip.file("Mapping.xlsx", xlsxBuf);
       matched.forEach(m => zip.file(m.fileName, m.file));
       const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
 
