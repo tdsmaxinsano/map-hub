@@ -246,7 +246,9 @@ BEGIN
   WITH src AS (
     SELECT
       x.agency_name,
-      x.agency_id,
+      x.agency_id                AS supplied_agency_id,    -- renamed to avoid
+                                                            --   downstream ambiguity
+                                                            --   with the resolved id
       x.rate_ot_eval, x.rate_ot_assistant,
       x.rate_pt_eval, x.rate_pt_assistant,
       x.rate_st_eval, x.rate_st_other,
@@ -277,12 +279,19 @@ BEGIN
   resolved AS (
     SELECT
       COALESCE(
-        s.agency_id,                              -- 1. manual override wins
+        s.supplied_agency_id,                      -- 1. manual override wins
         (SELECT a.id FROM home_health_agencies a
           WHERE normalize_agency_name(a.name) = normalize_agency_name(s.agency_name)
-          LIMIT 1)                                -- 2. normalized match
-      ) AS agency_id,
-      s.*
+          LIMIT 1)                                 -- 2. normalized match
+      )                                AS agency_id,
+      s.agency_name,
+      s.rate_ot_eval,                  s.rate_ot_assistant,
+      s.rate_pt_eval,                  s.rate_pt_assistant,
+      s.rate_st_eval,                  s.rate_st_other,
+      s.rating_payment,                s.rating_communication,
+      s.contract_location,             s.is_active,           s.contract_start_year,
+      s.preferred_payment_method,      s.sent_via,            s.collections_contact,
+      s.notes
     FROM src s
   ),
   to_upsert AS (
