@@ -4348,16 +4348,20 @@ const IIF = (function() {
 // ══════════════════════════════════════════════════════════════════
 // ATTACH — Attachments Bundler (SaaSant-ready zip)
 // Drops IIF → extracts invoice #s. Drops PDFs → matches by filename.
-// Generates a zip with: Mapping.xlsx (Reference No/Name + File Name
+// Generates a zip with: Mapping.xlsx (Reference Number + File Name
 // columns, sheet named "Sheet1") + every matched PDF, ready to upload
-// via SaaSant → Attachments. SaaSant matches the Reference No/Name
+// via SaaSant → Attachments. SaaSant matches the Reference Number
 // against the QB invoice the IIF already created.
 //
-// IMPORTANT: SaaSant's auto-mapper looks for the EXACT header strings
-// "Reference No/Name" and "File Name" (per their official Mapping.xlsx
-// sample), and reads from a sheet named "Sheet1". Earlier this card
-// generated headers "Reference Number" + sheet "Attachments" — neither
-// matched, so the mapping screen never appeared on upload.
+// IMPORTANT: SaaSant's auto-mapper matches on the QB FIELD KEY, not
+// the display label. The mapping screen shows "Reference No/Name" as
+// the display label (because the same field maps to Invoice No / Bill
+// No / Customer Name depending on transaction type), but the matcher
+// expects the literal header string "Reference Number" — that's what
+// SaaSant's own support article documents. Using "Reference No/Name"
+// (their sample's header text) makes the mapping screen appear but
+// leaves the Reference field empty, forcing manual dropdown selection
+// on every upload. Sheet name MUST stay "Sheet1".
 // Docs: https://support.saasant.com/support/solutions/articles/14000141689
 // ══════════════════════════════════════════════════════════════════
 const ATTACH = (() => {
@@ -4536,8 +4540,8 @@ const ATTACH = (() => {
       const wb = new ExcelJS.Workbook();
       const ws = wb.addWorksheet("Sheet1");
       ws.columns = [
-        { header: "Reference No/Name", key: "ref",  width: 22 },
-        { header: "File Name",         key: "file", width: 40 }
+        { header: "Reference Number", key: "ref",  width: 22 },
+        { header: "File Name",        key: "file", width: 40 }
       ];
       matched.forEach(m => ws.addRow({ ref: m.invoiceNo, file: m.fileName }));
       // Header bold (cosmetic only — SaaSant matches on text not style).
