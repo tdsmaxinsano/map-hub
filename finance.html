@@ -9,6 +9,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <!-- ExcelJS — write multi-sheet XLSX output with bar charts -->
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <!-- Chart.js — inline preview + trend charts -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
@@ -635,6 +636,7 @@
   .stat-pill .lbl { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
   .stat-pill .val { font-size: 20px; font-weight: 800; color: var(--blue); margin-top: 2px; }
   .stat-pill.flag .val { color: #b91c1c; }
+  .stat-pill.ok .val   { color: #15803d; }
 
   .charts-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 18px; }
   .chart-wrap { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
@@ -1038,6 +1040,50 @@
         <p style="font-size:11.5px;color:var(--muted);margin:4px 0 8px;">First 20 cleaned rows:</p>
         <div class="discrep-table-wrap" style="max-height:300px;">
           <table class="discrep" id="iif-preview-table"></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ⑤ Attachments Bundler (SaaSant-ready zip for QB invoice attachments) -->
+    <div class="card">
+      <h3>⑤ Attachments Bundler (SaaSant zip)</h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;">
+        Bundles TB invoice <code>.pdf</code> prints with the SaaSant-required
+        Excel index so accounting can attach the source invoice to each
+        QuickBooks invoice after import. Drop the
+        <strong>cleaned IIF</strong> (from ④) to extract the invoice numbers,
+        then drop the matching <strong>PDFs</strong> — portal pairs by
+        filename and downloads a <code>.zip</code> ready to upload via
+        SaaSant → Upload Attachment.
+      </p>
+
+      <div style="display:flex;gap:14px;flex-wrap:wrap;">
+        <label class="dropzone" id="attach-iif-dropzone" for="attach-iif-input" style="flex:1;min-width:260px;">
+          <input type="file" id="attach-iif-input" accept=".iif,.IIF,.txt" />
+          <div class="dz-icon">🧾</div>
+          <div class="dz-title" id="attach-iif-title">Drop the .iif (raw or cleaned)</div>
+          <div class="dz-sub" id="attach-iif-sub">Invoice numbers come from the IIF</div>
+        </label>
+        <label class="dropzone" id="attach-pdf-dropzone" for="attach-pdf-input" style="flex:1;min-width:260px;">
+          <input type="file" id="attach-pdf-input" accept=".pdf,.png,.jpg,.jpeg" multiple />
+          <div class="dz-icon">📎</div>
+          <div class="dz-title" id="attach-pdf-title">Drop the invoice PDFs</div>
+          <div class="dz-sub" id="attach-pdf-sub">Multi-select / drag a whole folder of PDFs</div>
+        </label>
+      </div>
+
+      <div id="attach-status" style="margin-top:12px;font-size:13px;color:var(--muted);min-height:18px;"></div>
+
+      <div class="actions" id="attach-actions" style="display:none;">
+        <button id="attach-download-btn">🗂 Download SaaSant zip</button>
+        <button id="attach-reset-btn" class="btn-secondary">Reset</button>
+      </div>
+
+      <div id="attach-preview-card" style="display:none;margin-top:14px;">
+        <div class="stat-strip" id="attach-stats"></div>
+        <p style="font-size:11.5px;color:var(--muted);margin:4px 0 8px;">Match preview (first 20 rows):</p>
+        <div class="discrep-table-wrap" style="max-height:320px;">
+          <table class="discrep" id="attach-preview-table"></table>
         </div>
       </div>
     </div>
@@ -4299,10 +4345,265 @@ const IIF = (function() {
   return { init };
 })();
 
-// Initialize VDR + IIF modules after launchApp confirms admin role + when billing view opens
+// ══════════════════════════════════════════════════════════════════
+// ATTACH — Attachments Bundler (SaaSant-ready zip)
+// Drops IIF → extracts invoice #s. Drops PDFs → matches by filename.
+// Generates a zip with: attachments.xlsx (Reference Number + File Name
+// columns) + every matched PDF, ready to upload via SaaSant → Upload
+// Attachment. SaaSant matches the Reference Number against the QB
+// invoice the IIF already created.
+// Docs: https://support.saasant.com/support/solutions/articles/14000141689
+// ══════════════════════════════════════════════════════════════════
+const ATTACH = (() => {
+  let invoiceNumbers = [];    // string[]  — unique invoice #s from the IIF
+  let pdfFiles       = [];    // {name: string, file: File}[]
+  let matched        = [];    // {invoiceNo, fileName, file}[]
+  let unmatchedInv   = [];    // invoice #s with no PDF
+  let unmatchedPdf   = [];    // PDF filenames with no invoice match
+  let iifFilename    = "";
+  let initialized    = false;
+
+  function escHtml(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function setStatus(msg, kind) {
+    const el = document.getElementById("attach-status");
+    if (!el) return;
+    el.textContent = msg;
+    el.style.color = kind === "error" ? "#b91c1c" : kind === "ok" ? "#15803d" : "var(--muted)";
+  }
+
+  // ── Parse the IIF (raw or cleaned) and pull every invoice # from
+  //    DOCNUM (raw IIF) or "Invoice No" (cleaned IIF).
+  async function parseIifForInvoiceNumbers(file) {
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
+    if (!lines.length) throw new Error("IIF file appears empty.");
+    const header = lines[0].split("\t").map(c => c.trim());
+    let invIdx = header.indexOf("DOCNUM");
+    if (invIdx === -1) invIdx = header.indexOf("Invoice No");
+    if (invIdx === -1) throw new Error("Couldn't find DOCNUM or 'Invoice No' column in this IIF.");
+    const seen = new Set();
+    for (let i = 1; i < lines.length; i++) {
+      const cells = lines[i].split("\t");
+      const v = (cells[invIdx] || "").trim();
+      if (v && !seen.has(v)) seen.add(v);
+    }
+    return Array.from(seen);
+  }
+
+  // ── Filename → candidate invoice numbers (case-insensitive). Tries
+  //    exact match first, then strips common TB prefixes (INV-, INVOICE-,
+  //    INV_, INVOICE_) and tries again.
+  function fileBaseName(name) {
+    const stem = name.replace(/\.[^.]+$/, "");
+    return stem;
+  }
+  function smartCandidates(stem) {
+    const out = [stem];
+    const m1  = stem.match(/^(?:INV|INVOICE)[-_\s]*(.+)$/i);
+    if (m1) out.push(m1[1]);
+    // Strip any leading non-alphanumeric run too — handles oddballs like " 12345"
+    const m2 = stem.replace(/^[^A-Za-z0-9]+/, "");
+    if (m2 && m2 !== stem) out.push(m2);
+    return out;
+  }
+  function recompute() {
+    matched = [];
+    unmatchedInv = [];
+    unmatchedPdf = [];
+    if (!invoiceNumbers.length || !pdfFiles.length) {
+      updateUI();
+      return;
+    }
+    const invLower = new Map(invoiceNumbers.map(n => [n.toLowerCase(), n]));
+    const usedPdf  = new Set();
+    const usedInv  = new Set();
+    // Greedy match per PDF
+    pdfFiles.forEach(p => {
+      const stem = fileBaseName(p.name);
+      const candidates = smartCandidates(stem);
+      let hit = null;
+      for (const c of candidates) {
+        const k = c.toLowerCase();
+        if (invLower.has(k) && !usedInv.has(invLower.get(k))) {
+          hit = invLower.get(k);
+          break;
+        }
+      }
+      if (hit) {
+        matched.push({ invoiceNo: hit, fileName: p.name, file: p.file });
+        usedInv.add(hit);
+        usedPdf.add(p.name);
+      } else {
+        unmatchedPdf.push(p.name);
+      }
+    });
+    unmatchedInv = invoiceNumbers.filter(n => !usedInv.has(n));
+    updateUI();
+  }
+
+  function updateUI() {
+    const actions = document.getElementById("attach-actions");
+    const preview = document.getElementById("attach-preview-card");
+    const stats   = document.getElementById("attach-stats");
+    const tbl     = document.getElementById("attach-preview-table");
+    if (!actions || !preview || !stats || !tbl) return;
+
+    const hasInputs = invoiceNumbers.length > 0 || pdfFiles.length > 0;
+    actions.style.display = matched.length > 0 ? "flex" : "none";
+    preview.style.display = hasInputs ? "block" : "none";
+    if (!hasInputs) return;
+
+    // Stat strip — invoices · PDFs · matched · unmatched (match the existing
+    // .stat-pill / .lbl / .val structure VDR + IIF use).
+    stats.innerHTML =
+      `<div class="stat-pill"><div class="lbl">Invoices in IIF</div><div class="val">${invoiceNumbers.length}</div></div>` +
+      `<div class="stat-pill"><div class="lbl">PDFs dropped</div><div class="val">${pdfFiles.length}</div></div>` +
+      `<div class="stat-pill ${matched.length ? 'ok' : ''}"><div class="lbl">Matched</div><div class="val">${matched.length}</div></div>` +
+      (unmatchedInv.length ? `<div class="stat-pill flag"><div class="lbl">No PDF for invoice</div><div class="val">${unmatchedInv.length}</div></div>` : "") +
+      (unmatchedPdf.length ? `<div class="stat-pill flag"><div class="lbl">PDF unmatched</div><div class="val">${unmatchedPdf.length}</div></div>` : "");
+
+    // Preview table
+    const rowsHtml = matched.slice(0, 20).map(m =>
+      `<tr><td>${escHtml(m.invoiceNo)}</td><td>${escHtml(m.fileName)}</td><td>✓</td></tr>`
+    ).join("");
+    const more = matched.length > 20
+      ? `<tr><td colspan="3" style="text-align:center;padding:10px;color:var(--muted);">… ${matched.length - 20} more matches in the zip.</td></tr>`
+      : "";
+    const unmatchedInvHtml = unmatchedInv.slice(0, 10).map(n =>
+      `<tr style="background:#fff8e1"><td>${escHtml(n)}</td><td colspan="2" style="color:#92400e;font-style:italic;">no PDF found</td></tr>`
+    ).join("");
+    const unmatchedPdfHtml = unmatchedPdf.slice(0, 10).map(f =>
+      `<tr style="background:#fef2f2"><td colspan="2">${escHtml(f)}</td><td style="color:#991b1b;font-style:italic;">unmatched PDF</td></tr>`
+    ).join("");
+    tbl.innerHTML =
+      `<thead><tr><th>Invoice #</th><th>File Name</th><th>Status</th></tr></thead>` +
+      `<tbody>${rowsHtml}${more}${unmatchedInvHtml}${unmatchedPdfHtml}</tbody>`;
+  }
+
+  async function handleIifFile(file) {
+    if (!file) return;
+    document.getElementById("attach-iif-title").textContent = "🧾 " + file.name;
+    document.getElementById("attach-iif-sub").textContent = "Parsing…";
+    setStatus("Parsing IIF…");
+    try {
+      iifFilename = file.name;
+      invoiceNumbers = await parseIifForInvoiceNumbers(file);
+      document.getElementById("attach-iif-sub").textContent = `${invoiceNumbers.length} invoice numbers extracted`;
+      setStatus(`✓ ${invoiceNumbers.length} invoice numbers extracted from IIF`, "ok");
+      recompute();
+    } catch (e) {
+      console.error("[ATTACH] IIF parse failed:", e);
+      setStatus("✗ " + (e.message || e), "error");
+      document.getElementById("attach-iif-sub").textContent = "Failed";
+    }
+  }
+
+  function handlePdfFiles(fileList) {
+    const arr = Array.from(fileList || []);
+    if (!arr.length) return;
+    arr.forEach(f => {
+      if (!pdfFiles.find(p => p.name === f.name)) {
+        pdfFiles.push({ name: f.name, file: f });
+      }
+    });
+    document.getElementById("attach-pdf-title").textContent = "📎 " + pdfFiles.length + " file(s) staged";
+    document.getElementById("attach-pdf-sub").textContent = "Add more or click Reset to clear";
+    setStatus(`✓ ${pdfFiles.length} PDFs ready to bundle`, "ok");
+    recompute();
+  }
+
+  async function buildSaasantZip() {
+    if (!matched.length) { setStatus("Nothing to bundle yet.", "error"); return; }
+    if (typeof JSZip === "undefined")   { setStatus("JSZip didn't load — refresh and try again.", "error"); return; }
+    if (typeof ExcelJS === "undefined") { setStatus("ExcelJS didn't load — refresh and try again.", "error"); return; }
+    setStatus(`Building zip with ${matched.length} attachment(s)…`);
+    try {
+      // 1. Build the index xlsx (Reference Number + File Name)
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet("Attachments");
+      ws.columns = [
+        { header: "Reference Number", key: "ref",  width: 22 },
+        { header: "File Name",        key: "file", width: 40 }
+      ];
+      matched.forEach(m => ws.addRow({ ref: m.invoiceNo, file: m.fileName }));
+      // Header bold
+      ws.getRow(1).font = { bold: true };
+      const xlsxBuf = await wb.xlsx.writeBuffer();
+
+      // 2. Build the zip
+      const zip = new JSZip();
+      zip.file("attachments.xlsx", xlsxBuf);
+      matched.forEach(m => zip.file(m.fileName, m.file));
+      const zipBlob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+
+      // 3. Download
+      const base = iifFilename ? iifFilename.replace(/\.[^.]+$/, "") : "Invoice_Attachments";
+      const filename = `${base}_SaaSant_Attachments.zip`;
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement("a");
+      a.href = url; a.download = filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      setStatus(`✓ Downloaded ${filename} — upload to SaaSant → Upload Attachment`, "ok");
+    } catch (e) {
+      console.error("[ATTACH] zip build failed:", e);
+      setStatus("✗ Zip build failed: " + (e.message || e), "error");
+    }
+  }
+
+  function resetUI() {
+    invoiceNumbers = []; pdfFiles = []; matched = [];
+    unmatchedInv = []; unmatchedPdf = []; iifFilename = "";
+    document.getElementById("attach-actions").style.display = "none";
+    document.getElementById("attach-preview-card").style.display = "none";
+    document.getElementById("attach-iif-title").textContent = "Drop the .iif (raw or cleaned)";
+    document.getElementById("attach-iif-sub").textContent   = "Invoice numbers come from the IIF";
+    document.getElementById("attach-pdf-title").textContent = "Drop the invoice PDFs";
+    document.getElementById("attach-pdf-sub").textContent   = "Multi-select / drag a whole folder of PDFs";
+    document.getElementById("attach-iif-input").value = "";
+    document.getElementById("attach-pdf-input").value = "";
+    setStatus("");
+  }
+
+  function init() {
+    if (initialized) return;
+    initialized = true;
+    const iifDz = document.getElementById("attach-iif-dropzone");
+    const iifFi = document.getElementById("attach-iif-input");
+    const pdfDz = document.getElementById("attach-pdf-dropzone");
+    const pdfFi = document.getElementById("attach-pdf-input");
+    if (!iifDz || !iifFi || !pdfDz || !pdfFi) return;
+
+    iifFi.addEventListener("change", () => { if (iifFi.files && iifFi.files[0]) handleIifFile(iifFi.files[0]); });
+    iifDz.addEventListener("dragover",  (e) => { e.preventDefault(); iifDz.classList.add("dragover"); });
+    iifDz.addEventListener("dragleave", () => iifDz.classList.remove("dragover"));
+    iifDz.addEventListener("drop", (e) => {
+      e.preventDefault(); iifDz.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files[0]) handleIifFile(e.dataTransfer.files[0]);
+    });
+
+    pdfFi.addEventListener("change", () => { if (pdfFi.files && pdfFi.files.length) handlePdfFiles(pdfFi.files); });
+    pdfDz.addEventListener("dragover",  (e) => { e.preventDefault(); pdfDz.classList.add("dragover"); });
+    pdfDz.addEventListener("dragleave", () => pdfDz.classList.remove("dragover"));
+    pdfDz.addEventListener("drop", (e) => {
+      e.preventDefault(); pdfDz.classList.remove("dragover");
+      if (e.dataTransfer.files && e.dataTransfer.files.length) handlePdfFiles(e.dataTransfer.files);
+    });
+
+    document.getElementById("attach-download-btn").addEventListener("click", buildSaasantZip);
+    document.getElementById("attach-reset-btn").addEventListener("click", resetUI);
+  }
+
+  return { init };
+})();
+
+// Initialize VDR + IIF + ATTACH modules after launchApp confirms admin role + when billing view opens
 function maybeInitVdr() {
   if (currentRole === "admin") VDR.init();
   if (currentRole === "admin") IIF.init();
+  if (currentRole === "admin") ATTACH.init();
 }
 // Re-init / refresh when switching to billing view
 const _originalSwitchView = switchView;
@@ -4318,7 +4619,7 @@ launchApp = async function(user) {
   if (currentRole === "admin") {
     // If URL deep-links to billing, init immediately
     const params = new URLSearchParams(location.search);
-    if ((params.get("view") || "landing") === "billing") { VDR.init(); IIF.init(); }
+    if ((params.get("view") || "landing") === "billing") { VDR.init(); IIF.init(); ATTACH.init(); }
   }
 };
 
