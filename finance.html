@@ -802,6 +802,8 @@
   table.bank-table tr.bank-row-skip td .bank-cell-num { color: var(--muted); }
   .bank-col-incl { width: 40px; text-align: center; }
   .bank-col-amt  { width: 90px; text-align: right; }
+  .bank-col-pmt  { width: 110px; }
+  .bank-col-ref  { width: 130px; }
   .bank-col-tag  { width: 80px; }
   table.bank-table td.bank-col-amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
   table.bank-table td.bank-col-incl { text-align: center; }
@@ -1203,7 +1205,7 @@
 
       <!-- Settings -->
       <details class="bank-settings" id="bank-settings">
-        <summary>⚙ Settings (bank account · default GL · default customer)</summary>
+        <summary>⚙ Settings (bank · GL · customer · payment method)</summary>
         <div class="bank-settings-grid">
           <label>
             <span class="bank-settings-lbl">Bank account (QB)</span>
@@ -1212,21 +1214,32 @@
           </label>
           <label>
             <span class="bank-settings-lbl">Default GL (From Account)</span>
-            <input type="text" id="bank-set-gl" placeholder="BCBS Illinois" list="bank-gl-suggestions" />
+            <input type="text" id="bank-set-gl" placeholder="Service Income" list="bank-gl-suggestions" />
             <datalist id="bank-gl-suggestions">
-              <option value="BCBS Illinois"></option>
-              <option value="Medicare Part B"></option>
               <option value="Service Income"></option>
+              <option value="Medicare Part B"></option>
               <option value="Nonmedical Income"></option>
               <option value="Accounts Receivable"></option>
               <option value="Uncategorized Income"></option>
             </datalist>
-            <span class="bank-settings-hint">Defaults applied to new rows; edit per row to override.</span>
+            <span class="bank-settings-hint">Accounting currently routes BCBS crossover to <code>Service Income</code>; per-row override available below.</span>
           </label>
           <label>
             <span class="bank-settings-lbl">Default Customer (Received From)</span>
-            <input type="text" id="bank-set-cust" placeholder="BCBS Illinois" />
+            <input type="text" id="bank-set-cust" placeholder="BCBS of Illinois" />
             <span class="bank-settings-hint">QB Customer name. Must exist in QB or SaaSant will skip the row.</span>
+          </label>
+          <label>
+            <span class="bank-settings-lbl">Default Payment Method</span>
+            <input type="text" id="bank-set-pmt" placeholder="ACH" list="bank-pmt-suggestions" />
+            <datalist id="bank-pmt-suggestions">
+              <option value="ACH"></option>
+              <option value="Check"></option>
+              <option value="Wire"></option>
+              <option value="Credit Card"></option>
+              <option value="Zelle"></option>
+            </datalist>
+            <span class="bank-settings-hint">QB Bank Deposit form field. Defaults to ACH for bank-feed deposits.</span>
           </label>
         </div>
         <div class="bank-settings-tools">
@@ -1263,7 +1276,9 @@
                 <th class="bank-col-amt">Amount</th>
                 <th>Customer (Received From)</th>
                 <th>GL (From Account)</th>
-                <th>Memo / Description</th>
+                <th class="bank-col-pmt">Pmt Method</th>
+                <th class="bank-col-ref">Ref No.</th>
+                <th>Description</th>
                 <th class="bank-col-tag">Pattern</th>
               </tr>
             </thead>
@@ -4840,21 +4855,27 @@ const BANK = (() => {
   let initialized = false;
 
   // ── Defaults (persisted in localStorage) ─────────────────────────
+  // Defaults track accounting's actual practice as observed in the
+  // QB Bank Deposit form: Customer="BCBS of Illinois" (with "of"),
+  // GL="Service Income" (the generic existing GL — no carrier-specific
+  // GL is in use), Payment Method="ACH".
   function loadSettings() {
     let cfg;
     try { cfg = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }
     catch (e) { cfg = {}; }
     return {
       bank: cfg.bank || "Chase Bank #5133",
-      gl:   cfg.gl   || "BCBS Illinois",
-      cust: cfg.cust || "BCBS Illinois"
+      gl:   cfg.gl   || "Service Income",
+      cust: cfg.cust || "BCBS of Illinois",
+      pmt:  cfg.pmt  || "ACH"
     };
   }
   function saveSettings() {
     const cfg = {
       bank: document.getElementById("bank-set-bank").value.trim(),
       gl:   document.getElementById("bank-set-gl").value.trim(),
-      cust: document.getElementById("bank-set-cust").value.trim()
+      cust: document.getElementById("bank-set-cust").value.trim(),
+      pmt:  document.getElementById("bank-set-pmt").value.trim()
     };
     localStorage.setItem(LS_KEY, JSON.stringify(cfg));
     return cfg;
@@ -4862,8 +4883,9 @@ const BANK = (() => {
   function currentSettings() {
     return {
       bank: document.getElementById("bank-set-bank").value.trim() || "Chase Bank #5133",
-      gl:   document.getElementById("bank-set-gl").value.trim()   || "BCBS Illinois",
-      cust: document.getElementById("bank-set-cust").value.trim() || "BCBS Illinois"
+      gl:   document.getElementById("bank-set-gl").value.trim()   || "Service Income",
+      cust: document.getElementById("bank-set-cust").value.trim() || "BCBS of Illinois",
+      pmt:  document.getElementById("bank-set-pmt").value.trim()  || "ACH"
     };
   }
 
@@ -4885,11 +4907,15 @@ const BANK = (() => {
     return "other";
   }
 
-  function buildMemo(parsed) {
-    const parts = [];
-    if (parsed.trace) parts.push("TRN#" + parsed.trace);
-    if (parsed.indId) parts.push("IND " + parsed.indId);
-    return parts.join(" / ");
+  // QB Bank Deposit form splits the audit data across two fields:
+  //   Ref No.     = short, identifier-style → use the TRN# (8-digit trace)
+  //   Description = longer free-text → use the IND ID (claim/patient ref)
+  // This mirrors how accounting fills in the form by hand.
+  function buildRefNo(parsed) {
+    return parsed.trace ? "TRN#" + parsed.trace : (parsed.payableTrn ? "PT#" + parsed.payableTrn : "");
+  }
+  function buildDescription(parsed) {
+    return parsed.indId ? "IND " + parsed.indId : "";
   }
 
   // ── Currency parser (handles "$1,234.56" / "1234.56" / "(123.45)" /
@@ -4993,9 +5019,11 @@ const BANK = (() => {
       desc,
       parsed,
       pattern,
-      customer: defaults.cust,
-      gl: defaults.gl,
-      memo: buildMemo(parsed),
+      customer:    defaults.cust,
+      gl:          defaults.gl,
+      pmt:         defaults.pmt,
+      refNo:       buildRefNo(parsed),
+      description: buildDescription(parsed),
       include: pattern === "bcbs" || pattern === "medicare"   // safe-default
     };
   }
@@ -5005,7 +5033,8 @@ const BANK = (() => {
     if (!filterText) return rows;
     const t = filterText.toLowerCase();
     return rows.filter(r =>
-      (r.memo || "").toLowerCase().includes(t)
+      (r.description || "").toLowerCase().includes(t)
+      || (r.refNo || "").toLowerCase().includes(t)
       || String(r.amount).includes(t)
       || (r.date || "").includes(t)
       || (r.desc || "").toLowerCase().includes(t)
@@ -5034,9 +5063,11 @@ const BANK = (() => {
         </td>
         <td class="bank-cell-num">${escAttr(r.date)}</td>
         <td class="bank-col-amt">$${r.amount.toFixed(2)}</td>
-        <td><input class="bank-cell-input" data-action="cust" value="${escAttr(r.customer)}" /></td>
-        <td><input class="bank-cell-input" data-action="gl"   value="${escAttr(r.gl)}" /></td>
-        <td><input class="bank-cell-input" data-action="memo" value="${escAttr(r.memo)}" /></td>
+        <td><input class="bank-cell-input" data-action="cust"        value="${escAttr(r.customer)}" /></td>
+        <td><input class="bank-cell-input" data-action="gl"          value="${escAttr(r.gl)}" /></td>
+        <td class="bank-col-pmt"><input class="bank-cell-input" data-action="pmt" value="${escAttr(r.pmt)}" /></td>
+        <td class="bank-col-ref"><input class="bank-cell-input" data-action="refNo" value="${escAttr(r.refNo)}" /></td>
+        <td><input class="bank-cell-input" data-action="description" value="${escAttr(r.description)}" /></td>
         <td class="bank-col-tag"><span class="bank-pattern-pill p-${r.pattern}">${patLabel}</span></td>
       </tr>
     `;
@@ -5079,15 +5110,19 @@ const BANK = (() => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Sheet1");
     // Column headers — exact strings SaaSant's Bank Deposit auto-mapper
-    // looks for. If SaaSant balks on a future upload, adjust here; the
-    // mapping is saved by SaaSant after the first manual confirmation,
-    // so subsequent uploads should auto-map.
+    // looks for. Mirrors the QB Bank Deposit form columns exactly:
+    //   Date · Deposit To · Received From · From Account · Description
+    //   · Payment Method · Ref No · Amount
+    // The mapping is saved by SaaSant after the first manual
+    // confirmation so subsequent uploads auto-map.
     ws.columns = [
       { header: "Deposit Date",       key: "date", width: 14 },
       { header: "Deposit To Account", key: "bank", width: 22 },
       { header: "Received From",      key: "cust", width: 22 },
       { header: "From Account",       key: "gl",   width: 22 },
-      { header: "Description",        key: "memo", width: 40 },
+      { header: "Description",        key: "desc", width: 30 },
+      { header: "Payment Method",     key: "pmt",  width: 14 },
+      { header: "Ref No",             key: "ref",  width: 16 },
       { header: "Amount",             key: "amt",  width: 12 }
     ];
     incl.forEach(r => ws.addRow({
@@ -5095,7 +5130,9 @@ const BANK = (() => {
       bank: cfg.bank,
       cust: r.customer,
       gl:   r.gl,
-      memo: r.memo,
+      desc: r.description,
+      pmt:  r.pmt,
+      ref:  r.refNo,
       amt:  Number(r.amount.toFixed(2))
     }));
     ws.getRow(1).font = { bold: true };
@@ -5132,15 +5169,16 @@ const BANK = (() => {
     document.getElementById("bank-set-bank").value = cfg.bank;
     document.getElementById("bank-set-gl").value   = cfg.gl;
     document.getElementById("bank-set-cust").value = cfg.cust;
+    document.getElementById("bank-set-pmt").value  = cfg.pmt;
 
     // Settings persist on blur
-    ["bank-set-bank","bank-set-gl","bank-set-cust"].forEach(id => {
+    ["bank-set-bank","bank-set-gl","bank-set-cust","bank-set-pmt"].forEach(id => {
       document.getElementById(id).addEventListener("blur", saveSettings);
     });
     document.getElementById("bank-apply-defaults").addEventListener("click", () => {
       const c = currentSettings();
       saveSettings();
-      rows.forEach(r => { r.customer = c.cust; r.gl = c.gl; });
+      rows.forEach(r => { r.customer = c.cust; r.gl = c.gl; r.pmt = c.pmt; });
       render();
       showToast(`Applied defaults to ${rows.length} rows.`);
     });
@@ -5150,6 +5188,7 @@ const BANK = (() => {
       document.getElementById("bank-set-bank").value = c.bank;
       document.getElementById("bank-set-gl").value   = c.gl;
       document.getElementById("bank-set-cust").value = c.cust;
+      document.getElementById("bank-set-pmt").value  = c.pmt;
       showToast("Settings reset to defaults.");
     });
 
@@ -5191,10 +5230,16 @@ const BANK = (() => {
       const tr = e.target.closest("tr[data-id]"); if (!tr) return;
       const row = rows.find(r => r.id === tr.dataset.id); if (!row) return;
       const action = e.target.dataset.action;
-      if (action === "incl") { row.include = e.target.checked; tr.classList.toggle("bank-row-skip", !row.include); renderStats(); document.getElementById("bank-download-btn").disabled = !rows.some(r => r.include); }
-      else if (action === "cust") row.customer = e.target.value;
-      else if (action === "gl")   row.gl       = e.target.value;
-      else if (action === "memo") row.memo     = e.target.value;
+      if (action === "incl") {
+        row.include = e.target.checked;
+        tr.classList.toggle("bank-row-skip", !row.include);
+        renderStats();
+        document.getElementById("bank-download-btn").disabled = !rows.some(r => r.include);
+        return;
+      }
+      const fieldMap = { cust: "customer", gl: "gl", pmt: "pmt", refNo: "refNo", description: "description" };
+      const f = fieldMap[action];
+      if (f) row[f] = e.target.value;
     });
 
     // Filter
