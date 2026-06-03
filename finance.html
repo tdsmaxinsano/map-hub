@@ -5600,10 +5600,22 @@ const BANK = (() => {
   ];
 
   function smartDefaultGl(payerName) {
-    const up = String(payerName || "").toUpperCase();
-    return CARRIER_KEYWORDS.some(kw => up.includes(kw))
-      ? "Service Income"
-      : "Accounts Receivable";
+    // Match payer name against the carrier keyword list in TWO forms:
+    //   1. raw uppercase (catches multi-word keywords like "STATE OF")
+    //   2. all-spaces-stripped uppercase (catches single-word check
+    //      prints like "UNITEDHEALTHCARE" against the keyword
+    //      "UNITED HEALTHCARE")
+    // Without the stripped pass, common payers print their name as one
+    // word on checks (UnitedHealthcare, BlueCrossBlueShield, etc.) and
+    // fall through to the AR default.
+    const upRaw      = String(payerName || "").toUpperCase();
+    const upStripped = upRaw.replace(/\s+/g, "");
+    const hit = CARRIER_KEYWORDS.some(kw => {
+      const kwUp       = kw.toUpperCase();
+      const kwStripped = kwUp.replace(/\s+/g, "");
+      return upRaw.includes(kwUp) || upStripped.includes(kwStripped);
+    });
+    return hit ? "Service Income" : "Accounts Receivable";
   }
 
   // Update the customer-exists nudge wording + style based on the
