@@ -264,6 +264,31 @@ END $$;
 REVOKE ALL ON FUNCTION public.update_patient_check_notes(UUID, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.update_patient_check_notes(UUID, TEXT) TO authenticated;
 
+-- ── 6b. RPC: update_patient_check_memo ────────────────────────────
+-- In-place memo editor (the OCR-extracted check memo line). Lets
+-- the user fix OCR errors or add context after the fact. The
+-- separate `notes` column stays as a free-form admin field;
+-- `memo` mirrors what's on the actual paper check.
+CREATE OR REPLACE FUNCTION public.update_patient_check_memo(
+  p_id   UUID,
+  p_memo TEXT
+)
+RETURNS VOID
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM user_roles ur
+                 WHERE ur.user_id = auth.uid() AND ur.role = 'admin') THEN
+    RAISE EXCEPTION 'Only admin may edit deposit memo';
+  END IF;
+
+  UPDATE patient_check_deposits
+  SET memo = NULLIF(TRIM(COALESCE(p_memo, '')), '')
+  WHERE id = p_id;
+END $$;
+
+REVOKE ALL ON FUNCTION public.update_patient_check_memo(UUID, TEXT) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.update_patient_check_memo(UUID, TEXT) TO authenticated;
+
 -- ── 7. RPC: delete_patient_check_deposit ──────────────────────────
 -- Hard delete — used when the user added a check by mistake.
 -- Two-click confirm lives on the client side.

@@ -950,6 +950,20 @@
   .hist-del-btn:hover { background: #fee2e2; }
   .hist-del-btn.confirm { background: #b91c1c; color: #fff; border-color: #b91c1c; }
 
+  /* Inline-editable memo input */
+  .hist-memo-input {
+    width: 100%; min-width: 140px;
+    padding: 4px 7px; border: 1px solid transparent; border-radius: 5px;
+    font-size: 12.5px; font-family: inherit; outline: none;
+    background: transparent; color: var(--text);
+  }
+  .hist-memo-input:hover { background: #f8fafc; }
+  .hist-memo-input:focus { border-color: var(--accent); background: #fff; }
+  .hist-memo-input.is-saving { background: #fef3c7; }
+  .hist-memo-input::placeholder { color: #cbd5e1; font-style: italic; }
+  table.hist-table tr.is-cleared .hist-memo-input:hover { background: #ecfdf5; }
+  table.hist-table tr.is-cleared .hist-memo-input:focus { background: #fff; }
+
   /* Primary CTA inside modals (Add to batch) */
   .cpr-modal-footer .btn-primary {
     background: var(--accent); color: #fff; border: 1.5px solid var(--accent);
@@ -5933,7 +5947,7 @@ const HIST = (() => {
         <td>${escHtml(r.check_number || "—")}</td>
         <td>${fmtDate(r.check_date)}</td>
         <td class="hist-col-sa">${fmtTs(r.scanned_at)}</td>
-        <td>${escHtml(r.memo || "")}</td>
+        <td><input class="hist-memo-input" type="text" data-action="memo" data-id="${escHtml(r.id)}" value="${escHtml(r.memo || "")}" placeholder="Click to add a memo…" /></td>
         <td>${clearedCell}</td>
         <td class="hist-col-act"><button class="${delClass}" data-action="delete" data-id="${escHtml(r.id)}">${delLabel}</button></td>
       </tr>
@@ -5994,7 +6008,7 @@ const HIST = (() => {
     // Row actions (delegated)
     document.getElementById("hist-tbody").addEventListener("click", (e) => {
       const btn = e.target.closest("[data-action]");
-      if (!btn) return;
+      if (!btn || btn.dataset.action === "memo") return;   // memo is text input, not a click action
       const id = btn.dataset.id;
       const action = btn.dataset.action;
       if (action === "check")    markCleared(id, true);
@@ -6013,8 +6027,36 @@ const HIST = (() => {
       }
     });
 
+    // Memo inline edit — saves on blur via change event (only fires if value actually changed)
+    document.getElementById("hist-tbody").addEventListener("change", (e) => {
+      const inp = e.target.closest('.hist-memo-input[data-action="memo"]');
+      if (!inp) return;
+      saveMemo(inp.dataset.id, inp.value, inp);
+    });
+
+    // Enter key commits + blurs (so user gets the same change-event save)
+    document.getElementById("hist-tbody").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && e.target.matches('.hist-memo-input[data-action="memo"]')) {
+        e.preventDefault(); e.target.blur();
+      }
+    });
+
     // Initial load
     load();
+  }
+
+  async function saveMemo(id, value, inputEl) {
+    if (inputEl) inputEl.classList.add("is-saving");
+    const trimmed = (value || "").trim();
+    const { error } = await db.rpc("update_patient_check_memo", {
+      p_id: id, p_memo: trimmed || null
+    });
+    if (inputEl) inputEl.classList.remove("is-saving");
+    if (error) { showToast("Memo save failed: " + error.message, "error"); return; }
+    // Mirror to local record so re-renders show the new value
+    const r = records.find(x => x.id === id);
+    if (r) r.memo = trimmed || null;
+    showToast(trimmed ? "Memo saved." : "Memo cleared.");
   }
 
   // Public: called from BANK.addScannedRow after a successful insert
