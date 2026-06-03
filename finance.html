@@ -5530,7 +5530,19 @@ const BANK = (() => {
       try { parsed = JSON.parse(jsonStr); }
       catch (e) { throw new Error("OCR returned non-JSON: " + content.slice(0, 200)); }
 
-      renderExtractedForm(parsed);
+      // Check the learned-routing memory before falling back to
+      // keyword detection. A previously-corrected payer name wins
+      // over the static CARRIER_KEYWORDS list.
+      let learnedGl = null;
+      if (parsed && parsed.payer_name) {
+        const lookup = await db.rpc("lookup_payer_routing", { p_payer: parsed.payer_name });
+        if (!lookup.error && lookup.data) learnedGl = lookup.data;
+      }
+
+      renderExtractedForm(parsed, learnedGl);
+      if (learnedGl) {
+        showToast(`Remembered routing for ${parsed.payer_name || "this payer"} → ${learnedGl}.`);
+      }
     } catch (e) {
       showToast("Scan failed: " + e.message, "error");
       document.getElementById("bank-scan-step1").style.display = "block";
@@ -5544,17 +5556,46 @@ const BANK = (() => {
   // Service Income (instead of the patient-co-pay default of AR).
   // Mirrors the BCBS Service Income treatment for any insurance
   // carrier paper check (CalPERS, BCBS check, etc.).
+  // Substring match against the OCR'd payer name (case-insensitive).
+  // Hit → default GL flips from "Accounts Receivable" (patient co-pay
+  // assumption) to "Service Income" (carrier secondary). New carriers
+  // should be appended here as they show up — the list grows over time.
+  // Avoid overly-generic words (e.g. plain "MEDICAL" or "MUTUAL")
+  // since they can false-positive on patient names or other payers.
   const CARRIER_KEYWORDS = [
+    // Government & quasi-government
     "STATE OF",
-    "MEDICARE",
+    "MEDICARE", "MEDICAID",
+    "TRICARE", "TRIWEST",
+    "VETERANS AFFAIRS", "DEPARTMENT OF VA",
+    "PUBLIC EMPLOYEES",
+    // Major commercial insurers
     "BLUE CROSS", "BLUECROSS", "BCBS",
+    "BLUE SHIELD", "BLUESHIELD",
+    "INDEPENDENCE BLUE",
+    "HIGHMARK",
     "AETNA",
-    "UNITED HEALTHCARE", "UNITED HEALTH", "UHC",
+    "UNITED HEALTHCARE", "UNITED HEALTH", "UHC", "OPTUM",
     "CIGNA",
     "HUMANA",
     "MOLINA",
     "ANTHEM",
-    "PUBLIC EMPLOYEES",
+    "WELLPOINT",
+    "WELLCARE",
+    "CENTENE",
+    "KAISER",
+    "HEALTH NET", "HEALTHNET",
+    "HEALTH ALLIANCE",
+    "MEDICAL MUTUAL",
+    "MUTUAL OF OMAHA",
+    "HORIZON BCBS", "HORIZON BLUE",
+    "REGENCE",
+    "PREMERA",
+    "CAREFIRST",
+    "AMERIGROUP",
+    "MERITAIN",
+    "GEHA",
+    // Generic catch-all (low-confidence but useful)
     "INSURANCE"
   ];
 
@@ -5587,7 +5628,7 @@ const BANK = (() => {
     }
   }
 
-  function renderExtractedForm(parsed) {
+  function renderExtractedForm(parsed, learnedGl) {
     document.getElementById("bank-scan-busy").style.display = "none";
     document.getElementById("bank-scan-form").style.display = "block";
     document.getElementById("bank-scan-thumb-wrap").style.display = "block";
@@ -5602,8 +5643,10 @@ const BANK = (() => {
     document.getElementById("bank-scan-checkno").value = v(parsed.check_number);
     document.getElementById("bank-scan-memo").value    = v(parsed.memo);
 
-    // Smart-default the GL based on payer-name keywords.
-    document.getElementById("bank-scan-gl").value = smartDefaultGl(parsed.payer_name);
+    // GL precedence: 1) learned routing from prior corrections,
+    //                2) static CARRIER_KEYWORDS keyword detection,
+    //                3) Accounts Receivable (patient default).
+    document.getElementById("bank-scan-gl").value = learnedGl || smartDefaultGl(parsed.payer_name);
 
     refreshGlMode();
     refreshAddBtn();
@@ -5651,6 +5694,14 @@ const BANK = (() => {
     render();
     closeScanModal();
     showToast(`Added check from ${payer} ($${amount.toFixed(2)}) → ${gl}.`);
+
+    // Learn-as-you-go: remember (payer → gl) so next time the same
+    // payer is scanned, the tool auto-picks the same GL. Fire and
+    // forget — errors are non-fatal.
+    db.rpc("remember_payer_routing", { p_payer: payer, p_gl: gl })
+      .then(({ error }) => {
+        if (error) console.warn("Payer routing memory save failed:", error.message);
+      });
 
     // Persist AR-routed scans to the Patient Deposit History (Strata
     // tracking). Carrier-routed scans (Service Income et al) don't
