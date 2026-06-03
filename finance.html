@@ -823,6 +823,50 @@
   .bank-pattern-pill.p-bcbs   { background: #dbeafe; color: #1e3a8a; }
   .bank-pattern-pill.p-medicare { background: #dcfce7; color: #14532d; }
   .bank-pattern-pill.p-other  { background: #fef3c7; color: #92400e; }
+  .bank-pattern-pill.p-check  { background: #fef9c3; color: #854d0e; border: 1px solid #facc15; }
+
+  /* Secondary input alongside the CSV dropzone — the 📷 Scan check entry */
+  .bank-input-secondary {
+    margin-top: 12px; padding: 12px 14px; background: #fafbfd;
+    border: 1px solid var(--border); border-radius: 10px;
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  .bank-input-secondary button { white-space: nowrap; }
+  .bank-input-secondary-hint { flex: 1; min-width: 220px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .bank-input-secondary-hint code { background: #e5e7eb; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+
+  /* Scan modal dropzone (inside the modal) */
+  .bank-scan-dropzone { padding: 28px 18px; }
+
+  /* Scan modal extracted-fields grid */
+  .bank-scan-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+    margin-top: 4px;
+  }
+  .bank-scan-grid label { display: flex; flex-direction: column; gap: 4px; }
+  .bank-scan-lbl {
+    font-size: 11px; color: var(--muted); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+  }
+  .bank-scan-grid input {
+    padding: 7px 10px; border: 1.5px solid var(--border);
+    border-radius: 7px; font-size: 13px; outline: none; background: #fff;
+  }
+  .bank-scan-grid input:focus { border-color: var(--accent); }
+
+  #bank-scan-thumb {
+    max-width: 100%; max-height: 200px; border-radius: 8px;
+    border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  }
+
+  /* Primary CTA inside modals (Add to batch) */
+  .cpr-modal-footer .btn-primary {
+    background: var(--accent); color: #fff; border: 1.5px solid var(--accent);
+    padding: 7px 16px; border-radius: 8px; font-size: 13px; font-weight: 700;
+    cursor: pointer; font-family: inherit;
+  }
+  .cpr-modal-footer .btn-primary:hover { background: #1d4fc4; }
+  .cpr-modal-footer .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .bank-foot-note {
     font-size: 12px; color: var(--muted); line-height: 1.55;
@@ -1256,6 +1300,14 @@
       </div>
       <input type="file" id="bank-file-input" accept=".csv,.xlsx,.xls" style="display:none;" />
 
+      <!-- Secondary input: scan an individual patient check -->
+      <div class="bank-input-secondary">
+        <button type="button" class="btn-secondary" id="bank-scan-btn">📷 Scan a patient check</button>
+        <span class="bank-input-secondary-hint">
+          For one-off paper checks (patient co-pays, etc.) — OCR extracts payer / amount / check# / date, you confirm, the row is added to the batch below. Routes to <code>Accounts Receivable</code> by default.
+        </span>
+      </div>
+
       <!-- Preview -->
       <div id="bank-preview-card" style="display:none;margin-top:14px;">
         <div class="stat-strip" id="bank-stats"></div>
@@ -1302,6 +1354,68 @@
       <p style="font-size:13px;color:var(--muted);margin:0;line-height:1.55;">
         This section will grow as we surface more QuickBooks-side helpers (vendor/customer reconciler, 1099 prep, etc.). Each tool lands as its own card, matching the Billing sub-view pattern.
       </p>
+    </div>
+
+    <!-- Scan-a-check modal (lives inside view-qbtools so it's removed
+         from layout when not on the QB Tools tab) -->
+    <div class="cpr-modal-overlay" id="bank-scan-modal" style="display:none;">
+      <div class="cpr-modal-box" style="width:560px;">
+        <div class="cpr-modal-title">📷 Scan a patient check</div>
+        <div class="cpr-modal-sub">
+          Drop a clear photo of the check (JPG / PNG / HEIC). Our OCR pulls payer name, amount, check number, date, and memo — you'll get a chance to fix anything wrong before adding it to the batch.
+        </div>
+
+        <!-- Step 1: image dropzone -->
+        <div id="bank-scan-step1">
+          <div class="dropzone bank-scan-dropzone" id="bank-scan-dz" tabindex="0" role="button" aria-label="Drop check image">
+            <div class="bank-dz-icon">📄</div>
+            <div class="bank-dz-title">Drop check image here or click to browse</div>
+            <div class="bank-dz-sub">JPG / PNG / HEIC. One check per image.</div>
+          </div>
+          <input type="file" id="bank-scan-file" accept="image/*" style="display:none;" />
+        </div>
+
+        <!-- Step 2: scanning indicator -->
+        <div id="bank-scan-busy" style="display:none;text-align:center;padding:24px;">
+          <div style="font-size:24px;margin-bottom:8px;">🔍</div>
+          <div style="font-size:14px;color:var(--muted);">Scanning the check… (this takes ~5 seconds)</div>
+        </div>
+
+        <!-- Step 3: extracted-fields form -->
+        <div id="bank-scan-form" style="display:none;">
+          <div class="bank-scan-grid">
+            <label>
+              <span class="bank-scan-lbl">Payer name (Customer)</span>
+              <input type="text" id="bank-scan-payer" placeholder="e.g. Dennis Nickels" />
+            </label>
+            <label>
+              <span class="bank-scan-lbl">Amount</span>
+              <input type="number" id="bank-scan-amount" step="0.01" min="0" placeholder="317.34" />
+            </label>
+            <label>
+              <span class="bank-scan-lbl">Check date</span>
+              <input type="date" id="bank-scan-date" />
+            </label>
+            <label>
+              <span class="bank-scan-lbl">Check number</span>
+              <input type="text" id="bank-scan-checkno" placeholder="e.g. 1234" />
+            </label>
+            <label style="grid-column:1 / -1;">
+              <span class="bank-scan-lbl">Memo / Description</span>
+              <input type="text" id="bank-scan-memo" placeholder="e.g. co-pay STRT10490478" />
+            </label>
+          </div>
+          <div id="bank-scan-thumb-wrap" style="display:none;margin-top:14px;text-align:center;">
+            <img id="bank-scan-thumb" alt="Check preview" />
+          </div>
+        </div>
+
+        <div class="cpr-modal-footer">
+          <button type="button" class="btn-secondary" id="bank-scan-cancel">Cancel</button>
+          <button type="button" class="btn-secondary" id="bank-scan-rescan" style="display:none;">↻ Scan a different image</button>
+          <button type="button" class="btn-primary"   id="bank-scan-add"    style="display:none;" disabled>+ Add to batch</button>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -5055,7 +5169,10 @@ const BANK = (() => {
 
   function rowHtml(r) {
     const skip = r.include ? "" : "bank-row-skip";
-    const patLabel = r.pattern === "bcbs" ? "BCBS" : r.pattern === "medicare" ? "MCARE" : "?";
+    const patLabel = r.pattern === "bcbs" ? "BCBS"
+                   : r.pattern === "medicare" ? "MCARE"
+                   : r.pattern === "check" ? "CHECK"
+                   : "?";
     return `
       <tr class="${skip}" data-id="${r.id}">
         <td class="bank-col-incl">
@@ -5084,6 +5201,7 @@ const BANK = (() => {
     const bcbs     = rows.filter(r => r.pattern === "bcbs").length;
     const mcare    = rows.filter(r => r.pattern === "medicare").length;
     const other    = rows.filter(r => r.pattern === "other").length;
+    const check    = rows.filter(r => r.pattern === "check").length;
     const included = rows.filter(r => r.include).length;
     const sumIncluded = rows.filter(r => r.include).reduce((s, r) => s + r.amount, 0);
     document.getElementById("bank-stats").innerHTML = `
@@ -5092,6 +5210,7 @@ const BANK = (() => {
       <div class="stat-pill"><div class="lbl">Sum (included)</div><div class="val">$${sumIncluded.toFixed(2)}</div></div>
       <div class="stat-pill"><div class="lbl">BCBS</div><div class="val">${bcbs}</div></div>
       <div class="stat-pill"><div class="lbl">Medicare</div><div class="val">${mcare}</div></div>
+      ${check ? `<div class="stat-pill"><div class="lbl">📷 Checks</div><div class="val">${check}</div></div>` : ''}
       ${other ? `<div class="stat-pill flag"><div class="lbl">Other (review)</div><div class="val">${other}</div></div>` : ''}
     `;
   }
@@ -5155,6 +5274,171 @@ const BANK = (() => {
     showToast(`Downloaded ${fname} — ${incl.length} deposits.`);
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // SCAN-A-CHECK flow
+  // Calls the existing tb-scan-image Supabase Edge Function (which
+  // already proxies images to OpenAI gpt-4o Vision + accepts a custom
+  // prompt). On success: populates the modal form. User edits + clicks
+  // Add to batch → row joins the existing rows[] array with Path-1
+  // defaults (Accounts Receivable + Check) and the preview re-renders.
+  // ══════════════════════════════════════════════════════════════════
+  const CHECK_PROMPT =
+    "This is a photo or scan of a paper check (typically a patient co-pay payment). " +
+    "Extract the following fields and return ONLY a JSON object — no markdown fences, no explanation. " +
+    "Use null for any field you can't read with high confidence:\n" +
+    "- payer_name (string — the person/entity's name printed at the top-left, NOT the bank name)\n" +
+    "- amount (number — the dollar amount, prefer the numeric box over the written-out line; e.g. 317.34)\n" +
+    "- check_date (string, YYYY-MM-DD — the date written on the check)\n" +
+    "- check_number (string — the check number, typically at top-right, 3-6 digits)\n" +
+    "- memo (string or null — anything written on the 'Memo:' or 'For:' line, e.g. 'co-pay STRT10490478')";
+
+  let scanImageDataUrl = null;     // base64 data URL of the scanned image
+  let scanBusy = false;
+
+  function openScanModal() {
+    scanImageDataUrl = null;
+    scanBusy = false;
+    document.getElementById("bank-scan-step1").style.display = "block";
+    document.getElementById("bank-scan-busy").style.display  = "none";
+    document.getElementById("bank-scan-form").style.display  = "none";
+    document.getElementById("bank-scan-thumb-wrap").style.display = "none";
+    document.getElementById("bank-scan-add").style.display    = "none";
+    document.getElementById("bank-scan-rescan").style.display = "none";
+    document.getElementById("bank-scan-add").disabled         = true;
+    document.getElementById("bank-scan-file").value           = "";
+    ["payer","amount","date","checkno","memo"].forEach(k => {
+      document.getElementById("bank-scan-" + k).value = "";
+    });
+    document.getElementById("bank-scan-modal").style.display = "flex";
+  }
+
+  function closeScanModal() {
+    document.getElementById("bank-scan-modal").style.display = "none";
+    scanImageDataUrl = null;
+    scanBusy = false;
+  }
+
+  async function fileToDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload  = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function handleCheckImage(file) {
+    if (scanBusy) return;
+    if (!file.type.startsWith("image/")) {
+      showToast("Please drop an image file (JPG/PNG/HEIC).", "error");
+      return;
+    }
+    scanBusy = true;
+    document.getElementById("bank-scan-step1").style.display = "none";
+    document.getElementById("bank-scan-busy").style.display  = "block";
+    document.getElementById("bank-scan-form").style.display  = "none";
+
+    try {
+      scanImageDataUrl = await fileToDataUrl(file);
+      // Show preview thumbnail
+      document.getElementById("bank-scan-thumb").src = scanImageDataUrl;
+
+      // POST to the existing tb-scan-image edge function with check prompt
+      const session = (await db.auth.getSession()).data.session;
+      const token = session ? session.access_token : SUPABASE_KEY;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/tb-scan-image`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "apikey": SUPABASE_KEY
+        },
+        body: JSON.stringify({
+          imageBase64: scanImageDataUrl,
+          prompt: CHECK_PROMPT
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+
+      // OpenAI returns choices[0].message.content as a string. Strip
+      // any markdown code fences gpt-4o sometimes wraps around JSON.
+      const content = data?.choices?.[0]?.message?.content || "";
+      const jsonStr = content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+      let parsed;
+      try { parsed = JSON.parse(jsonStr); }
+      catch (e) { throw new Error("OCR returned non-JSON: " + content.slice(0, 200)); }
+
+      renderExtractedForm(parsed);
+    } catch (e) {
+      showToast("Scan failed: " + e.message, "error");
+      document.getElementById("bank-scan-step1").style.display = "block";
+      document.getElementById("bank-scan-busy").style.display  = "none";
+    } finally {
+      scanBusy = false;
+    }
+  }
+
+  function renderExtractedForm(parsed) {
+    document.getElementById("bank-scan-busy").style.display = "none";
+    document.getElementById("bank-scan-form").style.display = "block";
+    document.getElementById("bank-scan-thumb-wrap").style.display = "block";
+    document.getElementById("bank-scan-rescan").style.display = "inline-block";
+    document.getElementById("bank-scan-add").style.display    = "inline-block";
+
+    // Populate fields — gracefully handle null/undefined OCR returns
+    const v = (x) => (x == null || x === "Unknown") ? "" : String(x);
+    document.getElementById("bank-scan-payer").value   = v(parsed.payer_name);
+    document.getElementById("bank-scan-amount").value  = parsed.amount == null ? "" : Number(parsed.amount);
+    document.getElementById("bank-scan-date").value    = v(parsed.check_date);          // YYYY-MM-DD for <input type=date>
+    document.getElementById("bank-scan-checkno").value = v(parsed.check_number);
+    document.getElementById("bank-scan-memo").value    = v(parsed.memo);
+
+    refreshAddBtn();
+  }
+
+  function refreshAddBtn() {
+    const payer  = document.getElementById("bank-scan-payer").value.trim();
+    const amount = parseFloat(document.getElementById("bank-scan-amount").value);
+    const ok = payer && amount > 0;
+    document.getElementById("bank-scan-add").disabled = !ok;
+  }
+
+  function addScannedRow() {
+    const payer   = document.getElementById("bank-scan-payer").value.trim();
+    const amount  = parseFloat(document.getElementById("bank-scan-amount").value);
+    const dateIso = document.getElementById("bank-scan-date").value;       // YYYY-MM-DD
+    const checkNo = document.getElementById("bank-scan-checkno").value.trim();
+    const memo    = document.getElementById("bank-scan-memo").value.trim();
+    if (!payer || !(amount > 0)) {
+      showToast("Need at least a payer name and amount.", "error");
+      return;
+    }
+    // Convert YYYY-MM-DD → MM/DD/YYYY for the display + XLSX
+    const dateDisplay = dateIso
+      ? `${dateIso.slice(5,7)}/${dateIso.slice(8,10)}/${dateIso.slice(0,4)}`
+      : "";
+
+    rows.push({
+      id:         "scan-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+      date:       dateDisplay,
+      amount,
+      desc:       memo ? `Patient check: ${memo}` : "Patient check (scanned)",
+      parsed:     { trace: "", indId: "", eed: "", payableTrn: "", carrier: "" },
+      pattern:    "check",                       // distinct from bcbs/medicare/other
+      customer:   payer,                          // OCR-extracted payer name
+      gl:         "Accounts Receivable",           // Path-1 routing
+      pmt:        "Check",                         // QB Bank Deposit Payment Method
+      refNo:      checkNo ? "CHK#" + checkNo : "",
+      description: memo,
+      include:    true                             // scanned rows are always included by default
+    });
+    document.getElementById("bank-preview-card").style.display = "block";
+    render();
+    closeScanModal();
+    showToast(`Added check from ${payer} ($${amount.toFixed(2)}) to the batch.`);
+  }
+
   // ── Reset ────────────────────────────────────────────────────────
   function resetUI() {
     rows = [];
@@ -5183,9 +5467,16 @@ const BANK = (() => {
     document.getElementById("bank-apply-defaults").addEventListener("click", () => {
       const c = currentSettings();
       saveSettings();
-      rows.forEach(r => { r.customer = c.cust; r.gl = c.gl; r.pmt = c.pmt; });
+      // Scanned-check rows keep their AR + Check defaults — the global
+      // Settings panel only targets BCBS-style ACH rows. Skip pattern="check".
+      let touched = 0;
+      rows.forEach(r => {
+        if (r.pattern === "check") return;
+        r.customer = c.cust; r.gl = c.gl; r.pmt = c.pmt;
+        touched++;
+      });
       render();
-      showToast(`Applied defaults to ${rows.length} rows.`);
+      showToast(`Applied defaults to ${touched} ACH rows (skipped ${rows.length - touched} scanned-check rows).`);
     });
     document.getElementById("bank-clear-settings").addEventListener("click", () => {
       localStorage.removeItem(LS_KEY);
@@ -5257,6 +5548,53 @@ const BANK = (() => {
     // Download + reset
     document.getElementById("bank-download-btn").addEventListener("click", downloadXlsx);
     document.getElementById("bank-reset-btn").addEventListener("click", resetUI);
+
+    // ── Scan-check modal wiring ───────────────────────────────────
+    document.getElementById("bank-scan-btn").addEventListener("click", openScanModal);
+    document.getElementById("bank-scan-cancel").addEventListener("click", closeScanModal);
+    document.getElementById("bank-scan-rescan").addEventListener("click", () => {
+      document.getElementById("bank-scan-step1").style.display = "block";
+      document.getElementById("bank-scan-busy").style.display  = "none";
+      document.getElementById("bank-scan-form").style.display  = "none";
+      document.getElementById("bank-scan-thumb-wrap").style.display = "none";
+      document.getElementById("bank-scan-rescan").style.display = "none";
+      document.getElementById("bank-scan-add").style.display    = "none";
+      document.getElementById("bank-scan-file").value           = "";
+      scanImageDataUrl = null;
+    });
+    document.getElementById("bank-scan-add").addEventListener("click", addScannedRow);
+
+    // Refresh "Add to batch" disabled state when user edits the form
+    ["payer","amount","date","checkno","memo"].forEach(k => {
+      document.getElementById("bank-scan-" + k).addEventListener("input", refreshAddBtn);
+    });
+
+    // Scan dropzone (mirror the CSV dropzone wiring with PR #64 fix)
+    const sdz = document.getElementById("bank-scan-dz");
+    const sfi = document.getElementById("bank-scan-file");
+    sdz.addEventListener("click", () => sfi.click());
+    sdz.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sfi.click(); }
+    });
+    sfi.addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      e.target.value = "";
+      if (f) handleCheckImage(f);
+    });
+    ["dragenter","dragover"].forEach(ev =>
+      sdz.addEventListener(ev, (e) => { e.preventDefault(); sdz.classList.add("is-dragover"); })
+    );
+    ["dragleave","drop"].forEach(ev =>
+      sdz.addEventListener(ev, (e) => { e.preventDefault(); sdz.classList.remove("is-dragover"); })
+    );
+    sdz.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files[0]) handleCheckImage(e.dataTransfer.files[0]);
+    });
+
+    // Close scan modal on backdrop click
+    document.getElementById("bank-scan-modal").addEventListener("click", (e) => {
+      if (e.target.id === "bank-scan-modal") closeScanModal();
+    });
   }
 
   return { init };
