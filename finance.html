@@ -5544,17 +5544,46 @@ const BANK = (() => {
   // Service Income (instead of the patient-co-pay default of AR).
   // Mirrors the BCBS Service Income treatment for any insurance
   // carrier paper check (CalPERS, BCBS check, etc.).
+  // Substring match against the OCR'd payer name (case-insensitive).
+  // Hit → default GL flips from "Accounts Receivable" (patient co-pay
+  // assumption) to "Service Income" (carrier secondary). New carriers
+  // should be appended here as they show up — the list grows over time.
+  // Avoid overly-generic words (e.g. plain "MEDICAL" or "MUTUAL")
+  // since they can false-positive on patient names or other payers.
   const CARRIER_KEYWORDS = [
+    // Government & quasi-government
     "STATE OF",
-    "MEDICARE",
+    "MEDICARE", "MEDICAID",
+    "TRICARE", "TRIWEST",
+    "VETERANS AFFAIRS", "DEPARTMENT OF VA",
+    "PUBLIC EMPLOYEES",
+    // Major commercial insurers
     "BLUE CROSS", "BLUECROSS", "BCBS",
+    "BLUE SHIELD", "BLUESHIELD",
+    "INDEPENDENCE BLUE",
+    "HIGHMARK",
     "AETNA",
-    "UNITED HEALTHCARE", "UNITED HEALTH", "UHC",
+    "UNITED HEALTHCARE", "UNITED HEALTH", "UHC", "OPTUM",
     "CIGNA",
     "HUMANA",
     "MOLINA",
     "ANTHEM",
-    "PUBLIC EMPLOYEES",
+    "WELLPOINT",
+    "WELLCARE",
+    "CENTENE",
+    "KAISER",
+    "HEALTH NET", "HEALTHNET",
+    "HEALTH ALLIANCE",
+    "MEDICAL MUTUAL",
+    "MUTUAL OF OMAHA",
+    "HORIZON BCBS", "HORIZON BLUE",
+    "REGENCE",
+    "PREMERA",
+    "CAREFIRST",
+    "AMERIGROUP",
+    "MERITAIN",
+    "GEHA",
+    // Generic catch-all (low-confidence but useful)
     "INSURANCE"
   ];
 
