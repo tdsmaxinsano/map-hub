@@ -5894,9 +5894,30 @@ const BANK = (() => {
       if (e.dataTransfer.files[0]) handleCheckImage(e.dataTransfer.files[0]);
     });
 
-    // Close scan modal on backdrop click
-    document.getElementById("bank-scan-modal").addEventListener("click", (e) => {
-      if (e.target.id === "bank-scan-modal") closeScanModal();
+    // Close scan modal on backdrop click — defensive: only close if the
+    // click is OUTSIDE the modal box AND outside any popup the box
+    // contains (like the native date picker or a datalist dropdown).
+    // The original check (e.target.id === "bank-scan-modal") was too
+    // fragile — user reported the modal disappearing while editing the
+    // payer-name field, possibly due to focus/click events from the
+    // datalist popup or label wrapping.
+    //
+    // Pattern: use mousedown on the overlay to remember WHERE the
+    // mousedown started. Only close if BOTH mousedown and click landed
+    // outside the box. This prevents drag-out-of-input from closing
+    // the modal (a common backdrop-click pitfall).
+    let backdropMousedownInside = false;
+    const modalEl = document.getElementById("bank-scan-modal");
+    modalEl.addEventListener("mousedown", (e) => {
+      backdropMousedownInside = !!e.target.closest(".cpr-modal-box");
+    });
+    modalEl.addEventListener("click", (e) => {
+      // Inside-box click never closes
+      if (e.target.closest(".cpr-modal-box")) return;
+      // Drag started inside, released outside (text selection past the
+      // box edge) — don't close
+      if (backdropMousedownInside) { backdropMousedownInside = false; return; }
+      closeScanModal();
     });
   }
 
