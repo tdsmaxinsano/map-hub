@@ -147,6 +147,14 @@ GRANT EXECUTE ON FUNCTION public.insert_patient_check_deposit(
 --   * p_only_pending: true → only rows where strata_cleared = false
 --   * p_search: case-insensitive substring on payer_name
 --   * p_limit: cap (default 200)
+--
+-- NOTE: every returned column needs an explicit ::TYPE cast that
+-- matches the RETURNS TABLE declaration exactly. Postgres is strict —
+-- amount is NUMERIC(10,2) in the table but RETURNS NUMERIC; subquery
+-- columns like auth.users.email are VARCHAR not TEXT. Both mismatches
+-- trigger "structure of query does not match function result type"
+-- at runtime.
+DROP FUNCTION IF EXISTS public.list_patient_check_deposits(BOOLEAN, TEXT, INTEGER);
 CREATE OR REPLACE FUNCTION public.list_patient_check_deposits(
   p_only_pending BOOLEAN DEFAULT FALSE,
   p_search       TEXT    DEFAULT NULL,
@@ -179,13 +187,22 @@ BEGIN
 
   RETURN QUERY
     SELECT
-      d.id, d.payer_name, d.amount, d.check_date, d.check_number, d.memo,
-      d.gl_account, d.category,
-      d.scanned_at, d.scanned_by,
-      (SELECT email FROM auth.users u WHERE u.id = d.scanned_by) AS scanned_by_email,
-      d.strata_cleared, d.strata_cleared_at, d.strata_cleared_by,
-      (SELECT email FROM auth.users u WHERE u.id = d.strata_cleared_by) AS strata_cleared_by_email,
-      d.notes
+      d.id,
+      d.payer_name::TEXT,
+      d.amount::NUMERIC,
+      d.check_date,
+      d.check_number::TEXT,
+      d.memo::TEXT,
+      d.gl_account::TEXT,
+      d.category::TEXT,
+      d.scanned_at,
+      d.scanned_by,
+      (SELECT u.email::TEXT FROM auth.users u WHERE u.id = d.scanned_by) AS scanned_by_email,
+      d.strata_cleared,
+      d.strata_cleared_at,
+      d.strata_cleared_by,
+      (SELECT u.email::TEXT FROM auth.users u WHERE u.id = d.strata_cleared_by) AS strata_cleared_by_email,
+      d.notes::TEXT
     FROM patient_check_deposits d
     WHERE d.category = 'patient'
       AND (NOT COALESCE(p_only_pending, FALSE) OR NOT d.strata_cleared)
