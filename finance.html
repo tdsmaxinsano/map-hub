@@ -5109,21 +5109,26 @@ const BANK = (() => {
 
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Sheet1");
-    // Column headers — exact strings SaaSant's Bank Deposit auto-mapper
-    // looks for. Mirrors the QB Bank Deposit form columns exactly:
-    //   Date · Deposit To · Received From · From Account · Description
-    //   · Payment Method · Ref No · Amount
-    // The mapping is saved by SaaSant after the first manual
-    // confirmation so subsequent uploads auto-map.
+    // Column headers — exact strings from SaaSant's documented Bank
+    // Deposit import schema (see article 14000053141).
+    //
+    // CRITICAL: line-level columns must carry the "Line " prefix
+    // (Line Account / Line Description / Line Payment Method / Line
+    // Ref No / Line Amount). Without it, SaaSant can't build the
+    // Line array in the QB API call and rejects with:
+    //   "Required parameter Line is missing in the request"
+    //
+    // Header-level (deposit-wide) columns stay un-prefixed:
+    //   Date · Deposit To Account · Received From
     ws.columns = [
-      { header: "Deposit Date",       key: "date", width: 14 },
-      { header: "Deposit To Account", key: "bank", width: 22 },
-      { header: "Received From",      key: "cust", width: 22 },
-      { header: "From Account",       key: "gl",   width: 22 },
-      { header: "Description",        key: "desc", width: 30 },
-      { header: "Payment Method",     key: "pmt",  width: 14 },
-      { header: "Ref No",             key: "ref",  width: 16 },
-      { header: "Amount",             key: "amt",  width: 12 }
+      { header: "Date",                 key: "date", width: 14 },
+      { header: "Deposit To Account",   key: "bank", width: 22 },
+      { header: "Received From",        key: "cust", width: 22 },
+      { header: "Line Account",         key: "gl",   width: 22 },
+      { header: "Line Description",     key: "desc", width: 30 },
+      { header: "Line Payment Method",  key: "pmt",  width: 14 },
+      { header: "Line Ref No",          key: "ref",  width: 16 },
+      { header: "Line Amount",          key: "amt",  width: 12 }
     ];
     incl.forEach(r => ws.addRow({
       date: r.date,
