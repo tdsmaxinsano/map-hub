@@ -811,6 +811,7 @@
     <button data-view="landing"  class="active">Overview</button>
     <button data-view="payroll">💵 Payroll</button>
     <button data-view="billing">🧾 Billing</button>
+    <button data-view="qbtools">🔧 QB Tools</button>
   </div>
 
   <!-- LANDING -->
@@ -827,6 +828,12 @@
         <div class="tile-title">Billing</div>
         <div class="tile-desc">Agency invoicing and revenue tracking. Placeholder for v1 — we'll build this out next.</div>
         <span class="tile-cta">Open Billing →</span>
+      </button>
+      <button type="button" class="tile" data-go="qbtools">
+        <div class="tile-icon">🔧</div>
+        <div class="tile-title">QB Tools</div>
+        <div class="tile-desc">Helpers that streamline QuickBooks-side workflows — bank-feed matching, reconciliation prep, and more as we surface needs.</div>
+        <span class="tile-cta">Open QB Tools →</span>
       </button>
     </div>
   </div>
@@ -1089,6 +1096,36 @@
       </div>
     </div>
   </div>
+
+  <!-- QB TOOLS -->
+  <!-- Scaffolding only — the actual tools land here as cards mirroring
+       the Billing sub-view's card pattern. First planned tool:
+         ① Bank Transaction Matcher — resolve QB "For Review" bank-feed
+            lines (match-to-invoice/bill, categorize new income/expense)
+            and produce a SaaSant-importable file to apply in bulk.
+       Future slots reserved:
+         ②  (TBD — likely Vendor/Customer reconciler or 1099 prep)
+         ③  (TBD — surfaces as user needs come up)
+       Replace the placeholder card below in place when the matcher
+       design is locked. -->
+  <div class="view" id="view-qbtools">
+    <div class="card" style="border-style:dashed;background:#fafbfd;">
+      <h3>① Bank Transaction Matcher <span style="font-size:11px;font-weight:700;color:#92400e;background:#fef3c7;padding:2px 8px;border-radius:10px;margin-left:8px;vertical-align:middle;">Design phase</span></h3>
+      <p style="font-size:13px;color:var(--muted);margin:0 0 10px;line-height:1.55;">
+        Help resolve QB's <strong>For Review</strong> bank feed by suggesting matches against open invoices/bills and generating a SaaSant-importable file to apply the resolutions in bulk. Coming soon — workflow details still being scoped.
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin:0;line-height:1.5;">
+        Decisions still pending: input file format (QB "For Review" export shape vs. bank CSV vs. both), output target (SaaSant Bank Categorize XLSX vs. plain IIF), and matching scope (deposits → invoices only, or also bills + expense categorization).
+      </p>
+    </div>
+
+    <div class="card" style="background:#f8fafc;">
+      <h3 style="color:var(--muted);">More QB tools to come</h3>
+      <p style="font-size:13px;color:var(--muted);margin:0;line-height:1.55;">
+        This section will grow as we surface more QuickBooks-side helpers (vendor/customer reconciler, 1099 prep, etc.). Each tool lands as its own card, matching the Billing sub-view pattern.
+      </p>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1191,7 +1228,7 @@ async function launchApp(user) {
   document.getElementById("app-container").style.display = "block";
   document.getElementById("header-user").textContent = user.email || "";
 
-  // Parse the deep-link view (?view=payroll|billing|landing)
+  // Parse the deep-link view (?view=payroll|billing|qbtools|landing)
   const params = new URLSearchParams(location.search);
   const initialView = params.get("view") || "landing";
   switchView(initialView, true);
@@ -1203,7 +1240,7 @@ async function launchApp(user) {
 // SUB-VIEW SWITCHING
 // ══════════════════════════════════════════════════════════════════
 function switchView(viewName, skipPushState) {
-  const validViews = ["landing", "payroll", "billing"];
+  const validViews = ["landing", "payroll", "billing", "qbtools"];
   if (!validViews.includes(viewName)) viewName = "landing";
 
   document.querySelectorAll(".view").forEach(v => {
@@ -1214,9 +1251,10 @@ function switchView(viewName, skipPushState) {
   });
 
   const subtitleMap = {
-    landing: "Payroll + billing for the staffing operation.",
+    landing: "Payroll + billing + QB tools for the staffing operation.",
     payroll: "Current pay period totals and link to the Time Tracker pay period view.",
-    billing: "Agency invoicing — placeholder for v1."
+    billing: "Agency invoicing — placeholder for v1.",
+    qbtools: "Helpers that streamline QuickBooks-side workflows. (Scaffolding — first tool coming soon.)"
   };
   document.getElementById("hero-sub").textContent = subtitleMap[viewName] || subtitleMap.landing;
 
