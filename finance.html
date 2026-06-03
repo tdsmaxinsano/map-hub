@@ -859,6 +859,31 @@
     border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.08);
   }
 
+  /* Pre-flight customer-exists nudge in the scan modal.
+     data-mode toggles styling: "ar" = amber warning (customer required),
+     "income" = neutral blue info (no customer required). */
+  .bank-scan-customer-nudge {
+    border-radius: 8px; padding: 10px 12px; margin-bottom: 12px;
+    font-size: 12px; line-height: 1.5;
+  }
+  .bank-scan-customer-nudge[data-mode="ar"] {
+    background: #fef3c7; border: 1px solid #facc15; color: #854d0e;
+  }
+  .bank-scan-customer-nudge[data-mode="ar"] strong { color: #713f12; }
+  .bank-scan-customer-nudge[data-mode="ar"] code {
+    background: #fde68a; padding: 1px 5px; border-radius: 4px;
+    font-size: 11.5px; color: #713f12;
+  }
+  .bank-scan-customer-nudge[data-mode="income"] {
+    background: #dbeafe; border: 1px solid #93c5fd; color: #1e3a8a;
+  }
+  .bank-scan-customer-nudge[data-mode="income"] strong { color: #1e3a8a; }
+  .bank-scan-customer-nudge[data-mode="income"] code {
+    background: #bfdbfe; padding: 1px 5px; border-radius: 4px;
+    font-size: 11.5px; color: #1e3a8a;
+  }
+  .bank-scan-customer-nudge a { color: var(--accent); text-decoration: underline; font-weight: 700; }
+
   /* Primary CTA inside modals (Add to batch) */
   .cpr-modal-footer .btn-primary {
     background: var(--accent); color: #fff; border: 1.5px solid var(--accent);
@@ -1383,6 +1408,13 @@
 
         <!-- Step 3: extracted-fields form -->
         <div id="bank-scan-form" style="display:none;">
+          <!-- Customer-exists nudge: text + style toggles based on the
+               chosen GL. AR-routed deposits REQUIRE a matching QB Customer;
+               Income-routed deposits don't. Soft visual reminder either way. -->
+          <div class="bank-scan-customer-nudge" id="bank-scan-nudge" data-mode="ar">
+            <!-- innerHTML rewritten by refreshGlMode() on GL change -->
+          </div>
+
           <div class="bank-scan-grid">
             <label>
               <span class="bank-scan-lbl">Payer name (Customer)</span>
@@ -1403,6 +1435,18 @@
             <label style="grid-column:1 / -1;">
               <span class="bank-scan-lbl">Memo / Description</span>
               <input type="text" id="bank-scan-memo" placeholder="e.g. co-pay STRT10490478" />
+            </label>
+            <label style="grid-column:1 / -1;">
+              <span class="bank-scan-lbl">Post to (Line Account)</span>
+              <input type="text" id="bank-scan-gl" placeholder="Accounts Receivable" list="bank-scan-gl-list" />
+              <datalist id="bank-scan-gl-list">
+                <option value="Accounts Receivable"></option>
+                <option value="Service Income"></option>
+                <option value="Medicare Part B"></option>
+                <option value="Sales"></option>
+                <option value="Nonmedical Income"></option>
+                <option value="Uncategorized Income"></option>
+              </datalist>
             </label>
           </div>
           <div id="bank-scan-thumb-wrap" style="display:none;margin-top:14px;text-align:center;">
@@ -5379,6 +5423,53 @@ const BANK = (() => {
     }
   }
 
+  // Carrier-name keywords that auto-default the scan modal's GL to
+  // Service Income (instead of the patient-co-pay default of AR).
+  // Mirrors the BCBS Service Income treatment for any insurance
+  // carrier paper check (CalPERS, BCBS check, etc.).
+  const CARRIER_KEYWORDS = [
+    "STATE OF",
+    "MEDICARE",
+    "BLUE CROSS", "BLUECROSS", "BCBS",
+    "AETNA",
+    "UNITED HEALTHCARE", "UNITED HEALTH", "UHC",
+    "CIGNA",
+    "HUMANA",
+    "MOLINA",
+    "ANTHEM",
+    "PUBLIC EMPLOYEES",
+    "INSURANCE"
+  ];
+
+  function smartDefaultGl(payerName) {
+    const up = String(payerName || "").toUpperCase();
+    return CARRIER_KEYWORDS.some(kw => up.includes(kw))
+      ? "Service Income"
+      : "Accounts Receivable";
+  }
+
+  // Update the customer-exists nudge wording + style based on the
+  // selected GL. AR routing → amber "must exist" warning. Income
+  // routing → neutral blue "no customer required" info.
+  function refreshGlMode() {
+    const gl = document.getElementById("bank-scan-gl").value.trim();
+    const isAr = /accounts receivable|^ar$/i.test(gl);
+    const nudge = document.getElementById("bank-scan-nudge");
+    if (isAr) {
+      nudge.dataset.mode = "ar";
+      nudge.innerHTML =
+        '<strong>⚠ Customer must exist in QB.</strong> ' +
+        'Because this scan posts to <code>Accounts Receivable</code>, the <em>Payer name</em> below must already be a QB Customer. ' +
+        'New patient? Open <a href="https://qbo.intuit.com/app/customers" target="_blank" rel="noopener">QB → Sales → Customers</a> in another tab and create them <strong>before</strong> downloading the XLSX.';
+    } else {
+      nudge.dataset.mode = "income";
+      nudge.innerHTML =
+        '<strong>ℹ Income GL routing.</strong> ' +
+        'This scan posts to an income GL (<code>' + escAttr(gl || "Service Income") + '</code>), so no QB Customer record is strictly required. ' +
+        "Still, setting <em>Payer name</em> to a real QB Customer (or creating one) helps reporting break out revenue per carrier.";
+    }
+  }
+
   function renderExtractedForm(parsed) {
     document.getElementById("bank-scan-busy").style.display = "none";
     document.getElementById("bank-scan-form").style.display = "block";
@@ -5394,6 +5485,10 @@ const BANK = (() => {
     document.getElementById("bank-scan-checkno").value = v(parsed.check_number);
     document.getElementById("bank-scan-memo").value    = v(parsed.memo);
 
+    // Smart-default the GL based on payer-name keywords.
+    document.getElementById("bank-scan-gl").value = smartDefaultGl(parsed.payer_name);
+
+    refreshGlMode();
     refreshAddBtn();
   }
 
@@ -5410,6 +5505,8 @@ const BANK = (() => {
     const dateIso = document.getElementById("bank-scan-date").value;       // YYYY-MM-DD
     const checkNo = document.getElementById("bank-scan-checkno").value.trim();
     const memo    = document.getElementById("bank-scan-memo").value.trim();
+    const gl      = document.getElementById("bank-scan-gl").value.trim()
+                    || "Accounts Receivable";   // fall back if user blanked it out
     if (!payer || !(amount > 0)) {
       showToast("Need at least a payer name and amount.", "error");
       return;
@@ -5423,11 +5520,11 @@ const BANK = (() => {
       id:         "scan-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
       date:       dateDisplay,
       amount,
-      desc:       memo ? `Patient check: ${memo}` : "Patient check (scanned)",
+      desc:       memo ? `Check: ${memo}` : "Check (scanned)",
       parsed:     { trace: "", indId: "", eed: "", payableTrn: "", carrier: "" },
       pattern:    "check",                       // distinct from bcbs/medicare/other
       customer:   payer,                          // OCR-extracted payer name
-      gl:         "Accounts Receivable",           // Path-1 routing
+      gl,                                         // user-chosen (AR or Income)
       pmt:        "Check",                         // QB Bank Deposit Payment Method
       refNo:      checkNo ? "CHK#" + checkNo : "",
       description: memo,
@@ -5436,7 +5533,7 @@ const BANK = (() => {
     document.getElementById("bank-preview-card").style.display = "block";
     render();
     closeScanModal();
-    showToast(`Added check from ${payer} ($${amount.toFixed(2)}) to the batch.`);
+    showToast(`Added check from ${payer} ($${amount.toFixed(2)}) → ${gl}.`);
   }
 
   // ── Reset ────────────────────────────────────────────────────────
@@ -5568,6 +5665,20 @@ const BANK = (() => {
     ["payer","amount","date","checkno","memo"].forEach(k => {
       document.getElementById("bank-scan-" + k).addEventListener("input", refreshAddBtn);
     });
+
+    // Smart-default GL when user edits payer manually (e.g., they fix an OCR
+    // misread that should have triggered carrier detection).
+    document.getElementById("bank-scan-payer").addEventListener("blur", (e) => {
+      const glField = document.getElementById("bank-scan-gl");
+      // Only auto-update if user hasn't already chosen a non-default GL.
+      if (!glField.value.trim() || /^accounts receivable$/i.test(glField.value.trim())) {
+        glField.value = smartDefaultGl(e.target.value);
+        refreshGlMode();
+      }
+    });
+
+    // Live nudge toggle when user changes the GL itself
+    document.getElementById("bank-scan-gl").addEventListener("input", refreshGlMode);
 
     // Scan dropzone (mirror the CSV dropzone wiring with PR #64 fix)
     const sdz = document.getElementById("bank-scan-dz");
