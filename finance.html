@@ -744,6 +744,89 @@
   }
   .toast.show { opacity: 1; }
   .toast.error { background: #b91c1c; }
+
+  /* ── Bank Match (QB Tools) ── */
+  .bank-settings { background: #f8fafc; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 14px; padding: 0; }
+  .bank-settings > summary { cursor: pointer; padding: 12px 16px; font-size: 13px; font-weight: 700; color: var(--blue); user-select: none; list-style: none; }
+  .bank-settings > summary::-webkit-details-marker { display: none; }
+  .bank-settings > summary::before { content: "▶"; display: inline-block; margin-right: 8px; transition: transform 0.15s; font-size: 10px; color: var(--muted); }
+  .bank-settings[open] > summary::before { transform: rotate(90deg); }
+  .bank-settings-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 14px; padding: 0 16px 14px;
+  }
+  .bank-settings-grid label { display: flex; flex-direction: column; gap: 4px; }
+  .bank-settings-lbl { font-size: 11px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; }
+  .bank-settings-grid input { padding: 7px 10px; border: 1px solid var(--border); border-radius: 7px; font-size: 13px; outline: none; background: #fff; }
+  .bank-settings-grid input:focus { border-color: var(--accent); }
+  .bank-settings-hint { font-size: 11px; color: var(--muted); line-height: 1.4; }
+  .bank-settings-tools { padding: 0 16px 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .bank-dropzone {
+    border: 2.5px dashed #cbd5e1; border-radius: 12px;
+    padding: 32px 20px; text-align: center; cursor: pointer;
+    background: #f8fafc; color: var(--muted);
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .bank-dropzone:hover, .bank-dropzone:focus { border-color: var(--accent); background: #eff6ff; outline: none; }
+  .bank-dropzone.is-dragover { border-color: var(--gold); background: #fef3c7; }
+  .bank-dz-icon { font-size: 32px; line-height: 1; margin-bottom: 6px; }
+  .bank-dz-title { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .bank-dz-sub { font-size: 11.5px; color: var(--muted); }
+
+  .bank-row-tools {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin: 12px 0 10px;
+  }
+  .bank-row-search {
+    flex: 1; min-width: 180px; padding: 7px 11px;
+    border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px;
+    outline: none;
+  }
+  .bank-row-search:focus { border-color: var(--accent); }
+
+  .bank-table-wrap {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    overflow: auto; max-height: 60vh;
+  }
+  table.bank-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  table.bank-table th {
+    background: #f1f5f9; color: var(--muted); font-size: 10.5px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2; white-space: nowrap;
+  }
+  table.bank-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  table.bank-table tr.bank-row-skip td { opacity: 0.45; background: #fafafa; }
+  table.bank-table tr.bank-row-skip td input,
+  table.bank-table tr.bank-row-skip td .bank-cell-num { color: var(--muted); }
+  .bank-col-incl { width: 40px; text-align: center; }
+  .bank-col-amt  { width: 90px; text-align: right; }
+  .bank-col-tag  { width: 80px; }
+  table.bank-table td.bank-col-amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  table.bank-table td.bank-col-incl { text-align: center; }
+  table.bank-table td input[type="checkbox"] { width: 16px; height: 16px; cursor: pointer; }
+  table.bank-table td input.bank-cell-input {
+    width: 100%; min-width: 100px; padding: 4px 6px;
+    border: 1px solid transparent; border-radius: 5px;
+    font-size: 12.5px; background: transparent; outline: none;
+  }
+  table.bank-table td input.bank-cell-input:hover { background: #f8fafc; }
+  table.bank-table td input.bank-cell-input:focus { border-color: var(--accent); background: #fff; }
+  .bank-cell-num { font-variant-numeric: tabular-nums; }
+  .bank-pattern-pill {
+    display: inline-block; font-size: 10px; font-weight: 800;
+    padding: 2px 7px; border-radius: 10px; letter-spacing: 0.3px;
+  }
+  .bank-pattern-pill.p-bcbs   { background: #dbeafe; color: #1e3a8a; }
+  .bank-pattern-pill.p-medicare { background: #dcfce7; color: #14532d; }
+  .bank-pattern-pill.p-other  { background: #fef3c7; color: #92400e; }
+
+  .bank-foot-note {
+    font-size: 12px; color: var(--muted); line-height: 1.55;
+    margin: 14px 0 0; padding: 10px 14px;
+    background: #f1f5f9; border-radius: 8px;
+  }
 </style>
 <script>
   if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
@@ -811,6 +894,7 @@
     <button data-view="landing"  class="active">Overview</button>
     <button data-view="payroll">💵 Payroll</button>
     <button data-view="billing">🧾 Billing</button>
+    <button data-view="qbtools">🔧 QB Tools</button>
   </div>
 
   <!-- LANDING -->
@@ -827,6 +911,12 @@
         <div class="tile-title">Billing</div>
         <div class="tile-desc">Agency invoicing and revenue tracking. Placeholder for v1 — we'll build this out next.</div>
         <span class="tile-cta">Open Billing →</span>
+      </button>
+      <button type="button" class="tile" data-go="qbtools">
+        <div class="tile-icon">🔧</div>
+        <div class="tile-title">QB Tools</div>
+        <div class="tile-desc">Helpers that streamline QuickBooks-side workflows — bank-feed matching, reconciliation prep, and more as we surface needs.</div>
+        <span class="tile-cta">Open QB Tools →</span>
       </button>
     </div>
   </div>
@@ -1089,6 +1179,116 @@
       </div>
     </div>
   </div>
+
+  <!-- QB TOOLS -->
+  <!-- Tools that streamline QuickBooks-side workflows. First tool:
+         ① Bank Match — Chase deposits → SaaSant Bank Deposit XLSX.
+            Parses a Chase bank CSV, detects carrier patterns (BCBS
+            Illinois et al), lets the user categorize each row to a
+            QB Customer + GL account, and exports a SaaSant-importable
+            Bank Deposit XLSX that creates one QB Bank Deposit per
+            included row. After SaaSant import, QB's bank-feed "For
+            Review" auto-suggests Match against the pre-created
+            deposits — drops the work from "hand-post 50 deposits"
+            to "click Match 50 times".
+       Future slots reserved:
+         ②  (TBD — likely Vendor/Customer reconciler or 1099 prep)
+         ③  (TBD — surfaces as user needs come up) -->
+  <div class="view" id="view-qbtools">
+    <div class="card">
+      <h3>① Bank Match — Chase deposits → QB Bank Deposit</h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+        Drop your Chase bank CSV (the export with <strong>Date / Bank description / Spent / Received</strong> columns). Each Received row becomes one QB Bank Deposit, categorized to a GL + Customer of your choice. After download, upload the XLSX via <strong>SaaSant → Bulk Upload → Bank Deposit</strong>. SaaSant creates the deposits in QB; the bank-feed "For Review" then auto-suggests Match against them.
+      </p>
+
+      <!-- Settings -->
+      <details class="bank-settings" id="bank-settings">
+        <summary>⚙ Settings (bank account · default GL · default customer)</summary>
+        <div class="bank-settings-grid">
+          <label>
+            <span class="bank-settings-lbl">Bank account (QB)</span>
+            <input type="text" id="bank-set-bank" placeholder="Chase Bank #5133" />
+            <span class="bank-settings-hint">Must match the QB Chart of Accounts name EXACTLY.</span>
+          </label>
+          <label>
+            <span class="bank-settings-lbl">Default GL (From Account)</span>
+            <input type="text" id="bank-set-gl" placeholder="BCBS Illinois" list="bank-gl-suggestions" />
+            <datalist id="bank-gl-suggestions">
+              <option value="BCBS Illinois"></option>
+              <option value="Medicare Part B"></option>
+              <option value="Service Income"></option>
+              <option value="Nonmedical Income"></option>
+              <option value="Accounts Receivable"></option>
+              <option value="Uncategorized Income"></option>
+            </datalist>
+            <span class="bank-settings-hint">Defaults applied to new rows; edit per row to override.</span>
+          </label>
+          <label>
+            <span class="bank-settings-lbl">Default Customer (Received From)</span>
+            <input type="text" id="bank-set-cust" placeholder="BCBS Illinois" />
+            <span class="bank-settings-hint">QB Customer name. Must exist in QB or SaaSant will skip the row.</span>
+          </label>
+        </div>
+        <div class="bank-settings-tools">
+          <button type="button" class="btn-secondary" id="bank-apply-defaults">↻ Apply defaults to all loaded rows</button>
+          <button type="button" class="btn-secondary" id="bank-clear-settings">Clear saved settings</button>
+        </div>
+      </details>
+
+      <!-- Dropzone -->
+      <div class="dropzone bank-dropzone" id="bank-dropzone" tabindex="0" role="button" aria-label="Drop Chase bank CSV">
+        <div class="bank-dz-icon">🏦</div>
+        <div class="bank-dz-title">Drop Chase CSV here or click to browse</div>
+        <div class="bank-dz-sub">Accepts .csv exports from Chase Online (Date, Bank description, Spent, Received columns).</div>
+      </div>
+      <input type="file" id="bank-file-input" accept=".csv,.xlsx,.xls" style="display:none;" />
+
+      <!-- Preview -->
+      <div id="bank-preview-card" style="display:none;margin-top:14px;">
+        <div class="stat-strip" id="bank-stats"></div>
+
+        <div class="bank-row-tools">
+          <button type="button" class="btn-secondary" id="bank-include-all">✓ Include all</button>
+          <button type="button" class="btn-secondary" id="bank-skip-all">☐ Skip all</button>
+          <button type="button" class="btn-secondary" id="bank-include-bcbs">✓ Include BCBS only</button>
+          <input type="search" class="bank-row-search" id="bank-row-search" placeholder="Filter by memo / amount / date…" />
+        </div>
+
+        <div class="bank-table-wrap">
+          <table class="bank-table" id="bank-table">
+            <thead>
+              <tr>
+                <th class="bank-col-incl">Incl</th>
+                <th>Date</th>
+                <th class="bank-col-amt">Amount</th>
+                <th>Customer (Received From)</th>
+                <th>GL (From Account)</th>
+                <th>Memo / Description</th>
+                <th class="bank-col-tag">Pattern</th>
+              </tr>
+            </thead>
+            <tbody id="bank-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="actions" style="margin-top:14px;">
+          <button id="bank-download-btn" disabled>⬇ Download SaaSant Bank Deposit XLSX</button>
+          <button id="bank-reset-btn" class="btn-secondary">Reset</button>
+        </div>
+
+        <p class="bank-foot-note">
+          Next step in SaaSant: <strong>Bulk Upload → Bank Deposit</strong>, drop the downloaded XLSX, confirm column mapping (first time only — SaaSant remembers it). After SaaSant pushes the deposits to QB, head to the Chase bank-feed "For Review" — your incoming ACH lines will auto-match the new deposits by date + amount.
+        </p>
+      </div>
+    </div>
+
+    <div class="card" style="background:#f8fafc;">
+      <h3 style="color:var(--muted);">More QB tools to come</h3>
+      <p style="font-size:13px;color:var(--muted);margin:0;line-height:1.55;">
+        This section will grow as we surface more QuickBooks-side helpers (vendor/customer reconciler, 1099 prep, etc.). Each tool lands as its own card, matching the Billing sub-view pattern.
+      </p>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1191,7 +1391,7 @@ async function launchApp(user) {
   document.getElementById("app-container").style.display = "block";
   document.getElementById("header-user").textContent = user.email || "";
 
-  // Parse the deep-link view (?view=payroll|billing|landing)
+  // Parse the deep-link view (?view=payroll|billing|qbtools|landing)
   const params = new URLSearchParams(location.search);
   const initialView = params.get("view") || "landing";
   switchView(initialView, true);
@@ -1203,7 +1403,7 @@ async function launchApp(user) {
 // SUB-VIEW SWITCHING
 // ══════════════════════════════════════════════════════════════════
 function switchView(viewName, skipPushState) {
-  const validViews = ["landing", "payroll", "billing"];
+  const validViews = ["landing", "payroll", "billing", "qbtools"];
   if (!validViews.includes(viewName)) viewName = "landing";
 
   document.querySelectorAll(".view").forEach(v => {
@@ -1214,9 +1414,10 @@ function switchView(viewName, skipPushState) {
   });
 
   const subtitleMap = {
-    landing: "Payroll + billing for the staffing operation.",
+    landing: "Payroll + billing + QB tools for the staffing operation.",
     payroll: "Current pay period totals and link to the Time Tracker pay period view.",
-    billing: "Agency invoicing — placeholder for v1."
+    billing: "Agency invoicing — placeholder for v1.",
+    qbtools: "Helpers that streamline QuickBooks-side workflows. (Scaffolding — first tool coming soon.)"
   };
   document.getElementById("hero-sub").textContent = subtitleMap[viewName] || subtitleMap.landing;
 
@@ -4618,17 +4819,414 @@ const ATTACH = (() => {
   return { init };
 })();
 
+// ══════════════════════════════════════════════════════════════════
+// BANK — Bank Match (QB Tools)
+// Parses a Chase bank CSV, classifies each row by carrier pattern
+// (BCBS Illinois et al), lets the user edit Customer / GL / Memo
+// per row, and emits a SaaSant-importable Bank Deposit XLSX.
+//
+// Output schema (per SaaSant Bank Deposit template):
+//   Deposit Date · Deposit To Account · Received From ·
+//   From Account · Description · Amount
+//
+// Auto-mapped in SaaSant on the strength of those exact headers
+// (per the per-transaction-type-dictionary lesson from PRs #59–#61).
+// ══════════════════════════════════════════════════════════════════
+const BANK = (() => {
+  const LS_KEY = "dcs_finance_bank_settings_v1";
+
+  let rows = [];           // [{ id, date, amount, desc, customer, gl, memo, include, pattern }]
+  let filterText = "";
+  let initialized = false;
+
+  // ── Defaults (persisted in localStorage) ─────────────────────────
+  function loadSettings() {
+    let cfg;
+    try { cfg = JSON.parse(localStorage.getItem(LS_KEY) || "{}"); }
+    catch (e) { cfg = {}; }
+    return {
+      bank: cfg.bank || "Chase Bank #5133",
+      gl:   cfg.gl   || "BCBS Illinois",
+      cust: cfg.cust || "BCBS Illinois"
+    };
+  }
+  function saveSettings() {
+    const cfg = {
+      bank: document.getElementById("bank-set-bank").value.trim(),
+      gl:   document.getElementById("bank-set-gl").value.trim(),
+      cust: document.getElementById("bank-set-cust").value.trim()
+    };
+    localStorage.setItem(LS_KEY, JSON.stringify(cfg));
+    return cfg;
+  }
+  function currentSettings() {
+    return {
+      bank: document.getElementById("bank-set-bank").value.trim() || "Chase Bank #5133",
+      gl:   document.getElementById("bank-set-gl").value.trim()   || "BCBS Illinois",
+      cust: document.getElementById("bank-set-cust").value.trim() || "BCBS Illinois"
+    };
+  }
+
+  // ── Bank description parser ──────────────────────────────────────
+  function parseDescription(desc) {
+    const s = String(desc || "");
+    const trace      = /TRACE#:X*([0-9]+)/i.exec(s)?.[1] || "";
+    const indId      = /IND ID:([A-Z0-9X]+)/i.exec(s)?.[1] || "";
+    const eed        = /EED:([0-9]{6})/i.exec(s)?.[1] || "";
+    const payableTrn = /PAYABLE TRN:\s*X*([0-9]+)/i.exec(s)?.[1] || "";
+    const carrierM   = /ORIG CO NAME:([A-Z0-9 &/\-.]+?)(?:\s*ORIG ID:|\s{2,})/i.exec(s);
+    const carrier    = carrierM ? carrierM[1].trim() : "";
+    return { trace, indId, eed, payableTrn, carrier };
+  }
+
+  function classifyPattern(parsed, descLower) {
+    if (/bcbs|blue\s*cross|blue\s*shield/i.test(parsed.carrier) || /bcbs|blue\s*cross/i.test(descLower)) return "bcbs";
+    if (/medicare/i.test(parsed.carrier) || /medicare/i.test(descLower)) return "medicare";
+    return "other";
+  }
+
+  function buildMemo(parsed) {
+    const parts = [];
+    if (parsed.trace) parts.push("TRN#" + parsed.trace);
+    if (parsed.indId) parts.push("IND " + parsed.indId);
+    return parts.join(" / ");
+  }
+
+  // ── Currency parser (handles "$1,234.56" / "1234.56" / "(123.45)" /
+  //    SheetJS numbers / blank) ──────────────────────────────────────
+  function toNumber(v) {
+    if (v == null || v === "") return 0;
+    if (typeof v === "number") return v;
+    let s = String(v).trim();
+    if (!s) return 0;
+    const neg = /^\(.*\)$/.test(s);
+    s = s.replace(/[$,()\s]/g, "");
+    const n = parseFloat(s);
+    if (isNaN(n)) return 0;
+    return neg ? -n : n;
+  }
+
+  // ── Date normalizer (MM/DD/YYYY in, MM/DD/YYYY out for SaaSant) ──
+  function normalizeDate(v) {
+    if (v == null || v === "") return "";
+    if (typeof v === "number") {
+      // Excel serial → JS Date via SheetJS helper
+      try {
+        const d = XLSX.SSF.parse_date_code(v);
+        if (d && d.y) return `${String(d.m).padStart(2,"0")}/${String(d.d).padStart(2,"0")}/${d.y}`;
+      } catch (e) {}
+      return "";
+    }
+    const s = String(v).trim();
+    // MM/DD/YYYY or M/D/YYYY
+    let m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s);
+    if (m) {
+      let yr = parseInt(m[3], 10);
+      if (yr < 100) yr += 2000;
+      return `${String(+m[1]).padStart(2,"0")}/${String(+m[2]).padStart(2,"0")}/${yr}`;
+    }
+    // YYYY-MM-DD
+    m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(s);
+    if (m) return `${String(+m[2]).padStart(2,"0")}/${String(+m[3]).padStart(2,"0")}/${m[1]}`;
+    return s;  // best-effort: pass through whatever the user dropped
+  }
+
+  // ── CSV/XLSX parse ───────────────────────────────────────────────
+  async function handleFile(file) {
+    if (typeof XLSX === "undefined") {
+      showToast("Spreadsheet parser didn't load. Hard-refresh and retry.", "error");
+      return;
+    }
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
+      // Prefer first sheet (Chase CSV is single-sheet)
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+      if (!raw.length) {
+        showToast(`No rows found in ${file.name}.`, "error");
+        return;
+      }
+      const defaults = currentSettings();
+      rows = raw
+        .map((r, i) => buildRow(r, i, defaults))
+        .filter(Boolean);
+      if (!rows.length) {
+        showToast(`No received-amount rows found in ${file.name}. Make sure the CSV has Date + Received columns.`, "error");
+        return;
+      }
+      filterText = "";
+      document.getElementById("bank-row-search").value = "";
+      document.getElementById("bank-preview-card").style.display = "block";
+      render();
+      showToast(`Parsed ${rows.length} rows from ${file.name}.`);
+    } catch (e) {
+      showToast("Parse error: " + e.message, "error");
+    }
+  }
+
+  function buildRow(raw, i, defaults) {
+    // Tolerate column-name variants. Chase's export uses these exact
+    // headers but other banks vary.
+    const get = (...keys) => {
+      for (const k of keys) {
+        for (const rawKey of Object.keys(raw)) {
+          if (rawKey.trim().toLowerCase() === k.toLowerCase()) return raw[rawKey];
+        }
+      }
+      return "";
+    };
+    const dateRaw = get("Date", "Posting Date", "Transaction Date");
+    const desc    = String(get("Bank description", "Description", "Memo") || "").trim();
+    const recv    = toNumber(get("Received", "Credit", "Deposits", "Amount In"));
+    const spent   = toNumber(get("Spent", "Debit", "Withdrawals", "Amount Out"));
+    // We only handle incoming credits in v1.
+    const amount  = recv > 0 ? recv : (spent < 0 ? -spent : 0);
+    if (amount <= 0) return null;       // skip zero/blank/outgoing rows
+
+    const parsed = parseDescription(desc);
+    const pattern = classifyPattern(parsed, desc.toLowerCase());
+    return {
+      id: "row-" + i,
+      date: normalizeDate(dateRaw),
+      amount,
+      desc,
+      parsed,
+      pattern,
+      customer: defaults.cust,
+      gl: defaults.gl,
+      memo: buildMemo(parsed),
+      include: pattern === "bcbs" || pattern === "medicare"   // safe-default
+    };
+  }
+
+  // ── Render ───────────────────────────────────────────────────────
+  function visibleRows() {
+    if (!filterText) return rows;
+    const t = filterText.toLowerCase();
+    return rows.filter(r =>
+      (r.memo || "").toLowerCase().includes(t)
+      || String(r.amount).includes(t)
+      || (r.date || "").includes(t)
+      || (r.desc || "").toLowerCase().includes(t)
+    );
+  }
+
+  function render() {
+    const visible = visibleRows();
+    const tbody = document.getElementById("bank-tbody");
+    if (!visible.length) {
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:24px;text-align:center;color:var(--muted);">No rows match the filter.</td></tr>`;
+    } else {
+      tbody.innerHTML = visible.map(r => rowHtml(r)).join("");
+    }
+    renderStats();
+    document.getElementById("bank-download-btn").disabled = !rows.some(r => r.include);
+  }
+
+  function rowHtml(r) {
+    const skip = r.include ? "" : "bank-row-skip";
+    const patLabel = r.pattern === "bcbs" ? "BCBS" : r.pattern === "medicare" ? "MCARE" : "?";
+    return `
+      <tr class="${skip}" data-id="${r.id}">
+        <td class="bank-col-incl">
+          <input type="checkbox" data-action="incl" ${r.include ? "checked" : ""} />
+        </td>
+        <td class="bank-cell-num">${escAttr(r.date)}</td>
+        <td class="bank-col-amt">$${r.amount.toFixed(2)}</td>
+        <td><input class="bank-cell-input" data-action="cust" value="${escAttr(r.customer)}" /></td>
+        <td><input class="bank-cell-input" data-action="gl"   value="${escAttr(r.gl)}" /></td>
+        <td><input class="bank-cell-input" data-action="memo" value="${escAttr(r.memo)}" /></td>
+        <td class="bank-col-tag"><span class="bank-pattern-pill p-${r.pattern}">${patLabel}</span></td>
+      </tr>
+    `;
+  }
+
+  function escAttr(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function renderStats() {
+    const total    = rows.length;
+    const bcbs     = rows.filter(r => r.pattern === "bcbs").length;
+    const mcare    = rows.filter(r => r.pattern === "medicare").length;
+    const other    = rows.filter(r => r.pattern === "other").length;
+    const included = rows.filter(r => r.include).length;
+    const sumIncluded = rows.filter(r => r.include).reduce((s, r) => s + r.amount, 0);
+    document.getElementById("bank-stats").innerHTML = `
+      <div class="stat-pill"><div class="lbl">Parsed</div><div class="val">${total}</div></div>
+      <div class="stat-pill ok"><div class="lbl">Included</div><div class="val">${included}</div></div>
+      <div class="stat-pill"><div class="lbl">Sum (included)</div><div class="val">$${sumIncluded.toFixed(2)}</div></div>
+      <div class="stat-pill"><div class="lbl">BCBS</div><div class="val">${bcbs}</div></div>
+      <div class="stat-pill"><div class="lbl">Medicare</div><div class="val">${mcare}</div></div>
+      ${other ? `<div class="stat-pill flag"><div class="lbl">Other (review)</div><div class="val">${other}</div></div>` : ''}
+    `;
+  }
+
+  // ── XLSX writer (SaaSant Bank Deposit) ───────────────────────────
+  async function downloadXlsx() {
+    if (typeof ExcelJS === "undefined") {
+      showToast("XLSX writer didn't load. Hard-refresh and retry.", "error");
+      return;
+    }
+    const incl = rows.filter(r => r.include);
+    if (!incl.length) { showToast("No rows included.", "error"); return; }
+    const cfg = currentSettings();
+    saveSettings();   // persist whatever defaults are in the panel now
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    // Column headers — exact strings SaaSant's Bank Deposit auto-mapper
+    // looks for. If SaaSant balks on a future upload, adjust here; the
+    // mapping is saved by SaaSant after the first manual confirmation,
+    // so subsequent uploads should auto-map.
+    ws.columns = [
+      { header: "Deposit Date",       key: "date", width: 14 },
+      { header: "Deposit To Account", key: "bank", width: 22 },
+      { header: "Received From",      key: "cust", width: 22 },
+      { header: "From Account",       key: "gl",   width: 22 },
+      { header: "Description",        key: "memo", width: 40 },
+      { header: "Amount",             key: "amt",  width: 12 }
+    ];
+    incl.forEach(r => ws.addRow({
+      date: r.date,
+      bank: cfg.bank,
+      cust: r.customer,
+      gl:   r.gl,
+      memo: r.memo,
+      amt:  Number(r.amount.toFixed(2))
+    }));
+    ws.getRow(1).font = { bold: true };
+    // Amount column → currency format
+    ws.getColumn("amt").numFmt = "#,##0.00";
+
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = `Bank_Deposits_${(new Date()).toISOString().slice(0,10)}.xlsx`;
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    showToast(`Downloaded ${fname} — ${incl.length} deposits.`);
+  }
+
+  // ── Reset ────────────────────────────────────────────────────────
+  function resetUI() {
+    rows = [];
+    filterText = "";
+    document.getElementById("bank-row-search").value = "";
+    document.getElementById("bank-preview-card").style.display = "none";
+    document.getElementById("bank-file-input").value = "";
+  }
+
+  // ── Init ─────────────────────────────────────────────────────────
+  function init() {
+    if (initialized) return;
+    initialized = true;
+
+    // Hydrate settings panel from localStorage
+    const cfg = loadSettings();
+    document.getElementById("bank-set-bank").value = cfg.bank;
+    document.getElementById("bank-set-gl").value   = cfg.gl;
+    document.getElementById("bank-set-cust").value = cfg.cust;
+
+    // Settings persist on blur
+    ["bank-set-bank","bank-set-gl","bank-set-cust"].forEach(id => {
+      document.getElementById(id).addEventListener("blur", saveSettings);
+    });
+    document.getElementById("bank-apply-defaults").addEventListener("click", () => {
+      const c = currentSettings();
+      saveSettings();
+      rows.forEach(r => { r.customer = c.cust; r.gl = c.gl; });
+      render();
+      showToast(`Applied defaults to ${rows.length} rows.`);
+    });
+    document.getElementById("bank-clear-settings").addEventListener("click", () => {
+      localStorage.removeItem(LS_KEY);
+      const c = loadSettings();
+      document.getElementById("bank-set-bank").value = c.bank;
+      document.getElementById("bank-set-gl").value   = c.gl;
+      document.getElementById("bank-set-cust").value = c.cust;
+      showToast("Settings reset to defaults.");
+    });
+
+    // Dropzone (avoiding the <label>-double-click bug fixed in PR #64)
+    const dz = document.getElementById("bank-dropzone");
+    const fi = document.getElementById("bank-file-input");
+    dz.addEventListener("click", () => fi.click());
+    dz.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.click(); }
+    });
+    fi.addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      e.target.value = "";   // allow re-selecting the same file
+      if (f) handleFile(f);
+    });
+    ["dragenter","dragover"].forEach(ev =>
+      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("is-dragover"); })
+    );
+    ["dragleave","drop"].forEach(ev =>
+      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("is-dragover"); })
+    );
+    dz.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+
+    // Bulk row tools
+    document.getElementById("bank-include-all").addEventListener("click", () => {
+      rows.forEach(r => r.include = true); render();
+    });
+    document.getElementById("bank-skip-all").addEventListener("click", () => {
+      rows.forEach(r => r.include = false); render();
+    });
+    document.getElementById("bank-include-bcbs").addEventListener("click", () => {
+      rows.forEach(r => r.include = r.pattern === "bcbs"); render();
+    });
+
+    // Row-level edits (delegated)
+    document.getElementById("bank-tbody").addEventListener("change", (e) => {
+      const tr = e.target.closest("tr[data-id]"); if (!tr) return;
+      const row = rows.find(r => r.id === tr.dataset.id); if (!row) return;
+      const action = e.target.dataset.action;
+      if (action === "incl") { row.include = e.target.checked; tr.classList.toggle("bank-row-skip", !row.include); renderStats(); document.getElementById("bank-download-btn").disabled = !rows.some(r => r.include); }
+      else if (action === "cust") row.customer = e.target.value;
+      else if (action === "gl")   row.gl       = e.target.value;
+      else if (action === "memo") row.memo     = e.target.value;
+    });
+
+    // Filter
+    let searchTimer = null;
+    document.getElementById("bank-row-search").addEventListener("input", (e) => {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { filterText = e.target.value.trim(); render(); }, 180);
+    });
+
+    // Download + reset
+    document.getElementById("bank-download-btn").addEventListener("click", downloadXlsx);
+    document.getElementById("bank-reset-btn").addEventListener("click", resetUI);
+  }
+
+  return { init };
+})();
+
 // Initialize VDR + IIF + ATTACH modules after launchApp confirms admin role + when billing view opens
 function maybeInitVdr() {
   if (currentRole === "admin") VDR.init();
   if (currentRole === "admin") IIF.init();
   if (currentRole === "admin") ATTACH.init();
 }
-// Re-init / refresh when switching to billing view
+function maybeInitQbTools() {
+  if (currentRole === "admin") BANK.init();
+}
+// Re-init / refresh when switching to billing or qbtools view
 const _originalSwitchView = switchView;
 switchView = function(viewName, skipPushState) {
   _originalSwitchView(viewName, skipPushState);
   if (viewName === "billing") maybeInitVdr();
+  if (viewName === "qbtools") maybeInitQbTools();
 };
 
 // Hook into launchApp completion (the admin role check is already in launchApp)
@@ -4636,9 +5234,11 @@ const _origLaunchApp = launchApp;
 launchApp = async function(user) {
   await _origLaunchApp(user);
   if (currentRole === "admin") {
-    // If URL deep-links to billing, init immediately
+    // If URL deep-links to billing or qbtools, init the right modules immediately
     const params = new URLSearchParams(location.search);
-    if ((params.get("view") || "landing") === "billing") { VDR.init(); IIF.init(); ATTACH.init(); }
+    const v = params.get("view") || "landing";
+    if (v === "billing") { VDR.init(); IIF.init(); ATTACH.init(); }
+    if (v === "qbtools") { BANK.init(); }
   }
 };
 
