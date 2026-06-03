@@ -884,6 +884,72 @@
   }
   .bank-scan-customer-nudge a { color: var(--accent); text-decoration: underline; font-weight: 700; }
 
+  /* ── Patient Deposit History card ────────────────────────────── */
+  .hist-tools {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin: 14px 0 12px;
+  }
+  .hist-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 11px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    background: #f1f5f9; color: var(--text); border: 1.5px solid transparent;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+  .hist-chip:hover { background: #e2e8f0; }
+  .hist-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .hist-search {
+    flex: 1; min-width: 200px; padding: 7px 11px;
+    border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px;
+    outline: none;
+  }
+  .hist-search:focus { border-color: var(--accent); }
+
+  .hist-table-wrap {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    overflow: auto; max-height: 60vh;
+  }
+  table.hist-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  table.hist-table th {
+    background: #f1f5f9; color: var(--muted); font-size: 10.5px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2; white-space: nowrap;
+  }
+  table.hist-table td { padding: 7px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  table.hist-table tr.is-cleared td { background: #f0fdf4; }
+  table.hist-table tr.is-cleared td:first-child { border-left: 3px solid #22c55e; padding-left: 7px; }
+  table.hist-table tr:hover td { background: #f9fafb; }
+  table.hist-table tr.is-cleared:hover td { background: #ecfdf5; }
+  .hist-col-amt { width: 90px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .hist-col-cn  { width: 110px; }
+  .hist-col-cd  { width: 100px; }
+  .hist-col-sa  { width: 130px; font-size: 11.5px; color: var(--muted); }
+  .hist-col-cl  { width: 170px; }
+  .hist-col-act { width: 80px; text-align: right; }
+  table.hist-table td.hist-col-amt { font-variant-numeric: tabular-nums; }
+  .hist-clear-btn {
+    background: #fef3c7; color: #854d0e; border: 1.5px solid #facc15;
+    padding: 4px 10px; border-radius: 6px; font-size: 11.5px; font-weight: 700;
+    cursor: pointer; white-space: nowrap;
+  }
+  .hist-clear-btn:hover { background: #fde68a; }
+  .hist-cleared-stamp {
+    display: inline-flex; align-items: center; gap: 4px;
+    color: #15803d; font-weight: 700; font-size: 11.5px; cursor: pointer;
+  }
+  .hist-cleared-stamp:hover { color: #b91c1c; }
+  .hist-cleared-stamp:hover::after { content: " (undo)"; opacity: 0.7; font-weight: 600; }
+  .hist-cleared-stamp .hist-cleared-when { color: var(--muted); font-weight: 500; margin-left: 4px; }
+  .hist-del-btn {
+    background: transparent; color: #b91c1c; border: 1px solid #fca5a5;
+    padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 700;
+    cursor: pointer;
+  }
+  .hist-del-btn:hover { background: #fee2e2; }
+  .hist-del-btn.confirm { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+
   /* Primary CTA inside modals (Add to batch) */
   .cpr-modal-footer .btn-primary {
     background: var(--accent); color: #fff; border: 1.5px solid var(--accent);
@@ -1374,11 +1440,48 @@
       </div>
     </div>
 
-    <div class="card" style="background:#f8fafc;">
-      <h3 style="color:var(--muted);">More QB tools to come</h3>
-      <p style="font-size:13px;color:var(--muted);margin:0;line-height:1.55;">
-        This section will grow as we surface more QuickBooks-side helpers (vendor/customer reconciler, 1099 prep, etc.). Each tool lands as its own card, matching the Billing sub-view pattern.
+    <!-- ③ Patient Deposit History — every AR-routed scan from the
+         Bank Match scanner is logged to patient_check_deposits on
+         Add-to-batch. Lets the user track which scanned checks still
+         need to be CLEARED in Strata EMR (a separate workflow). -->
+    <div class="card">
+      <h3>③ Patient Deposit History <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— track which patient checks you've cleared in Strata EMR</span></h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+        Every patient check you scan and add to the Bank Match batch is logged here automatically (only AR-routed scans — carrier checks are excluded). When you've cleared the patient's balance in Strata, click <strong>✓ Cleared</strong> to stamp it. The pending list tells you what's left.
       </p>
+
+      <!-- Stats strip -->
+      <div class="stat-strip" id="hist-stats"></div>
+
+      <!-- Toolbar -->
+      <div class="hist-tools">
+        <span class="hist-chip" data-hist-filter="pending">Pending Strata clear</span>
+        <span class="hist-chip" data-hist-filter="all">All</span>
+        <span class="hist-chip" data-hist-filter="cleared">Cleared only</span>
+        <input type="search" class="hist-search" id="hist-search" placeholder="Search by payer / memo / check#…" />
+        <button type="button" class="btn-secondary" id="hist-refresh">↻ Refresh</button>
+      </div>
+
+      <!-- Table -->
+      <div class="hist-table-wrap">
+        <table class="hist-table" id="hist-table">
+          <thead>
+            <tr>
+              <th>Payer</th>
+              <th class="hist-col-amt">Amount</th>
+              <th class="hist-col-cn">Check #</th>
+              <th class="hist-col-cd">Check Date</th>
+              <th class="hist-col-sa">Scanned</th>
+              <th>Memo</th>
+              <th class="hist-col-cl">Strata cleared</th>
+              <th class="hist-col-act">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="hist-tbody">
+            <tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted);">Loading history…</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
 
     <!-- Scan-a-check modal (lives inside view-qbtools so it's removed
@@ -5534,6 +5637,30 @@ const BANK = (() => {
     render();
     closeScanModal();
     showToast(`Added check from ${payer} ($${amount.toFixed(2)}) → ${gl}.`);
+
+    // Persist AR-routed scans to the Patient Deposit History (Strata
+    // tracking). Carrier-routed scans (Service Income et al) don't
+    // need Strata reconciliation, so we skip them.
+    if (/accounts receivable|^ar$/i.test(gl)) {
+      const isoDate = dateIso || null;
+      db.rpc("insert_patient_check_deposit", {
+        p_payer_name:   payer,
+        p_amount:       amount,
+        p_check_date:   isoDate,
+        p_check_number: checkNo || null,
+        p_memo:         memo || null,
+        p_gl_account:   gl,
+        p_category:     "patient"
+      }).then(({ data, error }) => {
+        if (error) {
+          console.warn("History save failed:", error.message);
+          showToast("Saved to batch, but history log failed: " + error.message, "error");
+          return;
+        }
+        // Refresh the history panel if it's been initialized
+        if (typeof HIST !== "undefined" && HIST.refreshAfterAdd) HIST.refreshAfterAdd();
+      });
+    }
   }
 
   // ── Reset ────────────────────────────────────────────────────────
@@ -5711,6 +5838,193 @@ const BANK = (() => {
   return { init };
 })();
 
+// ══════════════════════════════════════════════════════════════════
+// HIST — Patient Deposit History (③ card under QB Tools)
+// Loads from list_patient_check_deposits, renders the table, handles
+// Strata-cleared toggling + per-row delete. BANK.addScannedRow calls
+// HIST.refreshAfterAdd() when a new AR-routed scan is logged.
+// ══════════════════════════════════════════════════════════════════
+const HIST = (() => {
+  let records = [];
+  let filter  = "pending";     // "pending" | "all" | "cleared"
+  let search  = "";
+  let initialized = false;
+  let searchTimer = null;
+  let deleteConfirmId = null;  // two-click confirm state
+
+  function escHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  // "2026-06-03T15:30:00Z" → "Jun 3, 3:30 PM"
+  function fmtTs(iso) {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    if (isNaN(+d)) return iso;
+    const opts = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+    return d.toLocaleString(undefined, opts);
+  }
+  // "2026-06-03" (DATE) → "06/03/2026"
+  function fmtDate(iso) {
+    if (!iso) return "—";
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+    return m ? `${m[2]}/${m[3]}/${m[1]}` : String(iso);
+  }
+
+  async function load() {
+    const tbody = document.getElementById("hist-tbody");
+    if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted);">Loading…</td></tr>`;
+    const { data, error } = await db.rpc("list_patient_check_deposits", {
+      p_only_pending: filter === "pending",
+      p_search:       search || null,
+      p_limit:        200
+    });
+    if (error) {
+      showToast("History load failed: " + error.message, "error");
+      records = [];
+    } else {
+      records = data || [];
+      // Client-side "cleared" filter (RPC supports pending vs all, not cleared-only)
+      if (filter === "cleared") records = records.filter(r => r.strata_cleared);
+    }
+    render();
+  }
+
+  function render() {
+    renderStats();
+    const tbody = document.getElementById("hist-tbody");
+    if (!records.length) {
+      tbody.innerHTML = `<tr><td colspan="8" style="padding:32px;text-align:center;color:var(--muted);">
+        ${filter === "pending" ? "🎉 No pending checks — everything's cleared in Strata." : "No deposits to show."}
+      </td></tr>`;
+      return;
+    }
+    tbody.innerHTML = records.map(r => rowHtml(r)).join("");
+  }
+
+  function renderStats() {
+    // Stats over what's CURRENTLY filtered + a "total pending" call-out
+    // For total pending, do a lightweight client-side count using all
+    // loaded records if filter is "all", else fall back to length-only.
+    const pendingShown = records.filter(r => !r.strata_cleared).length;
+    const clearedShown = records.filter(r => r.strata_cleared).length;
+    const totalShown   = records.length;
+    const sumPending   = records.filter(r => !r.strata_cleared).reduce((s, r) => s + Number(r.amount || 0), 0);
+    document.getElementById("hist-stats").innerHTML = `
+      <div class="stat-pill"><div class="lbl">Shown</div><div class="val">${totalShown}</div></div>
+      <div class="stat-pill flag"><div class="lbl">Pending Strata</div><div class="val">${pendingShown}</div></div>
+      <div class="stat-pill ok"><div class="lbl">Cleared</div><div class="val">${clearedShown}</div></div>
+      <div class="stat-pill"><div class="lbl">Sum pending</div><div class="val">$${sumPending.toFixed(2)}</div></div>
+    `;
+  }
+
+  function rowHtml(r) {
+    const clearedCell = r.strata_cleared
+      ? `<span class="hist-cleared-stamp" data-action="uncheck" data-id="${r.id}" title="Click to mark as NOT cleared">✓ Cleared <span class="hist-cleared-when">${fmtTs(r.strata_cleared_at)}</span></span>`
+      : `<button class="hist-clear-btn" data-action="check" data-id="${r.id}">Mark cleared in Strata</button>`;
+    const delLabel = deleteConfirmId === r.id ? "Confirm delete" : "🗑";
+    const delClass = deleteConfirmId === r.id ? "hist-del-btn confirm" : "hist-del-btn";
+    return `
+      <tr class="${r.strata_cleared ? 'is-cleared' : ''}" data-id="${escHtml(r.id)}">
+        <td><strong>${escHtml(r.payer_name)}</strong></td>
+        <td class="hist-col-amt">$${Number(r.amount).toFixed(2)}</td>
+        <td>${escHtml(r.check_number || "—")}</td>
+        <td>${fmtDate(r.check_date)}</td>
+        <td class="hist-col-sa">${fmtTs(r.scanned_at)}</td>
+        <td>${escHtml(r.memo || "")}</td>
+        <td>${clearedCell}</td>
+        <td class="hist-col-act"><button class="${delClass}" data-action="delete" data-id="${escHtml(r.id)}">${delLabel}</button></td>
+      </tr>
+    `;
+  }
+
+  async function markCleared(id, cleared) {
+    const { error } = await db.rpc("mark_patient_check_cleared", { p_id: id, p_cleared: cleared });
+    if (error) { showToast("Mark failed: " + error.message, "error"); return; }
+    // Mutate local record without re-fetch
+    const r = records.find(x => x.id === id);
+    if (r) {
+      r.strata_cleared = cleared;
+      r.strata_cleared_at = cleared ? new Date().toISOString() : null;
+    }
+    // Re-apply filter (a newly-cleared row should disappear from "pending")
+    if ((filter === "pending" && cleared) || (filter === "cleared" && !cleared)) {
+      records = records.filter(x => x.id !== id);
+    }
+    render();
+    showToast(cleared ? "Marked cleared." : "Cleared mark removed.");
+  }
+
+  async function deleteRecord(id) {
+    const { error } = await db.rpc("delete_patient_check_deposit", { p_id: id });
+    if (error) { showToast("Delete failed: " + error.message, "error"); return; }
+    records = records.filter(x => x.id !== id);
+    deleteConfirmId = null;
+    render();
+    showToast("Deleted from history.");
+  }
+
+  function init() {
+    if (initialized) return;
+    initialized = true;
+
+    // Filter chips
+    document.querySelectorAll("[data-hist-filter]").forEach(chip => {
+      if (chip.dataset.histFilter === filter) chip.classList.add("active");
+      chip.addEventListener("click", () => {
+        filter = chip.dataset.histFilter;
+        document.querySelectorAll("[data-hist-filter]").forEach(c =>
+          c.classList.toggle("active", c.dataset.histFilter === filter)
+        );
+        load();
+      });
+    });
+
+    // Search
+    document.getElementById("hist-search").addEventListener("input", (e) => {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { search = e.target.value.trim(); load(); }, 250);
+    });
+
+    // Refresh
+    document.getElementById("hist-refresh").addEventListener("click", load);
+
+    // Row actions (delegated)
+    document.getElementById("hist-tbody").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-action]");
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      if (action === "check")    markCleared(id, true);
+      else if (action === "uncheck") markCleared(id, false);
+      else if (action === "delete") {
+        if (deleteConfirmId === id) {
+          deleteRecord(id);
+        } else {
+          deleteConfirmId = id;
+          render();
+          // Auto-reset confirm state after 4s
+          setTimeout(() => {
+            if (deleteConfirmId === id) { deleteConfirmId = null; render(); }
+          }, 4000);
+        }
+      }
+    });
+
+    // Initial load
+    load();
+  }
+
+  // Public: called from BANK.addScannedRow after a successful insert
+  function refreshAfterAdd() {
+    if (initialized) load();
+  }
+
+  return { init, refreshAfterAdd };
+})();
+
 // Initialize VDR + IIF + ATTACH modules after launchApp confirms admin role + when billing view opens
 function maybeInitVdr() {
   if (currentRole === "admin") VDR.init();
@@ -5719,6 +6033,7 @@ function maybeInitVdr() {
 }
 function maybeInitQbTools() {
   if (currentRole === "admin") BANK.init();
+  if (currentRole === "admin") HIST.init();
 }
 // Re-init / refresh when switching to billing or qbtools view
 const _originalSwitchView = switchView;
@@ -5737,7 +6052,7 @@ launchApp = async function(user) {
     const params = new URLSearchParams(location.search);
     const v = params.get("view") || "landing";
     if (v === "billing") { VDR.init(); IIF.init(); ATTACH.init(); }
-    if (v === "qbtools") { BANK.init(); }
+    if (v === "qbtools") { BANK.init(); HIST.init(); }
   }
 };
 
