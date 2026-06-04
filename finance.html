@@ -826,6 +826,58 @@
   .bank-pattern-pill.p-check  { background: #fef9c3; color: #854d0e; border: 1px solid #facc15; }
   .bank-pattern-pill.p-cc     { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
 
+  /* v2: Authorize.net per-batch reconciliation panel */
+  .bank-recon {
+    margin-top: 14px;
+    background: #fafbfd; border: 1px solid var(--border); border-radius: 10px;
+    padding: 0;
+  }
+  .bank-recon > summary {
+    cursor: pointer; padding: 12px 16px;
+    font-size: 13px; font-weight: 700; color: var(--blue);
+    user-select: none; list-style: none;
+  }
+  .bank-recon > summary::-webkit-details-marker { display: none; }
+  .bank-recon > summary::before {
+    content: "▶"; display: inline-block; margin-right: 8px;
+    transition: transform 0.15s; font-size: 10px; color: var(--muted);
+  }
+  .bank-recon[open] > summary::before { transform: rotate(90deg); }
+  .bank-recon-help {
+    font-size: 12px; color: var(--muted); line-height: 1.55;
+    padding: 0 16px 6px; margin: 0;
+  }
+  .bank-recon-list { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .bank-recon-row {
+    display: grid; grid-template-columns: 160px 110px 1fr 140px 120px 120px;
+    gap: 10px; align-items: center;
+    padding: 10px 12px; background: #fff;
+    border: 1px solid var(--border); border-radius: 8px;
+    font-size: 12.5px;
+  }
+  .bank-recon-row.is-complete { border-color: #86efac; background: #f0fdf4; }
+  .bank-recon-row .recon-id { font-weight: 800; color: var(--blue); font-family: ui-monospace, SFMono-Regular, monospace; font-size: 11.5px; }
+  .bank-recon-row .recon-count { color: var(--muted); font-size: 11px; }
+  .bank-recon-row .recon-gross { font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+  .bank-recon-row input {
+    padding: 5px 8px; border: 1.5px solid var(--border); border-radius: 6px;
+    font-size: 12.5px; outline: none; background: #fff; width: 100%;
+  }
+  .bank-recon-row input:focus { border-color: var(--accent); }
+  .bank-recon-row .recon-net {
+    text-align: right; font-weight: 700;
+    font-variant-numeric: tabular-nums; color: var(--muted);
+  }
+  .bank-recon-row.is-complete .recon-net { color: #15803d; }
+  .bank-recon-row .recon-lbl {
+    font-size: 10.5px; color: var(--muted); font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.3px;
+    display: block; margin-bottom: 2px;
+  }
+  @media (max-width: 820px) {
+    .bank-recon-row { grid-template-columns: 1fr 1fr; }
+  }
+
   /* Secondary input alongside the CSV dropzone — the 📷 Scan check entry */
   .bank-input-secondary {
     margin-top: 12px; padding: 12px 14px; background: #fafbfd;
@@ -1456,8 +1508,21 @@
           </table>
         </div>
 
+        <!-- v2: Per-batch fee + funded-date editor for Authorize.net.
+             Renders only when cc batches exist. Lets the user enter the
+             actual bank-credit date + processing fee per Settlement
+             batch so the bank-reconciled XLSX nets to the Chase credit. -->
+        <details class="bank-recon" id="bank-recon" style="display:none;">
+          <summary>▾ Reconcile to bank (per-batch funded date + fee)</summary>
+          <p class="bank-recon-help">
+            Authorize.net's Settlement Date is when they batch the day's charges. The bank gets a NET credit (after ~2.9% fees) 1–5 business days later. Fill in each batch's funded date (from Chase) + total fee — the <em>Download bank-reconciled XLSX</em> below will use those instead and add a negative fee line per batch so each deposit nets to the actual bank credit.
+          </p>
+          <div class="bank-recon-list" id="bank-recon-list"></div>
+        </details>
+
         <div class="actions" style="margin-top:14px;">
           <button id="bank-download-btn" disabled>⬇ Download SaaSant Bank Deposit XLSX</button>
+          <button id="bank-download-recon-btn" class="btn-secondary" disabled style="display:none;" title="Available when every Authorize.net batch has both a funded date and fee filled in below.">⬇ Download bank-reconciled XLSX</button>
           <button id="bank-reset-btn" class="btn-secondary">Reset</button>
         </div>
 
@@ -5460,6 +5525,7 @@ const BANK = (() => {
     }
     renderStats();
     document.getElementById("bank-download-btn").disabled = !rows.some(r => r.include);
+    renderReconcilePanel();   // v2 — refresh batch list + button state
   }
 
   function rowHtml(r) {
@@ -5578,6 +5644,210 @@ const BANK = (() => {
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     showToast(`Downloaded ${fname} — ${incl.length} deposits.`);
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // v2 — Bank reconciliation for Authorize.net batches
+  // Authorize.net's Settlement Date / gross amount don't match what
+  // Chase actually credits — funding happens 1-5 business days later
+  // and the bank credit is net of processing fees. This layer lets
+  // the user enter the funded date + fee per batch so the v2 download
+  // produces deposits that match the bank-feed exactly.
+  // ══════════════════════════════════════════════════════════════════
+  const RECON_LS_KEY = "dcs_finance_bank_recon_v1";   // {[depositNo]: {funded, fee}}
+
+  function loadReconStore() {
+    try { return JSON.parse(localStorage.getItem(RECON_LS_KEY) || "{}"); }
+    catch (e) { return {}; }
+  }
+  function saveReconStore(store) {
+    try { localStorage.setItem(RECON_LS_KEY, JSON.stringify(store)); }
+    catch (e) { /* quota / private mode — non-fatal */ }
+  }
+
+  // Group included cc rows by depositNo to produce the batch list.
+  function ccBatchSummary() {
+    const buckets = {};
+    rows.forEach(r => {
+      if (r.pattern !== "cc" || !r.depositNo) return;
+      if (!buckets[r.depositNo]) {
+        buckets[r.depositNo] = { depositNo: r.depositNo, settledDate: r.date, count: 0, gross: 0 };
+      }
+      buckets[r.depositNo].count++;
+      buckets[r.depositNo].gross += r.amount;
+    });
+    return Object.values(buckets).sort((a, b) =>
+      a.depositNo.localeCompare(b.depositNo)
+    );
+  }
+
+  function renderReconcilePanel() {
+    const panel = document.getElementById("bank-recon");
+    const btn   = document.getElementById("bank-download-recon-btn");
+    const batches = ccBatchSummary();
+    if (!batches.length) {
+      panel.style.display = "none";
+      btn.style.display   = "none";
+      return;
+    }
+    panel.style.display = "block";
+    btn.style.display   = "inline-block";
+
+    const store = loadReconStore();
+    const list = document.getElementById("bank-recon-list");
+    list.innerHTML = batches.map(b => {
+      const entry = store[b.depositNo] || {};
+      const fee = parseFloat(entry.fee);
+      const net = b.gross - (isFinite(fee) ? fee : 0);
+      const complete = !!entry.funded && isFinite(fee);
+      return `
+        <div class="bank-recon-row ${complete ? 'is-complete' : ''}" data-deposit="${escAttr(b.depositNo)}">
+          <div>
+            <span class="recon-lbl">Batch</span>
+            <span class="recon-id">${escHtml(b.depositNo)}</span><br>
+            <span class="recon-count">${b.count} txn${b.count === 1 ? "" : "s"} · settled ${escHtml(b.settledDate)}</span>
+          </div>
+          <div>
+            <span class="recon-lbl">Gross</span>
+            <div class="recon-gross">$${b.gross.toFixed(2)}</div>
+          </div>
+          <div></div>
+          <div>
+            <span class="recon-lbl">Funded date</span>
+            <input type="date" data-recon-field="funded" data-deposit="${escAttr(b.depositNo)}" value="${escAttr(entry.funded || "")}" />
+          </div>
+          <div>
+            <span class="recon-lbl">Fee ($)</span>
+            <input type="number" step="0.01" min="0" data-recon-field="fee" data-deposit="${escAttr(b.depositNo)}" placeholder="0.00" value="${entry.fee || ""}" />
+          </div>
+          <div>
+            <span class="recon-lbl">Net (bank credit)</span>
+            <div class="recon-net">${isFinite(fee) ? "$" + net.toFixed(2) : "—"}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+
+    const allComplete = batches.every(b => {
+      const e = store[b.depositNo] || {};
+      return !!e.funded && isFinite(parseFloat(e.fee));
+    });
+    btn.disabled = !allComplete;
+    btn.title = allComplete
+      ? "Generates the SaaSant Bank Deposit XLSX with funded dates + fee lines per batch."
+      : "Fill in funded date + fee for every Authorize.net batch above to enable.";
+  }
+
+  function onReconInput(e) {
+    const inp = e.target.closest("[data-recon-field]");
+    if (!inp) return;
+    const dep   = inp.dataset.deposit;
+    const field = inp.dataset.reconField;
+    const store = loadReconStore();
+    if (!store[dep]) store[dep] = {};
+    store[dep][field] = inp.value;
+    saveReconStore(store);
+    renderReconcilePanel();   // refresh net hint + button state
+  }
+
+  // ── v2 XLSX writer ───────────────────────────────────────────────
+  // Same column shape as downloadXlsx, but:
+  //  - cc rows use the batch's funded date (not settlement date)
+  //  - one negative fee line appended per batch (fee > 0)
+  //  - non-cc rows pass through unchanged
+  async function downloadXlsxReconciled() {
+    if (typeof ExcelJS === "undefined") {
+      showToast("XLSX writer didn't load. Hard-refresh and retry.", "error");
+      return;
+    }
+    const incl = rows.filter(r => r.include);
+    if (!incl.length) { showToast("No rows included.", "error"); return; }
+
+    const store = loadReconStore();
+    const batches = ccBatchSummary();
+    // Validate every cc batch has funded date + fee. UI prevents click
+    // when missing, but double-check.
+    for (const b of batches) {
+      const e = store[b.depositNo];
+      if (!e || !e.funded || !isFinite(parseFloat(e.fee))) {
+        showToast(`Batch ${b.depositNo} is missing funded date or fee. Open the Reconcile panel.`, "error");
+        return;
+      }
+    }
+
+    const cfg = currentSettings();
+    saveSettings();
+
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.columns = [
+      { header: "Deposit No",           key: "depno", width: 16 },
+      { header: "Date",                 key: "date",  width: 14 },
+      { header: "Deposit To Account",   key: "bank",  width: 22 },
+      { header: "Received From",        key: "cust",  width: 22 },
+      { header: "Line Account",         key: "gl",    width: 22 },
+      { header: "Line Description",     key: "desc",  width: 30 },
+      { header: "Line Payment Method",  key: "pmt",   width: 14 },
+      { header: "Line Ref No",          key: "ref",   width: 16 },
+      { header: "Line Amount",          key: "amt",   width: 12 }
+    ];
+
+    // Write cc rows with the funded date substituted in
+    const fundedDisplay = {};   // depositNo → "MM/DD/YYYY"
+    batches.forEach(b => {
+      const iso = (store[b.depositNo] || {}).funded;   // YYYY-MM-DD
+      if (iso && /^\d{4}-\d{2}-\d{2}$/.test(iso)) {
+        fundedDisplay[b.depositNo] = `${iso.slice(5,7)}/${iso.slice(8,10)}/${iso.slice(0,4)}`;
+      }
+    });
+
+    incl.forEach(r => {
+      const rowDate = (r.pattern === "cc" && fundedDisplay[r.depositNo])
+        ? fundedDisplay[r.depositNo]
+        : r.date;
+      ws.addRow({
+        depno: r.depositNo || "",
+        date:  rowDate,
+        bank:  cfg.bank,
+        cust:  r.customer,
+        gl:    r.gl,
+        desc:  r.description,
+        pmt:   r.pmt,
+        ref:   r.refNo,
+        amt:   Number(r.amount.toFixed(2))
+      });
+    });
+
+    // Append one negative-fee line per batch
+    batches.forEach(b => {
+      const e = store[b.depositNo];
+      const fee = parseFloat(e.fee);
+      if (!isFinite(fee) || fee <= 0) return;
+      ws.addRow({
+        depno: b.depositNo,
+        date:  fundedDisplay[b.depositNo] || b.settledDate,
+        bank:  cfg.bank,
+        cust:  "Authorize.net",
+        gl:    "Bank Service Charges:Credit Card Processing Fee",
+        desc:  `CC processing fee — batch ${b.depositNo}`,
+        pmt:   "",
+        ref:   "",
+        amt:   -Math.abs(fee)
+      });
+    });
+
+    ws.getRow(1).font = { bold: true };
+    ws.getColumn("amt").numFmt = "#,##0.00;-#,##0.00";
+
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = `Bank_Deposits_Reconciled_${(new Date()).toISOString().slice(0,10)}.xlsx`;
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    showToast(`Downloaded ${fname} — bank-reconciled, ${batches.length} batches.`);
   }
 
   // ══════════════════════════════════════════════════════════════════
@@ -5994,7 +6264,14 @@ const BANK = (() => {
 
     // Download + reset
     document.getElementById("bank-download-btn").addEventListener("click", downloadXlsx);
+    document.getElementById("bank-download-recon-btn").addEventListener("click", downloadXlsxReconciled);
     document.getElementById("bank-reset-btn").addEventListener("click", resetUI);
+
+    // v2 reconcile panel — persist fee/funded edits + refresh on input.
+    // Listen on the list container (renderReconcilePanel rewrites
+    // innerHTML so per-row handlers don't survive re-renders).
+    document.getElementById("bank-recon-list").addEventListener("input", onReconInput);
+    document.getElementById("bank-recon-list").addEventListener("change", onReconInput);
 
     // ── Authorize.net CSV dropzone wiring (third input row) ───────
     const adz = document.getElementById("bank-authnet-row");
