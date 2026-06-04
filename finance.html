@@ -824,6 +824,7 @@
   .bank-pattern-pill.p-medicare { background: #dcfce7; color: #14532d; }
   .bank-pattern-pill.p-other  { background: #fef3c7; color: #92400e; }
   .bank-pattern-pill.p-check  { background: #fef9c3; color: #854d0e; border: 1px solid #facc15; }
+  .bank-pattern-pill.p-cc     { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
 
   /* Secondary input alongside the CSV dropzone — the 📷 Scan check entry */
   .bank-input-secondary {
@@ -834,6 +835,9 @@
   .bank-input-secondary button { white-space: nowrap; }
   .bank-input-secondary-hint { flex: 1; min-width: 220px; font-size: 12px; color: var(--muted); line-height: 1.5; }
   .bank-input-secondary-hint code { background: #e5e7eb; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .bank-input-secondary.is-dragover { background: #eff6ff; border-color: var(--accent); border-style: dashed; }
+  #bank-authnet-row { cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+  #bank-authnet-row:hover { background: #eff6ff; border-color: var(--accent); }
 
   /* Scan modal dropzone (inside the modal) */
   .bank-scan-dropzone { padding: 28px 18px; }
@@ -1412,6 +1416,15 @@
           For one-off paper checks (patient co-pays, etc.) — OCR extracts payer / amount / check# / date, you confirm, the row is added to the batch below. Routes to <code>Accounts Receivable</code> by default.
         </span>
       </div>
+
+      <!-- Tertiary input: Authorize.net settled-transactions CSV -->
+      <div class="bank-input-secondary" id="bank-authnet-row">
+        <button type="button" class="btn-secondary" id="bank-authnet-btn">💳 Drop Authorize.net CSV</button>
+        <span class="bank-input-secondary-hint">
+          Settled credit-card batches (export <em>Reports → Transaction Detail → Expanded Fields / Comma Separated</em>). Auto-grouped by Settlement Date so each batch becomes one QB Bank Deposit with multiple lines. Routes to <code>Accounts Receivable</code> (Strata auto-clears the invoice).
+        </span>
+      </div>
+      <input type="file" id="bank-authnet-input" accept=".csv,.xlsx,.xls" style="display:none;" />
 
       <!-- Preview -->
       <div id="bank-preview-card" style="display:none;margin-top:14px;">
@@ -5266,6 +5279,127 @@ const BANK = (() => {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // Authorize.net CSV import (settled-transactions export)
+  // Schema we target: "Expanded Fields / Comma Separated" from
+  // Reports → Transaction Detail. Key columns referenced below.
+  // Each Settlement Date becomes one QB Bank Deposit (multi-line) via
+  // a shared synthetic Deposit No (AUTH-YYYYMMDD).
+  // ══════════════════════════════════════════════════════════════════
+  const AUTHNET_METHOD_MAP = {
+    V: "Visa", M: "Mastercard", A: "Amex", D: "Discover", E: "eCheck", J: "JCB"
+  };
+  function authnetMapMethod(code) {
+    return AUTHNET_METHOD_MAP[String(code || "").trim().toUpperCase()] || "Credit Card";
+  }
+
+  // "04-Feb-2026 08:13:55 AM PST" → "2026-02-04" (ISO date only)
+  function authnetParseDate(s) {
+    const m = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})/.exec(String(s || "").trim());
+    if (!m) return null;
+    const months = {
+      jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+      jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12"
+    };
+    const mm = months[m[2].toLowerCase()];
+    if (!mm) return null;
+    return `${m[3]}-${mm}-${String(m[1]).padStart(2, "0")}`;
+  }
+
+  async function handleAuthnetFile(file) {
+    if (typeof XLSX === "undefined") {
+      showToast("Spreadsheet parser didn't load. Hard-refresh and retry.", "error");
+      return;
+    }
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+      if (!raw.length) {
+        showToast(`No rows found in ${file.name}.`, "error");
+        return;
+      }
+
+      // Filter to settled Charge rows (skip Refund / Decline / Void /
+      // Errored for v1). Refunds would post as negative-amount lines
+      // sharing the same Deposit No — handled later if needed.
+      const charges = raw.filter(r => {
+        const status = String(r["Transaction Status"] || "").trim();
+        return status === "Charge";
+      });
+      if (!charges.length) {
+        showToast(`No "Charge" rows found in ${file.name}. Check that you exported settled transactions (not unsettled).`, "error");
+        return;
+      }
+
+      // Sanity-check currency (we only handle USD in v1)
+      const nonUsd = charges.filter(r => {
+        const c = String(r["Settlement Currency"] || r["Currency"] || "USD").trim().toUpperCase();
+        return c && c !== "USD";
+      });
+      if (nonUsd.length) {
+        showToast(`${nonUsd.length} non-USD rows skipped. Tool only handles USD in v1.`, "error");
+      }
+
+      // Group by Settlement Date (date portion only)
+      const byBatch = {};
+      charges.forEach(r => {
+        const settled = authnetParseDate(r["Settlement Date/Time"]);
+        if (!settled) return;          // skip rows we can't date
+        if (!byBatch[settled]) byBatch[settled] = [];
+        byBatch[settled].push(r);
+      });
+      const batchDates = Object.keys(byBatch).sort();
+      if (!batchDates.length) {
+        showToast(`Couldn't parse any Settlement Date/Time values in ${file.name}.`, "error");
+        return;
+      }
+
+      // Emit one row per charge, sharing a Deposit No per batch
+      const newRows = [];
+      batchDates.forEach(batchDate => {
+        const depositNo  = "AUTH-" + batchDate.replace(/-/g, "");      // AUTH-20260204
+        const dateDispl  = `${batchDate.slice(5,7)}/${batchDate.slice(8,10)}/${batchDate.slice(0,4)}`;
+        byBatch[batchDate].forEach(r => {
+          const amount = parseFloat(r["Settlement Amount"]);
+          if (!isFinite(amount) || amount === 0) return;
+          const first  = String(r["Customer First Name"] || "").trim();
+          const last   = String(r["Customer Last Name"]  || "").trim();
+          const cust   = (first + " " + last).trim() || "Authorize.net customer";
+          const descRef = String(r["Customer ID"] || r["Invoice Number"] || "").trim();
+          newRows.push({
+            id:          "auth-" + (r["Transaction ID"] || (depositNo + "-" + newRows.length)),
+            depositNo,
+            date:        dateDispl,
+            amount,
+            desc:        descRef ? `CC charge — ${descRef}` : "CC charge (Authorize.net)",
+            parsed:      { trace: "", indId: "", eed: "", payableTrn: "", carrier: "" },
+            pattern:     "cc",
+            customer:    cust,
+            gl:          "Accounts Receivable",
+            pmt:         authnetMapMethod(r["Method"]),
+            refNo:       String(r["Transaction ID"] || "").trim(),
+            description: descRef,
+            include:     true
+          });
+        });
+      });
+
+      if (!newRows.length) {
+        showToast(`No usable charges in ${file.name}.`, "error");
+        return;
+      }
+
+      rows.push(...newRows);
+      document.getElementById("bank-preview-card").style.display = "block";
+      render();
+      showToast(`Imported ${newRows.length} Authorize.net charges across ${batchDates.length} batch${batchDates.length === 1 ? "" : "es"}.`);
+    } catch (e) {
+      showToast("Authorize.net parse error: " + e.message, "error");
+    }
+  }
+
   function buildRow(raw, i, defaults) {
     // Tolerate column-name variants. Chase's export uses these exact
     // headers but other banks vary.
@@ -5333,6 +5467,7 @@ const BANK = (() => {
     const patLabel = r.pattern === "bcbs" ? "BCBS"
                    : r.pattern === "medicare" ? "MCARE"
                    : r.pattern === "check" ? "CHECK"
+                   : r.pattern === "cc" ? "CC"
                    : "?";
     return `
       <tr class="${skip}" data-id="${r.id}">
@@ -5363,6 +5498,7 @@ const BANK = (() => {
     const mcare    = rows.filter(r => r.pattern === "medicare").length;
     const other    = rows.filter(r => r.pattern === "other").length;
     const check    = rows.filter(r => r.pattern === "check").length;
+    const cc       = rows.filter(r => r.pattern === "cc").length;
     const included = rows.filter(r => r.include).length;
     const sumIncluded = rows.filter(r => r.include).reduce((s, r) => s + r.amount, 0);
     document.getElementById("bank-stats").innerHTML = `
@@ -5372,6 +5508,7 @@ const BANK = (() => {
       <div class="stat-pill"><div class="lbl">BCBS</div><div class="val">${bcbs}</div></div>
       <div class="stat-pill"><div class="lbl">Medicare</div><div class="val">${mcare}</div></div>
       ${check ? `<div class="stat-pill"><div class="lbl">📷 Checks</div><div class="val">${check}</div></div>` : ''}
+      ${cc ? `<div class="stat-pill"><div class="lbl">💳 CC</div><div class="val">${cc}</div></div>` : ''}
       ${other ? `<div class="stat-pill flag"><div class="lbl">Other (review)</div><div class="val">${other}</div></div>` : ''}
     `;
   }
@@ -5399,26 +5536,34 @@ const BANK = (() => {
     //   "Required parameter Line is missing in the request"
     //
     // Header-level (deposit-wide) columns stay un-prefixed:
-    //   Date · Deposit To Account · Received From
+    //   Deposit No · Date · Deposit To Account · Received From
+    //
+    // `Deposit No` is the explicit batch-grouping key. Rows that
+    // share a Deposit No become one Bank Deposit in QB with N lines.
+    // Blank Deposit No → row posts as its own implicit deposit.
+    // Used today for Authorize.net cc batches (AUTH-YYYYMMDD); ACH
+    // / scanned check rows leave it blank.
     ws.columns = [
-      { header: "Date",                 key: "date", width: 14 },
-      { header: "Deposit To Account",   key: "bank", width: 22 },
-      { header: "Received From",        key: "cust", width: 22 },
-      { header: "Line Account",         key: "gl",   width: 22 },
-      { header: "Line Description",     key: "desc", width: 30 },
-      { header: "Line Payment Method",  key: "pmt",  width: 14 },
-      { header: "Line Ref No",          key: "ref",  width: 16 },
-      { header: "Line Amount",          key: "amt",  width: 12 }
+      { header: "Deposit No",           key: "depno", width: 16 },
+      { header: "Date",                 key: "date",  width: 14 },
+      { header: "Deposit To Account",   key: "bank",  width: 22 },
+      { header: "Received From",        key: "cust",  width: 22 },
+      { header: "Line Account",         key: "gl",    width: 22 },
+      { header: "Line Description",     key: "desc",  width: 30 },
+      { header: "Line Payment Method",  key: "pmt",   width: 14 },
+      { header: "Line Ref No",          key: "ref",   width: 16 },
+      { header: "Line Amount",          key: "amt",   width: 12 }
     ];
     incl.forEach(r => ws.addRow({
-      date: r.date,
-      bank: cfg.bank,
-      cust: r.customer,
-      gl:   r.gl,
-      desc: r.description,
-      pmt:  r.pmt,
-      ref:  r.refNo,
-      amt:  Number(r.amount.toFixed(2))
+      depno: r.depositNo || "",
+      date:  r.date,
+      bank:  cfg.bank,
+      cust:  r.customer,
+      gl:    r.gl,
+      desc:  r.description,
+      pmt:   r.pmt,
+      ref:   r.refNo,
+      amt:   Number(r.amount.toFixed(2))
     }));
     ws.getRow(1).font = { bold: true };
     // Amount column → currency format
@@ -5768,16 +5913,17 @@ const BANK = (() => {
     document.getElementById("bank-apply-defaults").addEventListener("click", () => {
       const c = currentSettings();
       saveSettings();
-      // Scanned-check rows keep their AR + Check defaults — the global
-      // Settings panel only targets BCBS-style ACH rows. Skip pattern="check".
+      // Scanned-check rows + Authorize.net cc rows keep their per-row
+      // defaults — the global Settings panel only targets BCBS-style
+      // ACH rows. Skip pattern="check" and pattern="cc".
       let touched = 0;
       rows.forEach(r => {
-        if (r.pattern === "check") return;
+        if (r.pattern === "check" || r.pattern === "cc") return;
         r.customer = c.cust; r.gl = c.gl; r.pmt = c.pmt;
         touched++;
       });
       render();
-      showToast(`Applied defaults to ${touched} ACH rows (skipped ${rows.length - touched} scanned-check rows).`);
+      showToast(`Applied defaults to ${touched} ACH rows (skipped ${rows.length - touched} scanned-check / cc rows).`);
     });
     document.getElementById("bank-clear-settings").addEventListener("click", () => {
       localStorage.removeItem(LS_KEY);
@@ -5849,6 +5995,32 @@ const BANK = (() => {
     // Download + reset
     document.getElementById("bank-download-btn").addEventListener("click", downloadXlsx);
     document.getElementById("bank-reset-btn").addEventListener("click", resetUI);
+
+    // ── Authorize.net CSV dropzone wiring (third input row) ───────
+    const adz = document.getElementById("bank-authnet-row");
+    const afi = document.getElementById("bank-authnet-input");
+    document.getElementById("bank-authnet-btn").addEventListener("click", (e) => {
+      e.stopPropagation(); afi.click();
+    });
+    adz.addEventListener("click", (e) => {
+      // Don't double-trigger when clicking the button itself
+      if (e.target.closest("#bank-authnet-btn")) return;
+      afi.click();
+    });
+    afi.addEventListener("change", (e) => {
+      const f = e.target.files[0];
+      e.target.value = "";
+      if (f) handleAuthnetFile(f);
+    });
+    ["dragenter","dragover"].forEach(ev =>
+      adz.addEventListener(ev, (e) => { e.preventDefault(); adz.classList.add("is-dragover"); })
+    );
+    ["dragleave","drop"].forEach(ev =>
+      adz.addEventListener(ev, (e) => { e.preventDefault(); adz.classList.remove("is-dragover"); })
+    );
+    adz.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files[0]) handleAuthnetFile(e.dataTransfer.files[0]);
+    });
 
     // ── Scan-check modal wiring ───────────────────────────────────
     document.getElementById("bank-scan-btn").addEventListener("click", openScanModal);
