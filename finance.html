@@ -1515,7 +1515,11 @@
         <details class="bank-recon" id="bank-recon" style="display:none;">
           <summary>▾ Reconcile to bank (per-batch funded date + fee)</summary>
           <p class="bank-recon-help">
-            Authorize.net's Settlement Date is when they batch the day's charges. The bank gets a NET credit (after ~2.9% fees) 1–5 business days later. Fill in each batch's funded date (from Chase) + total fee — the <em>Download bank-reconciled XLSX</em> below will use those instead and add a negative fee line per batch so each deposit nets to the actual bank credit.
+            Authorize.net's Settlement Date is when they batch the day's charges. The bank gets a NET credit (after ~2.9% fees) 1–5 business days later.
+            <br><br>
+            <strong>Required:</strong> Funded date (from Chase) — this becomes each deposit's QB date.
+            <br>
+            <strong>Optional:</strong> Fee (or Net — they're linked). When filled, a negative fee line is appended per batch so the deposit nets to the actual bank credit. Leave both blank to skip fee lines (deposit posts at gross — you'll book CC fees as a separate journal entry).
           </p>
           <div class="bank-recon-list" id="bank-recon-list"></div>
         </details>
@@ -5699,7 +5703,10 @@ const BANK = (() => {
       const entry = store[b.depositNo] || {};
       const fee = parseFloat(entry.fee);
       const net = b.gross - (isFinite(fee) ? fee : 0);
-      const complete = !!entry.funded && isFinite(fee);
+      // Fee is optional. Required minimum to enable the v2 download is
+      // just the funded date — fee blank = no fee line emitted for
+      // that batch (deposit posts at gross).
+      const complete = !!entry.funded;
       return `
         <div class="bank-recon-row ${complete ? 'is-complete' : ''}" data-deposit="${escAttr(b.depositNo)}">
           <div>
@@ -5728,14 +5735,16 @@ const BANK = (() => {
       `;
     }).join("");
 
+    // Fee is optional — only the funded date is required to enable.
+    // Batches without a fee post at gross (no fee line in the XLSX).
     const allComplete = batches.every(b => {
       const e = store[b.depositNo] || {};
-      return !!e.funded && isFinite(parseFloat(e.fee));
+      return !!e.funded;
     });
     btn.disabled = !allComplete;
     btn.title = allComplete
-      ? "Generates the SaaSant Bank Deposit XLSX with funded dates + fee lines per batch."
-      : "Fill in funded date + fee for every Authorize.net batch above to enable.";
+      ? "Generates the SaaSant Bank Deposit XLSX with funded dates. Fee lines appended only for batches where Fee/Net is filled in."
+      : "Fill in the funded date for every Authorize.net batch above to enable. Fee is optional.";
   }
 
   function onReconInput(e) {
@@ -5794,7 +5803,8 @@ const BANK = (() => {
     if (feeInp && feeInp !== active) feeInp.value = isFinite(fee) ? fee.toFixed(2) : "";
     if (netInp && netInp !== active) netInp.value = isFinite(net) ? net.toFixed(2) : "";
 
-    const complete = !!e.funded && isFinite(fee);
+    // Fee optional — funded date alone marks the row complete.
+    const complete = !!e.funded;
     row.classList.toggle("is-complete", complete);
   }
 
@@ -5803,20 +5813,21 @@ const BANK = (() => {
     if (!btn) return;
     const store = loadReconStore();
     const batches = ccBatchSummary();
+    // Fee is optional. Only funded date is required to enable.
     const allComplete = batches.length > 0 && batches.every(b => {
       const e = store[b.depositNo] || {};
-      return !!e.funded && isFinite(parseFloat(e.fee));
+      return !!e.funded;
     });
     btn.disabled = !allComplete;
     btn.title = allComplete
-      ? "Generates the SaaSant Bank Deposit XLSX with funded dates + fee lines per batch."
-      : "Fill in funded date + fee (or net) for every Authorize.net batch above to enable.";
+      ? "Generates the SaaSant Bank Deposit XLSX with funded dates. Fee lines appended only for batches where Fee/Net is filled in."
+      : "Fill in the funded date for every Authorize.net batch above to enable. Fee is optional.";
   }
 
   // ── v2 XLSX writer ───────────────────────────────────────────────
   // Same column shape as downloadXlsx, but:
   //  - cc rows use the batch's funded date (not settlement date)
-  //  - one negative fee line appended per batch (fee > 0)
+  //  - one negative fee line appended per batch when fee > 0 (optional)
   //  - non-cc rows pass through unchanged
   async function downloadXlsxReconciled() {
     if (typeof ExcelJS === "undefined") {
@@ -5828,12 +5839,12 @@ const BANK = (() => {
 
     const store = loadReconStore();
     const batches = ccBatchSummary();
-    // Validate every cc batch has funded date + fee. UI prevents click
-    // when missing, but double-check.
+    // Validate every cc batch has a funded date. Fee is optional —
+    // batches without a fee just emit gross transaction lines.
     for (const b of batches) {
       const e = store[b.depositNo];
-      if (!e || !e.funded || !isFinite(parseFloat(e.fee))) {
-        showToast(`Batch ${b.depositNo} is missing funded date or fee. Open the Reconcile panel.`, "error");
+      if (!e || !e.funded) {
+        showToast(`Batch ${b.depositNo} is missing the funded date. Open the Reconcile panel.`, "error");
         return;
       }
     }
