@@ -848,6 +848,10 @@
     padding: 0 16px 6px; margin: 0;
   }
   .bank-recon-list { padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px; }
+  .bank-recon-tools {
+    padding: 0 16px 14px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .bank-recon-tools-hint { font-size: 11.5px; color: var(--muted); line-height: 1.45; flex: 1; min-width: 240px; }
   .bank-recon-row {
     display: grid; grid-template-columns: 160px 110px 1fr 140px 120px 120px;
     gap: 10px; align-items: center;
@@ -1522,6 +1526,10 @@
             <strong>Optional:</strong> Fee (or Net — they're linked). When filled, a negative fee line is appended per batch so the deposit nets to the actual bank credit. Leave both blank to skip fee lines (deposit posts at gross — you'll book CC fees as a separate journal entry).
           </p>
           <div class="bank-recon-list" id="bank-recon-list"></div>
+          <div class="bank-recon-tools">
+            <button type="button" class="btn-secondary" id="bank-recon-clear-fees">✕ Clear all fees</button>
+            <span class="bank-recon-tools-hint">Wipes Fee + Net inputs from every batch above (keeps funded dates). Use when you want a gross-only export and will book CC fees separately in QB.</span>
+          </div>
         </details>
 
         <div class="actions" style="margin-top:14px;">
@@ -6346,6 +6354,24 @@ const BANK = (() => {
     // innerHTML so per-row handlers don't survive re-renders).
     document.getElementById("bank-recon-list").addEventListener("input", onReconInput);
     document.getElementById("bank-recon-list").addEventListener("change", onReconInput);
+
+    // Clear all fees — wipes Fee values from every loaded batch
+    // (keeps funded dates). Useful when user wants a gross-only
+    // export and books CC fees as a separate journal entry.
+    document.getElementById("bank-recon-clear-fees").addEventListener("click", () => {
+      const store = loadReconStore();
+      let touched = 0;
+      ccBatchSummary().forEach(b => {
+        const e = store[b.depositNo];
+        if (e && (e.fee !== undefined && e.fee !== "")) {
+          delete e.fee;
+          touched++;
+        }
+      });
+      saveReconStore(store);
+      renderReconcilePanel();
+      showToast(touched ? `Cleared fees from ${touched} batch${touched === 1 ? "" : "es"}.` : "No fees to clear.");
+    });
 
     // ── Authorize.net CSV dropzone wiring (third input row) ───────
     const adz = document.getElementById("bank-authnet-row");
