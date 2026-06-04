@@ -5718,11 +5718,11 @@ const BANK = (() => {
           </div>
           <div>
             <span class="recon-lbl">Fee ($)</span>
-            <input type="number" step="0.01" min="0" data-recon-field="fee" data-deposit="${escAttr(b.depositNo)}" placeholder="0.00" value="${entry.fee || ""}" />
+            <input type="number" step="0.01" min="0" data-recon-field="fee" data-deposit="${escAttr(b.depositNo)}" placeholder="0.00" value="${isFinite(fee) ? fee.toFixed(2) : ""}" />
           </div>
           <div>
-            <span class="recon-lbl">Net (bank credit)</span>
-            <div class="recon-net">${isFinite(fee) ? "$" + net.toFixed(2) : "—"}</div>
+            <span class="recon-lbl">Net bank credit ($)</span>
+            <input type="number" step="0.01" min="0" data-recon-field="net" data-deposit="${escAttr(b.depositNo)}" placeholder="0.00" value="${isFinite(fee) ? net.toFixed(2) : ""}" />
           </div>
         </div>
       `;
@@ -5745,9 +5745,72 @@ const BANK = (() => {
     const field = inp.dataset.reconField;
     const store = loadReconStore();
     if (!store[dep]) store[dep] = {};
-    store[dep][field] = inp.value;
+
+    if (field === "funded") {
+      store[dep].funded = inp.value;
+    } else if (field === "fee") {
+      // Direct fee edit — store as-is.
+      store[dep].fee = inp.value;
+    } else if (field === "net") {
+      // Net edit — convert to fee (gross − net) for storage, since
+      // the v2 XLSX writer + persistence layer key off the fee.
+      const batch = ccBatchSummary().find(b => b.depositNo === dep);
+      const netVal = parseFloat(inp.value);
+      if (batch && isFinite(netVal)) {
+        const derivedFee = Math.max(0, batch.gross - netVal);
+        // Round to 2 decimals — float math leaves drift like 29.789999…
+        store[dep].fee = derivedFee.toFixed(2);
+      } else if (inp.value === "") {
+        // User cleared net → also clear fee
+        delete store[dep].fee;
+      }
+    }
+
     saveReconStore(store);
-    renderReconcilePanel();   // refresh net hint + button state
+
+    // SURGICAL update — don't rewrite the list innerHTML (would steal
+    // focus from the input the user is actively typing in). Instead:
+    //   1. Update the "paired" field's value (fee ↔ net)
+    //   2. Toggle the row's is-complete CSS class
+    //   3. Refresh the v2 download button enabled state
+    syncRowFromStore(dep);
+    refreshReconButton();
+  }
+
+  // Update sibling inputs + row class without rebuilding the list.
+  function syncRowFromStore(depositNo) {
+    const row = document.querySelector(`.bank-recon-row[data-deposit="${depositNo.replace(/"/g, '\\"')}"]`);
+    if (!row) return;
+    const store = loadReconStore();
+    const e = store[depositNo] || {};
+    const batch = ccBatchSummary().find(b => b.depositNo === depositNo);
+    const fee = parseFloat(e.fee);
+    const net = (batch && isFinite(fee)) ? (batch.gross - fee) : NaN;
+
+    // Update fee/net inputs except the one user is actively typing in
+    const active = document.activeElement;
+    const feeInp = row.querySelector('[data-recon-field="fee"]');
+    const netInp = row.querySelector('[data-recon-field="net"]');
+    if (feeInp && feeInp !== active) feeInp.value = isFinite(fee) ? fee.toFixed(2) : "";
+    if (netInp && netInp !== active) netInp.value = isFinite(net) ? net.toFixed(2) : "";
+
+    const complete = !!e.funded && isFinite(fee);
+    row.classList.toggle("is-complete", complete);
+  }
+
+  function refreshReconButton() {
+    const btn = document.getElementById("bank-download-recon-btn");
+    if (!btn) return;
+    const store = loadReconStore();
+    const batches = ccBatchSummary();
+    const allComplete = batches.length > 0 && batches.every(b => {
+      const e = store[b.depositNo] || {};
+      return !!e.funded && isFinite(parseFloat(e.fee));
+    });
+    btn.disabled = !allComplete;
+    btn.title = allComplete
+      ? "Generates the SaaSant Bank Deposit XLSX with funded dates + fee lines per batch."
+      : "Fill in funded date + fee (or net) for every Authorize.net batch above to enable.";
   }
 
   // ── v2 XLSX writer ───────────────────────────────────────────────
