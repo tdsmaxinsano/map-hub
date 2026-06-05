@@ -330,6 +330,18 @@
   .alert-tint-amber  .alert-when { background: #fef3c7; color: #92400e; }
   .alert-tint-green  .alert-when { background: #d1fae5; color: #065f46; }
   .alert-tint-blue   .alert-when { background: #dbeafe; color: #1e3a8a; }
+  /* Dismiss ✕ button (currently only on address_changed alerts) */
+  .alert-dismiss {
+    margin-left: 6px;
+    background: transparent; border: 1px solid #cbd5e1; color: #64748b;
+    width: 22px; height: 22px; border-radius: 50%;
+    font-size: 11px; font-weight: 700; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
+    padding: 0;
+  }
+  .alert-dismiss:hover { background: #fee2e2; border-color: #ef4444; color: #b91c1c; }
+  .alert-dismiss:disabled { opacity: 0.4; cursor: wait; }
   .alert-tint-red    { border-left: 3px solid #ef4444; }
   .alert-tint-amber  { border-left: 3px solid #eab308; }
   .alert-tint-green  { border-left: 3px solid #22c55e; }
@@ -925,7 +937,11 @@
     staff_birthday_tomorrow: { icon: "🎂", tint: "blue",  verb: "birthday" },
     staff_vacation_today:    { icon: "🏖", tint: "amber", verb: "vacation" },
     staff_vacation_active:   { icon: "🏖", tint: "blue",  verb: "vacation" },
-    staff_vacation_soon:     { icon: "🏖", tint: "amber", verb: "vacation" }
+    staff_vacation_soon:     { icon: "🏖", tint: "amber", verb: "vacation" },
+    // Bulk-import address-change alert (migration 37). 7-day visibility
+    // window; auto-hides when the linked Roster Verification kanban card
+    // is moved to a done column OR admin clicks ✕ to acknowledge.
+    address_changed:         { icon: "📍", tint: "blue",  verb: "address" }
   };
 
   function fmtDateShort(d) {
@@ -954,6 +970,12 @@
     if (alert.alert_type === "staff_vacation_today")    return "TODAY";
     if (alert.alert_type === "staff_vacation_active")   return "on vacation";
     if (alert.alert_type === "staff_vacation_soon")     return o === 1 ? "tomorrow" : "in " + o + " days";
+    if (alert.alert_type === "address_changed") {
+      const ago = Math.abs(o);
+      if (ago === 0) return "today";
+      if (ago === 1) return "yesterday";
+      return ago + " days ago";
+    }
     return "";
   }
 
@@ -979,6 +1001,7 @@
       case "staff_vacation_today":    return `on vacation today${vacRange}`;
       case "staff_vacation_active":   return `on vacation now${vacRange}`;
       case "staff_vacation_soon":     return `vacation${vacRange}`;
+      case "address_changed":         return `address: ${alert.old_address || "—"} → ${alert.new_address || ""}`;
       default: return reason;
     }
   }
@@ -1136,11 +1159,12 @@
       catch (e) { console.warn("[alerts]", name, "failed:", e && e.message); return []; }
     }
     try {
-      const [pauseRows, bdayRows, staffBdayRows, staffVacRows] = await Promise.all([
+      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, addrChangeRows] = await Promise.all([
         safeRpc("list_pause_alerts"),
         safeRpc("list_birthday_alerts"),
         safeRpc("list_staff_birthday_alerts"),
-        safeRpc("list_staff_vacation_alerts")
+        safeRpc("list_staff_vacation_alerts"),
+        safeRpc("list_address_change_alerts")
       ]);
       // Sort: TODAY alerts first (days_offset/days_until = 0), then by absolute
       // distance ascending so tomorrow's beat in-3-days etc.
@@ -1152,6 +1176,7 @@
         .concat(bdayRows)
         .concat(staffBdayRows)
         .concat(staffVacRows)
+        .concat(addrChangeRows)
         .sort(function(a, b) { return alertSortKey(a) - alertSortKey(b); });
       if (!rows.length) {
         list.innerHTML = "";
@@ -1173,6 +1198,11 @@
         const discColor = isStaff ? "#64748b" : (DISC_COLOR[disc] || "#94a3b8");
         const cid     = isStaff ? "" : (a.clinician_id || "");
         const cls     = "alert-item alert-tint-" + meta.tint + (isStaff ? " alert-staff" : "");
+        // address_changed alerts get a dismiss ✕ wired to acknowledge_address_change.
+        // The data-change-id is the only alert type that uses this attribute today.
+        const dismissBtn = (a.alert_type === "address_changed" && a.change_id)
+          ? `<button type="button" class="alert-dismiss" data-change-id="${escHtml(a.change_id)}" title="Acknowledge (hides this alert)">✕</button>`
+          : "";
         return `
           <li class="${cls}" data-cid="${escHtml(cid)}" data-staff="${isStaff ? "1" : ""}">
             <span class="alert-icon">${meta.icon}</span>
@@ -1184,13 +1214,38 @@
               <div class="alert-msg">${escHtml(buildAlertMessage(a))}</div>
             </div>
             <span class="alert-when">${escHtml(buildWhenLabel(a))}</span>
+            ${dismissBtn}
           </li>
         `;
       }).join("");
 
       // Clicking a clinician alert → Map deep-link. Staff alerts → Time tab.
+      // EXCEPT: the dismiss ✕ button intercepts the click + acks the alert.
       list.querySelectorAll(".alert-item").forEach(li => {
-        li.addEventListener("click", () => {
+        li.addEventListener("click", async (e) => {
+          // ✕ dismiss button — acknowledge + remove from DOM, don't navigate.
+          const dismiss = e.target.closest && e.target.closest(".alert-dismiss");
+          if (dismiss) {
+            e.stopPropagation();
+            const cid_ = dismiss.getAttribute("data-change-id");
+            if (!cid_) return;
+            dismiss.disabled = true;
+            const ackRes = await db.rpc("acknowledge_address_change", { p_change_id: cid_ });
+            if (ackRes.error) {
+              console.warn("[alerts] acknowledge_address_change failed:", ackRes.error.message);
+              dismiss.disabled = false;
+              return;
+            }
+            li.style.transition = "opacity 200ms ease, max-height 200ms ease";
+            li.style.opacity = "0";
+            li.style.maxHeight = li.offsetHeight + "px";
+            setTimeout(() => {
+              li.style.maxHeight = "0";
+              li.style.overflow = "hidden";
+              setTimeout(() => { li.remove(); refreshAlertsCount(); }, 220);
+            }, 0);
+            return;
+          }
           if (li.dataset.staff === "1") {
             shellSwitchTab("time");
           } else {
@@ -1199,6 +1254,13 @@
           }
         });
       });
+
+      // Helper to update the alert count chip after a row removal
+      function refreshAlertsCount() {
+        const remaining = list.querySelectorAll(".alert-item").length;
+        count.textContent = remaining ? remaining + " active" : "";
+        if (!remaining) empty.style.display = "";
+      }
     } catch (e) {
       console.warn("[alerts] load failed:", e && e.message);
       list.innerHTML = "";
