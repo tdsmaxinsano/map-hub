@@ -417,6 +417,16 @@
   .cpr-src-derived { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
   .cpr-src-unknown { background: #ffebee; color: #b71c1c; border: 1px solid #ffcdd2; }
 
+  /* Med B-only chip — clinicians in the audit only because of Strata
+     (no TB Pay this period). Indigo tint distinguishes from green Med B amount. */
+  .cpr-medb-only-chip {
+    display: inline-block; vertical-align: middle; margin-left: 4px;
+    font-size: 9.5px; font-weight: 700; letter-spacing: 0.3px;
+    padding: 1px 6px; border-radius: 6px;
+    background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9;
+    text-transform: uppercase;
+  }
+
   /* Med B (migration 34) — Strata pay column. Distinct green tint when > 0.  */
   .cpr-clin-table td.col-medb  {
     width: 110px; text-align: right; font-variant-numeric: tabular-nums; font-size: 13.5px;
@@ -2507,6 +2517,11 @@ function openCprModal() {
       if (cprPrepared) renderCprImportPreview();
     }
   });
+  // Fetch the portal roster so the unmatched-name dropdown can offer
+  // Med B-only clinicians (no TB activity this period).
+  cprFetchRoster().then(function() {
+    if (cprPreparedMedb && cprPrepared) renderCprImportPreview();
+  });
 }
 function closeCprModal() {
   document.getElementById("cpr-modal-overlay").style.display = "none";
@@ -2581,6 +2596,35 @@ let cprRateEdits = new Map();
 // unmatched. mergePayAndMedb stays oblivious to aliases.
 let cprAliasMap = new Map();
 let cprAliasPending = new Map();
+
+// Full portal roster (clinician_v2) — fetched on import-modal open so
+// the unmatched-name dropdown can offer ANY active clinician, even
+// those without TB activity this period (Med B-only case). Each row:
+//   { name: string, discipline: string, lookup_key: string }
+let cprRoster = [];
+
+// Fetches the full portal roster. Non-fatal — empty roster on failure.
+async function cprFetchRoster() {
+  try {
+    const { data, error } = await db
+      .from("clinician_v2")
+      .select("name, discipline")
+      .order("name");
+    if (error) throw error;
+    cprRoster = (data || [])
+      .filter(function(r) { return r && r.name && r.discipline; })
+      .map(function(r) {
+        return {
+          name:       r.name,
+          discipline: r.discipline,
+          lookup_key: cprClinLookupKey(r.name)
+        };
+      });
+  } catch (err) {
+    console.warn("[cpr] roster fetch failed:", err && err.message);
+    cprRoster = [];
+  }
+}
 
 function showCprMedbError(html) {
   const el = document.getElementById("cpr-medb-error");
@@ -2776,9 +2820,11 @@ function cprApplyAliases(stratapayload) {
   });
 }
 
-// Builds the list of TB clinicians (this audit / this import) as
-// dropdown options. Returns: [{value: lookup_key, label: "Name (Disc)"}, ...]
-// Sorted alphabetically by label.
+// Builds the dropdown options for the unmatched-name picker. Includes
+// BOTH (a) clinicians from THIS audit's TB perClin (the common case)
+// AND (b) every other roster clinician (Med B-only case). Roster-only
+// entries are tagged "· roster" so admin can tell them apart.
+// Returns: [{value: lookup_key, label, rosterOnly}, ...] sorted by label.
 function cprTbClinicianOptions(perClinPayload) {
   const seen = new Set();
   const opts = [];
@@ -2787,8 +2833,20 @@ function cprTbClinicianOptions(perClinPayload) {
     if (!k || seen.has(k)) return;
     seen.add(k);
     opts.push({
-      value: k,
-      label: (cprTitleCase(c.clinician) || c.clinician) + (c.discipline ? " (" + c.discipline + ")" : "")
+      value:      k,
+      label:      (cprTitleCase(c.clinician) || c.clinician) + (c.discipline ? " (" + c.discipline + ")" : ""),
+      rosterOnly: false
+    });
+  });
+  // Append roster clinicians not already in TB perClin. Med B-only
+  // clinicians (no TB activity this period) live here.
+  cprRoster.forEach(function(r) {
+    if (!r.lookup_key || seen.has(r.lookup_key)) return;
+    seen.add(r.lookup_key);
+    opts.push({
+      value:      r.lookup_key,
+      label:      cprTitleCase(r.name) + " (" + r.discipline + ") · roster",
+      rosterOnly: true
     });
   });
   opts.sort(function(a, b) { return a.label.localeCompare(b.label); });
@@ -2863,6 +2921,24 @@ async function cprParseStrataPdf(arrayBuffer) {
            lc.indexOf("staff productivity report") >= 0 ||
            lc.indexOf("revenue metrics") >= 0 ||
            lc.indexOf("cpt copyright") >= 0;
+  }
+  // Multi-line name combine — Strata renders long names across two
+  // lines (e.g. "Magdalena\nChowaniec PTA" or "Glenn S Gayondato\n(PT)").
+  // If the prior line is a short alphabetic fragment (just letters,
+  // hyphens, apostrophes, periods, spaces) and the current line is a
+  // staff line, prepend the prior into the current and blank the prior
+  // so subsequent loops ignore it.
+  const NAME_FRAGMENT_RE = /^[A-Za-z][A-Za-z\-'\. ]{0,40}$/;
+  for (let i = 1; i < lines.length; i++) {
+    const cur  = lines[i];
+    const prev = lines[i - 1];
+    if (!cur || !prev) continue;
+    if (!isStaffLine(cur)) continue;
+    if (isStaffLine(prev)) continue;         // prior line is already a full name
+    if (isBoilerplate(prev)) continue;
+    if (!NAME_FRAGMENT_RE.test(prev)) continue;
+    lines[i] = prev + " " + cur;
+    lines[i - 1] = "";
   }
   // Recognize a CPT-code line tail like "97140 x" (Strata uses 5-digit
   // CPT codes followed by "x" to introduce a unit-breakdown count).
@@ -3082,33 +3158,40 @@ function mergePayAndMedb(perClin, medbPayload, rateMap, rateEdits) {
   // Index TB clinicians by lookup_key
   const tbByKey = Object.create(null);
   perClin.forEach(function(c) { tbByKey[cprClinLookupKey(c.clinician)] = c; });
+  // Index roster clinicians by lookup_key (for Med B-only detection)
+  const rosterByKey = Object.create(null);
+  cprRoster.forEach(function(r) { if (r.lookup_key) rosterByKey[r.lookup_key] = r; });
   // Sum Strata visits by lookup_key
   const visitsByKey = Object.create(null);
   medbPayload.rows.forEach(function(m) {
     if (!m.lookup_key) return;
     visitsByKey[m.lookup_key] = (visitsByKey[m.lookup_key] || 0) + (Number(m.visits_billed) || 0);
   });
+  // Unmatched = Strata rows neither in TB nor in roster (truly orphaned).
+  // Roster-only Strata rows BECOME Med B-only entries below.
   const unmatched = [];
   medbPayload.rows.forEach(function(m) {
-    if (!tbByKey[m.lookup_key]) {
-      unmatched.push({ name: m.clinician_raw, visits: m.visits_billed });
-    }
+    if (tbByKey[m.lookup_key])     return;
+    if (rosterByKey[m.lookup_key]) return;
+    unmatched.push({ name: m.clinician_raw, visits: m.visits_billed });
   });
+
   let total = 0;
+  // Resolve rate for a given lookup_key — admin edit wins, then memory.
+  function resolveRate(k) {
+    if (safeEdits.has(k)) return { rate: Number(safeEdits.get(k)) || 0, source: "manual_override" };
+    const r = safeMap.get(k);
+    if (r) return { rate: r.rate, source: r.source };
+    return { rate: null, source: null };
+  }
+
+  // (1) Existing TB rows + their Med B amounts
   const out = perClin.map(function(c) {
     const k = cprClinLookupKey(c.clinician);
     const visits = visitsByKey[k] || 0;
-    // Rate precedence: explicit admin edit → memory/derived map → null
-    let rate = null, source = null;
-    if (safeEdits.has(k)) {
-      rate = Number(safeEdits.get(k)) || 0;
-      source = "manual_override";
-    } else {
-      const r = safeMap.get(k);
-      if (r) { rate = r.rate; source = r.source; }
-    }
-    const amt = visits > 0 && rate != null
-      ? Math.round(visits * rate * 100) / 100
+    const r = resolveRate(k);
+    const amt = visits > 0 && r.rate != null
+      ? Math.round(visits * r.rate * 100) / 100
       : 0;
     total += amt;
     return Object.assign({}, c, {
@@ -3116,11 +3199,43 @@ function mergePayAndMedb(perClin, medbPayload, rateMap, rateEdits) {
       medb_source: amt > 0 ? "Strata" : null
     });
   });
+  // (2) Med B-only rows — roster clinicians with Strata activity but
+  // no TB entry this period. Created with pay_total = 0 + medb_total
+  // computed from visits × rate. Tagged `_medb_only: true` so the UI
+  // can show a "Med B only" chip.
+  const medbOnlyKeys = new Set();
+  medbPayload.rows.forEach(function(m) {
+    if (tbByKey[m.lookup_key]) return;             // covered by (1)
+    if (medbOnlyKeys.has(m.lookup_key)) return;
+    const rosterHit = rosterByKey[m.lookup_key];
+    if (!rosterHit) return;                         // truly unmatched
+    medbOnlyKeys.add(m.lookup_key);
+    const visits = visitsByKey[m.lookup_key] || 0;
+    const r = resolveRate(m.lookup_key);
+    const amt = visits > 0 && r.rate != null
+      ? Math.round(visits * r.rate * 100) / 100
+      : 0;
+    total += amt;
+    out.push({
+      clinician:       rosterHit.name,
+      discipline:      rosterHit.discipline,
+      visits:          0,
+      payable:         0,
+      nonpayable:      0,
+      pay_total:       0,
+      expenses_total:  0,
+      adjustments:     [],
+      medb_total:      amt,
+      medb_source:     amt > 0 ? "Strata" : null,
+      _medb_only:      true
+    });
+  });
+
   return {
     perClin:             out,
     total_medb:          Math.round(total * 100) / 100,
     unmatched:           unmatched,
-    per_clinician_rates: cprBuildRateRows(perClin, safeMap, safeEdits)
+    per_clinician_rates: cprBuildRateRows(out, safeMap, safeEdits)
   };
 }
 
@@ -3574,11 +3689,10 @@ function renderCprImportPreview() {
     (showMedbCol ? '<th class="cpr-num">Strata Vis</th><th class="cpr-num">Med B</th><th class="cpr-num">Total</th>' : '') +
   '</tr></thead><tbody>';
 
-  // Build name → medb_total / rate-meta lookups from the merged payload
-  const medbByName = Object.create(null);
-  previewMerged.perClin.forEach(function(c) { medbByName[c.clinician] = Number(c.medb_total) || 0; });
-
-  p.per_clinician_payload.forEach(function(c) {
+  // Iterate the MERGED per-clinician list — this includes Med B-only
+  // rows (roster clinicians with no TB activity this period) which
+  // mergePayAndMedb appends after the TB rows.
+  previewMerged.perClin.forEach(function(c) {
     const k         = cprClinLookupKey(c.clinician);
     const rateMeta  = cprRateMap.get(k);
     const editedRt  = cprRateEdits.has(k) ? Number(cprRateEdits.get(k)) : null;
@@ -3593,15 +3707,17 @@ function renderCprImportPreview() {
       cprRateSourcePill(pillKind);
 
     const strataV = strataByKey[k] || 0;
-    const m       = medbByName[c.clinician] || 0;
+    const m       = Number(c.medb_total) || 0;
     const t       = c.pay_total + m;
     const strataCells = showMedbCol
       ? '<td class="cpr-num"' + (strataV > 0 ? '' : ' style="color:#cbd5e1;"') + '>' + (strataV || 0) + '</td>' +
         '<td class="cpr-num"' + (m > 0 ? ' style="color:#1B5E20;font-weight:700;"' : ' style="color:#cbd5e1;"') + '>' + (m > 0 ? cprFmtMoney(m) : '$0.00') + '</td>' +
         '<td class="cpr-num" style="font-weight:700;">' + cprFmtMoney(t) + '</td>'
       : '';
+    const medbOnlyTag = c._medb_only
+      ? ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only</span>' : '';
     html += '<tr>' +
-      '<td>' + escHtml(c.clinician) + '</td>' +
+      '<td>' + escHtml(c.clinician) + medbOnlyTag + '</td>' +
       '<td>' + escHtml(c.discipline || "") + '</td>' +
       '<td class="cpr-num">' + c.visits + '</td>' +
       '<td class="cpr-num">' + cprFmtMoney(c.pay_total) + '</td>' +
@@ -3658,10 +3774,13 @@ function cprOnAliasPickerChange(e) {
     // User selected "Skip" — clear any pending alias for this Strata key.
     cprAliasPending.delete(strataKey);
   } else {
-    // Find the TB display from the audit/import payload
+    // Display name: prefer the TB row's name (this audit), then roster, then fall back to the key.
     const matchedTb = (cprPrepared ? cprPrepared.per_clinician_payload : [])
       .find(function(c) { return cprClinLookupKey(c.clinician) === tbKey; });
-    const tbDisplay = matchedTb ? matchedTb.clinician : tbKey;
+    const rosterHit = cprRoster.find(function(r) { return r.lookup_key === tbKey; });
+    const tbDisplay = matchedTb ? matchedTb.clinician
+                     : rosterHit ? rosterHit.name
+                     : tbKey;
     cprAliasPending.set(strataKey, {
       tb_lookup_key:  tbKey,
       tb_display:     tbDisplay,
@@ -4333,7 +4452,9 @@ function cprRenderDetail() {
     const totalCombined = c.pay_total + medbAmt;
     html += '<tr class="cpr-clin-row ' + (exp ? "is-open" : "") + ' ' + rowFlagCls + '" data-cidx="' + idx + '">' +
       '<td class="col-caret">' + (exp ? '▾' : '▸') + '</td>' +
-      '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + payChip + flagBadge + llcLine + '</td>' +
+      '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + payChip + flagBadge +
+        (c._medb_only ? ' <span class="cpr-medb-only-chip" title="No TB Pay this period — Med B only">Med B only</span>' : '') +
+        llcLine + '</td>' +
       '<td class="col-disc"><span>' + escHtml(c.discipline || "—") + '</span></td>' +
       '<td class="col-vc">' + escHtml(vcLabel) + '</td>' +
       '<td class="col-pay">' + cprFmtMoney(c.pay_total) + deltaHtml + '</td>' +
@@ -4918,6 +5039,11 @@ function cprOpenMedbRetro() {
       renderCprMedbRetroPreview();
     }
   });
+  // Fetch the portal roster so the unmatched-name dropdown can offer
+  // Med B-only clinicians (no TB activity this period).
+  cprFetchRoster().then(function() {
+    if (cprMedbRetroParsed) renderCprMedbRetroPreview();
+  });
 }
 
 function cprCloseMedbRetro() {
@@ -5105,7 +5231,10 @@ function cprOnRetroAliasPickerChange(e) {
     const audit = cprViewState.run;
     const matchedTb = audit && (audit.per_clinician_payload || [])
       .find(function(c) { return cprClinLookupKey(c.clinician) === tbKey; });
-    const tbDisplay = matchedTb ? matchedTb.clinician : tbKey;
+    const rosterHit = cprRoster.find(function(r) { return r.lookup_key === tbKey; });
+    const tbDisplay = matchedTb ? matchedTb.clinician
+                     : rosterHit ? rosterHit.name
+                     : tbKey;
     cprAliasPending.set(strataKey, {
       tb_lookup_key:  tbKey,
       tb_display:     tbDisplay,
@@ -5128,12 +5257,13 @@ function cprApplyMedbRetro() {
     if (!row.lookup_key) return;
     visitsByKey[row.lookup_key] = (visitsByKey[row.lookup_key] || 0) + (Number(row.visits_billed) || 0);
   });
-  // Walk every clinician in the period; assign Med B for matches,
-  // ZERO out any prior Med B for clinicians NOT in the Strata file
-  // (a fresh Strata import should fully replace, not stack on, prior
-  // Med B numbers — same semantics as a re-import via the main flow).
+  // (1) Walk every existing clinician in the period; assign Med B for
+  // matches, ZERO out any prior Med B for clinicians NOT in the Strata
+  // file (fresh Strata import = full replace, not stack).
+  const existingKeys = new Set();
   (r.per_clinician_payload || []).forEach(function(c) {
     const k = cprClinLookupKey(c.clinician);
+    existingKeys.add(k);
     const sv = visitsByKey[k] || 0;
     if (sv === 0) {
       c.medb_total = 0;
@@ -5149,6 +5279,32 @@ function cprApplyMedbRetro() {
     }
     c.medb_total  = Math.round(sv * rate * 100) / 100;
     c.medb_source = "Strata";
+  });
+  // (2) NEW: append Med B-only rows for roster clinicians mapped via
+  // alias to a Strata entry but not present in this audit's TB perClin.
+  cprMedbRetroParsed.rows.forEach(function(srow) {
+    const k = srow.lookup_key;
+    if (!k || existingKeys.has(k)) return;
+    const rosterHit = cprRoster.find(function(rc) { return rc.lookup_key === k; });
+    if (!rosterHit) return;   // unmatched & not in roster → skip
+    existingKeys.add(k);
+    const sv = visitsByKey[k] || 0;
+    const meta = rateMap.get(k);
+    const rate = meta ? meta.rate : null;
+    const amt  = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
+    r.per_clinician_payload.push({
+      clinician:       rosterHit.name,
+      discipline:      rosterHit.discipline,
+      visits:          0,
+      payable:         0,
+      nonpayable:      0,
+      pay_total:       0,
+      expenses_total:  0,
+      adjustments:     [],
+      medb_total:      amt,
+      medb_source:     amt > 0 ? "Strata" : null,
+      _medb_only:      true
+    });
   });
   cprViewState.dirty = true;
   // Stash the rateMap snapshot so the post-save persistence call uses
