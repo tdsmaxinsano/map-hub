@@ -12,6 +12,16 @@
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <!-- Chart.js — inline preview + trend charts -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<!-- PDF.js (legacy build 3.11.174 — last stable UMD release; 4.x is ESM-only).
+     Used by the Strata Med B PDF parser. Exposes window.pdfjsLib.
+     Worker URL must be set BEFORE getDocument(); we do it inline right after load. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script>
+  if (window.pdfjsLib) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  }
+</script>
 <style>
   :root {
     --blue: #0b1f44;
@@ -386,8 +396,36 @@
   .cpr-clin-table td.col-disc  span { background: #f1f5f9; padding: 2px 8px; border-radius: 10px; }
   .cpr-clin-table td.col-vc    { width: 180px; color: var(--muted); font-size: 12px; text-align: right; }
   .cpr-clin-table td.col-pay   {
-    width: 150px; text-align: right; font-weight: 800; color: var(--blue);
+    width: 130px; text-align: right; font-weight: 800; color: var(--blue);
     font-variant-numeric: tabular-nums; font-size: 14px;
+  }
+  /* Rate input + source pill (migration 35) — used in import preview only */
+  .cpr-rate-input {
+    width: 64px; padding: 2px 5px; font-size: 12px;
+    border: 1px solid #cbd5e1; border-radius: 5px;
+    text-align: right; font-variant-numeric: tabular-nums;
+    background: #fff;
+  }
+  .cpr-rate-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px #c7d8ff; }
+  .cpr-src-pill {
+    display: inline-block; padding: 0 5px; font-size: 9.5px; font-weight: 700;
+    border-radius: 6px; vertical-align: middle; letter-spacing: 0.3px;
+    text-transform: uppercase; line-height: 14px;
+  }
+  .cpr-src-memory  { background: #e1f5fe; color: #01579b; border: 1px solid #b3e5fc; }
+  .cpr-src-manual  { background: #fff3e0; color: #b25c00; border: 1px solid #ffd180; }
+  .cpr-src-derived { background: #f1f5f9; color: #475569; border: 1px solid #e2e8f0; }
+  .cpr-src-unknown { background: #ffebee; color: #b71c1c; border: 1px solid #ffcdd2; }
+
+  /* Med B (migration 34) — Strata pay column. Distinct green tint when > 0.  */
+  .cpr-clin-table td.col-medb  {
+    width: 110px; text-align: right; font-variant-numeric: tabular-nums; font-size: 13.5px;
+  }
+  /* Combined Pay + Med B column. Bold/black to read as the bottom line. */
+  .cpr-clin-table td.col-total {
+    width: 140px; text-align: right; font-weight: 800; color: #1E3A5F;
+    font-variant-numeric: tabular-nums; font-size: 14px;
+    border-left: 1px solid #e6eef8;
   }
   /* Expansion sub-row */
   .cpr-clin-table tr.cpr-expand-row td { background: #fafbfc; padding: 12px 14px; border-bottom: 1px solid #edf1f7; }
@@ -2243,6 +2281,23 @@ document.addEventListener("DOMContentLoaded", function() {
       if (f) handleCprFile(f);
     });
   }
+  // Strata Med B dropzone (migration 34) — optional second pay stream.
+  // Mirrors the TB dropzone wiring; routes to handleCprMedbFile().
+  const cprMedbDz = document.getElementById("cpr-medb-dropzone");
+  if (cprMedbDz) {
+    cprMedbDz.addEventListener("dragover",  function(e) { e.preventDefault(); cprMedbDz.classList.add("is-dragover"); });
+    cprMedbDz.addEventListener("dragleave", function()  { cprMedbDz.classList.remove("is-dragover"); });
+    cprMedbDz.addEventListener("drop", function(e) {
+      e.preventDefault(); cprMedbDz.classList.remove("is-dragover");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleCprMedbFile(f);
+    });
+    const cprMedbFi = document.getElementById("cpr-medb-file-input");
+    if (cprMedbFi) cprMedbFi.addEventListener("change", function(e) {
+      const f = e.target.files && e.target.files[0];
+      if (f) handleCprMedbFile(f);
+    });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -2252,6 +2307,17 @@ document.addEventListener("DOMContentLoaded", function() {
 // per-run drill-down view.
 // ══════════════════════════════════════════════════════════════════
 let cprPrepared = null;   // parsed + aggregated payload, ready to save
+
+// Strata Med B (migration 34) — optional second pay stream merged into
+// the same audit. Shape when populated:
+//   {
+//     rows: [{ clinician_raw, lookup_key, medb_total }, ...],
+//     total: <sum of all medb_total>,
+//     source_filename: <string>,
+//     unmatched: []   // populated at merge time (names with no TB match)
+//   }
+// Null when the user hasn't dropped a Strata file (Med B = $0 for all).
+let cprPreparedMedb = null;
 
 // TB Prepare-payroll column positions are fixed (headerless on row 1,
 // row 2+ are data). Indices match the exploration of the sample file.
@@ -2389,10 +2455,16 @@ function cprTitleCase(s) {
 
 function openCprModal() {
   cprPrepared = null;
+  cprPreparedMedb = null;
+  cprRateMap = new Map();
+  cprRateEdits = new Map();
   document.getElementById("cpr-import-preview").style.display = "none";
   document.getElementById("cpr-import-error").style.display = "none";
   document.getElementById("cpr-import-confirm-btn").disabled = true;
   document.getElementById("cpr-file-input").value = "";
+  const mfi = document.getElementById("cpr-medb-file-input"); if (mfi) mfi.value = "";
+  const merr = document.getElementById("cpr-medb-error"); if (merr) merr.style.display = "none";
+  renderCprMedbStatus();
   document.getElementById("cpr-modal-overlay").style.display = "flex";
 }
 function closeCprModal() {
@@ -2404,6 +2476,459 @@ function showCprError(html) {
   el.style.display = "block";
   document.getElementById("cpr-import-confirm-btn").disabled = true;
   cprPrepared = null;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Strata Med B — Phase 2 (PDF parser + learned per-clinician rate)
+// ══════════════════════════════════════════════════════════════════
+//
+// Strata exports its productivity report as PDF only. The PDF carries
+// (Staff Name, Discipline, Visits Billed) per clinician but NOT the
+// per-clinician pay amount (Strata has no rates configured for
+// therapists). So we compute Med B per clinician as:
+//
+//     medb_total = strata_visits_billed × per_visit_rate
+//
+// per_visit_rate comes from TB's own per-visit Pay column. Lookup
+// precedence:
+//   1. Memory hit (table `clinician_medb_rates`, migration 35)
+//   2. Discipline-aware derivation from current-period TB visits:
+//        • assistants  → MODE of TB pay values (only do follow-ups)
+//        • supervisors → LOWEST non-zero distinct TB pay value
+//          (drop the high-rate eval rows)
+//   3. Manual override at import time (admin edits a row's rate)
+//   4. NULL → render "⚠ rate unknown" + Med B = $0
+//
+// Memory is auto-refreshed on every TB import (regardless of Strata
+// file) so the cache stays current as rates shift period over period.
+
+// Assistant discipline codes — these clinicians only do follow-up
+// (treatment) visits in TB, never evals, so MODE is the right rate.
+const CPR_ASSISTANT_DISCIPLINES = new Set([
+  "PTA", "OTA", "STA", "COTA", "SLPA", "LPN", "CNA", "HHA"
+]);
+
+// Disciplines we recognize when reading the Strata PDF. Order matters
+// for the alternation in the regex — longer codes first so e.g. "PTA"
+// matches before "PT".
+const CPR_KNOWN_DISCIPLINES = [
+  "COTA", "SLPA", "PTA", "OTA", "STA", "SLP", "OTR", "DPT",
+  "PT", "OT", "ST", "RN", "LPN", "CNA", "HHA", "MD", "DO", "NP", "PA"
+];
+const CPR_DISC_RE_GROUP = CPR_KNOWN_DISCIPLINES.join("|");
+
+// Module-level rate map populated on every TB import:
+//   Map<lookup_key, { rate: number|null, source: string, discipline: string }>
+// source ∈ 'memory_hit' / 'derived_assistant_mode' / 'derived_supervisor_min' /
+//          'manual_override' / null
+let cprRateMap = new Map();
+// Tracks lookup_keys that were manually edited in the current preview,
+// so on save we mark them source='manual_override'.
+let cprRateEdits = new Map();
+
+function showCprMedbError(html) {
+  const el = document.getElementById("cpr-medb-error");
+  if (!el) return;
+  el.innerHTML = html;
+  el.style.display = "block";
+  cprPreparedMedb = null;
+  renderCprMedbStatus();
+}
+
+function renderCprMedbStatus() {
+  const el = document.getElementById("cpr-medb-status");
+  if (!el) return;
+  if (!cprPreparedMedb) {
+    el.style.color = "var(--muted)";
+    el.textContent = "● No Strata file yet — Med B will be saved as $0 for every clinician.";
+    return;
+  }
+  el.style.color = "#1B5E20";
+  const totalV = cprPreparedMedb.total_visits || 0;
+  el.innerHTML = "● Loaded <strong>" + cprPreparedMedb.rows.length + "</strong> clinician" +
+    (cprPreparedMedb.rows.length === 1 ? "" : "s") + " · <strong>" + totalV + "</strong> total visits" +
+    (cprPreparedMedb.source_filename ? ' <span style="color:var(--muted);">(' + escHtml(cprPreparedMedb.source_filename) + ')</span>' : '');
+}
+
+// ── Rate-derivation helpers (pure, client-side) ─────────────────
+//
+// MODE of a numeric array (ignoring NaN/null). Returns the most-common
+// value, breaking ties by picking the lowest value. Used for assistant
+// discipline rate derivation.
+function cprModeNonzero(vals) {
+  const counts = new Map();
+  vals.forEach(function(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return;
+    counts.set(n, (counts.get(n) || 0) + 1);
+  });
+  if (!counts.size) return null;
+  let bestVal = null, bestCount = -1;
+  counts.forEach(function(c, v) {
+    if (c > bestCount || (c === bestCount && v < bestVal)) { bestCount = c; bestVal = v; }
+  });
+  return bestVal;
+}
+
+// LOWEST distinct non-zero pay value. Used for supervisor discipline
+// rate derivation — drops the high-rate eval rows so the rate reflects
+// follow-up/treatment work, which is what Med B Medicare visits are.
+function cprLowestNonzero(vals) {
+  let best = null;
+  vals.forEach(function(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return;
+    if (best == null || n < best) best = n;
+  });
+  return best;
+}
+
+// Returns true when the given discipline code is an assistant title.
+function cprIsAssistant(discipline) {
+  return CPR_ASSISTANT_DISCIPLINES.has(String(discipline || "").trim().toUpperCase());
+}
+
+// Derive a single clinician's per-visit rate from this period's TB visits.
+// `payValues` is an array of Pay numbers (one per TB visit row for this
+// clinician). Returns { rate: number|null, source: string }.
+function cprDeriveRateForClinician(payValues, discipline) {
+  if (!Array.isArray(payValues) || !payValues.length) {
+    return { rate: null, source: "derived_supervisor_min" };
+  }
+  if (cprIsAssistant(discipline)) {
+    return { rate: cprModeNonzero(payValues), source: "derived_assistant_mode" };
+  }
+  // Default to supervisor rule (lowest non-zero) — also catches missing
+  // discipline data so we don't accidentally pick an eval rate.
+  return { rate: cprLowestNonzero(payValues), source: "derived_supervisor_min" };
+}
+
+// Walks the TB all_visits_payload + per_clinician_payload to compute
+// each clinician's derived rate. Returns Map<lookup_key, {rate, source,
+// discipline, display}>.
+function cprComputeDerivedRates(prepared) {
+  const map = new Map();
+  if (!prepared) return map;
+  const visits = Array.isArray(prepared.all_visits_payload) ? prepared.all_visits_payload : [];
+  const perClin = Array.isArray(prepared.per_clinician_payload) ? prepared.per_clinician_payload : [];
+  // Bucket pay values per clinician via clinician name
+  const payByClin = Object.create(null);
+  visits.forEach(function(v) {
+    if (!v || !v.clinician) return;
+    if (!payByClin[v.clinician]) payByClin[v.clinician] = [];
+    payByClin[v.clinician].push(v.pay);
+  });
+  perClin.forEach(function(c) {
+    const k = cprClinLookupKey(c.clinician);
+    if (!k) return;
+    const payVals = payByClin[c.clinician] || [];
+    const derived = cprDeriveRateForClinician(payVals, c.discipline);
+    map.set(k, {
+      rate: derived.rate,
+      source: derived.source,
+      discipline: c.discipline || "",
+      display: c.clinician
+    });
+  });
+  return map;
+}
+
+// Pulls every known clinician's saved Med B rate from the memory table
+// (migration 35) and folds them on top of the derived map. Memory wins
+// when present; derivation seeds the rest. Non-fatal on failure — the
+// derived rates carry the import.
+//
+// Each rateMap entry has:
+//   rate       — number
+//   source     — original DB source ('derived_*' / 'manual_override').
+//                Pass-through to persistence so we don't relabel rows.
+//   fromMemory — boolean. Drives the UI pill ('memory' vs 'derived'/'manual').
+//   discipline, display — informational
+async function cprBuildRateMap(prepared) {
+  const derived = cprComputeDerivedRates(prepared);
+  // Tag derivations with fromMemory: false
+  derived.forEach(function(v) { v.fromMemory = false; });
+  try {
+    const { data, error } = await db.rpc("list_clinician_medb_rates");
+    if (error) throw error;
+    (data || []).forEach(function(row) {
+      const k = String(row.clinician_lookup_key || "").trim().toLowerCase();
+      if (!k) return;
+      const existing = derived.get(k);
+      derived.set(k, {
+        rate:       Number(row.rate) || 0,
+        source:     row.source || "derived_supervisor_min",
+        fromMemory: true,
+        discipline: (existing && existing.discipline) || row.discipline || "",
+        display:    (existing && existing.display)    || row.clinician_display || ""
+      });
+    });
+  } catch (err) {
+    console.warn("[cpr] memory fetch failed:", err && err.message);
+  }
+  return derived;
+}
+
+// ── Strata PDF parser ────────────────────────────────────────────
+// Reads the Strata "Staff Productivity Report (by Charge Submission)"
+// PDF and extracts (name, discipline, visits_billed) per clinician.
+//
+// Strategy: walk each page's text items, cluster by Y-coordinate into
+// lines, then regex-match each line for staff-name patterns. The PDF
+// renders names like "Adam Ouyang (PT)" OR sometimes "Magdalena
+// Chowaniec PTA" (no parens) depending on photo placement.
+//
+// Visits Billed is the FIRST numeric column to the right of (or just
+// below) the staff name. We accept either "21" on its own or "21" as
+// the first digit of "21 (19.3%)".
+async function handleCprMedbFile(file) {
+  const lc = (file.name || "").toLowerCase();
+  if (lc.endsWith(".pdf")) {
+    return handleCprMedbPdf(file);
+  }
+  showCprMedbError(
+    "Strata exports the Med B productivity report as <strong>.pdf</strong>. " +
+    "Got <code>" + escHtml(file.name) + "</code>. Drop the .pdf directly here."
+  );
+}
+
+async function handleCprMedbPdf(file) {
+  if (!window.pdfjsLib) {
+    showCprMedbError("PDF library (PDF.js) didn't load. Hard-refresh and try again.");
+    return;
+  }
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+    // Per-page → cluster text items by Y-band (3px tolerance) into lines.
+    // Sort lines top-down within page, pages in order.
+    const lines = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const tc   = await page.getTextContent();
+      const items = (tc.items || []).map(function(it) {
+        return { str: String(it.str || ""), x: it.transform[4], y: it.transform[5] };
+      }).filter(function(it) { return it.str.trim().length > 0; });
+      const bands = [];
+      items.forEach(function(it) {
+        let band = null;
+        for (let i = 0; i < bands.length; i++) {
+          if (Math.abs(bands[i].y - it.y) < 3) { band = bands[i]; break; }
+        }
+        if (!band) { band = { y: it.y, items: [] }; bands.push(band); }
+        band.items.push(it);
+      });
+      bands.sort(function(a, b) { return b.y - a.y; }); // top → bottom
+      bands.forEach(function(band) {
+        band.items.sort(function(a, b) { return a.x - b.x; });
+        const txt = band.items.map(function(i) { return i.str; }).join(" ").replace(/\s+/g, " ").trim();
+        if (txt) lines.push(txt);
+      });
+    }
+
+    // Skip header/footer / unrelated lines, then regex-match staff names.
+    // Two forms observed in real Strata exports:
+    //   A) "Adam Ouyang (PT)"        — parens around discipline
+    //   B) "Magdalena Chowaniec PTA" — no parens
+    // We accept either + tolerate a trailing comma in the name (e.g.
+    // "Jordan Juralbal, (PT)" in the sample).
+    const STAFF_RE_PAREN = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
+    const STAFF_RE_BARE  = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")\\s*$");
+
+    const rows = [];
+    const seenKeys = new Set();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const lcLine = line.toLowerCase();
+      // Hard-skip the report footer + boilerplate to keep the regex tight.
+      if (lcLine.indexOf("combined staff totals") >= 0) continue;
+      if (lcLine.indexOf("page ") === 0) continue;
+      if (lcLine.indexOf("staff productivity report") >= 0) continue;
+      if (lcLine.indexOf("revenue metrics") >= 0) continue;
+      if (lcLine.indexOf("cpt copyright") >= 0) continue;
+
+      let nameRaw = null, disc = null;
+      let m = STAFF_RE_PAREN.exec(line);
+      if (m) { nameRaw = m[1]; disc = m[2]; }
+      else {
+        m = STAFF_RE_BARE.exec(line);
+        if (m) { nameRaw = m[1]; disc = m[2]; }
+      }
+      if (!nameRaw) continue;
+
+      // Strip a trailing comma + extra whitespace from the captured name.
+      nameRaw = nameRaw.replace(/[,;]\s*$/, "").trim();
+      if (!nameRaw) continue;
+
+      // Find Visits Billed: walk forward up to ~12 lines looking for an
+      // integer line. Accept "21", "21 (19.3%)", or "21\n(19.3%)" forms.
+      let visits = null;
+      for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
+        const next = lines[j].trim();
+        if (!next) continue;
+        // Pure integer
+        if (/^\d+$/.test(next)) { visits = parseInt(next, 10); break; }
+        // Integer followed by "(NN.N%)"
+        const inline = /^(\d+)\s*\(\d+(?:\.\d+)?%\)/.exec(next);
+        if (inline) { visits = parseInt(inline[1], 10); break; }
+        // Stop searching if we hit another clinician's name line first
+        // (don't borrow a visit count from somebody else).
+        if (STAFF_RE_PAREN.test(next) || STAFF_RE_BARE.test(next)) break;
+      }
+      if (visits == null) continue;
+
+      const key = cprClinLookupKey(nameRaw + " " + disc);
+      if (!key || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      rows.push({
+        clinician_raw: nameRaw + " " + disc,
+        lookup_key:    key,
+        discipline:    disc,
+        visits_billed: visits
+      });
+    }
+
+    if (!rows.length) {
+      showCprMedbError(
+        "Couldn't find any clinician rows in the PDF. Confirm this is " +
+        "the Strata <strong>Staff Productivity Report (by Charge Submission)</strong>."
+      );
+      return;
+    }
+
+    const totalVisits = rows.reduce(function(s, r) { return s + r.visits_billed; }, 0);
+    cprPreparedMedb = {
+      rows:            rows,
+      total_visits:    totalVisits,
+      // Med B dollar total is computed at merge time (rate × visits);
+      // kept here as a derived value once the rate map is built.
+      total:           0,
+      source_filename: file.name,
+      unmatched:       []
+    };
+    const el = document.getElementById("cpr-medb-error");
+    if (el) el.style.display = "none";
+    renderCprMedbStatus();
+    if (cprPrepared) renderCprImportPreview();
+  } catch (err) {
+    showCprMedbError("Failed to parse Strata PDF: " + escHtml(err.message || String(err)));
+  }
+}
+
+// ── mergePayAndMedb (Phase 2 — rate × visits) ──────────────────
+// Inputs:
+//   perClin     — TB per-clinician aggregates (from cprPrepared)
+//   medbPayload — { rows: [{lookup_key, visits_billed, ...}], ... }
+//                 from Strata PDF, OR null if no Strata file was dropped
+//   rateMap     — Map<lookup_key, {rate, source, discipline, display}>
+//                 from cprBuildRateMap()
+//   rateEdits   — Map<lookup_key, number> — admin's in-preview rate
+//                 edits (wins over rateMap entry on a per-key basis)
+// Returns:
+//   { perClin, total_medb, unmatched, per_clinician_rates }
+//
+// per_clinician_rates carries the effective rate + source per clinician
+// for downstream UI rendering AND for upsert_clinician_medb_rates on save.
+function mergePayAndMedb(perClin, medbPayload, rateMap, rateEdits) {
+  const safeMap   = rateMap   instanceof Map ? rateMap   : new Map();
+  const safeEdits = rateEdits instanceof Map ? rateEdits : new Map();
+  // No Strata file → zero out Med B but still expose the rate map so
+  // memory persistence still fires.
+  if (!medbPayload || !Array.isArray(medbPayload.rows) || !medbPayload.rows.length) {
+    return {
+      perClin: perClin.map(function(c) {
+        return Object.assign({}, c, { medb_total: 0, medb_source: null });
+      }),
+      total_medb:        0,
+      unmatched:         [],
+      per_clinician_rates: cprBuildRateRows(perClin, safeMap, safeEdits)
+    };
+  }
+  // Index TB clinicians by lookup_key
+  const tbByKey = Object.create(null);
+  perClin.forEach(function(c) { tbByKey[cprClinLookupKey(c.clinician)] = c; });
+  // Sum Strata visits by lookup_key
+  const visitsByKey = Object.create(null);
+  medbPayload.rows.forEach(function(m) {
+    if (!m.lookup_key) return;
+    visitsByKey[m.lookup_key] = (visitsByKey[m.lookup_key] || 0) + (Number(m.visits_billed) || 0);
+  });
+  const unmatched = [];
+  medbPayload.rows.forEach(function(m) {
+    if (!tbByKey[m.lookup_key]) {
+      unmatched.push({ name: m.clinician_raw, visits: m.visits_billed });
+    }
+  });
+  let total = 0;
+  const out = perClin.map(function(c) {
+    const k = cprClinLookupKey(c.clinician);
+    const visits = visitsByKey[k] || 0;
+    // Rate precedence: explicit admin edit → memory/derived map → null
+    let rate = null, source = null;
+    if (safeEdits.has(k)) {
+      rate = Number(safeEdits.get(k)) || 0;
+      source = "manual_override";
+    } else {
+      const r = safeMap.get(k);
+      if (r) { rate = r.rate; source = r.source; }
+    }
+    const amt = visits > 0 && rate != null
+      ? Math.round(visits * rate * 100) / 100
+      : 0;
+    total += amt;
+    return Object.assign({}, c, {
+      medb_total:  amt,
+      medb_source: amt > 0 ? "Strata" : null
+    });
+  });
+  return {
+    perClin:             out,
+    total_medb:          Math.round(total * 100) / 100,
+    unmatched:           unmatched,
+    per_clinician_rates: cprBuildRateRows(perClin, safeMap, safeEdits)
+  };
+}
+
+// Builds the per-clinician rate snapshot (for UI display + memory save).
+// Returns: [{lookup_key, display, discipline, rate, source}, ...] —
+// shape matches the upsert_clinician_medb_rates RPC input.
+function cprBuildRateRows(perClin, rateMap, rateEdits) {
+  const out = [];
+  perClin.forEach(function(c) {
+    const k = cprClinLookupKey(c.clinician);
+    if (!k) return;
+    let rate = null, source = null;
+    if (rateEdits.has(k)) {
+      rate = Number(rateEdits.get(k)) || 0;
+      source = "manual_override";
+    } else {
+      const r = rateMap.get(k);
+      if (r) { rate = r.rate; source = r.source; }
+    }
+    if (rate == null) return; // skip clinicians with no rate to save
+    out.push({
+      lookup_key: k,
+      display:    c.clinician,
+      discipline: c.discipline || "",
+      rate:       rate,
+      source:     source || "derived_supervisor_min"
+    });
+  });
+  return out;
+}
+
+// Fire-and-forget persistence to clinician_medb_rates (migration 35).
+// Called on every TB import + every CPR save so the memory stays fresh.
+// Non-fatal — caller doesn't await; failures are logged only.
+function cprPersistRates(rateRows) {
+  if (!Array.isArray(rateRows) || !rateRows.length) return;
+  db.rpc("upsert_clinician_medb_rates", { p_rows: rateRows })
+    .then(function(res) {
+      if (res.error) console.warn("[cpr] persist rates failed:", res.error.message);
+    })
+    .catch(function(err) { console.warn("[cpr] persist rates threw:", err && err.message); });
 }
 
 async function handleCprFile(file) {
@@ -2572,7 +3097,15 @@ async function handleCprFile(file) {
       _max_submitted: maxSubmitted
     };
 
+    // Build the per-clinician rate map (memory + fresh derivation).
+    // Render the preview once with derivations only, then again after
+    // the memory fetch resolves so the UI's "(memory)" tags appear.
+    cprRateMap = cprComputeDerivedRates(cprPrepared);
     renderCprImportPreview();
+    cprBuildRateMap(cprPrepared).then(function(m) {
+      cprRateMap = m;
+      renderCprImportPreview();
+    });
     document.getElementById("cpr-import-error").style.display = "none";
     document.getElementById("cpr-import-confirm-btn").disabled = false;
   } catch (err) {
@@ -2643,14 +3176,44 @@ function renderCprImportPreview() {
   // Audit-flag tally — compute on the parsed visits (not stored separately)
   const tally = cprTallyFlags(p.all_visits_payload);
 
+  // Preview Med B (migration 34 + 35) — merge TB perClin with optional
+  // Strata Med B payload + the rate map (memory + derivation + manual
+  // edits) so the preview reflects what'll be saved. Pure — doesn't
+  // mutate the inputs.
+  const previewMerged = mergePayAndMedb(p.per_clinician_payload, cprPreparedMedb, cprRateMap, cprRateEdits);
+  const previewTotalMedb = previewMerged.total_medb;
+  const medbCard = previewTotalMedb > 0
+    ? '<div class="cpr-stat-card" style="background:#f1f8e9;border-color:#c5e1a5;"><div class="cpr-stat-label">Med B (Strata)</div><div class="cpr-stat-value" style="color:#1B5E20;">' + cprFmtMoney(previewTotalMedb) + '</div></div>'
+    : '<div class="cpr-stat-card" style="opacity:0.6;"><div class="cpr-stat-label">Med B</div><div class="cpr-stat-value" style="font-size:12px;">— no Strata file</div></div>';
+  const combinedCard = previewTotalMedb > 0
+    ? '<div class="cpr-stat-card" style="background:#e3f2fd;border-color:#90caf9;"><div class="cpr-stat-label">Pay + Med B</div><div class="cpr-stat-value" style="color:#1E3A5F;">' + cprFmtMoney(p.total_pay + previewTotalMedb) + '</div></div>'
+    : '';
+
   let html = '<div class="cpr-stat-grid">' +
     '<div class="cpr-stat-card"><div class="cpr-stat-label">Period</div><div class="cpr-stat-value" style="font-size:13px">' + escHtml(periodLabel) + '</div></div>' +
     '<div class="cpr-stat-card"><div class="cpr-stat-label">Pay Date</div><div class="cpr-stat-value" style="font-size:13px">' + escHtml(payLabel) + '</div></div>' +
-    '<div class="cpr-stat-card"><div class="cpr-stat-label">Total Pay</div><div class="cpr-stat-value">' + cprFmtMoney(p.total_pay) + '</div></div>' +
+    '<div class="cpr-stat-card"><div class="cpr-stat-label">Pay (TB)</div><div class="cpr-stat-value">' + cprFmtMoney(p.total_pay) + '</div></div>' +
+    medbCard +
+    combinedCard +
     '<div class="cpr-stat-card"><div class="cpr-stat-label">Visits</div><div class="cpr-stat-value">' + p.total_visits + '</div></div>' +
     '<div class="cpr-stat-card"><div class="cpr-stat-label">Clinicians</div><div class="cpr-stat-value">' + p.distinct_clinicians + '</div></div>' +
     '<div class="cpr-stat-card ' + nonpayWarn + '"><div class="cpr-stat-label">Non-payable</div><div class="cpr-stat-value">' + p.nonpayable_visits + '</div></div>' +
   '</div>';
+
+  // Strata Med B unmatched-names warning — surface names the Strata file
+  // had that didn't match a TB clinician (likely a name-format mismatch
+  // or a clinician outside this pay period).
+  if (cprPreparedMedb && previewMerged.unmatched.length) {
+    const unmList = previewMerged.unmatched.slice(0, 15).map(function(u) {
+      return '<li>' + escHtml(u.name) + ' — ' + (u.visits || 0) + ' visit' + (u.visits === 1 ? '' : 's') + '</li>';
+    }).join("");
+    const more = previewMerged.unmatched.length > 15 ? '<li style="color:var(--muted);">…and ' + (previewMerged.unmatched.length - 15) + ' more</li>' : '';
+    html += '<div style="margin:8px 0;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
+      '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ Strata Med B — ' + previewMerged.unmatched.length + ' unmatched name(s)</div>' +
+      '<div style="color:#5d4500;margin-bottom:6px;">These Strata rows don\'t match a TB clinician in this period and will NOT be saved. Fix the name in Strata + re-export, or skip.</div>' +
+      '<ul style="margin:0;padding-left:18px;color:#5d4500;">' + unmList + more + '</ul>' +
+    '</div>';
+  }
 
   // ── Cross-period sanity warning ──────────────────────────────────
   // If the file's submitted dates touched more than one pay period, surface
@@ -2697,36 +3260,128 @@ function renderCprImportPreview() {
   } else {
     html += '<div class="cpr-flag-strip cpr-flag-clean">✓ Auditor — no flagged visits</div>';
   }
-  // Per-clinician table preview
-  html += '<div style="font-size:11px;color:var(--muted);margin:6px 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Per-clinician (' + p.per_clinician_payload.length + ')</div>';
-  html += '<div style="max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
+  // Per-clinician table preview — Phase 2 layout adds Strata Vis +
+  // Rate (editable) + Med B + Total columns. Rate cell is editable
+  // any time TB is loaded (so admin can pre-set rates BEFORE dropping
+  // a Strata file); Strata Vis cell is populated only when Strata is
+  // loaded; Med B = Strata Vis × Rate, recomputed live on rate edit.
+  const showMedbCol = !!cprPreparedMedb;
+
+  // Index Strata visits by lookup_key for fast cell lookup
+  const strataByKey = Object.create(null);
+  if (cprPreparedMedb && Array.isArray(cprPreparedMedb.rows)) {
+    cprPreparedMedb.rows.forEach(function(r) {
+      if (!r.lookup_key) return;
+      strataByKey[r.lookup_key] = (strataByKey[r.lookup_key] || 0) + (Number(r.visits_billed) || 0);
+    });
+  }
+
+  html += '<div style="font-size:11px;color:var(--muted);margin:6px 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Per-clinician (' + p.per_clinician_payload.length + ') — rates from TB pay column · click any rate cell to override</div>';
+  html += '<div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
   html += '<table class="cpr-per-clin-table"><thead><tr>' +
     '<th>Clinician</th>' +
     '<th>Disc</th>' +
     '<th class="cpr-num">Visits</th>' +
-    '<th class="cpr-num">Payable</th>' +
-    '<th class="cpr-num">Non-pay</th>' +
-    '<th class="cpr-num">Total Pay</th>' +
+    '<th class="cpr-num">Pay</th>' +
+    '<th class="cpr-num" title="Per-visit Med B rate. From memory if previously saved, otherwise derived from this period\'s TB visits.">$ / visit</th>' +
+    (showMedbCol ? '<th class="cpr-num">Strata Vis</th><th class="cpr-num">Med B</th><th class="cpr-num">Total</th>' : '') +
   '</tr></thead><tbody>';
+
+  // Build name → medb_total / rate-meta lookups from the merged payload
+  const medbByName = Object.create(null);
+  previewMerged.perClin.forEach(function(c) { medbByName[c.clinician] = Number(c.medb_total) || 0; });
+
   p.per_clinician_payload.forEach(function(c) {
+    const k         = cprClinLookupKey(c.clinician);
+    const rateMeta  = cprRateMap.get(k);
+    const editedRt  = cprRateEdits.has(k) ? Number(cprRateEdits.get(k)) : null;
+    const effRate   = editedRt != null ? editedRt : (rateMeta ? rateMeta.rate : null);
+    // Pill: manual (edit this period) → memory (loaded from DB) → derived
+    let pillKind = "unknown";
+    if (editedRt != null)                  pillKind = "manual";
+    else if (rateMeta && rateMeta.fromMemory) pillKind = "memory";
+    else if (rateMeta && rateMeta.source)     pillKind = (rateMeta.source === "manual_override" ? "manual" : "derived");
+    const rateCell  = '<input type="number" step="0.01" min="0" class="cpr-rate-input" data-clin-key="' + escAttr(k) + '" ' +
+      'value="' + (effRate != null ? Number(effRate).toFixed(2) : "") + '" placeholder="—" /> ' +
+      cprRateSourcePill(pillKind);
+
+    const strataV = strataByKey[k] || 0;
+    const m       = medbByName[c.clinician] || 0;
+    const t       = c.pay_total + m;
+    const strataCells = showMedbCol
+      ? '<td class="cpr-num"' + (strataV > 0 ? '' : ' style="color:#cbd5e1;"') + '>' + (strataV || 0) + '</td>' +
+        '<td class="cpr-num"' + (m > 0 ? ' style="color:#1B5E20;font-weight:700;"' : ' style="color:#cbd5e1;"') + '>' + (m > 0 ? cprFmtMoney(m) : '$0.00') + '</td>' +
+        '<td class="cpr-num" style="font-weight:700;">' + cprFmtMoney(t) + '</td>'
+      : '';
     html += '<tr>' +
       '<td>' + escHtml(c.clinician) + '</td>' +
       '<td>' + escHtml(c.discipline || "") + '</td>' +
       '<td class="cpr-num">' + c.visits + '</td>' +
-      '<td class="cpr-num">' + c.payable + '</td>' +
-      '<td class="cpr-num"' + (c.nonpayable > 0 ? ' style="color:#a53935;font-weight:700;"' : '') + '>' + c.nonpayable + '</td>' +
       '<td class="cpr-num">' + cprFmtMoney(c.pay_total) + '</td>' +
+      '<td class="cpr-num" style="font-variant-numeric:tabular-nums;">' + rateCell + '</td>' +
+      strataCells +
     '</tr>';
   });
+  // Footer totals
+  const totalStrataV = showMedbCol
+    ? Object.keys(strataByKey).reduce(function(s, k) { return s + (strataByKey[k] || 0); }, 0)
+    : 0;
+  const strataFoot = showMedbCol
+    ? '<td class="cpr-num">' + totalStrataV + '</td>' +
+      '<td class="cpr-num" style="color:#1B5E20;font-weight:700;">' + cprFmtMoney(previewTotalMedb) + '</td>' +
+      '<td class="cpr-num" style="font-weight:700;">' + cprFmtMoney(p.total_pay + previewTotalMedb) + '</td>'
+    : '';
   html += '</tbody><tfoot><tr>' +
     '<td colspan="2">TOTAL</td>' +
     '<td class="cpr-num">' + p.total_visits + '</td>' +
-    '<td class="cpr-num">' + p.payable_visits + '</td>' +
-    '<td class="cpr-num">' + p.nonpayable_visits + '</td>' +
     '<td class="cpr-num">' + cprFmtMoney(p.total_pay) + '</td>' +
+    '<td></td>' +
+    strataFoot +
   '</tr></tfoot></table></div>';
   wrap.innerHTML = html;
   wrap.style.display = "block";
+
+  // Wire rate-cell edit handlers — on commit (blur or Enter), the typed
+  // value enters cprRateEdits as a manual override and the whole preview
+  // re-renders so Med B + totals recompute.
+  Array.from(wrap.querySelectorAll(".cpr-rate-input")).forEach(function(inp) {
+    inp.addEventListener("change", cprOnRateInputCommit);
+    inp.addEventListener("blur",   cprOnRateInputCommit);
+    inp.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
+    });
+  });
+}
+
+// Small visual tag for rate source — appears next to each rate cell.
+// kind: 'manual' / 'memory' / 'derived' / 'unknown'
+function cprRateSourcePill(kind) {
+  switch (kind) {
+    case "memory":  return '<span class="cpr-src-pill cpr-src-memory" title="Loaded from prior-period memory">memory</span>';
+    case "manual":  return '<span class="cpr-src-pill cpr-src-manual" title="Hand-edited this period (will persist as manual override)">manual</span>';
+    case "derived": return '<span class="cpr-src-pill cpr-src-derived" title="Derived from this period\'s TB pay values">derived</span>';
+    default:        return '<span class="cpr-src-pill cpr-src-unknown" title="No rate available — Med B will be $0">⚠</span>';
+  }
+}
+
+// Rate input commit handler — updates cprRateEdits + re-renders.
+// Empty input or invalid number clears the edit (falls back to map).
+function cprOnRateInputCommit(e) {
+  const inp = e.currentTarget;
+  const key = inp.getAttribute("data-clin-key") || "";
+  if (!key) return;
+  const raw = inp.value;
+  if (raw === "" || raw == null) {
+    cprRateEdits.delete(key);
+  } else {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      cprRateEdits.delete(key);
+    } else {
+      cprRateEdits.set(key, Math.round(n * 100) / 100);
+    }
+  }
+  renderCprImportPreview();
 }
 
 async function saveCprRun() {
@@ -2735,23 +3390,43 @@ async function saveCprRun() {
   btn.disabled = true; btn.textContent = "Saving…";
   try {
     const p = cprPrepared;
+    // Merge Strata Med B into the per-clinician payload (migrations 34+35).
+    // Med B is optional — when cprPreparedMedb is null, every clinician
+    // gets medb_total: 0 and total_medb is 0. Rate comes from the
+    // memory + derivation map; user-typed rate edits in the preview win.
+    const merged = mergePayAndMedb(p.per_clinician_payload, cprPreparedMedb, cprRateMap, cprRateEdits);
+    const medbSource = cprPreparedMedb && cprPreparedMedb.source_filename
+      ? " + Strata: " + cprPreparedMedb.source_filename : "";
     const { data, error } = await db.rpc("upsert_clinician_payroll_run", {
       p_period_start:          p.period_start,
       p_period_end:            p.period_end,
       p_pay_date:              p.pay_date,
       p_total_pay:             p.total_pay,
       p_total_expenses:        p.total_expenses,
+      p_total_medb:            merged.total_medb,           // NEW (migration 34)
       p_total_visits:          p.total_visits,
       p_payable_visits:        p.payable_visits,
       p_nonpayable_visits:     p.nonpayable_visits,
       p_distinct_clinicians:   p.distinct_clinicians,
-      p_per_clinician_payload: p.per_clinician_payload,
+      p_per_clinician_payload: merged.perClin,              // now carries medb_total/medb_source
       p_all_visits_payload:    p.all_visits_payload,
-      p_source_filename:       p.source_filename
+      p_source_filename:       p.source_filename + medbSource
     });
     if (error) throw new Error(error.message);
+    // Persist per-clinician rates to memory (migration 35) AFTER the
+    // audit save succeeds, so next period gets a memory hit. Fire-and-
+    // forget — non-blocking, failures logged only.
+    cprPersistRates(merged.per_clinician_rates);
     closeCprModal();
-    alert("✓ Saved payroll run for " + cprFmtDate(p.period_start) + " - " + cprFmtDate(p.period_end) + " ($" + p.total_pay.toLocaleString() + ")");
+    const unmatchedTxt = merged.unmatched.length
+      ? "\n\n⚠ " + merged.unmatched.length + " Strata name(s) didn't match a TB clinician: " +
+        merged.unmatched.slice(0, 5).map(function(u) { return u.name; }).join(", ") +
+        (merged.unmatched.length > 5 ? ", …" : "")
+      : "";
+    alert("✓ Saved payroll run for " + cprFmtDate(p.period_start) + " - " + cprFmtDate(p.period_end) +
+          " ($" + p.total_pay.toLocaleString() + " Pay" +
+          (merged.total_medb > 0 ? " + $" + merged.total_medb.toLocaleString() + " Med B" : "") + ")" +
+          unmatchedTxt);
     await loadCprHistory();
   } catch (err) {
     showCprError("Save failed: " + escHtml(err.message || String(err)));
@@ -2788,10 +3463,21 @@ async function loadCprHistory() {
       // Red-tinted to signal destructive. Confirms before firing.
       const delBtn = '<button type="button" class="btn-secondary cpr-del-btn" title="Delete this run" ' +
         'onclick="deleteCprRun(\'' + r.id + '\', \'' + escAttr(periodLabel) + '\', ' + (r.total_pay || 0) + ')">✕</button>';
+      // Med B (migration 34) — annotate the Pay cell with the Med B add-on
+      // and combined total when total_medb > 0. Pre-migration rows show
+      // just the Pay number unchanged.
+      const medb = Number(r.total_medb) || 0;
+      const payCellHtml = medb > 0
+        ? cprFmtMoney(r.total_pay + medb) +
+          ' <span style="color:var(--muted);font-size:10.5px;font-weight:500;display:block;line-height:1.3;">' +
+            'Pay ' + cprFmtMoney(r.total_pay) +
+            ' + <span style="color:#1B5E20;">Med B ' + cprFmtMoney(medb) + '</span>' +
+          '</span>'
+        : cprFmtMoney(r.total_pay);
       return '<tr>' +
         '<td>' + escHtml(periodLabel) + '</td>' +
         '<td>' + escHtml(payLabel) + '</td>' +
-        '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;">' + cprFmtMoney(r.total_pay) + '</td>' +
+        '<td style="text-align:right;font-variant-numeric:tabular-nums;font-weight:700;">' + payCellHtml + '</td>' +
         '<td style="text-align:right;">' + r.total_visits + (r.nonpayable_visits > 0 ? ' <span style="color:#a53935;font-size:11px;">(' + r.nonpayable_visits + ' non-pay)</span>' : '') + '</td>' +
         '<td style="text-align:right;">' + r.distinct_clinicians + '</td>' +
         '<td>' + pill + '</td>' +
@@ -2894,7 +3580,13 @@ async function viewCprRun(runId) {
     });
     perClin.forEach(function(c) {
       if (!Array.isArray(c.adjustments)) c.adjustments = [];
+      // Migration 34 — Med B defaults for runs imported before Med B
+      // was a thing OR runs imported without a Strata file.
+      if (c.medb_total == null)  c.medb_total  = 0;
+      if (c.medb_source == null) c.medb_source = null;
     });
+    // Top-line total_medb defensive default (column added in migration 34).
+    if (r.total_medb == null) r.total_medb = 0;
 
     cprViewState = {
       run: r,
@@ -2979,6 +3671,10 @@ function cprRecompute() {
   // Period totals
   r.total_pay = r.per_clinician_payload.reduce(function(s, c) { return s + (Number(c.pay_total) || 0); }, 0);
   r.total_expenses = r.per_clinician_payload.reduce(function(s, c) { return s + (Number(c.expenses_total) || 0); }, 0);
+  // Med B (migration 34) — rolls up per-clinician medb_total, untouched
+  // by visit exclusions / manual adjustments (Med B is a flat per-clinician
+  // amount from the Strata file, not driven by individual TB visit rows).
+  r.total_medb = r.per_clinician_payload.reduce(function(s, c) { return s + (Number(c.medb_total) || 0); }, 0);
   r.total_visits   = r.per_clinician_payload.reduce(function(s, c) { return s + c.visits; }, 0);
   r.payable_visits = r.per_clinician_payload.reduce(function(s, c) { return s + c.payable; }, 0);
   r.nonpayable_visits = r.per_clinician_payload.reduce(function(s, c) { return s + c.nonpayable; }, 0);
@@ -3029,6 +3725,21 @@ function cprRenderDetail() {
   let html = "";
 
   // ── Header summary card ─────────────────────────────────────────
+  // Med B (migration 34): when total_medb > 0, render a third row that
+  // breaks out Pay vs Med B and shows the combined total going to QB.
+  const totalMedb     = Number(r.total_medb) || 0;
+  const totalCombined = (Number(r.total_pay) || 0) + totalMedb;
+  const medbRowHtml = totalMedb > 0
+    ? '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">+ MED B</span>' +
+        '<span class="cpr-audit-value" style="color:#1B5E20;">' + cprFmtMoney(totalMedb) + ' <span style="font-size:11px;color:var(--muted);font-weight:600;">(Strata)</span></span>' +
+      '</div>' +
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">PAY + MED B</span>' +
+        '<span class="cpr-audit-value" style="color:#1E3A5F;">' + cprFmtMoney(totalCombined) + '</span>' +
+      '</div>'
+    : '';
+
   html += '<div class="cpr-audit-header">';
   if (adjustedDiffer || cprCountAdjustments(perClin) > 0 || cprCountExcluded(visits) > 0) {
     html += '<div class="cpr-audit-summary">' +
@@ -3037,20 +3748,22 @@ function cprRenderDetail() {
         '<span class="cpr-audit-value cpr-strike">' + cprFmtMoney(orig.pay) + ' · ' + orig.visits + ' visits</span>' +
       '</div>' +
       '<div class="cpr-audit-row">' +
-        '<span class="cpr-audit-label">ADJUSTED</span>' +
+        '<span class="cpr-audit-label">ADJUSTED PAY</span>' +
         '<span class="cpr-audit-value cpr-audit-adjusted">' +
           cprFmtMoney(r.total_pay) + ' · ' + r.total_visits + ' visits' +
           ' <span class="cpr-delta ' + (delta < 0 ? "neg" : "pos") + '">(' + deltaSign + cprFmtMoney(delta) + ', ' +
           cprCountExcluded(visits) + ' excluded · ' + cprCountAdjustments(perClin) + ' adj)</span>' +
         '</span>' +
       '</div>' +
+      medbRowHtml +
     '</div>';
   } else {
     html += '<div class="cpr-audit-summary">' +
       '<div class="cpr-audit-row">' +
-        '<span class="cpr-audit-label">TOTAL</span>' +
+        '<span class="cpr-audit-label">' + (totalMedb > 0 ? 'PAY' : 'TOTAL') + '</span>' +
         '<span class="cpr-audit-value">' + cprFmtMoney(r.total_pay) + ' · ' + r.total_visits + ' visits · ' + r.distinct_clinicians + ' clinicians</span>' +
       '</div>' +
+      medbRowHtml +
     '</div>';
   }
   html += '<div class="cpr-stat-card" style="margin-top:8px;background:transparent;border:none;padding:0;">' +
@@ -3163,12 +3876,14 @@ function cprRenderDetail() {
     '<th>Clinician</th>' +
     '<th>Disc</th>' +
     '<th style="text-align:right;">Visits / Adj</th>' +
-    '<th style="text-align:right;">Total Pay</th>' +
+    '<th style="text-align:right;">Pay</th>' +
+    '<th style="text-align:right;" title="Strata Med B — separate QB Bill, same Subcontractor:&lt;discipline&gt; GL">Med B</th>' +
+    '<th style="text-align:right;">Total</th>' +
   '</tr></thead>';
   html += '<tbody>';
 
   if (!filteredPerClin.length) {
-    html += '<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:24px;">No clinicians match "' + escHtml(cprViewState.search) + '"</td></tr>';
+    html += '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px;">No clinicians match "' + escHtml(cprViewState.search) + '"</td></tr>';
   }
 
   // ── Bucket filteredPerClin by DELIVERY (3 buckets) ────────────────────────
@@ -3202,12 +3917,17 @@ function cprRenderDetail() {
     const sumPay     = bucket.list.reduce(function(s, c) { return s + (Number(c.pay_total) || 0); }, 0);
     const countLbl   = bucket.list.length + (bucket.list.length === 1 ? ' clinician' : ' clinicians');
 
+    // Section header summary includes Pay + Med B combined when Med B exists
+    const sumMedb    = bucket.list.reduce(function(s, c) { return s + (Number(c.medb_total) || 0); }, 0);
+    const sumLabel   = sumMedb > 0
+      ? cprFmtMoney(sumPay + sumMedb) + ' (Pay ' + cprFmtMoney(sumPay) + ' + Med B ' + cprFmtMoney(sumMedb) + ')'
+      : cprFmtMoney(sumPay);
     html += '<tr class="cpr-pay-section cpr-pay-section-' + m + (open ? ' is-open' : '') + '" data-method="' + m + '">' +
-      '<td colspan="5">' +
+      '<td colspan="7">' +
         '<span class="cpr-pay-section-caret">' + caret + '</span>' +
         '<span class="cpr-pay-section-icon">' + meta.icon + '</span> ' +
         '<span class="cpr-pay-section-label">' + escHtml(meta.long || meta.short) + '</span>' +
-        '<span class="cpr-pay-section-count">· ' + countLbl + ' · ' + cprFmtMoney(sumPay) + '</span>' +
+        '<span class="cpr-pay-section-count">· ' + countLbl + ' · ' + sumLabel + '</span>' +
       '</td>' +
     '</tr>';
 
@@ -3261,16 +3981,26 @@ function cprRenderDetail() {
       ? '<div class="cpr-clin-llc" title="LLC / business entity">🏢 ' + escHtml(pmPair.llc) + '</div>'
       : '';
 
+    // Med B + Total cells (migration 34). Med B = Strata Med B amount
+    // (read-only in Phase 1); Total = Pay + Med B = what hits QB as two
+    // separate Bills sharing the same pay-period Bill #.
+    const medbAmt   = Number(c.medb_total) || 0;
+    const medbHtml  = medbAmt > 0
+      ? '<span style="color:#1B5E20;font-weight:700;" title="Strata Med B — separate QB Bill">' + cprFmtMoney(medbAmt) + '</span>'
+      : '<span style="color:#cbd5e1;">$0.00</span>';
+    const totalCombined = c.pay_total + medbAmt;
     html += '<tr class="cpr-clin-row ' + (exp ? "is-open" : "") + ' ' + rowFlagCls + '" data-cidx="' + idx + '">' +
       '<td class="col-caret">' + (exp ? '▾' : '▸') + '</td>' +
       '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + payChip + flagBadge + llcLine + '</td>' +
       '<td class="col-disc"><span>' + escHtml(c.discipline || "—") + '</span></td>' +
       '<td class="col-vc">' + escHtml(vcLabel) + '</td>' +
       '<td class="col-pay">' + cprFmtMoney(c.pay_total) + deltaHtml + '</td>' +
+      '<td class="col-medb" style="text-align:right;">' + medbHtml + '</td>' +
+      '<td class="col-total" style="text-align:right;font-weight:700;">' + cprFmtMoney(totalCombined) + '</td>' +
     '</tr>';
 
     if (exp) {
-      html += '<tr class="cpr-expand-row"><td colspan="5">';
+      html += '<tr class="cpr-expand-row"><td colspan="7">';
       // Visits table
       html += '<table class="cpr-visits-table"><thead><tr>' +
         '<th></th>' +
@@ -3798,6 +4528,9 @@ async function cprSaveRun(finalize) {
       p_pay_date:              r.pay_date,
       p_total_pay:             r.total_pay,
       p_total_expenses:        r.total_expenses,
+      // Med B (migration 34) — recomputed from per-clinician medb_total fields
+      // that ride along inside per_clinician_payload across recomputes.
+      p_total_medb:            (r.per_clinician_payload || []).reduce(function(s, c) { return s + (Number(c.medb_total) || 0); }, 0),
       p_total_visits:          r.total_visits,
       p_payable_visits:        r.payable_visits,
       p_nonpayable_visits:     r.nonpayable_visits,
@@ -7616,19 +8349,35 @@ checkSession();
 <!-- ══════ CLINICIAN PAYROLL AUDIT — Import modal ══════ -->
 <div class="cpr-modal-overlay" id="cpr-modal-overlay" style="display:none;">
   <div class="cpr-modal-box">
-    <div class="cpr-modal-title">↑ Import TB Prepare Payroll</div>
+    <div class="cpr-modal-title">↑ Import Pay Period</div>
     <div class="cpr-modal-sub">
-      Drop the <strong>Prepare payroll.xlsx</strong> exported from TherapyBoss.
+      Drop the <strong>Prepare payroll.xlsx</strong> from TherapyBoss (regular Pay)
+      and, optionally, a <strong>Strata Med B</strong> export for the same period.
       Tool aggregates per clinician + saves to history. Re-importing a period
-      replaces the data; your audit status (audited / exported / paid) is preserved.
+      replaces the data; your audit status is preserved.
     </div>
+
+    <!-- ① TB Prepare-payroll dropzone (existing — Regular Pay stream) -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:4px;">① Regular Pay — TB Prepare payroll <span style="color:#a53935;">(required)</span></div>
     <label class="cpr-dropzone" id="cpr-dropzone" for="cpr-file-input">
       <div class="cpr-dz-icon">💵</div>
       <div><strong>Drop Prepare payroll .xlsx here</strong></div>
       <div class="cpr-dz-hint">XLSX only · headers: Date, Type, Clinician, Pay, Payable…</div>
       <input type="file" id="cpr-file-input" accept=".xlsx" />
     </label>
-    <div id="cpr-import-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;font-size:12px;color:#c62828;margin-bottom:14px;line-height:1.5;"></div>
+
+    <!-- ② Strata Med B dropzone (NEW — optional second pay stream) -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:14px 0 4px;">② Med B — Strata EMR export <span style="color:var(--muted);font-weight:600;">(optional)</span></div>
+    <label class="cpr-dropzone" id="cpr-medb-dropzone" for="cpr-medb-file-input">
+      <div class="cpr-dz-icon">🩺</div>
+      <div><strong>Drop Strata Med B export here</strong></div>
+      <div class="cpr-dz-hint">Matched to clinicians by name · skip to save with Med B = $0</div>
+      <input type="file" id="cpr-medb-file-input" accept=".xlsx,.xls,.csv" />
+    </label>
+    <div id="cpr-medb-status" style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45;">● No Strata file yet — Med B will be saved as $0 for every clinician.</div>
+    <div id="cpr-medb-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:8px 12px;font-size:12px;color:#c62828;margin-top:6px;line-height:1.5;"></div>
+
+    <div id="cpr-import-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:10px 14px;font-size:12px;color:#c62828;margin:14px 0;line-height:1.5;"></div>
     <div id="cpr-import-preview" style="display:none;"></div>
     <div class="cpr-modal-footer">
       <button type="button" class="btn-secondary" id="cpr-modal-cancel">Cancel</button>
