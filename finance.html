@@ -565,6 +565,14 @@
     border: 1.5px solid var(--accent); border-radius: 4px;
     text-align: right; font-variant-numeric: tabular-nums;
   }
+  /* ── Per-row Med B editing (migration 34/35 retroactive add) ── */
+  .cpr-medb-cell { white-space: nowrap; }
+  .cpr-medb-edit-input {
+    width: 90px; padding: 2px 6px; font-size: 12px; font-family: inherit;
+    border: 1.5px solid #1B5E20; border-radius: 4px;
+    text-align: right; font-variant-numeric: tabular-nums;
+  }
+  .cpr-medb-edit-input:focus { outline: none; box-shadow: 0 0 0 2px #c8e6c9; }
   .cpr-btn-edit-pay {
     visibility: hidden;
     margin-left: 4px; padding: 0 4px;
@@ -2298,6 +2306,28 @@ document.addEventListener("DOMContentLoaded", function() {
       if (f) handleCprMedbFile(f);
     });
   }
+  // Retroactive "Add/Update Strata Med B" modal — opens from inside the
+  // audit detail; takes a PDF only and recomputes Med B for the open run
+  // without re-uploading the TB file.
+  const retroDz = document.getElementById("cpr-medb-retro-dropzone");
+  if (retroDz) {
+    retroDz.addEventListener("dragover",  function(e) { e.preventDefault(); retroDz.classList.add("is-dragover"); });
+    retroDz.addEventListener("dragleave", function()  { retroDz.classList.remove("is-dragover"); });
+    retroDz.addEventListener("drop", function(e) {
+      e.preventDefault(); retroDz.classList.remove("is-dragover");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleCprMedbRetroPdf(f);
+    });
+    const retroFi = document.getElementById("cpr-medb-retro-file-input");
+    if (retroFi) retroFi.addEventListener("change", function(e) {
+      const f = e.target.files && e.target.files[0];
+      if (f) handleCprMedbRetroPdf(f);
+    });
+  }
+  const retroCancel = document.getElementById("cpr-medb-retro-cancel");
+  if (retroCancel) retroCancel.addEventListener("click", cprCloseMedbRetro);
+  const retroApply = document.getElementById("cpr-medb-retro-apply");
+  if (retroApply) retroApply.addEventListener("click", cprApplyMedbRetro);
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -3594,9 +3624,12 @@ async function viewCprRun(runId) {
       expanded: new Set(),
       addFormOpen: new Set(),
       // Inline-edit state: only one cell at a time. Stores the vid (for
-      // visit pay edits) or "<clinKey>|<adjId>|<field>" (for adjustments).
-      editingVid: null,
-      editingAdj: null,
+      // visit pay edits), "<clinKey>|<adjId>|<field>" (for adjustments),
+      // or a clinician name (for Med B cell edits — migration 34/35
+      // retroactive correction).
+      editingVid:  null,
+      editingAdj:  null,
+      editingMedb: null,
       // Search-filter for the per-clinician list. Substring + case-insensitive.
       // When the filter narrows to exactly one clinician we auto-expand it
       // so the user lands directly on their visits — effectively "isolate".
@@ -3981,13 +4014,28 @@ function cprRenderDetail() {
       ? '<div class="cpr-clin-llc" title="LLC / business entity">🏢 ' + escHtml(pmPair.llc) + '</div>'
       : '';
 
-    // Med B + Total cells (migration 34). Med B = Strata Med B amount
-    // (read-only in Phase 1); Total = Pay + Med B = what hits QB as two
-    // separate Bills sharing the same pay-period Bill #.
+    // Med B + Total cells (migration 34). Med B is click-to-edit on the
+    // audit row — pattern mirrors the per-visit pay editor (data-action
+    // edit-medb / save-medb / cancel-medb / revert-medb). Total = Pay +
+    // Med B = what hits QB as two separate Bills sharing the period Bill #.
     const medbAmt   = Number(c.medb_total) || 0;
-    const medbHtml  = medbAmt > 0
-      ? '<span style="color:#1B5E20;font-weight:700;" title="Strata Med B — separate QB Bill">' + cprFmtMoney(medbAmt) + '</span>'
-      : '<span style="color:#cbd5e1;">$0.00</span>';
+    const medbEditing = cprViewState.editingMedb === c.clinician && !isLocked;
+    let medbHtml;
+    if (medbEditing) {
+      medbHtml =
+        '<input type="number" step="0.01" min="0" class="cpr-medb-edit-input" ' +
+          'data-action="save-medb-key" value="' + escAttr(Number(medbAmt).toFixed(2)) + '" />' +
+        '<button type="button" class="cpr-btn-mini cpr-btn-save" data-action="save-medb" title="Save">✓</button>' +
+        '<button type="button" class="cpr-btn-mini" data-action="cancel-medb" title="Cancel">✕</button>';
+    } else if (medbAmt > 0) {
+      medbHtml =
+        '<span style="color:#1B5E20;font-weight:700;" title="Strata Med B — separate QB Bill">' + cprFmtMoney(medbAmt) + '</span>' +
+        (isLocked ? '' : ' <button type="button" class="cpr-btn-edit-pay" data-action="edit-medb" title="Edit Med B amount">✎</button>');
+    } else {
+      medbHtml =
+        '<span style="color:#cbd5e1;">$0.00</span>' +
+        (isLocked ? '' : ' <button type="button" class="cpr-btn-edit-pay" data-action="edit-medb" title="Set Med B amount">✎</button>');
+    }
     const totalCombined = c.pay_total + medbAmt;
     html += '<tr class="cpr-clin-row ' + (exp ? "is-open" : "") + ' ' + rowFlagCls + '" data-cidx="' + idx + '">' +
       '<td class="col-caret">' + (exp ? '▾' : '▸') + '</td>' +
@@ -3995,7 +4043,7 @@ function cprRenderDetail() {
       '<td class="col-disc"><span>' + escHtml(c.discipline || "—") + '</span></td>' +
       '<td class="col-vc">' + escHtml(vcLabel) + '</td>' +
       '<td class="col-pay">' + cprFmtMoney(c.pay_total) + deltaHtml + '</td>' +
-      '<td class="col-medb" style="text-align:right;">' + medbHtml + '</td>' +
+      '<td class="col-medb cpr-medb-cell" style="text-align:right;">' + medbHtml + '</td>' +
       '<td class="col-total" style="text-align:right;font-weight:700;">' + cprFmtMoney(totalCombined) + '</td>' +
     '</tr>';
 
@@ -4163,7 +4211,11 @@ function cprRenderDetail() {
       '<button type="button" class="btn-secondary" onclick="cprReopenRun()">Reopen for edits</button>';
   } else {
     const dirty = cprViewState.dirty;
+    // Total existing Med B drives the button label (Add vs Update).
+    const existingMedb = (r.per_clinician_payload || []).reduce(function(s, c) { return s + (Number(c.medb_total) || 0); }, 0);
+    const medbBtnLabel = existingMedb > 0 ? '🩺 Update Strata Med B' : '🩺 Add Strata Med B';
     html += '<span class="cpr-detail-footer-msg">' + (dirty ? '⚠ Unsaved edits — Save Adjustments to keep, or Finalize to lock' : 'No pending edits') + '</span>' +
+      '<button type="button" class="btn-secondary" onclick="cprOpenMedbRetro()" title="Drop a Strata PDF to add or refresh Med B for this period — no TB re-upload needed">' + medbBtnLabel + '</button>' +
       '<button type="button" class="btn-secondary" onclick="cprSaveRun(false)"' + (dirty ? '' : ' disabled') + '>Save Adjustments</button>' +
       '<button type="button" class="btn-secondary" style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;" onclick="cprSaveRun(true)">Finalize Audit</button>';
   }
@@ -4250,6 +4302,22 @@ function cprWireDetailEvents() {
       }
     };
   });
+  // Med B cell editor keyboard wiring — Enter commits, Esc cancels.
+  body.querySelectorAll(".cpr-medb-edit-input").forEach(function(inp) {
+    inp.onkeydown = function(e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const tr = inp.closest("tr.cpr-clin-row");
+        const idx = tr && Number(tr.dataset.cidx);
+        const c = cprViewState.run && cprViewState.run.per_clinician_payload[idx];
+        if (c) cprEditMedb(c.clinician, inp.value);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        cprViewState.editingMedb = null;
+        cprRenderDetail();
+      }
+    };
+  });
 
   body.onclick = function(ev) {
     const t = ev.target;
@@ -4323,6 +4391,40 @@ function cprWireDetailEvents() {
       const tr = t.closest("tr");
       const vid = tr && tr.dataset.vid;
       if (vid) cprRevertVisitPay(vid);
+      return;
+    }
+    // ── Per-row Med B editing (retroactive correction) ─────────
+    // ✎ click on Med B cell → enter edit mode for that clinician.
+    if (t.dataset && t.dataset.action === "edit-medb") {
+      const tr = t.closest("tr.cpr-clin-row");
+      const idx = tr && Number(tr.dataset.cidx);
+      const c = cprViewState.run && cprViewState.run.per_clinician_payload[idx];
+      if (c) {
+        cprViewState.editingMedb = c.clinician;
+        cprRenderDetail();
+        setTimeout(function() {
+          const inp = body.querySelector('tr.cpr-clin-row[data-cidx="' + idx + '"] .cpr-medb-edit-input');
+          if (inp) {
+            try { inp.focus({ preventScroll: true }); } catch (e) { inp.focus(); }
+            inp.select();
+          }
+        }, 0);
+      }
+      return;
+    }
+    // ✓ commit → cprEditMedb
+    if (t.dataset && t.dataset.action === "save-medb") {
+      const tr = t.closest("tr.cpr-clin-row");
+      const idx = tr && Number(tr.dataset.cidx);
+      const c = cprViewState.run && cprViewState.run.per_clinician_payload[idx];
+      const inp = tr && tr.querySelector(".cpr-medb-edit-input");
+      if (c && inp) cprEditMedb(c.clinician, inp.value);
+      return;
+    }
+    // ✕ cancel → exit edit mode without saving
+    if (t.dataset && t.dataset.action === "cancel-medb") {
+      cprViewState.editingMedb = null;
+      cprRenderDetail();
       return;
     }
     // ── Per-adjustment in-place editing ────────────────────────
@@ -4454,6 +4556,322 @@ function cprRevertVisitPay(vid) {
   cprRenderDetail();
 }
 
+// Edit a clinician's Med B amount in place (retroactive correction —
+// useful when Strata wasn't dropped at import time OR a one-off
+// adjustment is needed). Tags medb_source='manual' so future
+// recomputes preserve it; cprRecompute folds the new value into
+// r.total_medb so the header summary updates.
+function cprEditMedb(clinName, newRaw) {
+  const r = cprViewState.run;
+  if (!r || r.status !== "open") return;
+  const c = (r.per_clinician_payload || []).find(function(x) { return x.clinician === clinName; });
+  if (!c) return;
+  const n = Number(newRaw);
+  if (!Number.isFinite(n) || n < 0) { alert("Med B amount must be a non-negative number."); return; }
+  c.medb_total  = Math.round(n * 100) / 100;
+  c.medb_source = c.medb_total > 0 ? "manual" : null;
+  cprViewState.editingMedb = null;
+  cprViewState.dirty = true;
+  cprRecompute();
+  cprRenderDetail();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Retroactive "Add / Update Strata Med B" modal (migration 34/35)
+// Lets the user drop a Strata PDF AFTER the audit is open, without
+// re-uploading the TB file. Recomputes per-clinician Med B using
+// rates from memory (or freshly derived from this audit's TB visits).
+// ══════════════════════════════════════════════════════════════════
+
+// Holds the just-parsed PDF payload + the rate map built for this audit.
+// Lives only while the retro modal is open.
+let cprMedbRetroParsed = null;
+let cprMedbRetroRateMap = null;
+
+function cprOpenMedbRetro() {
+  if (!cprViewState || !cprViewState.run) return;
+  if (cprViewState.run.status !== "open") {
+    alert("Reopen the audit first — Med B updates need an editable run.");
+    return;
+  }
+  cprMedbRetroParsed = null;
+  cprMedbRetroRateMap = null;
+  document.getElementById("cpr-medb-retro-file-input").value = "";
+  document.getElementById("cpr-medb-retro-status").innerHTML = "● Awaiting Strata PDF…";
+  document.getElementById("cpr-medb-retro-status").style.color = "var(--muted)";
+  document.getElementById("cpr-medb-retro-error").style.display = "none";
+  document.getElementById("cpr-medb-retro-preview").style.display = "none";
+  document.getElementById("cpr-medb-retro-preview").innerHTML = "";
+  document.getElementById("cpr-medb-retro-apply").disabled = true;
+  document.getElementById("cpr-medb-retro-overlay").style.display = "flex";
+
+  // Build the rate map for THIS audit's saved TB data. The shape we
+  // need mirrors cprPrepared (per_clinician_payload + all_visits_payload),
+  // which is exactly what cprViewState.run carries. So we pass run
+  // directly into cprBuildRateMap — it works against either source.
+  cprBuildRateMap(cprViewState.run).then(function(m) {
+    cprMedbRetroRateMap = m;
+    // If a PDF was already dropped while the memory was loading, re-render.
+    if (cprMedbRetroParsed) renderCprMedbRetroPreview();
+  });
+}
+
+function cprCloseMedbRetro() {
+  document.getElementById("cpr-medb-retro-overlay").style.display = "none";
+  cprMedbRetroParsed = null;
+  cprMedbRetroRateMap = null;
+}
+
+function showCprMedbRetroError(html) {
+  const el = document.getElementById("cpr-medb-retro-error");
+  el.innerHTML = html;
+  el.style.display = "block";
+  document.getElementById("cpr-medb-retro-apply").disabled = true;
+  cprMedbRetroParsed = null;
+}
+
+// Parses the Strata PDF using the shared logic from handleCprMedbPdf
+// (kept identical so both flows work the same). Differs only in where
+// the result lands and how the preview renders.
+async function handleCprMedbRetroPdf(file) {
+  const lc = (file.name || "").toLowerCase();
+  if (!lc.endsWith(".pdf")) {
+    showCprMedbRetroError("Strata exports as PDF. Got <code>" + escHtml(file.name) + "</code>.");
+    return;
+  }
+  if (!window.pdfjsLib) {
+    showCprMedbRetroError("PDF library didn't load. Hard-refresh and try again.");
+    return;
+  }
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+
+    // ── Same line-reconstruction logic as handleCprMedbPdf ──
+    const lines = [];
+    for (let p = 1; p <= pdf.numPages; p++) {
+      const page = await pdf.getPage(p);
+      const tc   = await page.getTextContent();
+      const items = (tc.items || []).map(function(it) {
+        return { str: String(it.str || ""), x: it.transform[4], y: it.transform[5] };
+      }).filter(function(it) { return it.str.trim().length > 0; });
+      const bands = [];
+      items.forEach(function(it) {
+        let band = null;
+        for (let i = 0; i < bands.length; i++) {
+          if (Math.abs(bands[i].y - it.y) < 3) { band = bands[i]; break; }
+        }
+        if (!band) { band = { y: it.y, items: [] }; bands.push(band); }
+        band.items.push(it);
+      });
+      bands.sort(function(a, b) { return b.y - a.y; });
+      bands.forEach(function(band) {
+        band.items.sort(function(a, b) { return a.x - b.x; });
+        const txt = band.items.map(function(i) { return i.str; }).join(" ").replace(/\s+/g, " ").trim();
+        if (txt) lines.push(txt);
+      });
+    }
+    const STAFF_RE_PAREN = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
+    const STAFF_RE_BARE  = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")\\s*$");
+    const rows = [];
+    const seenKeys = new Set();
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line) continue;
+      const lcLine = line.toLowerCase();
+      if (lcLine.indexOf("combined staff totals") >= 0) continue;
+      if (lcLine.indexOf("page ") === 0) continue;
+      if (lcLine.indexOf("staff productivity report") >= 0) continue;
+      if (lcLine.indexOf("revenue metrics") >= 0) continue;
+      if (lcLine.indexOf("cpt copyright") >= 0) continue;
+      let nameRaw = null, disc = null;
+      let m = STAFF_RE_PAREN.exec(line);
+      if (m) { nameRaw = m[1]; disc = m[2]; }
+      else {
+        m = STAFF_RE_BARE.exec(line);
+        if (m) { nameRaw = m[1]; disc = m[2]; }
+      }
+      if (!nameRaw) continue;
+      nameRaw = nameRaw.replace(/[,;]\s*$/, "").trim();
+      if (!nameRaw) continue;
+      let visits = null;
+      for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
+        const next = lines[j].trim();
+        if (!next) continue;
+        if (/^\d+$/.test(next)) { visits = parseInt(next, 10); break; }
+        const inline = /^(\d+)\s*\(\d+(?:\.\d+)?%\)/.exec(next);
+        if (inline) { visits = parseInt(inline[1], 10); break; }
+        if (STAFF_RE_PAREN.test(next) || STAFF_RE_BARE.test(next)) break;
+      }
+      if (visits == null) continue;
+      const key = cprClinLookupKey(nameRaw + " " + disc);
+      if (!key || seenKeys.has(key)) continue;
+      seenKeys.add(key);
+      rows.push({
+        clinician_raw: nameRaw + " " + disc,
+        lookup_key:    key,
+        discipline:    disc,
+        visits_billed: visits
+      });
+    }
+    if (!rows.length) {
+      showCprMedbRetroError("Couldn't find any clinician rows in the PDF. Confirm this is the Strata <strong>Staff Productivity Report (by Charge Submission)</strong>.");
+      return;
+    }
+    cprMedbRetroParsed = {
+      rows:            rows,
+      total_visits:    rows.reduce(function(s, r) { return s + r.visits_billed; }, 0),
+      source_filename: file.name
+    };
+    document.getElementById("cpr-medb-retro-error").style.display = "none";
+    document.getElementById("cpr-medb-retro-status").innerHTML =
+      "● Parsed <strong>" + rows.length + "</strong> clinicians · <strong>" +
+      cprMedbRetroParsed.total_visits + "</strong> total visits";
+    document.getElementById("cpr-medb-retro-status").style.color = "#1B5E20";
+    renderCprMedbRetroPreview();
+  } catch (err) {
+    showCprMedbRetroError("Failed to parse PDF: " + escHtml(err.message || String(err)));
+  }
+}
+
+// Renders the preview table inside the retro modal: per-clinician row
+// showing TB Pay (existing) / Strata Vis (just parsed) / Rate (from
+// memory or derived) / new Med B = vis × rate. Unmatched Strata names
+// surface in a yellow warning strip.
+function renderCprMedbRetroPreview() {
+  const wrap = document.getElementById("cpr-medb-retro-preview");
+  if (!wrap) return;
+  if (!cprMedbRetroParsed) return;
+  const r = cprViewState.run;
+  if (!r) return;
+  const rateMap = cprMedbRetroRateMap || cprComputeDerivedRates(r);
+  // Index Strata visits by lookup key
+  const visitsByKey = Object.create(null);
+  cprMedbRetroParsed.rows.forEach(function(row) {
+    if (!row.lookup_key) return;
+    visitsByKey[row.lookup_key] = (visitsByKey[row.lookup_key] || 0) + (Number(row.visits_billed) || 0);
+  });
+  // Per-clinician preview
+  const perClin = r.per_clinician_payload || [];
+  const tbByKey = Object.create(null);
+  perClin.forEach(function(c) { tbByKey[cprClinLookupKey(c.clinician)] = c; });
+  // Unmatched Strata names (no TB row for this period)
+  const unmatched = cprMedbRetroParsed.rows.filter(function(row) { return !tbByKey[row.lookup_key]; });
+
+  let html = "";
+  if (unmatched.length) {
+    html += '<div style="margin-bottom:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
+      '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ ' + unmatched.length + ' Strata name(s) didn\'t match this audit\'s clinicians</div>' +
+      '<div style="color:#5d4500;margin-bottom:6px;">These rows will be skipped. Fix the name in Strata + re-export if needed.</div>' +
+      '<ul style="margin:0;padding-left:18px;color:#5d4500;">' +
+        unmatched.slice(0, 10).map(function(u) {
+          return '<li>' + escHtml(u.clinician_raw) + ' — ' + u.visits_billed + ' visits</li>';
+        }).join("") +
+        (unmatched.length > 10 ? '<li style="color:var(--muted);">…and ' + (unmatched.length - 10) + ' more</li>' : '') +
+      '</ul>' +
+    '</div>';
+  }
+
+  // Per-clinician table — show rows where Strata has visits OR where
+  // the current row already has Med B (so user sees both "what will
+  // change" and "what was already set").
+  html += '<div style="font-size:11px;color:var(--muted);margin:4px 0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Preview — Med B will be replaced for matched clinicians</div>';
+  html += '<div style="max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
+  html += '<table class="cpr-per-clin-table"><thead><tr>' +
+    '<th>Clinician</th><th>Disc</th>' +
+    '<th class="cpr-num">Strata Vis</th>' +
+    '<th class="cpr-num">$ / visit</th>' +
+    '<th class="cpr-num">Current Med B</th>' +
+    '<th class="cpr-num">New Med B</th>' +
+  '</tr></thead><tbody>';
+
+  let newTotal = 0;
+  let oldTotal = 0;
+  let touchedCount = 0;
+  perClin.forEach(function(c) {
+    const k = cprClinLookupKey(c.clinician);
+    const sv = visitsByKey[k] || 0;
+    const cur = Number(c.medb_total) || 0;
+    const meta = rateMap.get(k);
+    const rate = meta ? meta.rate : null;
+    const newMedb = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
+    // Only render rows that have either old Med B or new Med B (to
+    // keep the preview tight when most clinicians are unaffected)
+    if (sv === 0 && cur === 0) return;
+    if (sv > 0) touchedCount++;
+    newTotal += newMedb;
+    oldTotal += cur;
+    const rateCell = rate == null
+      ? '<span style="color:#a53935;font-weight:700;" title="No rate — Med B will be $0">⚠</span>'
+      : cprFmtMoney(rate);
+    const newCellStyle = newMedb > 0 ? 'color:#1B5E20;font-weight:700;' : 'color:#cbd5e1;';
+    const curCellStyle = cur > 0    ? 'color:#475569;'               : 'color:#cbd5e1;';
+    const deltaHint = (newMedb !== cur)
+      ? ' <span style="color:' + (newMedb > cur ? '#1B5E20' : '#a53935') + ';font-size:10px;">(' + (newMedb > cur ? '+' : '') + cprFmtMoney(newMedb - cur) + ')</span>'
+      : '';
+    html += '<tr>' +
+      '<td>' + escHtml(c.clinician) + '</td>' +
+      '<td>' + escHtml(c.discipline || "") + '</td>' +
+      '<td class="cpr-num">' + (sv > 0 ? sv : '<span style="color:#cbd5e1;">—</span>') + '</td>' +
+      '<td class="cpr-num">' + rateCell + '</td>' +
+      '<td class="cpr-num" style="' + curCellStyle + '">' + cprFmtMoney(cur) + '</td>' +
+      '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + deltaHint + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody><tfoot><tr>' +
+    '<td colspan="4">TOTAL — ' + touchedCount + ' clinicians touched</td>' +
+    '<td class="cpr-num" style="color:#475569;">' + cprFmtMoney(oldTotal) + '</td>' +
+    '<td class="cpr-num" style="color:#1B5E20;font-weight:700;">' + cprFmtMoney(newTotal) + '</td>' +
+  '</tr></tfoot></table></div>';
+
+  wrap.innerHTML = html;
+  wrap.style.display = "block";
+  document.getElementById("cpr-medb-retro-apply").disabled = false;
+}
+
+// Apply the parsed Strata data to the audit: rewrite each matched
+// clinician's medb_total to (strata_visits × rate). Mark the run dirty
+// and recompute totals; user clicks Save Adjustments to persist.
+function cprApplyMedbRetro() {
+  const r = cprViewState.run;
+  if (!r || r.status !== "open" || !cprMedbRetroParsed) return;
+  const rateMap = cprMedbRetroRateMap || cprComputeDerivedRates(r);
+  const visitsByKey = Object.create(null);
+  cprMedbRetroParsed.rows.forEach(function(row) {
+    if (!row.lookup_key) return;
+    visitsByKey[row.lookup_key] = (visitsByKey[row.lookup_key] || 0) + (Number(row.visits_billed) || 0);
+  });
+  // Walk every clinician in the period; assign Med B for matches,
+  // ZERO out any prior Med B for clinicians NOT in the Strata file
+  // (a fresh Strata import should fully replace, not stack on, prior
+  // Med B numbers — same semantics as a re-import via the main flow).
+  (r.per_clinician_payload || []).forEach(function(c) {
+    const k = cprClinLookupKey(c.clinician);
+    const sv = visitsByKey[k] || 0;
+    if (sv === 0) {
+      c.medb_total = 0;
+      c.medb_source = null;
+      return;
+    }
+    const meta = rateMap.get(k);
+    const rate = meta ? meta.rate : null;
+    if (rate == null) {
+      c.medb_total = 0;
+      c.medb_source = null;
+      return;
+    }
+    c.medb_total  = Math.round(sv * rate * 100) / 100;
+    c.medb_source = "Strata";
+  });
+  cprViewState.dirty = true;
+  // Stash the rateMap snapshot so the post-save persistence call uses
+  // the same rates (memory bumps + manual_override-preservation rule).
+  cprRateMap = rateMap;
+  cprRecompute();
+  cprCloseMedbRetro();
+  cprRenderDetail();
+}
+
 // In-place edit for a manual adjustment field (date / description / amount).
 function cprEditAdjustment(clinKey, adjId, field, value) {
   const r = cprViewState.run;
@@ -4540,6 +4958,15 @@ async function cprSaveRun(finalize) {
       p_source_filename:       r.source_filename
     });
     if (error) throw new Error(error.message);
+    // If a retro Med B add populated the rate map, persist rates to
+    // memory after the audit save succeeds (mirrors saveCprRun's flow,
+    // migration 35). Manual cell edits (feature B) don't populate
+    // cprRateMap, so they don't trigger this — they're a dollar amount
+    // we can't deduce a rate from.
+    if (cprRateMap && cprRateMap.size > 0) {
+      const rateRows = cprBuildRateRows(r.per_clinician_payload || [], cprRateMap, cprRateEdits || new Map());
+      cprPersistRates(rateRows);
+    }
     if (finalize) {
       const res2 = await db.rpc("mark_clinician_payroll_audited", { run_id: r.id, notes: null });
       if (res2.error) throw new Error(res2.error.message);
@@ -8393,6 +8820,38 @@ checkSession();
     <div id="cpr-detail-body"></div>
     <div class="cpr-modal-footer">
       <button type="button" class="btn-secondary" id="cpr-detail-close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- "Add/Update Strata Med B" retro-add modal (migration 34/35).
+     Opens from inside the audit detail. Takes a Strata PDF only —
+     reuses the period's existing TB visits + the rate memory to
+     recompute Med B per clinician. -->
+<div class="cpr-modal-overlay" id="cpr-medb-retro-overlay" style="display:none;">
+  <div class="cpr-modal-box" style="width:720px;max-width:95vw;">
+    <div class="cpr-modal-title">🩺 Add / Update Strata Med B</div>
+    <div class="cpr-modal-sub">
+      Drop the <strong>Strata Med B productivity PDF</strong> for this period.
+      The tool will recompute Med B per clinician using rates from memory
+      (or derived from this audit's TB visits) — no TB re-upload required.
+      Click <strong>Save Adjustments</strong> on the audit afterward to
+      persist.
+    </div>
+
+    <label class="cpr-dropzone" id="cpr-medb-retro-dropzone" for="cpr-medb-retro-file-input">
+      <div class="cpr-dz-icon">🩺</div>
+      <div><strong>Drop Strata Med B .pdf here</strong></div>
+      <div class="cpr-dz-hint">PDF only · Staff Productivity Report (by Charge Submission)</div>
+      <input type="file" id="cpr-medb-retro-file-input" accept=".pdf" />
+    </label>
+    <div id="cpr-medb-retro-status" style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45;">● Awaiting Strata PDF…</div>
+    <div id="cpr-medb-retro-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:8px 12px;font-size:12px;color:#c62828;margin-top:8px;line-height:1.5;"></div>
+    <div id="cpr-medb-retro-preview" style="display:none;margin-top:12px;"></div>
+
+    <div class="cpr-modal-footer">
+      <button type="button" class="btn-secondary" id="cpr-medb-retro-cancel">Cancel</button>
+      <button type="button" class="btn-secondary" id="cpr-medb-retro-apply" disabled style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;">Apply to Audit</button>
     </div>
   </div>
 </div>
