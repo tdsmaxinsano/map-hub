@@ -5120,8 +5120,21 @@ function renderCprMedbRetroPreview() {
   const perClin = r.per_clinician_payload || [];
   const tbByKey = Object.create(null);
   perClin.forEach(function(c) { tbByKey[cprClinLookupKey(c.clinician)] = c; });
-  // Unmatched Strata names (no TB row for this period)
-  const unmatched = cprMedbRetroParsed.rows.filter(function(row) { return !tbByKey[row.lookup_key]; });
+  // Roster index (for Med B-only detection — matches via roster don't
+  // appear in unmatched, they get synthesized as Med B-only preview rows).
+  const rosterByKey = Object.create(null);
+  cprRoster.forEach(function(rr) { if (rr.lookup_key) rosterByKey[rr.lookup_key] = rr; });
+  // Unmatched = Strata rows neither in TB nor in roster (truly orphaned).
+  const unmatched = cprMedbRetroParsed.rows.filter(function(row) {
+    if (tbByKey[row.lookup_key])     return false;
+    if (rosterByKey[row.lookup_key]) return false;
+    return true;
+  });
+  // Roster-only Strata rows — preview them as Med B-only additions below.
+  const medbOnlyPreview = cprMedbRetroParsed.rows.filter(function(row) {
+    if (tbByKey[row.lookup_key])      return false;
+    return !!rosterByKey[row.lookup_key];
+  });
 
   let html = "";
   if (unmatched.length) {
@@ -5200,6 +5213,30 @@ function renderCprMedbRetroPreview() {
       '<td class="cpr-num">' + rateCell + '</td>' +
       '<td class="cpr-num" style="' + curCellStyle + '">' + cprFmtMoney(cur) + '</td>' +
       '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + deltaHint + '</td>' +
+    '</tr>';
+  });
+  // Med B-only preview rows — roster-matched clinicians not yet in the
+  // audit's per_clinician_payload. Apply will append them on commit.
+  medbOnlyPreview.forEach(function(srow) {
+    const rosterHit = rosterByKey[srow.lookup_key];
+    if (!rosterHit) return;
+    const sv = visitsByKey[srow.lookup_key] || 0;
+    const meta = rateMap.get(srow.lookup_key);
+    const rate = meta ? meta.rate : null;
+    const newMedb = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
+    touchedCount++;
+    newTotal += newMedb;
+    const rateCell = rate == null
+      ? '<span style="color:#a53935;font-weight:700;" title="No rate — Med B will be $0">⚠</span>'
+      : cprFmtMoney(rate);
+    const newCellStyle = newMedb > 0 ? 'color:#1B5E20;font-weight:700;' : 'color:#cbd5e1;';
+    html += '<tr style="background:#f5f8ff;">' +
+      '<td>' + escHtml(rosterHit.name) + ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only · new</span></td>' +
+      '<td>' + escHtml(rosterHit.discipline) + '</td>' +
+      '<td class="cpr-num">' + sv + '</td>' +
+      '<td class="cpr-num">' + rateCell + '</td>' +
+      '<td class="cpr-num" style="color:#cbd5e1;">$0.00</td>' +
+      '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + '</td>' +
     '</tr>';
   });
   html += '</tbody><tfoot><tr>' +
