@@ -19274,6 +19274,10 @@
       let skippedCount = 0;
       let dobBackfillCount = 0;       // opportunistic DOB-only writes in Additions Only mode
       let addressBackfillCount = 0;   // opportunistic address-update writes in Additions Only mode
+      // Per-clinician address-change records for email + notification.
+      // Populated by BOTH the Sync Update branch and the Additions Only
+      // backfill. Drives the post-loop email report when populated.
+      const addressChangesInfo = [];
       const processedCliniciansByKey = new Map();
 
       for (let index = 0; index < normalizedRows.length; index += 1) {
@@ -19315,6 +19319,31 @@
             .update(v2Update)
             .eq("id", existingClinician.id);
           if (v2Res.error) throw v2Res.error;
+
+          // Address-change notification (migration 37) — fires for Sync
+          // Update too so the notification surfaces are consistent
+          // across both bulk-import modes. Non-fatal — the address
+          // already landed; failure just means no kanban task / alert.
+          if (v2Update.address) {
+            try {
+              const recRes = await supabaseClient.rpc("record_clinician_address_change", {
+                p_clinician_id: existingClinician.id,
+                p_old:          oldAddrSU || null,
+                p_new:          newAddrSU,
+                p_source:       "bulk_import_sync_update"
+              });
+              if (recRes.error) console.warn("[bulk-import] record address change failed:", recRes.error.message);
+            } catch (recErr) {
+              console.warn("[bulk-import] record address change threw:", recErr && recErr.message);
+            }
+            addressChangesInfo.push({
+              clinician_id: existingClinician.id,
+              name:         existingClinician.name || row.name || "(unnamed)",
+              discipline:   existingClinician.discipline || "",
+              old:          oldAddrSU || "",
+              new:          newAddrSU
+            });
+          }
 
           const profileUpsert = { clinician_id: existingClinician.id, status: newStatus };
           const newPhoneSU = String(row.phone || "").trim();
@@ -19386,6 +19415,28 @@
                 if (typeof v2AddrUpdate.lat === "number") inMemAddr.lat = v2AddrUpdate.lat;
                 if (typeof v2AddrUpdate.lng === "number") inMemAddr.lng = v2AddrUpdate.lng;
               }
+              // Address-change notification (migration 37) — atomic RPC
+              // creates the change-log row + Roster Verification kanban
+              // task. Non-fatal: address already landed; failure just
+              // means no kanban task / News alert for this row.
+              try {
+                const recResAO = await supabaseClient.rpc("record_clinician_address_change", {
+                  p_clinician_id: existingClinician.id,
+                  p_old:          oldAddrAO || null,
+                  p_new:          newAddrAO,
+                  p_source:       "bulk_import_additions_only"
+                });
+                if (recResAO.error) console.warn("[bulk-import] record address change failed:", recResAO.error.message);
+              } catch (recErrAO) {
+                console.warn("[bulk-import] record address change threw:", recErrAO && recErrAO.message);
+              }
+              addressChangesInfo.push({
+                clinician_id: existingClinician.id,
+                name:         existingClinician.name || row.name || "(unnamed)",
+                discipline:   existingClinician.discipline || "",
+                old:          oldAddrAO || "",
+                new:          newAddrAO
+              });
             }
           }
           // Opportunistic DOB backfill: Additions Only normally skips matched
@@ -19466,6 +19517,36 @@
           + ".",
         "success"
       );
+
+      // Email report for Additions Only mode — fires when the
+      // opportunistic address backfill touched at least one clinician.
+      // Sync Update mode has its own emailer via showStatusUpdatePreview;
+      // this avoids double-mailing for that flow.
+      if (appState.clinicianImportMode === "additions_only" && addressChangesInfo.length > 0) {
+        const renderAddrChange = function(c) {
+          return "<div style='padding:8px 10px;border-radius:6px;background:#f8fafd;margin-bottom:5px'>" +
+                 "<strong>" + escapeHtml(c.name) + "</strong>" +
+                 (c.discipline ? " <span style='color:#64748b;font-size:11px;'>(" + escapeHtml(c.discipline) + ")</span>" : "") +
+                 "<br>" +
+                 "<span style='font-size:12px;color:#526480'>🏠 " + escapeHtml(c.old || "—") + " → " + escapeHtml(c.new) + "</span>" +
+                 "</div>";
+        };
+        const sectionsHtml =
+          "<h3 style='font-size:13px;margin:14px 0 6px;color:#1e2d4a'>📍 Address backfills (" + addressChangesInfo.length + ")</h3>" +
+          "<p style='font-size:12px;color:#64748b;margin:0 0 8px;line-height:1.5'>" +
+          "Bulk import was run in <strong>Additions Only</strong> mode. " +
+          "These clinicians were already in the portal AND their addresses changed in TherapyBoss — the new addresses were written automatically. " +
+          "Each row also created a card on the Roster Verification kanban board." +
+          "</p>" +
+          addressChangesInfo.map(renderAddrChange).join("");
+        sendImportReport({
+          reportType:  "additions_only_address_backfill",
+          summary:     addressChangesInfo.length + " address backfill" + (addressChangesInfo.length === 1 ? "" : "s") +
+                       (dobBackfillCount ? " · " + dobBackfillCount + " DOB backfill" + (dobBackfillCount === 1 ? "" : "s") : ""),
+          sectionsHtml: sectionsHtml
+        });
+      }
+
       await loadClinicians();
     }
 
