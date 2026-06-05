@@ -19272,7 +19272,8 @@
       let createdCount = 0;
       let updatedCount = 0;
       let skippedCount = 0;
-      let dobBackfillCount = 0;   // opportunistic DOB-only writes in Additions Only mode
+      let dobBackfillCount = 0;       // opportunistic DOB-only writes in Additions Only mode
+      let addressBackfillCount = 0;   // opportunistic address-update writes in Additions Only mode
       const processedCliniciansByKey = new Map();
 
       for (let index = 0; index < normalizedRows.length; index += 1) {
@@ -19349,6 +19350,44 @@
         }
 
         if (appState.clinicianImportMode === "additions_only" && existingClinician) {
+          // Opportunistic ADDRESS backfill: mirrors the DOB-backfill exception
+          // pattern below, but the trigger is a DETECTED CHANGE (not NULL).
+          // When TB's address differs from the portal's address per the same
+          // normalized comparison Sync Update uses, write JUST address/zip/
+          // lat/lng — no other field touched. Lets the safer default mode
+          // pick up real address moves without forcing the user to switch
+          // to Sync Update or Full Initial Load.
+          const newAddrAO = String(row.full_address || "").trim();
+          const oldAddrAO = String(existingClinician.address || "").trim();
+          if (newAddrAO && normalizeGeocodeAddressKey(newAddrAO) !== normalizeGeocodeAddressKey(oldAddrAO)) {
+            const v2AddrUpdate = { address: newAddrAO };
+            if (typeof row.lat === "number") v2AddrUpdate.lat = row.lat;
+            if (typeof row.lng === "number") v2AddrUpdate.lng = row.lng;
+            const newZipAO = String(row.zip || "").trim();
+            const oldZipAO = String(existingClinician.zip || "").trim();
+            if (newZipAO && newZipAO !== oldZipAO) v2AddrUpdate.zip = newZipAO;
+            const addrRes = await supabaseClient
+              .from("clinician_v2")
+              .update(v2AddrUpdate)
+              .eq("id", existingClinician.id);
+            if (addrRes.error) {
+              console.warn("[bulk-import] address backfill failed for", existingClinician.id, addrRes.error.message);
+            } else {
+              addressBackfillCount += 1;
+              // Keep in-memory caches in sync (existingClinician + appState.clinicians)
+              existingClinician.address = newAddrAO;
+              if (v2AddrUpdate.zip)                       existingClinician.zip = v2AddrUpdate.zip;
+              if (typeof v2AddrUpdate.lat === "number")   existingClinician.lat = v2AddrUpdate.lat;
+              if (typeof v2AddrUpdate.lng === "number")   existingClinician.lng = v2AddrUpdate.lng;
+              const inMemAddr = appState.clinicians.find(function(x) { return x.id === existingClinician.id; });
+              if (inMemAddr) {
+                inMemAddr.address = newAddrAO;
+                if (v2AddrUpdate.zip)                     inMemAddr.zip = v2AddrUpdate.zip;
+                if (typeof v2AddrUpdate.lat === "number") inMemAddr.lat = v2AddrUpdate.lat;
+                if (typeof v2AddrUpdate.lng === "number") inMemAddr.lng = v2AddrUpdate.lng;
+              }
+            }
+          }
           // Opportunistic DOB backfill: Additions Only normally skips matched
           // existing clinicians entirely. The single exception: if the file
           // has a DOB AND the DB row has NULL dob, write JUST the dob (no
@@ -19422,6 +19461,7 @@
       setImportStatus(
         "Clinician master import complete (" + getClinicianImportModeLabel(appState.clinicianImportMode) + "). "
           + createdCount + " created, " + updatedCount + " updated, " + skippedCount + " skipped"
+          + (addressBackfillCount ? " · 📍 backfilled address on " + addressBackfillCount + " existing clinicians" : "")
           + (dobBackfillCount ? " · 🎂 backfilled DOB on " + dobBackfillCount + " existing clinicians" : "")
           + ".",
         "success"
