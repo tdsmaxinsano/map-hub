@@ -826,6 +826,121 @@
   .bank-pattern-pill.p-check  { background: #fef9c3; color: #854d0e; border: 1px solid #facc15; }
   .bank-pattern-pill.p-cc     { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
 
+  /* ── Expense Categorizer card (② QB Tools) ─────────────────── */
+  .exp-tools {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    margin-bottom: 12px; padding: 10px 14px;
+    background: #fafbfd; border: 1px solid var(--border); border-radius: 10px;
+  }
+  .exp-tools-hint { flex: 1; min-width: 220px; font-size: 12px; color: var(--muted); line-height: 1.5; }
+  .exp-tools-hint code { background: #e5e7eb; padding: 1px 5px; border-radius: 4px; font-size: 11.5px; }
+  .exp-row-tools {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    margin: 12px 0 10px;
+  }
+  .exp-chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 5px 11px; border-radius: 999px;
+    font-size: 12px; font-weight: 700; cursor: pointer;
+    background: #f1f5f9; color: var(--text); border: 1.5px solid transparent;
+    user-select: none;
+  }
+  .exp-chip:hover { background: #e2e8f0; }
+  .exp-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .exp-search {
+    flex: 1; min-width: 200px; padding: 7px 11px;
+    border: 1.5px solid var(--border); border-radius: 7px; font-size: 13px; outline: none;
+  }
+  .exp-search:focus { border-color: var(--accent); }
+
+  .exp-table-wrap {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    overflow: auto; max-height: 60vh;
+  }
+  table.exp-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  table.exp-table th {
+    background: #f1f5f9; color: var(--muted); font-size: 10.5px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2; white-space: nowrap;
+  }
+  table.exp-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  table.exp-table tr.is-review td { background: #fffbeb; }
+  table.exp-table tr.is-income td { background: #f0fdf4; }
+  table.exp-table tr.is-uncategorized td { background: #fef2f2; }
+  table.exp-table tr:hover td { background: #f9fafb !important; }
+  .exp-col-date { width: 90px; }
+  .exp-col-amt  { width: 90px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .exp-col-cat  { width: 200px; }
+  .exp-col-pct  { width: 80px; text-align: right; }
+  .exp-col-flag { width: 60px; text-align: center; }
+  table.exp-table td.exp-col-amt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+  table.exp-table td.exp-col-pct { text-align: right; }
+  table.exp-table td input.exp-cell, table.exp-table td select.exp-cell {
+    width: 100%; padding: 4px 6px; border: 1px solid transparent; border-radius: 5px;
+    font-size: 12.5px; font-family: inherit; background: transparent; outline: none;
+  }
+  table.exp-table td input.exp-cell:hover, table.exp-table td select.exp-cell:hover { background: #f8fafc; }
+  table.exp-table td input.exp-cell:focus, table.exp-table td select.exp-cell:focus { border-color: var(--accent); background: #fff; }
+  table.exp-table td input[type="checkbox"] { cursor: pointer; }
+
+  /* ── Manage Rules modal ─────────────────────────────────────── */
+  .exp-rule-add {
+    display: grid; grid-template-columns: 1fr 1.4fr 90px auto auto; gap: 8px;
+    margin-bottom: 10px; padding: 10px; background: #fafbfd;
+    border: 1px solid var(--border); border-radius: 8px;
+    align-items: center;
+  }
+  .exp-rule-add input[type="text"], .exp-rule-add input[type="number"] {
+    padding: 6px 9px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 12.5px; outline: none;
+  }
+  .exp-rule-add input:focus { border-color: var(--accent); }
+  .exp-rule-add button {
+    padding: 6px 14px; background: var(--accent); color: #fff; border: none;
+    border-radius: 7px; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap;
+  }
+  .exp-rule-add button:hover { background: #1d4fc4; }
+  .exp-rule-review-toggle { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  @media (max-width: 720px) {
+    .exp-rule-add { grid-template-columns: 1fr 1fr; }
+    .exp-rule-add button { grid-column: 1 / -1; }
+  }
+  .exp-rule-filter {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 8px;
+  }
+  .exp-rule-filter input {
+    flex: 1; padding: 6px 10px; border: 1.5px solid var(--border);
+    border-radius: 6px; font-size: 12.5px; outline: none;
+  }
+  .exp-rule-filter input:focus { border-color: var(--accent); }
+  .exp-rule-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .exp-rule-table-wrap {
+    border: 1px solid var(--border); border-radius: 8px; overflow: auto;
+    max-height: 50vh; background: #fff;
+  }
+  table.exp-rule-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  table.exp-rule-table th {
+    background: #f1f5f9; color: var(--muted); font-size: 10.5px;
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
+    text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 1;
+  }
+  table.exp-rule-table td { padding: 6px 10px; border-bottom: 1px solid #f1f5f9; }
+  table.exp-rule-table tr:hover td { background: #f9fafb; }
+  table.exp-rule-table input, table.exp-rule-table select {
+    width: 100%; padding: 4px 6px; border: 1px solid transparent;
+    border-radius: 5px; font-size: 12px; outline: none; background: transparent;
+  }
+  table.exp-rule-table input:hover, table.exp-rule-table select:hover { background: #f8fafc; }
+  table.exp-rule-table input:focus, table.exp-rule-table select:focus { border-color: var(--accent); background: #fff; }
+  table.exp-rule-table .exp-rule-del {
+    background: transparent; color: #b91c1c; border: 1px solid #fca5a5;
+    padding: 3px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; cursor: pointer;
+  }
+  table.exp-rule-table .exp-rule-del:hover { background: #fee2e2; }
+  table.exp-rule-table .exp-rule-del.confirm { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+
   /* v2: Authorize.net per-batch reconciliation panel */
   .bank-recon {
     margin-top: 14px;
@@ -1106,6 +1221,7 @@
     <button data-view="payroll">💵 Payroll</button>
     <button data-view="billing">🧾 Billing</button>
     <button data-view="qbtools">🔧 QB Tools</button>
+    <button data-view="expenses">💸 Tax Categorizer</button>
   </div>
 
   <!-- LANDING -->
@@ -1128,6 +1244,12 @@
         <div class="tile-title">QB Tools</div>
         <div class="tile-desc">Helpers that streamline QuickBooks-side workflows — bank-feed matching, reconciliation prep, and more as we surface needs.</div>
         <span class="tile-cta">Open QB Tools →</span>
+      </button>
+      <button type="button" class="tile" data-go="expenses">
+        <div class="tile-icon">💸</div>
+        <div class="tile-title">Tax Categorizer</div>
+        <div class="tile-desc">Drop a Chase CSV → auto-categorize expense transactions for tax review (Health Insurance / Marketing / Auto / Office / etc.). Editable rules shared across admins. Multi-sheet XLSX output for the accountant.</div>
+        <span class="tile-cta">Open Tax Categorizer →</span>
       </button>
     </div>
   </div>
@@ -1544,12 +1666,12 @@
       </div>
     </div>
 
-    <!-- ③ Patient Deposit History — every AR-routed scan from the
+    <!-- ② Patient Deposit History — every AR-routed scan from the
          Bank Match scanner is logged to patient_check_deposits on
          Add-to-batch. Lets the user track which scanned checks still
          need to be CLEARED in Strata EMR (a separate workflow). -->
     <div class="card">
-      <h3>③ Patient Deposit History <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— track which patient checks you've cleared in Strata EMR</span></h3>
+      <h3>② Patient Deposit History <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— track which patient checks you've cleared in Strata EMR</span></h3>
       <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
         Every patient check you scan and add to the Bank Match batch is logged here automatically (only AR-routed scans — carrier checks are excluded). When you've cleared the patient's balance in Strata, click <strong>✓ Cleared</strong> to stamp it. The pending list tells you what's left.
       </p>
@@ -1669,6 +1791,122 @@
       </div>
     </div>
   </div>
+
+  <!-- EXPENSES — Tax Categorizer sub-view (sibling of view-qbtools).
+       Conceptually distinct from QB Tools: this tool categorizes
+       OUTGOING expenses for tax review (no QB push). Backed by
+       expense_category_rules (migration 33). See EXP IIFE module
+       in the script section. -->
+  <div class="view" id="view-expenses">
+    <div class="card">
+      <h3>💸 Tax Categorizer <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— Chase CSV → categorized tax-review XLSX</span></h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+        Drop a Chase bank CSV — every expense row gets auto-categorized via keyword match (Health Insurance / Marketing / Auto / Office / Utilities / Payroll / Fees). You review + correct in the table, then download a 3-sheet XLSX (full detail · category summary · review-needed). <strong>No QB integration</strong> — output is for accountant tax review.
+      </p>
+
+      <!-- Toolbar -->
+      <div class="exp-tools">
+        <button type="button" class="btn-secondary" id="exp-rules-btn">⚙ Manage rules</button>
+        <span class="exp-tools-hint">Rules are <strong>shared across all admins</strong> — add a keyword once (e.g. <code>WALGREENS → Office 100%</code>) and every future import auto-categorizes it.</span>
+      </div>
+
+      <!-- Dropzone -->
+      <div class="dropzone bank-dropzone" id="exp-dropzone" tabindex="0" role="button" aria-label="Drop Chase bank CSV for expense categorization">
+        <div class="bank-dz-icon">💸</div>
+        <div class="bank-dz-title">Drop Chase CSV here or click to browse</div>
+        <div class="bank-dz-sub">Same Chase Online export you use for Bank Match — expenses get categorized; deposits/income are flagged separately.</div>
+      </div>
+      <input type="file" id="exp-file-input" accept=".csv,.xlsx,.xls" style="display:none;" />
+
+      <!-- Preview -->
+      <div id="exp-preview-card" style="display:none;margin-top:14px;">
+        <div class="stat-strip" id="exp-stats"></div>
+
+        <div class="exp-row-tools">
+          <span class="exp-chip active" data-exp-filter="all">All</span>
+          <span class="exp-chip" data-exp-filter="review">⚠ Review needed</span>
+          <span class="exp-chip" data-exp-filter="uncategorized">Uncategorized</span>
+          <span class="exp-chip" data-exp-filter="income">Income / Deposits</span>
+          <input type="search" class="exp-search" id="exp-search" placeholder="Search description / category…" />
+        </div>
+
+        <div class="exp-table-wrap">
+          <table class="exp-table" id="exp-table">
+            <thead>
+              <tr>
+                <th class="exp-col-date">Date</th>
+                <th>Description</th>
+                <th class="exp-col-amt">Amount</th>
+                <th class="exp-col-cat">Category</th>
+                <th class="exp-col-pct">Ded. %</th>
+                <th class="exp-col-amt">Deductible</th>
+                <th class="exp-col-flag">Review</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody id="exp-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="actions" style="margin-top:14px;">
+          <button id="exp-download-btn">⬇ Download Categorized XLSX</button>
+          <button id="exp-reset-btn" class="btn-secondary">Reset</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Manage Rules modal — full CRUD on expense_category_rules.
+         Add / edit / delete keyword→category mappings with deductible
+         percentages. Shared across all admins via Supabase. Lives
+         inside view-expenses so it's removed from layout off-tab. -->
+    <div class="cpr-modal-overlay" id="exp-rules-modal" style="display:none;">
+      <div class="cpr-modal-box" style="width:880px;max-width:96vw;">
+        <div class="cpr-modal-title">⚙ Manage expense category rules</div>
+        <div class="cpr-modal-sub">
+          When a Chase expense description matches a keyword (case-insensitive substring), the row is auto-categorized to that category and gets the default deductible %. Rules are shared across all admins.
+        </div>
+
+        <!-- Add new rule -->
+        <div class="exp-rule-add">
+          <input type="text" id="exp-rule-new-keyword" placeholder="Keyword (e.g. WALGREENS)" />
+          <input type="text" id="exp-rule-new-category" placeholder="Category (e.g. Office / Software)" list="exp-rule-categories" />
+          <datalist id="exp-rule-categories"></datalist>
+          <input type="number" id="exp-rule-new-pct" placeholder="100" min="0" max="100" step="1" />
+          <label class="exp-rule-review-toggle">
+            <input type="checkbox" id="exp-rule-new-review" />
+            Flag for review
+          </label>
+          <button type="button" id="exp-rule-add-btn">+ Add rule</button>
+        </div>
+
+        <!-- Filter + count -->
+        <div class="exp-rule-filter">
+          <input type="search" id="exp-rule-search" placeholder="Search rules…" />
+          <span class="exp-rule-count" id="exp-rule-count"></span>
+        </div>
+
+        <!-- Rules table -->
+        <div class="exp-rule-table-wrap">
+          <table class="exp-rule-table" id="exp-rule-table">
+            <thead>
+              <tr>
+                <th>Keyword</th>
+                <th>Category</th>
+                <th>Ded. %</th>
+                <th>Review</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="exp-rule-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="cpr-modal-footer">
+          <button type="button" class="btn-secondary" data-close="exp-rules-modal">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <div class="toast" id="toast"></div>
@@ -1783,7 +2021,7 @@ async function launchApp(user) {
 // SUB-VIEW SWITCHING
 // ══════════════════════════════════════════════════════════════════
 function switchView(viewName, skipPushState) {
-  const validViews = ["landing", "payroll", "billing", "qbtools"];
+  const validViews = ["landing", "payroll", "billing", "qbtools", "expenses"];
   if (!validViews.includes(viewName)) viewName = "landing";
 
   document.querySelectorAll(".view").forEach(v => {
@@ -1794,10 +2032,11 @@ function switchView(viewName, skipPushState) {
   });
 
   const subtitleMap = {
-    landing: "Payroll + billing + QB tools for the staffing operation.",
-    payroll: "Current pay period totals and link to the Time Tracker pay period view.",
-    billing: "Agency invoicing — placeholder for v1.",
-    qbtools: "Helpers that streamline QuickBooks-side workflows. (Scaffolding — first tool coming soon.)"
+    landing:  "Payroll + billing + QB tools + tax categorizer for the staffing operation.",
+    payroll:  "Current pay period totals and link to the Time Tracker pay period view.",
+    billing:  "Agency invoicing — placeholder for v1.",
+    qbtools:  "Helpers that streamline QuickBooks-side workflows.",
+    expenses: "Drop a Chase CSV → auto-categorize expense rows for tax review. Editable rules shared across admins."
   };
   document.getElementById("hero-sub").textContent = subtitleMap[viewName] || subtitleMap.landing;
 
@@ -6700,6 +6939,640 @@ const HIST = (() => {
   return { init, refreshAfterAdd };
 })();
 
+// ══════════════════════════════════════════════════════════════════
+// EXP — Expense Categorizer (② card under QB Tools)
+// Drop Chase CSV → keyword-categorize expense rows (Amount < 0) via
+// rules from expense_category_rules (migration 33) → user reviews +
+// edits in preview table → download 3-sheet XLSX (Categorized /
+// Summary / Review Needed) for tax review. No QB push.
+// ══════════════════════════════════════════════════════════════════
+const EXP = (() => {
+  let rules = [];            // [{id, category, keyword, keyword_normalized, deductible_percent, review_flag_default, priority}]
+  let rows  = [];            // [{date, description, amount, type, category, deductible_pct, deductibleAmt, reviewFlag, notes, original}]
+  let filter = "all";        // "all" | "review" | "uncategorized" | "income"
+  let searchText = "";
+  let initialized = false;
+  let searchTimer = null;
+  let ruleSearchTimer = null;
+  let ruleFilter = "";
+  let ruleDeleteConfirmId = null;
+
+  function escHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  function escAttr(s) { return escHtml(s); }
+
+  // ── Rule load ─────────────────────────────────────────────────────
+  async function loadRules() {
+    const { data, error } = await db.rpc("list_expense_rules");
+    if (error) { showToast("Rules load failed: " + error.message, "error"); rules = []; return; }
+    rules = data || [];
+    // Sort by priority (lower = higher precedence) then by keyword length
+    // DESC so longer keywords match before shorter substring overlaps
+    // (e.g. "GOOGLE ADS" before "GOOGLE").
+    rules.sort((a, b) =>
+      (a.priority - b.priority) ||
+      (b.keyword_normalized.length - a.keyword_normalized.length) ||
+      a.keyword.localeCompare(b.keyword)
+    );
+  }
+
+  // Distinct categories for the per-row Category dropdown + datalist
+  function distinctCategories() {
+    const set = new Set();
+    rules.forEach(r => set.add(r.category));
+    return Array.from(set).sort();
+  }
+
+  // ── Categorize one description ────────────────────────────────────
+  function categorize(description) {
+    const norm = String(description || "").toLowerCase();
+    for (const r of rules) {
+      if (norm.includes(r.keyword_normalized)) {
+        return {
+          category: r.category,
+          deductible_pct: Number(r.deductible_percent),
+          reviewFlag: !!r.review_flag_default,
+          matchedKeyword: r.keyword
+        };
+      }
+    }
+    return { category: "Uncategorized", deductible_pct: 0, reviewFlag: true, matchedKeyword: null };
+  }
+
+  // ── CSV parse ─────────────────────────────────────────────────────
+  async function handleFile(file) {
+    if (typeof XLSX === "undefined") {
+      showToast("Spreadsheet parser didn't load. Hard-refresh and retry.", "error");
+      return;
+    }
+    if (!rules.length) {
+      showToast("No rules loaded yet — opening Manage Rules to seed.", "error");
+      return;
+    }
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: false });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: true });
+      if (!raw.length) { showToast(`No rows found in ${file.name}.`, "error"); return; }
+
+      // Chase column-name variants: Details / Posting Date / Description / Amount / Type / Balance / Check or Slip #
+      // Also accept the simpler bank-feed style: Date / Description / Amount
+      const findCol = (rec, ...keys) => {
+        for (const k of keys) {
+          for (const rk of Object.keys(rec)) {
+            if (rk.trim().toLowerCase() === k.toLowerCase()) return rk;
+          }
+        }
+        return null;
+      };
+      const sample = raw[0];
+      const dateKey = findCol(sample, "Posting Date", "Date", "Transaction Date");
+      const descKey = findCol(sample, "Description", "Bank description", "Memo");
+      const amtKey  = findCol(sample, "Amount", "Received", "Withdrawal", "Debit");
+      const typeKey = findCol(sample, "Type", "Transaction Type");
+      const detailKey = findCol(sample, "Details");
+      if (!dateKey || !descKey || !amtKey) {
+        showToast(`Couldn't find Date / Description / Amount columns in ${file.name}. Expected Chase CSV.`, "error");
+        return;
+      }
+
+      rows = raw.map((r, i) => {
+        const dateRaw = r[dateKey];
+        const desc    = String(r[descKey] || "").trim();
+        const amtRaw  = r[amtKey];
+        let amount = 0;
+        if (typeof amtRaw === "number") amount = amtRaw;
+        else {
+          const cleaned = String(amtRaw || "").replace(/[$,()\s]/g, "");
+          const neg = /^\(.*\)$/.test(String(amtRaw || ""));
+          const n = parseFloat(cleaned);
+          amount = isNaN(n) ? 0 : (neg ? -n : n);
+        }
+        // Skip rows with no amount + no description (blank lines)
+        if (amount === 0 && !desc) return null;
+
+        const date = normalizeDate(dateRaw);
+        const type = typeKey ? String(r[typeKey] || "").trim() : "";
+        const detail = detailKey ? String(r[detailKey] || "").trim() : "";
+
+        // Categorize: incoming (positive) → Income / Deposit. Outgoing (negative) → keyword match.
+        let cat, pct, review;
+        if (amount > 0) {
+          cat = "Income / Deposit";
+          pct = 0;
+          review = true;
+        } else {
+          const c = categorize(desc);
+          cat = c.category; pct = c.deductible_pct; review = c.reviewFlag;
+        }
+        const absAmt = Math.abs(amount);
+        const deductibleAmt = amount < 0 ? absAmt * pct : 0;
+
+        return {
+          id: "exp-" + i,
+          date,
+          description: desc,
+          amount,
+          type,
+          detail,
+          category: cat,
+          deductible_pct: pct,
+          deductibleAmt,
+          reviewFlag: review,
+          notes: ""
+        };
+      }).filter(Boolean);
+
+      if (!rows.length) { showToast("No transactions found.", "error"); return; }
+
+      filter = "all";
+      searchText = "";
+      document.getElementById("exp-search").value = "";
+      document.querySelectorAll("[data-exp-filter]").forEach(c => c.classList.toggle("active", c.dataset.expFilter === filter));
+      document.getElementById("exp-preview-card").style.display = "block";
+      render();
+      showToast(`Parsed ${rows.length} transactions from ${file.name}.`);
+    } catch (e) {
+      showToast("Parse error: " + e.message, "error");
+    }
+  }
+
+  function normalizeDate(v) {
+    if (v == null || v === "") return "";
+    if (typeof v === "number") {
+      try {
+        const d = XLSX.SSF.parse_date_code(v);
+        if (d && d.y) return `${String(d.m).padStart(2,"0")}/${String(d.d).padStart(2,"0")}/${d.y}`;
+      } catch (e) {}
+      return "";
+    }
+    const s = String(v).trim();
+    let m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s);
+    if (m) {
+      let yr = parseInt(m[3], 10);
+      if (yr < 100) yr += 2000;
+      return `${String(+m[1]).padStart(2,"0")}/${String(+m[2]).padStart(2,"0")}/${yr}`;
+    }
+    m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+    if (m) return `${String(+m[2]).padStart(2,"0")}/${String(+m[3]).padStart(2,"0")}/${m[1]}`;
+    return s;
+  }
+
+  // ── Render ────────────────────────────────────────────────────────
+  function visibleRows() {
+    let v = rows;
+    if (filter === "review") v = v.filter(r => r.reviewFlag);
+    else if (filter === "uncategorized") v = v.filter(r => r.category === "Uncategorized");
+    else if (filter === "income") v = v.filter(r => r.amount > 0);
+    if (searchText) {
+      const t = searchText.toLowerCase();
+      v = v.filter(r => (r.description + " " + r.category).toLowerCase().includes(t));
+    }
+    return v;
+  }
+
+  function render() {
+    renderStats();
+    const visible = visibleRows();
+    const tbody = document.getElementById("exp-tbody");
+    if (!visible.length) {
+      tbody.innerHTML = `<tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted);">No rows match this filter.</td></tr>`;
+      return;
+    }
+    const cats = distinctCategories();
+    cats.push("Income / Deposit");
+    cats.push("Uncategorized");
+    const uniq = Array.from(new Set(cats)).sort();
+    tbody.innerHTML = visible.map(r => rowHtml(r, uniq)).join("");
+  }
+
+  function renderStats() {
+    const expensesOnly = rows.filter(r => r.amount < 0);
+    const totalExp     = expensesOnly.reduce((s, r) => s + Math.abs(r.amount), 0);
+    const totalDed     = expensesOnly.reduce((s, r) => s + r.deductibleAmt, 0);
+    const reviewCount  = rows.filter(r => r.reviewFlag).length;
+    const uncatCount   = rows.filter(r => r.category === "Uncategorized").length;
+    const incomeCount  = rows.filter(r => r.amount > 0).length;
+    document.getElementById("exp-stats").innerHTML = `
+      <div class="stat-pill"><div class="lbl">Expenses</div><div class="val">${expensesOnly.length}</div></div>
+      <div class="stat-pill"><div class="lbl">Total spent</div><div class="val">$${totalExp.toFixed(2)}</div></div>
+      <div class="stat-pill ok"><div class="lbl">Total deductible</div><div class="val">$${totalDed.toFixed(2)}</div></div>
+      ${incomeCount ? `<div class="stat-pill"><div class="lbl">Income rows</div><div class="val">${incomeCount}</div></div>` : ''}
+      ${uncatCount ? `<div class="stat-pill flag"><div class="lbl">Uncategorized</div><div class="val">${uncatCount}</div></div>` : ''}
+      <div class="stat-pill flag"><div class="lbl">Review needed</div><div class="val">${reviewCount}</div></div>
+    `;
+  }
+
+  function rowHtml(r, categories) {
+    const rowClass = r.amount > 0 ? "is-income"
+                   : r.category === "Uncategorized" ? "is-uncategorized"
+                   : r.reviewFlag ? "is-review"
+                   : "";
+    const catOpts = categories.map(c =>
+      `<option value="${escAttr(c)}" ${c === r.category ? "selected" : ""}>${escHtml(c)}</option>`
+    ).join("");
+    const pctDisplay = Number((r.deductible_pct * 100).toFixed(2));
+    return `
+      <tr class="${rowClass}" data-id="${r.id}">
+        <td class="exp-col-date">${escHtml(r.date)}</td>
+        <td>${escHtml(r.description)}</td>
+        <td class="exp-col-amt">${r.amount < 0 ? "-" : ""}$${Math.abs(r.amount).toFixed(2)}</td>
+        <td class="exp-col-cat"><select class="exp-cell" data-action="cat">${catOpts}</select></td>
+        <td class="exp-col-pct"><input class="exp-cell" type="number" min="0" max="100" step="1" data-action="pct" value="${pctDisplay}" /></td>
+        <td class="exp-col-amt">$${r.deductibleAmt.toFixed(2)}</td>
+        <td class="exp-col-flag"><input type="checkbox" data-action="review" ${r.reviewFlag ? "checked" : ""} /></td>
+        <td><input class="exp-cell" type="text" data-action="notes" value="${escAttr(r.notes || "")}" placeholder="—" /></td>
+      </tr>
+    `;
+  }
+
+  function onRowEdit(e) {
+    const tr = e.target.closest("tr[data-id]");
+    if (!tr) return;
+    const row = rows.find(r => r.id === tr.dataset.id);
+    if (!row) return;
+    const action = e.target.dataset.action;
+    if (action === "cat") {
+      row.category = e.target.value;
+    } else if (action === "pct") {
+      const v = parseFloat(e.target.value);
+      row.deductible_pct = isFinite(v) ? Math.max(0, Math.min(100, v)) / 100 : 0;
+      row.deductibleAmt = row.amount < 0 ? Math.abs(row.amount) * row.deductible_pct : 0;
+      tr.querySelector(".exp-col-amt:nth-of-type(3)") &&
+        (tr.querySelector("td.exp-col-amt:nth-of-type(2)").textContent = "$" + row.deductibleAmt.toFixed(2));
+      // Simpler: re-render the row class + deductible amt + stats
+      renderStats();
+      const visible = visibleRows();
+      const idx = visible.findIndex(r => r.id === row.id);
+      // Just update the single cell — find the 6th td (deductible)
+      const tds = tr.querySelectorAll("td");
+      if (tds[5]) tds[5].textContent = "$" + row.deductibleAmt.toFixed(2);
+      return;
+    } else if (action === "review") {
+      row.reviewFlag = e.target.checked;
+      tr.classList.toggle("is-review", row.reviewFlag && row.amount < 0 && row.category !== "Uncategorized");
+      renderStats();
+      return;
+    } else if (action === "notes") {
+      row.notes = e.target.value;
+      return;
+    }
+    render();   // full re-render only when category changes (affects row class)
+  }
+
+  // ── XLSX export ──────────────────────────────────────────────────
+  async function downloadXlsx() {
+    if (typeof ExcelJS === "undefined") { showToast("XLSX writer didn't load.", "error"); return; }
+    if (!rows.length) { showToast("No rows to export.", "error"); return; }
+
+    const wb = new ExcelJS.Workbook();
+
+    // Sheet 1: Categorized Transactions
+    const s1 = wb.addWorksheet("Categorized Transactions");
+    s1.columns = [
+      { header: "Posting Date",        key: "date", width: 14 },
+      { header: "Description",         key: "desc", width: 40 },
+      { header: "Original Amount",     key: "amt",  width: 14 },
+      { header: "Transaction Type",    key: "type", width: 16 },
+      { header: "Suggested Category",  key: "cat",  width: 26 },
+      { header: "Deductible %",        key: "pct",  width: 14 },
+      { header: "Deductible Amount",   key: "ded",  width: 16 },
+      { header: "Review Flag",         key: "rev",  width: 12 },
+      { header: "Notes",               key: "notes", width: 30 },
+      { header: "Original Chase Details", key: "detail", width: 26 }
+    ];
+    rows.forEach(r => {
+      s1.addRow({
+        date: r.date, desc: r.description, amt: r.amount, type: r.type,
+        cat: r.category, pct: r.deductible_pct, ded: r.deductibleAmt,
+        rev: r.reviewFlag ? "YES" : "", notes: r.notes, detail: r.detail
+      });
+    });
+    s1.getRow(1).font = { bold: true };
+    s1.views = [{ state: "frozen", ySplit: 1 }];
+    s1.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 10 } };
+    s1.getColumn("amt").numFmt = '"$"#,##0.00;[Red]"$"-#,##0.00';
+    s1.getColumn("ded").numFmt = '"$"#,##0.00';
+    s1.getColumn("pct").numFmt = "0.00%";
+    // Highlight Review YES rows
+    s1.eachRow({ includeEmpty: false }, (row, rowNum) => {
+      if (rowNum === 1) return;
+      if (row.getCell("rev").value === "YES") {
+        row.eachCell({ includeEmpty: false }, cell => {
+          cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFFBEB" } };
+        });
+      }
+    });
+
+    // Sheet 2: Category Summary
+    const s2 = wb.addWorksheet("Category Summary");
+    s2.columns = [
+      { header: "Suggested Category",       key: "cat",  width: 26 },
+      { header: "Number of Transactions",   key: "n",    width: 22 },
+      { header: "Total Original Expense",   key: "orig", width: 22 },
+      { header: "Total Deductible Amount",  key: "ded",  width: 22 }
+    ];
+    const byCat = {};
+    rows.forEach(r => {
+      if (r.amount >= 0) return;       // expenses only
+      if (!byCat[r.category]) byCat[r.category] = { n: 0, orig: 0, ded: 0 };
+      byCat[r.category].n++;
+      byCat[r.category].orig += Math.abs(r.amount);
+      byCat[r.category].ded += r.deductibleAmt;
+    });
+    Object.entries(byCat).sort().forEach(([cat, v]) =>
+      s2.addRow({ cat, n: v.n, orig: v.orig, ded: v.ded })
+    );
+    // Totals row
+    const totals = Object.values(byCat).reduce((acc, v) => ({
+      n: acc.n + v.n, orig: acc.orig + v.orig, ded: acc.ded + v.ded
+    }), { n: 0, orig: 0, ded: 0 });
+    const totalRow = s2.addRow({ cat: "TOTAL", n: totals.n, orig: totals.orig, ded: totals.ded });
+    totalRow.font = { bold: true };
+    totalRow.eachCell(c => { c.border = { top: { style: "double" } }; });
+    s2.getRow(1).font = { bold: true };
+    s2.views = [{ state: "frozen", ySplit: 1 }];
+    s2.getColumn("orig").numFmt = '"$"#,##0.00';
+    s2.getColumn("ded").numFmt = '"$"#,##0.00';
+
+    // Sheet 3: Review Needed
+    const s3 = wb.addWorksheet("Review Needed");
+    s3.columns = s1.columns;
+    rows.filter(r => r.reviewFlag).forEach(r => {
+      s3.addRow({
+        date: r.date, desc: r.description, amt: r.amount, type: r.type,
+        cat: r.category, pct: r.deductible_pct, ded: r.deductibleAmt,
+        rev: "YES", notes: r.notes, detail: r.detail
+      });
+    });
+    s3.getRow(1).font = { bold: true };
+    s3.views = [{ state: "frozen", ySplit: 1 }];
+    s3.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: 10 } };
+    s3.getColumn("amt").numFmt = '"$"#,##0.00;[Red]"$"-#,##0.00';
+    s3.getColumn("ded").numFmt = '"$"#,##0.00';
+    s3.getColumn("pct").numFmt = "0.00%";
+
+    const buf = await wb.xlsx.writeBuffer();
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    const fname = `Chase_Categorized_Transactions_${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.xlsx`;
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    showToast(`Downloaded ${fname}.`);
+  }
+
+  // ── Reset ─────────────────────────────────────────────────────────
+  function resetUI() {
+    rows = [];
+    filter = "all";
+    searchText = "";
+    document.getElementById("exp-search").value = "";
+    document.querySelectorAll("[data-exp-filter]").forEach(c => c.classList.toggle("active", c.dataset.expFilter === filter));
+    document.getElementById("exp-preview-card").style.display = "none";
+    document.getElementById("exp-file-input").value = "";
+  }
+
+  // ══════════════════════════════════════════════════════════════════
+  // Manage Rules modal
+  // ══════════════════════════════════════════════════════════════════
+  function openRulesModal() {
+    ruleFilter = "";
+    ruleDeleteConfirmId = null;
+    document.getElementById("exp-rule-search").value = "";
+    renderRuleModal();
+    document.getElementById("exp-rules-modal").style.display = "flex";
+  }
+  function closeRulesModal() {
+    document.getElementById("exp-rules-modal").style.display = "none";
+    // After closing, re-render the preview table in case categories changed
+    if (rows.length) render();
+  }
+
+  function renderRuleModal() {
+    // Populate the category datalist (for the Add Rule typeahead)
+    const dl = document.getElementById("exp-rule-categories");
+    dl.innerHTML = distinctCategories().map(c => `<option value="${escAttr(c)}"></option>`).join("");
+
+    // Filter rules
+    let visible = rules;
+    if (ruleFilter) {
+      const t = ruleFilter.toLowerCase();
+      visible = visible.filter(r =>
+        r.keyword.toLowerCase().includes(t) || r.category.toLowerCase().includes(t)
+      );
+    }
+
+    const tbody = document.getElementById("exp-rule-tbody");
+    if (!visible.length) {
+      tbody.innerHTML = `<tr><td colspan="5" style="padding:24px;text-align:center;color:var(--muted);">No rules match the filter.</td></tr>`;
+    } else {
+      tbody.innerHTML = visible.map(r => ruleRowHtml(r)).join("");
+    }
+    document.getElementById("exp-rule-count").textContent = `${visible.length} of ${rules.length} rules`;
+  }
+
+  function ruleRowHtml(r) {
+    const pct = Number((r.deductible_percent * 100).toFixed(2));
+    const delClass = ruleDeleteConfirmId === r.id ? "exp-rule-del confirm" : "exp-rule-del";
+    const delLabel = ruleDeleteConfirmId === r.id ? "Confirm" : "🗑";
+    return `
+      <tr data-id="${escAttr(r.id)}">
+        <td><input type="text" data-rule-field="keyword" value="${escAttr(r.keyword)}" /></td>
+        <td><input type="text" list="exp-rule-categories" data-rule-field="category" value="${escAttr(r.category)}" /></td>
+        <td><input type="number" min="0" max="100" step="1" data-rule-field="pct" value="${pct}" style="width:70px;" /></td>
+        <td style="text-align:center;"><input type="checkbox" data-rule-field="review" ${r.review_flag_default ? "checked" : ""} /></td>
+        <td style="text-align:right;"><button class="${delClass}" data-rule-action="delete">${delLabel}</button></td>
+      </tr>
+    `;
+  }
+
+  async function onRuleEdit(e) {
+    const tr = e.target.closest("tr[data-id]");
+    if (!tr) return;
+    const id = tr.dataset.id;
+    const r = rules.find(x => x.id === id);
+    if (!r) return;
+    const field = e.target.dataset.ruleField;
+    if (!field) return;
+
+    if (field === "keyword")  r.keyword = e.target.value;
+    if (field === "category") r.category = e.target.value;
+    if (field === "pct") {
+      const v = parseFloat(e.target.value);
+      r.deductible_percent = isFinite(v) ? Math.max(0, Math.min(100, v)) / 100 : 0;
+    }
+    if (field === "review") r.review_flag_default = e.target.checked;
+
+    // Persist
+    const { error } = await db.rpc("upsert_expense_rule", {
+      p_id: r.id,
+      p_category: r.category,
+      p_keyword: r.keyword,
+      p_deductible_percent: r.deductible_percent,
+      p_review_flag_default: r.review_flag_default,
+      p_priority: r.priority || 100
+    });
+    if (error) { showToast("Rule save failed: " + error.message, "error"); return; }
+    // Re-normalize the keyword for client-side matching
+    r.keyword_normalized = String(r.keyword || "").toLowerCase().trim();
+    // Quick non-rebuild update — only re-render if category changed
+    if (field === "category") renderRuleModal();
+  }
+
+  async function onRuleAdd() {
+    const kwInp  = document.getElementById("exp-rule-new-keyword");
+    const catInp = document.getElementById("exp-rule-new-category");
+    const pctInp = document.getElementById("exp-rule-new-pct");
+    const revInp = document.getElementById("exp-rule-new-review");
+    const keyword = kwInp.value.trim();
+    const category = catInp.value.trim();
+    const pctRaw = parseFloat(pctInp.value);
+    const pct = isFinite(pctRaw) ? Math.max(0, Math.min(100, pctRaw)) / 100 : 1.0;
+    const review = revInp.checked;
+    if (!keyword || !category) {
+      showToast("Need a keyword and a category.", "error");
+      return;
+    }
+    const { data, error } = await db.rpc("upsert_expense_rule", {
+      p_id: null,
+      p_category: category,
+      p_keyword: keyword,
+      p_deductible_percent: pct,
+      p_review_flag_default: review,
+      p_priority: 100
+    });
+    if (error) { showToast("Add failed: " + error.message, "error"); return; }
+    showToast(`Added rule: "${keyword}" → ${category}.`);
+    kwInp.value = ""; catInp.value = ""; pctInp.value = ""; revInp.checked = false;
+    await loadRules();
+    renderRuleModal();
+  }
+
+  async function onRuleDelete(id) {
+    if (ruleDeleteConfirmId !== id) {
+      ruleDeleteConfirmId = id;
+      renderRuleModal();
+      setTimeout(() => {
+        if (ruleDeleteConfirmId === id) { ruleDeleteConfirmId = null; renderRuleModal(); }
+      }, 4000);
+      return;
+    }
+    const { error } = await db.rpc("delete_expense_rule", { p_id: id });
+    if (error) { showToast("Delete failed: " + error.message, "error"); return; }
+    ruleDeleteConfirmId = null;
+    await loadRules();
+    renderRuleModal();
+    showToast("Rule deleted.");
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────
+  function init() {
+    if (initialized) return;
+    initialized = true;
+    loadRules();
+
+    // Dropzone (post-PR-#64 pattern — div not label, value-reset on change)
+    const dz = document.getElementById("exp-dropzone");
+    const fi = document.getElementById("exp-file-input");
+    dz.addEventListener("click", () => fi.click());
+    dz.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.click(); }
+    });
+    fi.addEventListener("change", (e) => {
+      const f = e.target.files[0]; e.target.value = "";
+      if (f) handleFile(f);
+    });
+    ["dragenter","dragover"].forEach(ev =>
+      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add("is-dragover"); })
+    );
+    ["dragleave","drop"].forEach(ev =>
+      dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove("is-dragover"); })
+    );
+    dz.addEventListener("drop", (e) => {
+      if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+    });
+
+    // Filter chips
+    document.querySelectorAll("[data-exp-filter]").forEach(chip => {
+      chip.addEventListener("click", () => {
+        filter = chip.dataset.expFilter;
+        document.querySelectorAll("[data-exp-filter]").forEach(c => c.classList.toggle("active", c === chip));
+        render();
+      });
+    });
+
+    // Search
+    document.getElementById("exp-search").addEventListener("input", (e) => {
+      if (searchTimer) clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { searchText = e.target.value.trim(); render(); }, 180);
+    });
+
+    // Per-row edits — listen on both input + change to catch all field types
+    const tbody = document.getElementById("exp-tbody");
+    tbody.addEventListener("change", onRowEdit);
+    tbody.addEventListener("input", (e) => {
+      // Only debounced inputs need the input handler — notes + pct
+      if (e.target.dataset.action === "notes" || e.target.dataset.action === "pct") {
+        onRowEdit(e);
+      }
+    });
+
+    // Download + reset
+    document.getElementById("exp-download-btn").addEventListener("click", downloadXlsx);
+    document.getElementById("exp-reset-btn").addEventListener("click", resetUI);
+
+    // Manage Rules modal
+    document.getElementById("exp-rules-btn").addEventListener("click", openRulesModal);
+    document.querySelectorAll('[data-close="exp-rules-modal"]').forEach(btn =>
+      btn.addEventListener("click", closeRulesModal)
+    );
+    // Backdrop click closes (mousedown+click double-check from PR #74)
+    let modalDownInside = false;
+    const modalEl = document.getElementById("exp-rules-modal");
+    modalEl.addEventListener("mousedown", (e) => {
+      modalDownInside = !!e.target.closest(".cpr-modal-box");
+    });
+    modalEl.addEventListener("click", (e) => {
+      if (e.target.closest(".cpr-modal-box")) return;
+      if (modalDownInside) { modalDownInside = false; return; }
+      closeRulesModal();
+    });
+
+    // Add Rule
+    document.getElementById("exp-rule-add-btn").addEventListener("click", onRuleAdd);
+
+    // Rule list edits + delete (delegated)
+    const ruleBody = document.getElementById("exp-rule-tbody");
+    ruleBody.addEventListener("change", onRuleEdit);
+    ruleBody.addEventListener("input", (e) => {
+      if (e.target.dataset.ruleField) onRuleEdit(e);
+    });
+    ruleBody.addEventListener("click", (e) => {
+      const del = e.target.closest('[data-rule-action="delete"]');
+      if (!del) return;
+      const tr = del.closest("tr[data-id]");
+      if (!tr) return;
+      onRuleDelete(tr.dataset.id);
+    });
+
+    // Rule filter
+    document.getElementById("exp-rule-search").addEventListener("input", (e) => {
+      if (ruleSearchTimer) clearTimeout(ruleSearchTimer);
+      ruleSearchTimer = setTimeout(() => { ruleFilter = e.target.value.trim(); renderRuleModal(); }, 180);
+    });
+  }
+
+  return { init };
+})();
+
 // Initialize VDR + IIF + ATTACH modules after launchApp confirms admin role + when billing view opens
 function maybeInitVdr() {
   if (currentRole === "admin") VDR.init();
@@ -6710,12 +7583,16 @@ function maybeInitQbTools() {
   if (currentRole === "admin") BANK.init();
   if (currentRole === "admin") HIST.init();
 }
-// Re-init / refresh when switching to billing or qbtools view
+function maybeInitExpenses() {
+  if (currentRole === "admin") EXP.init();
+}
+// Re-init / refresh when switching to billing / qbtools / expenses view
 const _originalSwitchView = switchView;
 switchView = function(viewName, skipPushState) {
   _originalSwitchView(viewName, skipPushState);
-  if (viewName === "billing") maybeInitVdr();
-  if (viewName === "qbtools") maybeInitQbTools();
+  if (viewName === "billing")  maybeInitVdr();
+  if (viewName === "qbtools")  maybeInitQbTools();
+  if (viewName === "expenses") maybeInitExpenses();
 };
 
 // Hook into launchApp completion (the admin role check is already in launchApp)
@@ -6727,7 +7604,8 @@ launchApp = async function(user) {
     const params = new URLSearchParams(location.search);
     const v = params.get("view") || "landing";
     if (v === "billing") { VDR.init(); IIF.init(); ATTACH.init(); }
-    if (v === "qbtools") { BANK.init(); HIST.init(); }
+    if (v === "qbtools")  { BANK.init(); HIST.init(); }
+    if (v === "expenses") { EXP.init(); }
   }
 };
 
