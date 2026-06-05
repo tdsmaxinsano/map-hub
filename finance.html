@@ -2488,6 +2488,8 @@ function openCprModal() {
   cprPreparedMedb = null;
   cprRateMap = new Map();
   cprRateEdits = new Map();
+  cprAliasMap = new Map();
+  cprAliasPending = new Map();
   document.getElementById("cpr-import-preview").style.display = "none";
   document.getElementById("cpr-import-error").style.display = "none";
   document.getElementById("cpr-import-confirm-btn").disabled = true;
@@ -2496,6 +2498,15 @@ function openCprModal() {
   const merr = document.getElementById("cpr-medb-error"); if (merr) merr.style.display = "none";
   renderCprMedbStatus();
   document.getElementById("cpr-modal-overlay").style.display = "flex";
+  // Fetch saved aliases once on modal open. Non-fatal — empty map if it fails.
+  cprFetchAliases().then(function(m) {
+    cprAliasMap = m;
+    // If a Strata file was already dropped, re-apply aliases + re-render.
+    if (cprPreparedMedb) {
+      cprApplyAliases(cprPreparedMedb);
+      if (cprPrepared) renderCprImportPreview();
+    }
+  });
 }
 function closeCprModal() {
   document.getElementById("cpr-modal-overlay").style.display = "none";
@@ -2555,6 +2566,21 @@ let cprRateMap = new Map();
 // Tracks lookup_keys that were manually edited in the current preview,
 // so on save we mark them source='manual_override'.
 let cprRateEdits = new Map();
+
+// Strata-name → TB-clinician alias memory (migration 36).
+//
+// cprAliasMap   — Map<strata_norm, tb_lookup_key>: SAVED aliases from DB,
+//                 fetched once per import-modal open.
+// cprAliasPending — Map<strata_norm, {tb_lookup_key, tb_display,
+//                 strata_display}>: aliases the admin picked THIS session
+//                 in the unmatched-name dropdown. Persisted to memory on
+//                 audit save (after the audit upsert succeeds).
+//
+// Aliases are applied at parse-time: every Strata row gets its lookup_key
+// rewritten to the aliased TB key before the merge declares anything
+// unmatched. mergePayAndMedb stays oblivious to aliases.
+let cprAliasMap = new Map();
+let cprAliasPending = new Map();
 
 function showCprMedbError(html) {
   const el = document.getElementById("cpr-medb-error");
@@ -2699,18 +2725,208 @@ async function cprBuildRateMap(prepared) {
   return derived;
 }
 
+// ── Alias memory helpers (migration 36) ──────────────────────────
+//
+// Strata names sometimes differ from TB (e.g. "Gina M Pelehac (OT)"
+// in Strata vs "Gina Pelehac OT" in TB). Aliases let the admin teach
+// the system "this Strata name = this TB clinician" once; the
+// mapping then persists forever.
+async function cprFetchAliases() {
+  try {
+    const { data, error } = await db.rpc("list_clinician_medb_name_aliases");
+    if (error) throw error;
+    const map = new Map();
+    (data || []).forEach(function(row) {
+      const sn = String(row.strata_name_normalized || "").trim().toLowerCase();
+      const tk = String(row.tb_lookup_key          || "").trim().toLowerCase();
+      if (sn && tk) map.set(sn, tk);
+    });
+    return map;
+  } catch (err) {
+    console.warn("[cpr] alias fetch failed:", err && err.message);
+    return new Map();
+  }
+}
+
+// Rewrites each Strata row's lookup_key per the alias maps (saved +
+// pending). Mutates the rows in place — calling code expects this
+// effect. Idempotent on repeated calls.
+function cprApplyAliases(stratapayload) {
+  if (!stratapayload || !Array.isArray(stratapayload.rows)) return;
+  stratapayload.rows.forEach(function(r) {
+    // Source key for alias lookup: the ORIGINAL parsed lookup_key, NOT
+    // a previously-resolved one. We stash the original on first apply.
+    if (!r._original_lookup_key) r._original_lookup_key = r.lookup_key;
+    const src = r._original_lookup_key;
+    const pendingHit = cprAliasPending.get(src);
+    if (pendingHit) {
+      r.lookup_key = pendingHit.tb_lookup_key;
+      r._aliased = true;
+      return;
+    }
+    const savedHit = cprAliasMap.get(src);
+    if (savedHit) {
+      r.lookup_key = savedHit;
+      r._aliased = true;
+      return;
+    }
+    // No alias → revert to original (in case a prior session aliased it)
+    r.lookup_key = src;
+    r._aliased = false;
+  });
+}
+
+// Builds the list of TB clinicians (this audit / this import) as
+// dropdown options. Returns: [{value: lookup_key, label: "Name (Disc)"}, ...]
+// Sorted alphabetically by label.
+function cprTbClinicianOptions(perClinPayload) {
+  const seen = new Set();
+  const opts = [];
+  (perClinPayload || []).forEach(function(c) {
+    const k = cprClinLookupKey(c.clinician);
+    if (!k || seen.has(k)) return;
+    seen.add(k);
+    opts.push({
+      value: k,
+      label: (cprTitleCase(c.clinician) || c.clinician) + (c.discipline ? " (" + c.discipline + ")" : "")
+    });
+  });
+  opts.sort(function(a, b) { return a.label.localeCompare(b.label); });
+  return opts;
+}
+
 // ── Strata PDF parser ────────────────────────────────────────────
 // Reads the Strata "Staff Productivity Report (by Charge Submission)"
 // PDF and extracts (name, discipline, visits_billed) per clinician.
 //
-// Strategy: walk each page's text items, cluster by Y-coordinate into
-// lines, then regex-match each line for staff-name patterns. The PDF
-// renders names like "Adam Ouyang (PT)" OR sometimes "Magdalena
-// Chowaniec PTA" (no parens) depending on photo placement.
+// Page-split handling: clinician rows can break across pages —
+// numeric data on page N, name + photo on page N+1 (or vice versa).
+// To handle this robustly:
+//   1. Visits Billed validation: the integer line at position N is
+//      only a valid Visits cell iff a $-amount line appears within
+//      lines [N+1, N+3]. Unit Breakdown counts (e.g. "7 (43.8%)")
+//      are followed by CPT codes ("97140 x"), not dollars — so they
+//      fail validation.
+//   2. Bidirectional search: search forward from the name first
+//      (normal case); if that fails, walk BACKWARDS from the name
+//      to the previous staff-name boundary (split-row case).
+//   3. Consumed-index tracking: each integer line is claimed at most
+//      once, preventing the next clinician's name from accidentally
+//      stealing a prior clinician's data line.
 //
-// Visits Billed is the FIRST numeric column to the right of (or just
-// below) the staff name. We accept either "21" on its own or "21" as
-// the first digit of "21 (19.3%)".
+// Returns: [{ clinician_raw, lookup_key, discipline, visits_billed }, ...]
+async function cprParseStrataPdf(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  // Build a single document-order line array across all pages.
+  // Within each page, cluster text items by Y-band (±3px) then sort
+  // left-to-right within the band.
+  const lines = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page  = await pdf.getPage(p);
+    const tc    = await page.getTextContent();
+    const items = (tc.items || []).map(function(it) {
+      return { str: String(it.str || ""), x: it.transform[4], y: it.transform[5] };
+    }).filter(function(it) { return it.str.trim().length > 0; });
+    const bands = [];
+    items.forEach(function(it) {
+      let band = null;
+      for (let i = 0; i < bands.length; i++) {
+        if (Math.abs(bands[i].y - it.y) < 3) { band = bands[i]; break; }
+      }
+      if (!band) { band = { y: it.y, items: [] }; bands.push(band); }
+      band.items.push(it);
+    });
+    bands.sort(function(a, b) { return b.y - a.y; });   // top → bottom
+    bands.forEach(function(band) {
+      band.items.sort(function(a, b) { return a.x - b.x; });
+      const txt = band.items.map(function(i) { return i.str; }).join(" ").replace(/\s+/g, " ").trim();
+      if (txt) lines.push(txt);
+    });
+  }
+
+  const STAFF_RE_PAREN = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
+  const STAFF_RE_BARE  = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")\\s*$");
+  const HAS_DOLLAR_RE  = /\$[\d,]+\.\d{2}/;
+
+  function isStaffLine(line) {
+    return STAFF_RE_PAREN.test(line) || STAFF_RE_BARE.test(line);
+  }
+  function isBoilerplate(line) {
+    const lc = line.toLowerCase();
+    return lc.indexOf("combined staff totals") >= 0 ||
+           lc.indexOf("page ") === 0 ||
+           lc.indexOf("staff productivity report") >= 0 ||
+           lc.indexOf("revenue metrics") >= 0 ||
+           lc.indexOf("cpt copyright") >= 0;
+  }
+  // Validate a candidate visits integer: must have a $-amount within
+  // the next 3 lines (Total Billed sits right after Visits Billed +
+  // percentage). Hitting another staff name short-circuits to false.
+  function validateVisitsAt(j) {
+    for (let k = j + 1; k <= Math.min(j + 3, lines.length - 1); k++) {
+      const l = lines[k];
+      if (!l) continue;
+      if (HAS_DOLLAR_RE.test(l)) return true;
+      if (isStaffLine(l)) return false;
+    }
+    return false;
+  }
+  // Walk lines[startIdx..endIdx] in `step` direction looking for the
+  // first validated standalone-integer line that isn't in `consumed`.
+  // Stops at staff-name boundaries.
+  function findVisits(startIdx, endIdx, step, consumed) {
+    for (let j = startIdx; (step > 0 ? j <= endIdx : j >= endIdx); j += step) {
+      const line = lines[j];
+      if (!line) continue;
+      if (isBoilerplate(line)) continue;
+      if (isStaffLine(line)) break;                   // boundary
+      if (!/^\d+$/.test(line)) continue;              // must be bare integer
+      if (consumed.has(j)) continue;
+      if (!validateVisitsAt(j)) continue;
+      return { value: parseInt(line, 10), idx: j };
+    }
+    return null;
+  }
+
+  const rows = [];
+  const seenKeys = new Set();
+  const consumed = new Set();   // line indices already claimed as Visits Billed
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line || isBoilerplate(line)) continue;
+    let nameRaw = null, disc = null;
+    let m = STAFF_RE_PAREN.exec(line);
+    if (m) { nameRaw = m[1]; disc = m[2]; }
+    else {
+      m = STAFF_RE_BARE.exec(line);
+      if (m) { nameRaw = m[1]; disc = m[2]; }
+    }
+    if (!nameRaw) continue;
+    nameRaw = nameRaw.replace(/[,;]\s*$/, "").trim();
+    if (!nameRaw) continue;
+
+    // Forward search (normal case: name first, data after).
+    let result = findVisits(i + 1, Math.min(i + 40, lines.length - 1), 1, consumed);
+    // Backward search (split-row case: data on prior page, name on next).
+    if (!result) {
+      result = findVisits(i - 1, Math.max(i - 60, 0), -1, consumed);
+    }
+    if (!result) continue;
+    consumed.add(result.idx);
+
+    const key = cprClinLookupKey(nameRaw + " " + disc);
+    if (!key || seenKeys.has(key)) continue;
+    seenKeys.add(key);
+    rows.push({
+      clinician_raw: nameRaw + " " + disc,
+      lookup_key:    key,
+      discipline:    disc,
+      visits_billed: result.value
+    });
+  }
+  return rows;
+}
 async function handleCprMedbFile(file) {
   const lc = (file.name || "").toLowerCase();
   if (lc.endsWith(".pdf")) {
@@ -2728,97 +2944,8 @@ async function handleCprMedbPdf(file) {
     return;
   }
   try {
-    const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
-    // Per-page → cluster text items by Y-band (3px tolerance) into lines.
-    // Sort lines top-down within page, pages in order.
-    const lines = [];
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const tc   = await page.getTextContent();
-      const items = (tc.items || []).map(function(it) {
-        return { str: String(it.str || ""), x: it.transform[4], y: it.transform[5] };
-      }).filter(function(it) { return it.str.trim().length > 0; });
-      const bands = [];
-      items.forEach(function(it) {
-        let band = null;
-        for (let i = 0; i < bands.length; i++) {
-          if (Math.abs(bands[i].y - it.y) < 3) { band = bands[i]; break; }
-        }
-        if (!band) { band = { y: it.y, items: [] }; bands.push(band); }
-        band.items.push(it);
-      });
-      bands.sort(function(a, b) { return b.y - a.y; }); // top → bottom
-      bands.forEach(function(band) {
-        band.items.sort(function(a, b) { return a.x - b.x; });
-        const txt = band.items.map(function(i) { return i.str; }).join(" ").replace(/\s+/g, " ").trim();
-        if (txt) lines.push(txt);
-      });
-    }
-
-    // Skip header/footer / unrelated lines, then regex-match staff names.
-    // Two forms observed in real Strata exports:
-    //   A) "Adam Ouyang (PT)"        — parens around discipline
-    //   B) "Magdalena Chowaniec PTA" — no parens
-    // We accept either + tolerate a trailing comma in the name (e.g.
-    // "Jordan Juralbal, (PT)" in the sample).
-    const STAFF_RE_PAREN = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
-    const STAFF_RE_BARE  = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")\\s*$");
-
-    const rows = [];
-    const seenKeys = new Set();
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      const lcLine = line.toLowerCase();
-      // Hard-skip the report footer + boilerplate to keep the regex tight.
-      if (lcLine.indexOf("combined staff totals") >= 0) continue;
-      if (lcLine.indexOf("page ") === 0) continue;
-      if (lcLine.indexOf("staff productivity report") >= 0) continue;
-      if (lcLine.indexOf("revenue metrics") >= 0) continue;
-      if (lcLine.indexOf("cpt copyright") >= 0) continue;
-
-      let nameRaw = null, disc = null;
-      let m = STAFF_RE_PAREN.exec(line);
-      if (m) { nameRaw = m[1]; disc = m[2]; }
-      else {
-        m = STAFF_RE_BARE.exec(line);
-        if (m) { nameRaw = m[1]; disc = m[2]; }
-      }
-      if (!nameRaw) continue;
-
-      // Strip a trailing comma + extra whitespace from the captured name.
-      nameRaw = nameRaw.replace(/[,;]\s*$/, "").trim();
-      if (!nameRaw) continue;
-
-      // Find Visits Billed: walk forward up to ~12 lines looking for an
-      // integer line. Accept "21", "21 (19.3%)", or "21\n(19.3%)" forms.
-      let visits = null;
-      for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
-        const next = lines[j].trim();
-        if (!next) continue;
-        // Pure integer
-        if (/^\d+$/.test(next)) { visits = parseInt(next, 10); break; }
-        // Integer followed by "(NN.N%)"
-        const inline = /^(\d+)\s*\(\d+(?:\.\d+)?%\)/.exec(next);
-        if (inline) { visits = parseInt(inline[1], 10); break; }
-        // Stop searching if we hit another clinician's name line first
-        // (don't borrow a visit count from somebody else).
-        if (STAFF_RE_PAREN.test(next) || STAFF_RE_BARE.test(next)) break;
-      }
-      if (visits == null) continue;
-
-      const key = cprClinLookupKey(nameRaw + " " + disc);
-      if (!key || seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      rows.push({
-        clinician_raw: nameRaw + " " + disc,
-        lookup_key:    key,
-        discipline:    disc,
-        visits_billed: visits
-      });
-    }
+    const buf  = await file.arrayBuffer();
+    const rows = await cprParseStrataPdf(buf);
 
     if (!rows.length) {
       showCprMedbError(
@@ -2838,6 +2965,11 @@ async function handleCprMedbPdf(file) {
       source_filename: file.name,
       unmatched:       []
     };
+    // Apply alias memory (migration 36) — rewrites each row's
+    // lookup_key when a learned alias exists, so the merge sees them
+    // as matched. cprAliasMap is loaded async on openCprModal; if it
+    // hasn't finished loading yet, this is still safe (empty map).
+    cprApplyAliases(cprPreparedMedb);
     const el = document.getElementById("cpr-medb-error");
     if (el) el.style.display = "none";
     renderCprMedbStatus();
@@ -2959,6 +3091,32 @@ function cprPersistRates(rateRows) {
       if (res.error) console.warn("[cpr] persist rates failed:", res.error.message);
     })
     .catch(function(err) { console.warn("[cpr] persist rates threw:", err && err.message); });
+}
+
+// Fire-and-forget persistence to clinician_medb_name_aliases
+// (migration 36). Bulk upsert; clears pending on success so re-saves
+// don't double-persist.
+function cprPersistAliases() {
+  if (!cprAliasPending || !cprAliasPending.size) return;
+  const rows = [];
+  cprAliasPending.forEach(function(v, k) {
+    rows.push({
+      strata_normalized: k,
+      strata_display:    v.strata_display,
+      tb_lookup_key:     v.tb_lookup_key,
+      tb_display:        v.tb_display
+    });
+  });
+  if (!rows.length) return;
+  db.rpc("upsert_clinician_medb_name_aliases", { p_rows: rows })
+    .then(function(res) {
+      if (res.error) { console.warn("[cpr] persist aliases failed:", res.error.message); return; }
+      // Move newly-persisted aliases from pending → saved so the UI
+      // distinguishes "stays sticky" from "still to save".
+      cprAliasPending.forEach(function(v, k) { cprAliasMap.set(k, v.tb_lookup_key); });
+      cprAliasPending = new Map();
+    })
+    .catch(function(err) { console.warn("[cpr] persist aliases threw:", err && err.message); });
 }
 
 async function handleCprFile(file) {
@@ -3230,18 +3388,46 @@ function renderCprImportPreview() {
     '<div class="cpr-stat-card ' + nonpayWarn + '"><div class="cpr-stat-label">Non-payable</div><div class="cpr-stat-value">' + p.nonpayable_visits + '</div></div>' +
   '</div>';
 
-  // Strata Med B unmatched-names warning — surface names the Strata file
-  // had that didn't match a TB clinician (likely a name-format mismatch
-  // or a clinician outside this pay period).
+  // Strata Med B unmatched-names — surface a dropdown picker for each
+  // unmatched name so admin can map it to a TB clinician inline.
+  // Picked aliases land in cprAliasPending and persist to memory
+  // (migration 36) on audit save. Once mapped, the row will auto-
+  // resolve on every future import.
   if (cprPreparedMedb && previewMerged.unmatched.length) {
-    const unmList = previewMerged.unmatched.slice(0, 15).map(function(u) {
-      return '<li>' + escHtml(u.name) + ' — ' + (u.visits || 0) + ' visit' + (u.visits === 1 ? '' : 's') + '</li>';
+    const tbOptions = cprTbClinicianOptions(p.per_clinician_payload);
+    const optionsHtml = tbOptions.map(function(o) {
+      return '<option value="' + escAttr(o.value) + '">' + escHtml(o.label) + '</option>';
     }).join("");
-    const more = previewMerged.unmatched.length > 15 ? '<li style="color:var(--muted);">…and ' + (previewMerged.unmatched.length - 15) + ' more</li>' : '';
     html += '<div style="margin:8px 0;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
       '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ Strata Med B — ' + previewMerged.unmatched.length + ' unmatched name(s)</div>' +
-      '<div style="color:#5d4500;margin-bottom:6px;">These Strata rows don\'t match a TB clinician in this period and will NOT be saved. Fix the name in Strata + re-export, or skip.</div>' +
-      '<ul style="margin:0;padding-left:18px;color:#5d4500;">' + unmList + more + '</ul>' +
+      '<div style="color:#5d4500;margin-bottom:6px;">Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</div>' +
+      '<table style="width:100%;border-collapse:collapse;">' +
+        '<thead><tr style="border-bottom:1px solid #ffd54f;">' +
+          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Strata name</th>' +
+          '<th style="text-align:right;padding:4px 6px;color:#8a5a00;font-size:11px;">Visits</th>' +
+          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Map to TB clinician</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+        previewMerged.unmatched.slice(0, 20).map(function(u) {
+          // The unmatched record's `name` is the raw Strata display.
+          // We need the strata's NORMALIZED key (lookup_key as parsed).
+          // Find it from cprPreparedMedb.rows.
+          const strataRow = cprPreparedMedb.rows.find(function(r) { return r.clinician_raw === u.name; });
+          const strataKey = strataRow ? (strataRow._original_lookup_key || strataRow.lookup_key) : cprClinLookupKey(u.name);
+          return '<tr>' +
+            '<td style="padding:4px 6px;color:#5d4500;">' + escHtml(u.name) + '</td>' +
+            '<td style="padding:4px 6px;text-align:right;color:#5d4500;">' + (u.visits || 0) + '</td>' +
+            '<td style="padding:4px 6px;">' +
+              '<select class="cpr-alias-picker" data-strata-key="' + escAttr(strataKey) + '" data-strata-display="' + escAttr(u.name) + '" style="font-size:11px;padding:2px 4px;border:1px solid #ffb74d;border-radius:4px;background:#fff;max-width:240px;">' +
+                '<option value="">— Skip (no match) —</option>' +
+                optionsHtml +
+              '</select>' +
+            '</td>' +
+          '</tr>';
+        }).join("") +
+        (previewMerged.unmatched.length > 20 ? '<tr><td colspan="3" style="padding:4px 6px;color:var(--muted);">…and ' + (previewMerged.unmatched.length - 20) + ' more — fix the rest in Strata</td></tr>' : '') +
+        '</tbody>' +
+      '</table>' +
     '</div>';
   }
 
@@ -3381,6 +3567,40 @@ function renderCprImportPreview() {
       if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
     });
   });
+  // Wire alias-picker change handlers (migration 36).
+  Array.from(wrap.querySelectorAll(".cpr-alias-picker")).forEach(function(sel) {
+    sel.addEventListener("change", cprOnAliasPickerChange);
+  });
+}
+
+// Handler for the unmatched-name dropdown picker. On selecting a TB
+// clinician, records the alias to cprAliasPending, re-applies aliases
+// to the Strata payload (so the row's lookup_key flips to the TB key),
+// and re-renders the preview.
+function cprOnAliasPickerChange(e) {
+  const sel = e.currentTarget;
+  const strataKey = sel.getAttribute("data-strata-key") || "";
+  const strataDisplay = sel.getAttribute("data-strata-display") || "";
+  const tbKey = sel.value || "";
+  if (!strataKey) return;
+  if (!tbKey) {
+    // User selected "Skip" — clear any pending alias for this Strata key.
+    cprAliasPending.delete(strataKey);
+  } else {
+    // Find the TB display from the audit/import payload
+    const matchedTb = (cprPrepared ? cprPrepared.per_clinician_payload : [])
+      .find(function(c) { return cprClinLookupKey(c.clinician) === tbKey; });
+    const tbDisplay = matchedTb ? matchedTb.clinician : tbKey;
+    cprAliasPending.set(strataKey, {
+      tb_lookup_key:  tbKey,
+      tb_display:     tbDisplay,
+      strata_display: strataDisplay
+    });
+  }
+  // Re-apply aliases to the Strata payload (rewrites lookup_keys), then
+  // re-render the preview so the now-matched row populates the table.
+  if (cprPreparedMedb) cprApplyAliases(cprPreparedMedb);
+  renderCprImportPreview();
 }
 
 // Small visual tag for rate source — appears next to each rate cell.
@@ -3447,6 +3667,9 @@ async function saveCprRun() {
     // audit save succeeds, so next period gets a memory hit. Fire-and-
     // forget — non-blocking, failures logged only.
     cprPersistRates(merged.per_clinician_rates);
+    // Persist newly-resolved Strata-name aliases (migration 36) so future
+    // imports auto-match without re-teaching.
+    cprPersistAliases();
     closeCprModal();
     const unmatchedTxt = merged.unmatched.length
       ? "\n\n⚠ " + merged.unmatched.length + " Strata name(s) didn't match a TB clinician: " +
@@ -4596,6 +4819,9 @@ function cprOpenMedbRetro() {
   }
   cprMedbRetroParsed = null;
   cprMedbRetroRateMap = null;
+  // Reset alias maps so the retro modal's UX matches the import modal's.
+  cprAliasMap = new Map();
+  cprAliasPending = new Map();
   document.getElementById("cpr-medb-retro-file-input").value = "";
   document.getElementById("cpr-medb-retro-status").innerHTML = "● Awaiting Strata PDF…";
   document.getElementById("cpr-medb-retro-status").style.color = "var(--muted)";
@@ -4611,8 +4837,15 @@ function cprOpenMedbRetro() {
   // directly into cprBuildRateMap — it works against either source.
   cprBuildRateMap(cprViewState.run).then(function(m) {
     cprMedbRetroRateMap = m;
-    // If a PDF was already dropped while the memory was loading, re-render.
     if (cprMedbRetroParsed) renderCprMedbRetroPreview();
+  });
+  // Fetch alias memory (migration 36) so unmatched names auto-resolve.
+  cprFetchAliases().then(function(m) {
+    cprAliasMap = m;
+    if (cprMedbRetroParsed) {
+      cprApplyAliases(cprMedbRetroParsed);
+      renderCprMedbRetroPreview();
+    }
   });
 }
 
@@ -4644,76 +4877,8 @@ async function handleCprMedbRetroPdf(file) {
     return;
   }
   try {
-    const buf = await file.arrayBuffer();
-    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
-
-    // ── Same line-reconstruction logic as handleCprMedbPdf ──
-    const lines = [];
-    for (let p = 1; p <= pdf.numPages; p++) {
-      const page = await pdf.getPage(p);
-      const tc   = await page.getTextContent();
-      const items = (tc.items || []).map(function(it) {
-        return { str: String(it.str || ""), x: it.transform[4], y: it.transform[5] };
-      }).filter(function(it) { return it.str.trim().length > 0; });
-      const bands = [];
-      items.forEach(function(it) {
-        let band = null;
-        for (let i = 0; i < bands.length; i++) {
-          if (Math.abs(bands[i].y - it.y) < 3) { band = bands[i]; break; }
-        }
-        if (!band) { band = { y: it.y, items: [] }; bands.push(band); }
-        band.items.push(it);
-      });
-      bands.sort(function(a, b) { return b.y - a.y; });
-      bands.forEach(function(band) {
-        band.items.sort(function(a, b) { return a.x - b.x; });
-        const txt = band.items.map(function(i) { return i.str; }).join(" ").replace(/\s+/g, " ").trim();
-        if (txt) lines.push(txt);
-      });
-    }
-    const STAFF_RE_PAREN = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
-    const STAFF_RE_BARE  = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")\\s*$");
-    const rows = [];
-    const seenKeys = new Set();
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line) continue;
-      const lcLine = line.toLowerCase();
-      if (lcLine.indexOf("combined staff totals") >= 0) continue;
-      if (lcLine.indexOf("page ") === 0) continue;
-      if (lcLine.indexOf("staff productivity report") >= 0) continue;
-      if (lcLine.indexOf("revenue metrics") >= 0) continue;
-      if (lcLine.indexOf("cpt copyright") >= 0) continue;
-      let nameRaw = null, disc = null;
-      let m = STAFF_RE_PAREN.exec(line);
-      if (m) { nameRaw = m[1]; disc = m[2]; }
-      else {
-        m = STAFF_RE_BARE.exec(line);
-        if (m) { nameRaw = m[1]; disc = m[2]; }
-      }
-      if (!nameRaw) continue;
-      nameRaw = nameRaw.replace(/[,;]\s*$/, "").trim();
-      if (!nameRaw) continue;
-      let visits = null;
-      for (let j = i + 1; j < Math.min(i + 12, lines.length); j++) {
-        const next = lines[j].trim();
-        if (!next) continue;
-        if (/^\d+$/.test(next)) { visits = parseInt(next, 10); break; }
-        const inline = /^(\d+)\s*\(\d+(?:\.\d+)?%\)/.exec(next);
-        if (inline) { visits = parseInt(inline[1], 10); break; }
-        if (STAFF_RE_PAREN.test(next) || STAFF_RE_BARE.test(next)) break;
-      }
-      if (visits == null) continue;
-      const key = cprClinLookupKey(nameRaw + " " + disc);
-      if (!key || seenKeys.has(key)) continue;
-      seenKeys.add(key);
-      rows.push({
-        clinician_raw: nameRaw + " " + disc,
-        lookup_key:    key,
-        discipline:    disc,
-        visits_billed: visits
-      });
-    }
+    const buf  = await file.arrayBuffer();
+    const rows = await cprParseStrataPdf(buf);
     if (!rows.length) {
       showCprMedbRetroError("Couldn't find any clinician rows in the PDF. Confirm this is the Strata <strong>Staff Productivity Report (by Charge Submission)</strong>.");
       return;
@@ -4723,6 +4888,9 @@ async function handleCprMedbRetroPdf(file) {
       total_visits:    rows.reduce(function(s, r) { return s + r.visits_billed; }, 0),
       source_filename: file.name
     };
+    // Apply alias memory (migration 36) before rendering, so learned
+    // name mappings auto-resolve "Gina M Pelehac" → "Gina Pelehac".
+    cprApplyAliases(cprMedbRetroParsed);
     document.getElementById("cpr-medb-retro-error").style.display = "none";
     document.getElementById("cpr-medb-retro-status").innerHTML =
       "● Parsed <strong>" + rows.length + "</strong> clinicians · <strong>" +
@@ -4760,15 +4928,34 @@ function renderCprMedbRetroPreview() {
 
   let html = "";
   if (unmatched.length) {
+    const tbOptions = cprTbClinicianOptions(perClin);
+    const optionsHtml = tbOptions.map(function(o) {
+      return '<option value="' + escAttr(o.value) + '">' + escHtml(o.label) + '</option>';
+    }).join("");
     html += '<div style="margin-bottom:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
       '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ ' + unmatched.length + ' Strata name(s) didn\'t match this audit\'s clinicians</div>' +
-      '<div style="color:#5d4500;margin-bottom:6px;">These rows will be skipped. Fix the name in Strata + re-export if needed.</div>' +
-      '<ul style="margin:0;padding-left:18px;color:#5d4500;">' +
-        unmatched.slice(0, 10).map(function(u) {
-          return '<li>' + escHtml(u.clinician_raw) + ' — ' + u.visits_billed + ' visits</li>';
+      '<div style="color:#5d4500;margin-bottom:6px;">Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</div>' +
+      '<table style="width:100%;border-collapse:collapse;">' +
+        '<thead><tr style="border-bottom:1px solid #ffd54f;">' +
+          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Strata name</th>' +
+          '<th style="text-align:right;padding:4px 6px;color:#8a5a00;font-size:11px;">Visits</th>' +
+          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Map to TB clinician</th>' +
+        '</tr></thead><tbody>' +
+        unmatched.slice(0, 15).map(function(u) {
+          const sk = u._original_lookup_key || u.lookup_key;
+          return '<tr>' +
+            '<td style="padding:4px 6px;color:#5d4500;">' + escHtml(u.clinician_raw) + '</td>' +
+            '<td style="padding:4px 6px;text-align:right;color:#5d4500;">' + u.visits_billed + '</td>' +
+            '<td style="padding:4px 6px;">' +
+              '<select class="cpr-retro-alias-picker" data-strata-key="' + escAttr(sk) + '" data-strata-display="' + escAttr(u.clinician_raw) + '" style="font-size:11px;padding:2px 4px;border:1px solid #ffb74d;border-radius:4px;background:#fff;max-width:240px;">' +
+                '<option value="">— Skip (no match) —</option>' +
+                optionsHtml +
+              '</select>' +
+            '</td>' +
+          '</tr>';
         }).join("") +
-        (unmatched.length > 10 ? '<li style="color:var(--muted);">…and ' + (unmatched.length - 10) + ' more</li>' : '') +
-      '</ul>' +
+        (unmatched.length > 15 ? '<tr><td colspan="3" style="padding:4px 6px;color:var(--muted);">…and ' + (unmatched.length - 15) + ' more</td></tr>' : '') +
+      '</tbody></table>' +
     '</div>';
   }
 
@@ -4827,6 +5014,35 @@ function renderCprMedbRetroPreview() {
   wrap.innerHTML = html;
   wrap.style.display = "block";
   document.getElementById("cpr-medb-retro-apply").disabled = false;
+  // Wire alias-picker change handlers (retro modal version — same
+  // logic as the import-modal picker but targets cprMedbRetroParsed).
+  Array.from(wrap.querySelectorAll(".cpr-retro-alias-picker")).forEach(function(sel) {
+    sel.addEventListener("change", cprOnRetroAliasPickerChange);
+  });
+}
+
+// Retro-modal version of the alias-picker change handler.
+function cprOnRetroAliasPickerChange(e) {
+  const sel = e.currentTarget;
+  const strataKey = sel.getAttribute("data-strata-key") || "";
+  const strataDisplay = sel.getAttribute("data-strata-display") || "";
+  const tbKey = sel.value || "";
+  if (!strataKey) return;
+  if (!tbKey) {
+    cprAliasPending.delete(strataKey);
+  } else {
+    const audit = cprViewState.run;
+    const matchedTb = audit && (audit.per_clinician_payload || [])
+      .find(function(c) { return cprClinLookupKey(c.clinician) === tbKey; });
+    const tbDisplay = matchedTb ? matchedTb.clinician : tbKey;
+    cprAliasPending.set(strataKey, {
+      tb_lookup_key:  tbKey,
+      tb_display:     tbDisplay,
+      strata_display: strataDisplay
+    });
+  }
+  if (cprMedbRetroParsed) cprApplyAliases(cprMedbRetroParsed);
+  renderCprMedbRetroPreview();
 }
 
 // Apply the parsed Strata data to the audit: rewrite each matched
@@ -4967,6 +5183,8 @@ async function cprSaveRun(finalize) {
       const rateRows = cprBuildRateRows(r.per_clinician_payload || [], cprRateMap, cprRateEdits || new Map());
       cprPersistRates(rateRows);
     }
+    // Persist newly-resolved Strata-name aliases (migration 36).
+    cprPersistAliases();
     if (finalize) {
       const res2 = await db.rpc("mark_clinician_payroll_audited", { run_id: r.id, notes: null });
       if (res2.error) throw new Error(res2.error.message);
