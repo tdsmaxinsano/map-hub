@@ -2597,18 +2597,23 @@ let cprRateEdits = new Map();
 let cprAliasMap = new Map();
 let cprAliasPending = new Map();
 
-// Full portal roster (clinician_v2) — fetched on import-modal open so
-// the unmatched-name dropdown can offer ANY active clinician, even
-// those without TB activity this period (Med B-only case). Each row:
-//   { name: string, discipline: string, lookup_key: string }
+// Full portal roster (clinician_v2 + clinician_profiles.status) —
+// fetched on import-modal open so the unmatched-name dropdown can
+// offer any active/paused clinician, even those without TB activity
+// this period (Med B-only case). Inactive clinicians filtered out by
+// default but available via the "Include inactive" checkbox.
+//   { name, discipline, status, lookup_key }
 let cprRoster = [];
+// Module-level UI toggle — set by the "Include inactive" checkbox in
+// the unmatched-name section. Affects cprTbClinicianOptions output.
+let cprShowInactive = false;
 
 // Fetches the full portal roster. Non-fatal — empty roster on failure.
 async function cprFetchRoster() {
   try {
     const { data, error } = await db
       .from("clinician_v2")
-      .select("name, discipline")
+      .select("name, discipline, clinician_profiles!inner(status)")
       .order("name");
     if (error) throw error;
     cprRoster = (data || [])
@@ -2617,6 +2622,7 @@ async function cprFetchRoster() {
         return {
           name:       r.name,
           discipline: r.discipline,
+          status:     (r.clinician_profiles && r.clinician_profiles.status) || "Active",
           lookup_key: cprClinLookupKey(r.name)
         };
       });
@@ -2839,14 +2845,21 @@ function cprTbClinicianOptions(perClinPayload) {
     });
   });
   // Append roster clinicians not already in TB perClin. Med B-only
-  // clinicians (no TB activity this period) live here.
+  // clinicians (no TB activity this period) live here. Inactive
+  // clinicians filtered out unless cprShowInactive is true.
   cprRoster.forEach(function(r) {
     if (!r.lookup_key || seen.has(r.lookup_key)) return;
+    if (!cprShowInactive && r.status === "Inactive") return;
     seen.add(r.lookup_key);
+    const statusTag = r.status === "Active" ? " · roster"
+                    : r.status === "Paused" ? " · paused"
+                    : r.status === "Inactive" ? " · inactive"
+                    : " · " + r.status.toLowerCase();
     opts.push({
       value:      r.lookup_key,
-      label:      cprTitleCase(r.name) + " (" + r.discipline + ") · roster",
-      rosterOnly: true
+      label:      cprTitleCase(r.name) + " (" + r.discipline + ")" + statusTag,
+      rosterOnly: true,
+      status:     r.status
     });
   });
   opts.sort(function(a, b) { return a.label.localeCompare(b.label); });
@@ -3586,7 +3599,13 @@ function renderCprImportPreview() {
     }).join("");
     html += '<div style="margin:8px 0;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
       '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ Strata Med B — ' + previewMerged.unmatched.length + ' unmatched name(s)</div>' +
-      '<div style="color:#5d4500;margin-bottom:6px;">Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</div>' +
+      '<div style="color:#5d4500;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+        '<span>Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</span>' +
+        '<label style="white-space:nowrap;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;">' +
+          '<input type="checkbox" id="cpr-show-inactive-import"' + (cprShowInactive ? ' checked' : '') + ' />' +
+          ' Include inactive' +
+        '</label>' +
+      '</div>' +
       '<table style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="border-bottom:1px solid #ffd54f;">' +
           '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Strata name</th>' +
@@ -3758,6 +3777,14 @@ function renderCprImportPreview() {
   Array.from(wrap.querySelectorAll(".cpr-alias-picker")).forEach(function(sel) {
     sel.addEventListener("change", cprOnAliasPickerChange);
   });
+  // "Include inactive" checkbox toggles cprShowInactive + re-renders.
+  const inactiveCb = document.getElementById("cpr-show-inactive-import");
+  if (inactiveCb) {
+    inactiveCb.addEventListener("change", function(e) {
+      cprShowInactive = !!e.target.checked;
+      renderCprImportPreview();
+    });
+  }
 }
 
 // Handler for the unmatched-name dropdown picker. On selecting a TB
@@ -5144,7 +5171,13 @@ function renderCprMedbRetroPreview() {
     }).join("");
     html += '<div style="margin-bottom:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
       '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ ' + unmatched.length + ' Strata name(s) didn\'t match this audit\'s clinicians</div>' +
-      '<div style="color:#5d4500;margin-bottom:6px;">Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</div>' +
+      '<div style="color:#5d4500;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+        '<span>Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</span>' +
+        '<label style="white-space:nowrap;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;">' +
+          '<input type="checkbox" id="cpr-show-inactive-retro"' + (cprShowInactive ? ' checked' : '') + ' />' +
+          ' Include inactive' +
+        '</label>' +
+      '</div>' +
       '<table style="width:100%;border-collapse:collapse;">' +
         '<thead><tr style="border-bottom:1px solid #ffd54f;">' +
           '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Strata name</th>' +
@@ -5182,6 +5215,25 @@ function renderCprMedbRetroPreview() {
     '<th class="cpr-num">New Med B</th>' +
   '</tr></thead><tbody>';
 
+  // Helper: build the editable rate cell. Reads cprRateEdits first
+  // (admin hand-edits), then memory/derived rate.
+  function buildRetroRateCell(lookupKey, baseRate) {
+    const editedRt = cprRateEdits.has(lookupKey) ? Number(cprRateEdits.get(lookupKey)) : null;
+    const effRate  = editedRt != null ? editedRt : baseRate;
+    return '<input type="number" step="0.01" min="0" class="cpr-rate-input-retro" ' +
+      'data-clin-key="' + escAttr(lookupKey) + '" ' +
+      'value="' + (effRate != null ? Number(effRate).toFixed(2) : "") + '" ' +
+      'placeholder="—" style="width:64px;padding:2px 4px;font-size:11px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;" />';
+  }
+  // Helper: resolve effective rate (edits → memory/derived → null)
+  function resolveRetroRate(lookupKey, baseRate) {
+    if (cprRateEdits.has(lookupKey)) {
+      const n = Number(cprRateEdits.get(lookupKey));
+      return Number.isFinite(n) ? n : null;
+    }
+    return baseRate;
+  }
+
   let newTotal = 0;
   let oldTotal = 0;
   let touchedCount = 0;
@@ -5190,17 +5242,13 @@ function renderCprMedbRetroPreview() {
     const sv = visitsByKey[k] || 0;
     const cur = Number(c.medb_total) || 0;
     const meta = rateMap.get(k);
-    const rate = meta ? meta.rate : null;
+    const baseRate = meta ? meta.rate : null;
+    const rate = resolveRetroRate(k, baseRate);
     const newMedb = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
-    // Only render rows that have either old Med B or new Med B (to
-    // keep the preview tight when most clinicians are unaffected)
     if (sv === 0 && cur === 0) return;
     if (sv > 0) touchedCount++;
     newTotal += newMedb;
     oldTotal += cur;
-    const rateCell = rate == null
-      ? '<span style="color:#a53935;font-weight:700;" title="No rate — Med B will be $0">⚠</span>'
-      : cprFmtMoney(rate);
     const newCellStyle = newMedb > 0 ? 'color:#1B5E20;font-weight:700;' : 'color:#cbd5e1;';
     const curCellStyle = cur > 0    ? 'color:#475569;'               : 'color:#cbd5e1;';
     const deltaHint = (newMedb !== cur)
@@ -5210,7 +5258,7 @@ function renderCprMedbRetroPreview() {
       '<td>' + escHtml(c.clinician) + '</td>' +
       '<td>' + escHtml(c.discipline || "") + '</td>' +
       '<td class="cpr-num">' + (sv > 0 ? sv : '<span style="color:#cbd5e1;">—</span>') + '</td>' +
-      '<td class="cpr-num">' + rateCell + '</td>' +
+      '<td class="cpr-num">' + buildRetroRateCell(k, baseRate) + '</td>' +
       '<td class="cpr-num" style="' + curCellStyle + '">' + cprFmtMoney(cur) + '</td>' +
       '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + deltaHint + '</td>' +
     '</tr>';
@@ -5222,19 +5270,17 @@ function renderCprMedbRetroPreview() {
     if (!rosterHit) return;
     const sv = visitsByKey[srow.lookup_key] || 0;
     const meta = rateMap.get(srow.lookup_key);
-    const rate = meta ? meta.rate : null;
+    const baseRate = meta ? meta.rate : null;
+    const rate = resolveRetroRate(srow.lookup_key, baseRate);
     const newMedb = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
     touchedCount++;
     newTotal += newMedb;
-    const rateCell = rate == null
-      ? '<span style="color:#a53935;font-weight:700;" title="No rate — Med B will be $0">⚠</span>'
-      : cprFmtMoney(rate);
     const newCellStyle = newMedb > 0 ? 'color:#1B5E20;font-weight:700;' : 'color:#cbd5e1;';
     html += '<tr style="background:#f5f8ff;">' +
       '<td>' + escHtml(rosterHit.name) + ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only · new</span></td>' +
       '<td>' + escHtml(rosterHit.discipline) + '</td>' +
       '<td class="cpr-num">' + sv + '</td>' +
-      '<td class="cpr-num">' + rateCell + '</td>' +
+      '<td class="cpr-num">' + buildRetroRateCell(srow.lookup_key, baseRate) + '</td>' +
       '<td class="cpr-num" style="color:#cbd5e1;">$0.00</td>' +
       '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + '</td>' +
     '</tr>';
@@ -5253,6 +5299,44 @@ function renderCprMedbRetroPreview() {
   Array.from(wrap.querySelectorAll(".cpr-retro-alias-picker")).forEach(function(sel) {
     sel.addEventListener("change", cprOnRetroAliasPickerChange);
   });
+  // Wire rate-cell editors — typed value lands in cprRateEdits and the
+  // preview re-renders so New Med B updates live.
+  Array.from(wrap.querySelectorAll(".cpr-rate-input-retro")).forEach(function(inp) {
+    inp.addEventListener("change", cprOnRetroRateInputCommit);
+    inp.addEventListener("blur",   cprOnRetroRateInputCommit);
+    inp.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
+    });
+  });
+  // "Include inactive" checkbox toggles cprShowInactive + re-renders
+  // (changes the dropdown's option list).
+  const inactiveCb = document.getElementById("cpr-show-inactive-retro");
+  if (inactiveCb) {
+    inactiveCb.addEventListener("change", function(e) {
+      cprShowInactive = !!e.target.checked;
+      renderCprMedbRetroPreview();
+    });
+  }
+}
+
+// Retro-modal rate input commit. Same pattern as cprOnRateInputCommit
+// but routes to the retro preview re-render.
+function cprOnRetroRateInputCommit(e) {
+  const inp = e.currentTarget;
+  const key = inp.getAttribute("data-clin-key") || "";
+  if (!key) return;
+  const raw = inp.value;
+  if (raw === "" || raw == null) {
+    cprRateEdits.delete(key);
+  } else {
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n < 0) {
+      cprRateEdits.delete(key);
+    } else {
+      cprRateEdits.set(key, Math.round(n * 100) / 100);
+    }
+  }
+  renderCprMedbRetroPreview();
 }
 
 // Retro-modal version of the alias-picker change handler.
@@ -5294,6 +5378,15 @@ function cprApplyMedbRetro() {
     if (!row.lookup_key) return;
     visitsByKey[row.lookup_key] = (visitsByKey[row.lookup_key] || 0) + (Number(row.visits_billed) || 0);
   });
+  // Rate resolver: admin's typed rate (cprRateEdits) wins over memory.
+  function resolveRate(k) {
+    if (cprRateEdits.has(k)) {
+      const n = Number(cprRateEdits.get(k));
+      if (Number.isFinite(n) && n >= 0) return n;
+    }
+    const meta = rateMap.get(k);
+    return meta ? meta.rate : null;
+  }
   // (1) Walk every existing clinician in the period; assign Med B for
   // matches, ZERO out any prior Med B for clinicians NOT in the Strata
   // file (fresh Strata import = full replace, not stack).
@@ -5307,8 +5400,7 @@ function cprApplyMedbRetro() {
       c.medb_source = null;
       return;
     }
-    const meta = rateMap.get(k);
-    const rate = meta ? meta.rate : null;
+    const rate = resolveRate(k);
     if (rate == null) {
       c.medb_total = 0;
       c.medb_source = null;
@@ -5317,8 +5409,8 @@ function cprApplyMedbRetro() {
     c.medb_total  = Math.round(sv * rate * 100) / 100;
     c.medb_source = "Strata";
   });
-  // (2) NEW: append Med B-only rows for roster clinicians mapped via
-  // alias to a Strata entry but not present in this audit's TB perClin.
+  // (2) Append Med B-only rows for roster clinicians mapped via alias
+  // to a Strata entry but not present in this audit's TB perClin.
   cprMedbRetroParsed.rows.forEach(function(srow) {
     const k = srow.lookup_key;
     if (!k || existingKeys.has(k)) return;
@@ -5326,8 +5418,7 @@ function cprApplyMedbRetro() {
     if (!rosterHit) return;   // unmatched & not in roster → skip
     existingKeys.add(k);
     const sv = visitsByKey[k] || 0;
-    const meta = rateMap.get(k);
-    const rate = meta ? meta.rate : null;
+    const rate = resolveRate(k);
     const amt  = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
     r.per_clinician_payload.push({
       clinician:       rosterHit.name,
@@ -5346,6 +5437,8 @@ function cprApplyMedbRetro() {
   cprViewState.dirty = true;
   // Stash the rateMap snapshot so the post-save persistence call uses
   // the same rates (memory bumps + manual_override-preservation rule).
+  // cprRateEdits stays populated so cprBuildRateRows promotes typed
+  // rates to source='manual_override' on persist.
   cprRateMap = rateMap;
   cprRecompute();
   cprCloseMedbRetro();
