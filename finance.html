@@ -2844,8 +2844,13 @@ async function cprParseStrataPdf(arrayBuffer) {
     });
   }
 
-  const STAFF_RE_PAREN = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
-  const STAFF_RE_BARE  = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")\\s*$");
+  // Name regexes — accept the discipline marker followed by EITHER
+  // end-of-line OR whitespace (handles row-merge cases where Y-band
+  // grouped name and data cells onto a single line like
+  // "Basma Rafael (PT) 8 (18.6%) $2,100.00 ..."). The bare variant
+  // uses the same trick so "Magdalena Chowaniec PTA 7 (16.3%) ..." matches.
+  const STAFF_RE_PAREN = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)(?=\\s|$)");
+  const STAFF_RE_BARE  = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")(?=\\s|$)");
   const HAS_DOLLAR_RE  = /\$[\d,]+\.\d{2}/;
 
   function isStaffLine(line) {
@@ -2859,10 +2864,28 @@ async function cprParseStrataPdf(arrayBuffer) {
            lc.indexOf("revenue metrics") >= 0 ||
            lc.indexOf("cpt copyright") >= 0;
   }
-  // Validate a candidate visits integer: must have a $-amount within
-  // the next 3 lines (Total Billed sits right after Visits Billed +
-  // percentage). Hitting another staff name short-circuits to false.
+  // Recognize a CPT-code line tail like "97140 x" (Strata uses 5-digit
+  // CPT codes followed by "x" to introduce a unit-breakdown count).
+  const CPT_TAIL_RE = /\b\d{5}\s*x\s*$/;
+  // Validate a candidate visits integer:
+  //   1. The line BEFORE the candidate must NOT end with a CPT code
+  //      (that pattern marks a Unit Breakdown count, not Visits Billed).
+  //   2. A $-amount must appear either (a) on the SAME line after the
+  //      candidate (row-merge case), OR (b) within the next 3 lines
+  //      (Total Billed comes right after Visits Billed + percentage).
+  // Hitting another staff name short-circuits to false.
   function validateVisitsAt(j) {
+    // (1) Look at the closest preceding non-empty line for a CPT tail.
+    for (let k = j - 1; k >= Math.max(j - 3, 0); k--) {
+      const prev = lines[k];
+      if (!prev) continue;
+      if (CPT_TAIL_RE.test(prev)) return false;   // unit-breakdown count
+      break;   // checked the closest one, that's enough
+    }
+    const ownLine = lines[j] || "";
+    // (2a) Same-line $ — row-merge case ("8 (18.6%) $2,100.00 ...")
+    if (HAS_DOLLAR_RE.test(ownLine)) return true;
+    // (2b) $ within the next 3 lines
     for (let k = j + 1; k <= Math.min(j + 3, lines.length - 1); k++) {
       const l = lines[k];
       if (!l) continue;
@@ -2872,18 +2895,32 @@ async function cprParseStrataPdf(arrayBuffer) {
     return false;
   }
   // Walk lines[startIdx..endIdx] in `step` direction looking for the
-  // first validated standalone-integer line that isn't in `consumed`.
-  // Stops at staff-name boundaries.
+  // first validated integer candidate that isn't in `consumed`. Stops
+  // at staff-name boundaries.
+  //
+  // Accepts TWO integer-line shapes (real Strata exports use both):
+  //   • Bare integer on its own line: "21"
+  //   • Integer + percent on one line: "21 (19.3%)" (Y-band merged with %)
+  //   • Integer + percent + more cells: "8 (18.6%) $2,100.00 ..." (full row merge)
+  // The validation rule above filters out Unit Breakdown counts which
+  // ALSO match the inline pattern (e.g. "9 (28.1%)" within a unit list).
   function findVisits(startIdx, endIdx, step, consumed) {
     for (let j = startIdx; (step > 0 ? j <= endIdx : j >= endIdx); j += step) {
       const line = lines[j];
       if (!line) continue;
       if (isBoilerplate(line)) continue;
       if (isStaffLine(line)) break;                   // boundary
-      if (!/^\d+$/.test(line)) continue;              // must be bare integer
+      let candidate = null;
+      if (/^\d+$/.test(line)) {
+        candidate = parseInt(line, 10);
+      } else {
+        const m = /^(\d+)\s*\(\d+(?:\.\d+)?%\)/.exec(line);
+        if (m) candidate = parseInt(m[1], 10);
+      }
+      if (candidate == null) continue;
       if (consumed.has(j)) continue;
       if (!validateVisitsAt(j)) continue;
-      return { value: parseInt(line, 10), idx: j };
+      return { value: candidate, idx: j };
     }
     return null;
   }
@@ -2906,9 +2943,22 @@ async function cprParseStrataPdf(arrayBuffer) {
     nameRaw = nameRaw.replace(/[,;]\s*$/, "").trim();
     if (!nameRaw) continue;
 
-    // Forward search (normal case: name first, data after).
-    let result = findVisits(i + 1, Math.min(i + 40, lines.length - 1), 1, consumed);
-    // Backward search (split-row case: data on prior page, name on next).
+    let result = null;
+    // (0) Row-merge case: the name and data cells share a Y-band, so the
+    // whole row landed on one line ("Basma Rafael (PT) 8 (18.6%) $2,100.00 ...").
+    // Extract the first integer AFTER the matched name+discipline.
+    if (m && HAS_DOLLAR_RE.test(line)) {
+      const matchEnd = m.index + m[0].length;
+      const rest = line.slice(matchEnd);
+      // "8" as first token, optionally followed by "(N.N%)"
+      const im = /^\s+(\d+)(?:\s*\(\d+(?:\.\d+)?%\))?(?=\s|$)/.exec(rest);
+      if (im) result = { value: parseInt(im[1], 10), idx: i };
+    }
+    // (1) Forward search (normal case: name first, data after).
+    if (!result) {
+      result = findVisits(i + 1, Math.min(i + 40, lines.length - 1), 1, consumed);
+    }
+    // (2) Backward search (split-row case: data on prior page, name on next).
     if (!result) {
       result = findVisits(i - 1, Math.max(i - 60, 0), -1, consumed);
     }
