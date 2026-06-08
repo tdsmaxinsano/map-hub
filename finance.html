@@ -529,6 +529,72 @@
   #clin-pay-overview-card .cpo-head-right { display: flex; align-items: center; gap: 8px; }
   #clin-pay-overview-card .cpo-card-meta { font-size: 12px; color: var(--muted); }
   #clin-pay-overview-card .cpo-body { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+
+  /* ── 💵 Pay Rates card (migration 38) ── */
+  #cpr-rates-card .cpo-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; user-select: none; }
+  #cpr-rates-card .cpo-head h3 { margin: 0; font-size: 15px; color: var(--text); display: flex; align-items: center; gap: 8px; }
+  #cpr-rates-card .cpo-card-caret { display: inline-block; width: 14px; font-weight: 800; color: var(--muted); transition: transform 0.12s; }
+  #cpr-rates-card.is-open .cpo-card-caret { transform: rotate(90deg); }
+  #cpr-rates-card .cpo-head-right { display: flex; align-items: center; gap: 8px; }
+  #cpr-rates-card .cpo-card-meta { font-size: 12px; color: var(--muted); }
+  #cpr-rates-card .cpo-body { margin-top: 10px; }
+  .cpr-rates-toolbar {
+    display: flex; align-items: center; gap: 8px; margin-bottom: 10px; flex-wrap: wrap;
+  }
+  .cpr-rates-toolbar .cpo-search,
+  .cpr-rates-toolbar .cpr-rates-select {
+    font-family: inherit; font-size: 12.5px; padding: 6px 10px;
+    border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--text);
+  }
+  .cpr-rates-toolbar .cpo-search { min-width: 200px; }
+  .cpr-rates-wrap {
+    max-height: 540px; overflow: auto;
+    border: 1px solid var(--border); border-radius: 10px; background: #fff;
+  }
+  .cpr-rates-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+  .cpr-rates-table thead th {
+    position: sticky; top: 0; z-index: 2;
+    background: #f4f6fa; color: var(--text);
+    text-align: left; font-weight: 800; padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .cpr-rates-table tbody td {
+    padding: 6px 10px; border-bottom: 1px solid #eef1f6;
+    vertical-align: middle;
+  }
+  .cpr-rates-table tbody tr:hover td { background: #f8fafd; }
+  .cpr-rates-table td.col-name {
+    position: sticky; left: 0; background: #fff; z-index: 1;
+    font-weight: 700; color: var(--blue);
+    box-shadow: 1px 0 0 0 #eef1f6;
+    max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .cpr-rates-table tbody tr:hover td.col-name { background: #f8fafd; }
+  .cpr-rates-table td.col-disc {
+    font-weight: 700; color: var(--muted); font-size: 11px;
+  }
+  .cpr-rates-table td.col-disc span {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    background: #f1f5f9; color: var(--muted);
+  }
+  .cpr-rates-table td.col-rate, .cpr-rates-table td.col-eval { text-align: right; }
+  .cpr-rates-table input.cpr-rate-cell-input {
+    width: 84px; padding: 4px 6px; font-size: 12.5px;
+    border: 1px solid var(--border); border-radius: 6px;
+    text-align: right; font-variant-numeric: tabular-nums;
+    background: #fff; color: var(--text);
+  }
+  .cpr-rates-table input.cpr-rate-cell-input:focus {
+    outline: none; border-color: var(--accent);
+    box-shadow: 0 0 0 2px #c7d8ff;
+  }
+  .cpr-rates-table input.cpr-rate-cell-input.is-disabled { background: #f1f5f9; color: #cbd5e1; cursor: not-allowed; }
+  .cpr-rates-table td.col-eval .eval-na { color: #cbd5e1; font-style: italic; }
+  .cpr-rates-table td.col-src { font-size: 10.5px; }
+  .cpr-rates-table td.col-when { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .cpr-rates-row-pending td { background: #fffbeb !important; }
+  .cpr-rates-row-saved   td { background: #f0fdf4; transition: background 1s ease; }
   .cpo-section-head {
     padding: 8px 14px; cursor: pointer; user-select: none;
     font-weight: 800; font-size: 12.5px;
@@ -1346,6 +1412,61 @@
         </div>
       </div>
       <div class="cpo-body" id="cpo-body" hidden></div>
+    </div>
+
+    <!-- ── 💵 Pay Rates (admin-only; migration 38) ── -->
+    <div class="card" id="cpr-rates-card" style="display:none;">
+      <div class="cpo-head" id="cpr-rates-toggle" role="button" tabindex="0">
+        <h3>💵 Pay Rates <span class="cpo-card-caret" id="cpr-rates-caret">▸</span></h3>
+        <div class="cpo-head-right">
+          <span class="cpo-card-meta" id="cpr-rates-meta">click to expand</span>
+          <button type="button" class="btn-secondary" id="cpr-rates-import-btn" style="display:none;" title="Import rates from Strata XLSX">📥 Import Rates</button>
+          <button type="button" class="btn-secondary" id="cpr-rates-refresh" style="display:none;" title="Refresh from the database">🔄</button>
+        </div>
+      </div>
+      <div class="cpo-body" id="cpr-rates-body" hidden>
+        <p style="font-size:12.5px;color:var(--muted);margin:0 0 10px;line-height:1.5;">
+          Per-clinician Med B rates. <strong>PT/OT supervisors</strong> have two rates — <em>Follow-up</em> (PTF / OTF) and <em>Eval</em> (PTE / OTE).
+          <strong>PTA/OTA assistants</strong> have one rate (PTFA / OTFA — assistants don't bill evals).
+          Memory rows win over fresh TB derivations; an inline edit flips that clinician to <code>manual_override</code>.
+        </p>
+        <div class="cpr-rates-toolbar">
+          <input type="text" id="cpr-rates-search" class="cpo-search" placeholder="🔍 Search by name…" autocomplete="off" />
+          <select id="cpr-rates-disc-filter" class="cpr-rates-select">
+            <option value="">All disciplines</option>
+            <option value="PT">PT</option>
+            <option value="PTA">PTA</option>
+            <option value="OT">OT</option>
+            <option value="OTA">OTA</option>
+          </select>
+          <select id="cpr-rates-source-filter" class="cpr-rates-select">
+            <option value="">All sources</option>
+            <option value="manual_override">Manual</option>
+            <option value="memory_hit">Memory</option>
+            <option value="derived_assistant_mode">Derived (asst MODE)</option>
+            <option value="derived_supervisor_min">Derived (supv MIN)</option>
+            <option value="derived_supervisor_split">Derived (supv split)</option>
+          </select>
+          <span id="cpr-rates-stats" style="font-size:11.5px;color:var(--muted);margin-left:auto;"></span>
+        </div>
+        <div class="cpr-rates-wrap">
+          <table class="cpr-rates-table" id="cpr-rates-table">
+            <thead>
+              <tr>
+                <th class="col-name">Clinician</th>
+                <th class="col-disc">Disc</th>
+                <th class="col-rate">Follow-up ($/visit)</th>
+                <th class="col-eval">Eval ($/visit)</th>
+                <th class="col-src">Source</th>
+                <th class="col-when">Last set</th>
+              </tr>
+            </thead>
+            <tbody id="cpr-rates-tbody">
+              <tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:18px;">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
 
     <!-- ── Clinician Payroll Audit (Phase 2) ── -->
@@ -2497,7 +2618,8 @@ function openCprModal() {
   cprPrepared = null;
   cprPreparedMedb = null;
   cprRateMap = new Map();
-  cprRateEdits = new Map();
+  cprRateEdits     = new Map();
+  cprRateEditsEval = new Map();
   cprAliasMap = new Map();
   cprAliasPending = new Map();
   document.getElementById("cpr-import-preview").style.display = "none";
@@ -2573,6 +2695,21 @@ const CPR_KNOWN_DISCIPLINES = [
 ];
 const CPR_DISC_RE_GROUP = CPR_KNOWN_DISCIPLINES.join("|");
 
+// Eval CPT codes per discipline (migration 38). PT/OT supervisors bill
+// these as evals (higher rate); regular treatment visits use the other
+// PT/OT CPT codes (97110/97112/97116/97140/97530/97535/97542/...).
+//   PT evals: 97161 / 97162 / 97163 (low/mod/high complexity) + 97164 (re-eval)
+//   OT evals: 97165 / 97166 / 97167                            + 97168 (re-eval)
+// ST is out of scope for Med B in this shop.
+const CPR_PT_EVAL_CODES = new Set(["97161", "97162", "97163", "97164"]);
+const CPR_OT_EVAL_CODES = new Set(["97165", "97166", "97167", "97168"]);
+function cprEvalCodesFor(discipline) {
+  const d = String(discipline || "").trim().toUpperCase();
+  if (d === "PT") return CPR_PT_EVAL_CODES;
+  if (d === "OT") return CPR_OT_EVAL_CODES;
+  return null;   // assistants + ST/SLP/etc. don't split
+}
+
 // Module-level rate map populated on every TB import:
 //   Map<lookup_key, { rate: number|null, source: string, discipline: string }>
 // source ∈ 'memory_hit' / 'derived_assistant_mode' / 'derived_supervisor_min' /
@@ -2580,7 +2717,12 @@ const CPR_DISC_RE_GROUP = CPR_KNOWN_DISCIPLINES.join("|");
 let cprRateMap = new Map();
 // Tracks lookup_keys that were manually edited in the current preview,
 // so on save we mark them source='manual_override'.
-let cprRateEdits = new Map();
+//   cprRateEdits     — Map<key, number>  — follow-up rate edits
+//   cprRateEditsEval — Map<key, number>  — eval rate edits (PT/OT supervisors, migration 38)
+// Keys are independent: a row can have a follow-up edit without an eval edit
+// and vice versa. cprBuildRateRows merges both into a single persistence row.
+let cprRateEdits     = new Map();
+let cprRateEditsEval = new Map();
 
 // Strata-name → TB-clinician alias memory (migration 36).
 //
@@ -2689,29 +2831,68 @@ function cprLowestNonzero(vals) {
   return best;
 }
 
+// HIGHEST distinct non-zero pay value. Used for the PT/OT supervisor's
+// EVAL rate (migration 38) — the eval is the higher of the two rates,
+// so the highest distinct TB pay value is a good first-pass derivation.
+// Returns null if no non-zero values.
+function cprHighestNonzero(vals) {
+  let best = null;
+  vals.forEach(function(v) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n <= 0) return;
+    if (best == null || n > best) best = n;
+  });
+  return best;
+}
+
 // Returns true when the given discipline code is an assistant title.
 function cprIsAssistant(discipline) {
   return CPR_ASSISTANT_DISCIPLINES.has(String(discipline || "").trim().toUpperCase());
 }
 
-// Derive a single clinician's per-visit rate from this period's TB visits.
-// `payValues` is an array of Pay numbers (one per TB visit row for this
-// clinician). Returns { rate: number|null, source: string }.
+// PT/OT supervisor split-rate eligibility (migration 38).
+// Only PT and OT supervisors bill at both an eval rate AND a follow-up
+// rate. PTAs/OTAs and out-of-scope disciplines (ST/SLP/etc.) keep the
+// single-rate model.
+function cprIsPtOrOtSupervisor(discipline) {
+  const d = String(discipline || "").trim().toUpperCase();
+  return d === "PT" || d === "OT";
+}
+
+// Derive a single clinician's per-visit rate(s) from this period's TB visits.
+// Returns { rate, eval_rate, source }:
+//   • assistants → { rate: MODE, eval_rate: null, source: 'derived_assistant_mode' }
+//   • PT/OT supervisors → { rate: lowest_nonzero, eval_rate: highest_distinct, source: 'derived_supervisor_split' }
+//     If there's only ONE distinct pay value (no evals this period), eval_rate
+//     stays null and source falls back to 'derived_supervisor_min'.
+//   • Other supervisors → { rate: lowest_nonzero, eval_rate: null, source: 'derived_supervisor_min' }
 function cprDeriveRateForClinician(payValues, discipline) {
   if (!Array.isArray(payValues) || !payValues.length) {
-    return { rate: null, source: "derived_supervisor_min" };
+    return { rate: null, eval_rate: null, source: "derived_supervisor_min" };
   }
   if (cprIsAssistant(discipline)) {
-    return { rate: cprModeNonzero(payValues), source: "derived_assistant_mode" };
+    return { rate: cprModeNonzero(payValues), eval_rate: null, source: "derived_assistant_mode" };
   }
-  // Default to supervisor rule (lowest non-zero) — also catches missing
-  // discipline data so we don't accidentally pick an eval rate.
-  return { rate: cprLowestNonzero(payValues), source: "derived_supervisor_min" };
+  if (cprIsPtOrOtSupervisor(discipline)) {
+    const lo = cprLowestNonzero(payValues);
+    const hi = cprHighestNonzero(payValues);
+    // Only flag the row as 'split' when we actually have TWO distinct rates.
+    // Single-rate PT/OT (e.g., only follow-ups this period) → fall back to
+    // the standard supervisor-min source so memory persistence behaves the
+    // same as today.
+    if (lo != null && hi != null && hi > lo) {
+      return { rate: lo, eval_rate: hi, source: "derived_supervisor_split" };
+    }
+    return { rate: lo, eval_rate: null, source: "derived_supervisor_min" };
+  }
+  // Other supervisors / unknown discipline — keep single-rate behavior.
+  return { rate: cprLowestNonzero(payValues), eval_rate: null, source: "derived_supervisor_min" };
 }
 
 // Walks the TB all_visits_payload + per_clinician_payload to compute
-// each clinician's derived rate. Returns Map<lookup_key, {rate, source,
-// discipline, display}>.
+// each clinician's derived rate(s). Returns Map<lookup_key, {rate,
+// eval_rate, source, discipline, display}>. eval_rate is null for
+// assistants + non-PT/OT supervisors (migration 38 split rule).
 function cprComputeDerivedRates(prepared) {
   const map = new Map();
   if (!prepared) return map;
@@ -2730,22 +2911,24 @@ function cprComputeDerivedRates(prepared) {
     const payVals = payByClin[c.clinician] || [];
     const derived = cprDeriveRateForClinician(payVals, c.discipline);
     map.set(k, {
-      rate: derived.rate,
-      source: derived.source,
+      rate:       derived.rate,
+      eval_rate:  derived.eval_rate,
+      source:     derived.source,
       discipline: c.discipline || "",
-      display: c.clinician
+      display:    c.clinician
     });
   });
   return map;
 }
 
-// Pulls every known clinician's saved Med B rate from the memory table
-// (migration 35) and folds them on top of the derived map. Memory wins
-// when present; derivation seeds the rest. Non-fatal on failure — the
-// derived rates carry the import.
+// Pulls every known clinician's saved Med B rate(s) from the memory
+// table (migration 35 + 38) and folds them on top of the derived map.
+// Memory wins when present; derivation seeds the rest. Non-fatal on
+// failure — the derived rates carry the import.
 //
 // Each rateMap entry has:
-//   rate       — number
+//   rate       — number (follow-up rate)
+//   eval_rate  — number | null (PT/OT supervisor eval rate; null for assistants etc.)
 //   source     — original DB source ('derived_*' / 'manual_override').
 //                Pass-through to persistence so we don't relabel rows.
 //   fromMemory — boolean. Drives the UI pill ('memory' vs 'derived'/'manual').
@@ -2763,6 +2946,7 @@ async function cprBuildRateMap(prepared) {
       const existing = derived.get(k);
       derived.set(k, {
         rate:       Number(row.rate) || 0,
+        eval_rate:  row.eval_rate != null ? Number(row.eval_rate) : null,
         source:     row.source || "derived_supervisor_min",
         fromMemory: true,
         discipline: (existing && existing.discipline) || row.discipline || "",
@@ -3064,11 +3248,44 @@ async function cprParseStrataPdf(arrayBuffer) {
     const key = cprClinLookupKey(nameRaw + " " + disc);
     if (!key || seenKeys.has(key)) continue;
     seenKeys.add(key);
+
+    // Eval-code detection (migration 38). For PT/OT supervisors, scan
+    // the Unit Breakdown text — from the name line forward up to the
+    // NEXT staff name (or EOF) — for CPT eval codes + their counts.
+    // Returns 0 for assistants + non-PT/OT supervisors.
+    let evalCount = 0;
+    const evalCodes = cprEvalCodesFor(disc);
+    if (evalCodes && !cprIsAssistant(disc)) {
+      const breakdownParts = [];
+      breakdownParts.push(line);   // the name line might be row-merged
+      for (let k = i + 1; k < lines.length; k++) {
+        if (isStaffLine(lines[k])) break;
+        if (lines[k]) breakdownParts.push(lines[k]);
+      }
+      const breakdownText = breakdownParts.join(" | ");
+      // Pattern: "<5-digit code> x ... <count>" — tolerates a percent
+      // or whitespace between the "x" and the count. Captures "97162 x 2"
+      // (row-merged) AND "97162 x | 2 (6.3%)" (column-separated bands).
+      const cptRe = /\b(\d{5})\s*x[^\d]{0,80}?(\d+)\b/g;
+      let cm;
+      while ((cm = cptRe.exec(breakdownText)) !== null) {
+        const code  = cm[1];
+        const count = parseInt(cm[2], 10);
+        if (evalCodes.has(code) && Number.isFinite(count) && count > 0) {
+          evalCount += count;
+        }
+      }
+      // Defensive: eval_count cannot exceed visits_billed
+      if (evalCount > result.value) evalCount = result.value;
+    }
+    const visits = result.value;
     rows.push({
-      clinician_raw: nameRaw + " " + disc,
-      lookup_key:    key,
-      discipline:    disc,
-      visits_billed: result.value
+      clinician_raw:   nameRaw + " " + disc,
+      lookup_key:      key,
+      discipline:      disc,
+      visits_billed:   visits,
+      eval_count:      evalCount,
+      follow_up_count: Math.max(0, visits - evalCount)
     });
   }
 
@@ -3174,11 +3391,14 @@ function mergePayAndMedb(perClin, medbPayload, rateMap, rateEdits) {
   // Index roster clinicians by lookup_key (for Med B-only detection)
   const rosterByKey = Object.create(null);
   cprRoster.forEach(function(r) { if (r.lookup_key) rosterByKey[r.lookup_key] = r; });
-  // Sum Strata visits by lookup_key
-  const visitsByKey = Object.create(null);
+  // Sum Strata visits + eval counts by lookup_key. Pre-migration-38 rows
+  // (eval_count undefined) default to 0 → falls back to single-rate compute.
+  const visitsByKey   = Object.create(null);
+  const evalByKey     = Object.create(null);
   medbPayload.rows.forEach(function(m) {
     if (!m.lookup_key) return;
     visitsByKey[m.lookup_key] = (visitsByKey[m.lookup_key] || 0) + (Number(m.visits_billed) || 0);
+    evalByKey  [m.lookup_key] = (evalByKey  [m.lookup_key] || 0) + (Number(m.eval_count   ) || 0);
   });
   // Unmatched = Strata rows neither in TB nor in roster (truly orphaned).
   // Roster-only Strata rows BECOME Med B-only entries below.
@@ -3190,22 +3410,38 @@ function mergePayAndMedb(perClin, medbPayload, rateMap, rateEdits) {
   });
 
   let total = 0;
-  // Resolve rate for a given lookup_key — admin edit wins, then memory.
+  // Resolve rate pair for a given lookup_key — admin edit wins, then memory.
+  // Returns { rate, eval_rate, source }.
   function resolveRate(k) {
-    if (safeEdits.has(k)) return { rate: Number(safeEdits.get(k)) || 0, source: "manual_override" };
-    const r = safeMap.get(k);
-    if (r) return { rate: r.rate, source: r.source };
-    return { rate: null, source: null };
+    // Follow-up
+    let rate = null, source = null;
+    if (safeEdits.has(k)) {
+      rate = Number(safeEdits.get(k)) || 0;
+      source = "manual_override";
+    } else {
+      const r = safeMap.get(k);
+      if (r) { rate = r.rate; source = r.source; }
+    }
+    // Eval
+    let eval_rate = null;
+    if (cprRateEditsEval && cprRateEditsEval.has(k)) {
+      const e = Number(cprRateEditsEval.get(k));
+      if (Number.isFinite(e) && e >= 0) eval_rate = e;
+      if (eval_rate != null) source = "manual_override";
+    } else {
+      const r2 = safeMap.get(k);
+      if (r2 && r2.eval_rate != null) eval_rate = Number(r2.eval_rate);
+    }
+    return { rate: rate, eval_rate: eval_rate, source: source };
   }
 
-  // (1) Existing TB rows + their Med B amounts
+  // (1) Existing TB rows + their Med B amounts (split-rate aware)
   const out = perClin.map(function(c) {
     const k = cprClinLookupKey(c.clinician);
-    const visits = visitsByKey[k] || 0;
+    const visits     = visitsByKey[k] || 0;
+    const eval_count = evalByKey  [k] || 0;
     const r = resolveRate(k);
-    const amt = visits > 0 && r.rate != null
-      ? Math.round(visits * r.rate * 100) / 100
-      : 0;
+    const amt = computeMedbForClin(visits, eval_count, r.rate, r.eval_rate);
     total += amt;
     return Object.assign({}, c, {
       medb_total:  amt,
@@ -3223,11 +3459,10 @@ function mergePayAndMedb(perClin, medbPayload, rateMap, rateEdits) {
     const rosterHit = rosterByKey[m.lookup_key];
     if (!rosterHit) return;                         // truly unmatched
     medbOnlyKeys.add(m.lookup_key);
-    const visits = visitsByKey[m.lookup_key] || 0;
+    const visits     = visitsByKey[m.lookup_key] || 0;
+    const eval_count = evalByKey  [m.lookup_key] || 0;
     const r = resolveRate(m.lookup_key);
-    const amt = visits > 0 && r.rate != null
-      ? Math.round(visits * r.rate * 100) / 100
-      : 0;
+    const amt = computeMedbForClin(visits, eval_count, r.rate, r.eval_rate);
     total += amt;
     out.push({
       clinician:       rosterHit.name,
@@ -3252,28 +3487,59 @@ function mergePayAndMedb(perClin, medbPayload, rateMap, rateEdits) {
   };
 }
 
+// Med B amount for a single clinician — split-rate aware (migration 38).
+//   • When eval_rate is provided AND eval_count > 0 → split formula
+//     amt = eval_count × eval_rate + (visits - eval_count) × follow_up_rate
+//   • Otherwise → legacy single-rate formula: visits × rate
+// Returns 0 when rate is null or visits ≤ 0.
+function computeMedbForClin(visits, evalCount, rate, evalRate) {
+  if (!Number.isFinite(visits) || visits <= 0)        return 0;
+  if (rate == null || !Number.isFinite(Number(rate))) return 0;
+  const ec = Number.isFinite(evalCount) && evalCount > 0 ? Math.min(evalCount, visits) : 0;
+  if (evalRate != null && Number.isFinite(Number(evalRate)) && ec > 0) {
+    const followCount = visits - ec;
+    return Math.round((ec * Number(evalRate) + followCount * Number(rate)) * 100) / 100;
+  }
+  return Math.round(visits * Number(rate) * 100) / 100;
+}
+
 // Builds the per-clinician rate snapshot (for UI display + memory save).
-// Returns: [{lookup_key, display, discipline, rate, source}, ...] —
-// shape matches the upsert_clinician_medb_rates RPC input.
+// Returns: [{lookup_key, display, discipline, rate, eval_rate, source}, ...] —
+// shape matches the upsert_clinician_medb_rates RPC input (migration 38).
+// Any per-clinician edit in cprRateEdits OR cprRateEditsEval flips that
+// row's source to 'manual_override' so the conflict rule preserves it
+// against later auto-derivation upserts.
 function cprBuildRateRows(perClin, rateMap, rateEdits) {
   const out = [];
   perClin.forEach(function(c) {
     const k = cprClinLookupKey(c.clinician);
     if (!k) return;
-    let rate = null, source = null;
-    if (rateEdits.has(k)) {
+    // Resolve follow-up rate: edit → map → null
+    let rate = null, eval_rate = null, source = null;
+    if (rateEdits && rateEdits.has(k)) {
       rate = Number(rateEdits.get(k)) || 0;
       source = "manual_override";
     } else {
       const r = rateMap.get(k);
       if (r) { rate = r.rate; source = r.source; }
     }
-    if (rate == null) return; // skip clinicians with no rate to save
+    if (rate == null) return; // skip clinicians with no follow-up rate to save
+    // Resolve eval rate: edit (cprRateEditsEval) → map → null. Eval edit
+    // forces source to manual_override even if follow-up isn't edited.
+    if (cprRateEditsEval && cprRateEditsEval.has(k)) {
+      eval_rate = Number(cprRateEditsEval.get(k));
+      if (!Number.isFinite(eval_rate) || eval_rate < 0) eval_rate = null;
+      source = "manual_override";
+    } else {
+      const r2 = rateMap.get(k);
+      if (r2 && r2.eval_rate != null) eval_rate = Number(r2.eval_rate);
+    }
     out.push({
       lookup_key: k,
       display:    c.clinician,
       discipline: c.discipline || "",
       rate:       rate,
+      eval_rate:  eval_rate,
       source:     source || "derived_supervisor_min"
     });
   });
@@ -3317,6 +3583,604 @@ function cprPersistAliases() {
     })
     .catch(function(err) { console.warn("[cpr] persist aliases threw:", err && err.message); });
 }
+
+// ══════════════════════════════════════════════════════════════════
+// 💵 PAY RATES CARD (migration 38)
+// Admin-only collapsible card listing every clinician's stored Med B
+// rates. Follow-up + Eval columns are inline-editable; edits hit
+// upsert_clinician_medb_rates immediately. Drives the rate-management
+// workflow for PT/OT supervisors (two rates) + PT/OT assistants (one).
+// ══════════════════════════════════════════════════════════════════
+let cprPayRates = [];                       // last fetched rows from list_clinician_medb_rates
+let cprPayRatesByKey = new Map();           // Map<lookup_key, row>
+let cprPayRatesFilter = { search: "", discipline: "", source: "" };
+let cprPayRatesLoaded = false;
+let cprPayRatesEditSaveTimers = Object.create(null);   // per-key debounce timers
+
+function cprPayRatesInit() {
+  if (currentRole !== "admin") return;
+  const card = document.getElementById("cpr-rates-card");
+  if (card) card.style.display = "";
+  const importBtn = document.getElementById("cpr-rates-import-btn");
+  if (importBtn) importBtn.style.display = "";
+  const refreshBtn = document.getElementById("cpr-rates-refresh");
+  if (refreshBtn) refreshBtn.style.display = "";
+
+  const toggle = document.getElementById("cpr-rates-toggle");
+  if (toggle && !toggle.dataset.wired) {
+    toggle.dataset.wired = "1";
+    toggle.addEventListener("click", cprPayRatesToggle);
+    toggle.addEventListener("keydown", function(e) {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); cprPayRatesToggle(); }
+    });
+  }
+  if (importBtn && !importBtn.dataset.wired) {
+    importBtn.dataset.wired = "1";
+    importBtn.addEventListener("click", function(e) { e.stopPropagation(); cprPayRatesImportOpen(); });
+  }
+  if (refreshBtn && !refreshBtn.dataset.wired) {
+    refreshBtn.dataset.wired = "1";
+    refreshBtn.addEventListener("click", function(e) { e.stopPropagation(); cprPayRatesLoad(true); });
+  }
+  // Toolbar wiring
+  const searchEl = document.getElementById("cpr-rates-search");
+  if (searchEl && !searchEl.dataset.wired) {
+    searchEl.dataset.wired = "1";
+    searchEl.addEventListener("input", function(e) {
+      cprPayRatesFilter.search = e.target.value || "";
+      cprPayRatesRenderTable();
+    });
+  }
+  const discEl = document.getElementById("cpr-rates-disc-filter");
+  if (discEl && !discEl.dataset.wired) {
+    discEl.dataset.wired = "1";
+    discEl.addEventListener("change", function(e) {
+      cprPayRatesFilter.discipline = e.target.value || "";
+      cprPayRatesRenderTable();
+    });
+  }
+  const srcEl = document.getElementById("cpr-rates-source-filter");
+  if (srcEl && !srcEl.dataset.wired) {
+    srcEl.dataset.wired = "1";
+    srcEl.addEventListener("change", function(e) {
+      cprPayRatesFilter.source = e.target.value || "";
+      cprPayRatesRenderTable();
+    });
+  }
+}
+
+function cprPayRatesToggle() {
+  const card = document.getElementById("cpr-rates-card");
+  const body = document.getElementById("cpr-rates-body");
+  const meta = document.getElementById("cpr-rates-meta");
+  if (!card || !body) return;
+  const willOpen = !card.classList.contains("is-open");
+  card.classList.toggle("is-open", willOpen);
+  body.hidden = !willOpen;
+  if (meta) meta.textContent = willOpen ? "" : "click to expand";
+  if (willOpen && !cprPayRatesLoaded) cprPayRatesLoad(false);
+}
+
+async function cprPayRatesLoad(forceRefresh) {
+  const tbody = document.getElementById("cpr-rates-tbody");
+  if (!tbody) return;
+  if (!forceRefresh && cprPayRatesLoaded) return;
+  tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:18px;">Loading…</td></tr>';
+  try {
+    // Roster fetch lazily — needed for clinicians who don't yet have a
+    // memory row (rendered with an empty Follow-up + Eval, ready to type).
+    if (!cprRoster || !cprRoster.length) await cprFetchRoster();
+    const { data, error } = await db.rpc("list_clinician_medb_rates");
+    if (error) throw new Error(error.message);
+    cprPayRates = data || [];
+    cprPayRatesByKey = new Map();
+    cprPayRates.forEach(function(r) {
+      const k = String(r.clinician_lookup_key || "").trim().toLowerCase();
+      if (k) cprPayRatesByKey.set(k, r);
+    });
+    cprPayRatesLoaded = true;
+    cprPayRatesRenderTable();
+  } catch (err) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c62828;padding:18px;">Failed to load rates: ' + escHtml(err.message || String(err)) + '</td></tr>';
+  }
+}
+
+function cprPayRatesRenderTable() {
+  const tbody = document.getElementById("cpr-rates-tbody");
+  const statsEl = document.getElementById("cpr-rates-stats");
+  if (!tbody) return;
+  // Merge roster + memory: roster rows that have no memory entry render
+  // as empty rate cells (admin can type a rate to create a new memory row).
+  const seenKeys = new Set();
+  const rows = [];
+  cprPayRates.forEach(function(r) {
+    const k = String(r.clinician_lookup_key || "").trim().toLowerCase();
+    if (!k) return;
+    seenKeys.add(k);
+    rows.push({
+      lookup_key: k,
+      display:    r.clinician_display || k,
+      discipline: r.discipline || "",
+      rate:       r.rate != null ? Number(r.rate) : null,
+      eval_rate:  r.eval_rate != null ? Number(r.eval_rate) : null,
+      source:     r.source || "",
+      last_seen:  r.last_seen_at || null,
+      from_memory: true
+    });
+  });
+  cprRoster.forEach(function(rr) {
+    if (!rr.lookup_key || seenKeys.has(rr.lookup_key)) return;
+    // Only show in-scope disciplines (PT/PTA/OT/OTA) for roster-only rows
+    // — that's where the workflow lives. Other disciplines would just be noise.
+    const d = String(rr.discipline || "").trim().toUpperCase();
+    if (d !== "PT" && d !== "PTA" && d !== "OT" && d !== "OTA") return;
+    rows.push({
+      lookup_key: rr.lookup_key,
+      display:    rr.name,
+      discipline: rr.discipline || "",
+      rate:       null,
+      eval_rate:  null,
+      source:     "",
+      last_seen:  null,
+      from_memory: false
+    });
+  });
+
+  // Apply filters
+  const search = cprPayRatesFilter.search.trim().toLowerCase();
+  const dFilt = cprPayRatesFilter.discipline;
+  const sFilt = cprPayRatesFilter.source;
+  const filtered = rows.filter(function(r) {
+    if (search && r.display.toLowerCase().indexOf(search) < 0) return false;
+    if (dFilt && String(r.discipline).toUpperCase() !== dFilt) return false;
+    if (sFilt && r.source !== sFilt) return false;
+    return true;
+  }).sort(function(a, b) {
+    return a.display.localeCompare(b.display);
+  });
+
+  // Stats
+  if (statsEl) {
+    const withEval = rows.filter(function(r) { return r.eval_rate != null && r.eval_rate > 0; }).length;
+    const unset    = rows.filter(function(r) { return r.rate == null; }).length;
+    statsEl.textContent = filtered.length + " of " + rows.length + " · " + withEval + " with eval rate · " + unset + " unset";
+  }
+
+  if (!filtered.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:18px;">No clinicians match your filters.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = filtered.map(function(r) {
+    const disc = String(r.discipline || "").toUpperCase();
+    const isAsst = CPR_ASSISTANT_DISCIPLINES.has(disc);
+    const evalCellHtml = isAsst
+      ? '<span class="eval-na" title="Assistants don\'t bill evals">—</span>'
+      : '<input type="number" step="0.01" min="0" class="cpr-rate-cell-input" data-field="eval_rate" data-key="' + escAttr(r.lookup_key) + '" value="' + (r.eval_rate != null ? Number(r.eval_rate).toFixed(2) : "") + '" placeholder="—" />';
+    const srcPill = r.source ? cprRateSourcePillForCard(r.source, r.from_memory) : '<span class="cpr-src-pill cpr-src-unknown">unset</span>';
+    const lastSeen = r.last_seen ? new Date(r.last_seen).toLocaleDateString() : "—";
+    return '<tr data-key="' + escAttr(r.lookup_key) + '">' +
+      '<td class="col-name" title="' + escAttr(r.display) + '">' + escHtml(r.display) + '</td>' +
+      '<td class="col-disc"><span>' + escHtml(disc || "—") + '</span></td>' +
+      '<td class="col-rate">' +
+        '<input type="number" step="0.01" min="0" class="cpr-rate-cell-input" data-field="rate" data-key="' + escAttr(r.lookup_key) + '" value="' + (r.rate != null ? Number(r.rate).toFixed(2) : "") + '" placeholder="—" />' +
+      '</td>' +
+      '<td class="col-eval">' + evalCellHtml + '</td>' +
+      '<td class="col-src">' + srcPill + '</td>' +
+      '<td class="col-when">' + escHtml(lastSeen) + '</td>' +
+    '</tr>';
+  }).join("");
+
+  // Wire inline-edit save (debounced on blur OR Enter)
+  Array.from(tbody.querySelectorAll(".cpr-rate-cell-input")).forEach(function(inp) {
+    inp.addEventListener("change", cprPayRatesOnCellSave);
+    inp.addEventListener("blur",   cprPayRatesOnCellSave);
+    inp.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
+    });
+  });
+}
+
+// Source pill for the Pay Rates card. Slightly different shading than
+// the import-preview pill: 'derived_supervisor_split' shows green.
+function cprRateSourcePillForCard(source, fromMemory) {
+  if (!source) return '<span class="cpr-src-pill cpr-src-unknown">unset</span>';
+  if (source === "manual_override")          return '<span class="cpr-src-pill cpr-src-manual" title="Hand-edited">manual</span>';
+  if (source === "derived_supervisor_split") return '<span class="cpr-src-pill cpr-src-derived" style="background:#dcfce7;color:#166534;border-color:#bbf7d0;" title="PT/OT split derived from TB">derived · split</span>';
+  if (source === "memory_hit")               return '<span class="cpr-src-pill cpr-src-memory" title="Loaded from memory">memory</span>';
+  if (source.indexOf("derived") === 0)       return '<span class="cpr-src-pill cpr-src-derived" title="Derived from TB pay">derived</span>';
+  return '<span class="cpr-src-pill cpr-src-derived">' + escHtml(source) + '</span>';
+}
+
+// Inline rate-cell save handler. Debounced per (key, field) so rapid
+// typing doesn't fire a write per keystroke. Saves via the existing
+// upsert RPC with source='manual_override'.
+function cprPayRatesOnCellSave(e) {
+  const inp = e.currentTarget;
+  const key = inp.getAttribute("data-key") || "";
+  const field = inp.getAttribute("data-field") || "";
+  if (!key || !field) return;
+  const raw = inp.value;
+  const timerKey = key + "|" + field;
+  if (cprPayRatesEditSaveTimers[timerKey]) clearTimeout(cprPayRatesEditSaveTimers[timerKey]);
+  cprPayRatesEditSaveTimers[timerKey] = setTimeout(function() {
+    cprPayRatesSaveCell(key, field, raw, inp);
+  }, 250);
+}
+
+async function cprPayRatesSaveCell(key, field, raw, inp) {
+  // Pull current row (memory or roster-derived) for context
+  const tr = inp.closest("tr");
+  if (tr) tr.classList.remove("cpr-rates-row-saved");
+  const display = (function() {
+    const c = tr ? tr.querySelector(".col-name") : null;
+    return c ? c.textContent.trim() : key;
+  })();
+  const disc = (function() {
+    const c = tr ? tr.querySelector(".col-disc span") : null;
+    return c ? c.textContent.trim() : "";
+  })();
+  // Determine the current OTHER rate (so the upsert doesn't accidentally drop it).
+  const otherInp = tr ? tr.querySelector(field === "rate"
+    ? '.cpr-rate-cell-input[data-field="eval_rate"]'
+    : '.cpr-rate-cell-input[data-field="rate"]') : null;
+  const otherVal = (otherInp && otherInp.value !== "") ? Number(otherInp.value) : null;
+
+  let newVal = raw === "" ? null : Number(raw);
+  if (newVal != null && (!Number.isFinite(newVal) || newVal < 0)) {
+    inp.value = "";
+    newVal = null;
+  }
+  // Skip if nothing changed vs the cached row
+  const cached = cprPayRatesByKey.get(key);
+  if (cached && (field === "rate" ? Number(cached.rate) : Number(cached.eval_rate)) === newVal) return;
+  // Skip empty Follow-up + empty Eval combo — there's nothing to persist
+  if (field === "rate" && newVal == null) return;   // Follow-up is required
+  if (field === "eval_rate" && newVal == null && cached == null) return;
+
+  if (tr) tr.classList.add("cpr-rates-row-pending");
+  const row = {
+    lookup_key: key,
+    display:    display,
+    discipline: disc,
+    rate:       field === "rate" ? newVal : (cached ? Number(cached.rate) : (otherVal != null ? otherVal : null)),
+    eval_rate:  field === "eval_rate" ? newVal : (cached && cached.eval_rate != null ? Number(cached.eval_rate) : (otherVal != null ? otherVal : null)),
+    source:     "manual_override"
+  };
+  if (row.rate == null) {
+    // Can't persist a Med B-only-eval row — bail.
+    if (tr) tr.classList.remove("cpr-rates-row-pending");
+    return;
+  }
+  try {
+    const res = await db.rpc("upsert_clinician_medb_rates", { p_rows: [row] });
+    if (res.error) throw new Error(res.error.message);
+    // Refresh just this row in our cache (cheaper than a full re-list)
+    cprPayRatesByKey.set(key, {
+      clinician_lookup_key: key,
+      clinician_display:    display,
+      discipline:           disc,
+      rate:                 row.rate,
+      eval_rate:            row.eval_rate,
+      source:               "manual_override",
+      last_seen_at:         new Date().toISOString()
+    });
+    // Replace in cprPayRates array too
+    const idx = cprPayRates.findIndex(function(r) {
+      return String(r.clinician_lookup_key || "").trim().toLowerCase() === key;
+    });
+    if (idx >= 0) {
+      cprPayRates[idx] = cprPayRatesByKey.get(key);
+    } else {
+      cprPayRates.push(cprPayRatesByKey.get(key));
+    }
+    // Visual feedback — light green flash on the row, then re-render
+    if (tr) {
+      tr.classList.remove("cpr-rates-row-pending");
+      tr.classList.add("cpr-rates-row-saved");
+      // Update source pill + last_seen inline (avoid full re-render so focus doesn't move)
+      const srcCell = tr.querySelector(".col-src");
+      if (srcCell) srcCell.innerHTML = cprRateSourcePillForCard("manual_override", true);
+      const whenCell = tr.querySelector(".col-when");
+      if (whenCell) whenCell.textContent = new Date().toLocaleDateString();
+      setTimeout(function() { tr.classList.remove("cpr-rates-row-saved"); }, 1500);
+    }
+  } catch (err) {
+    console.warn("[cpr-rates] save failed:", err && err.message);
+    if (tr) {
+      tr.classList.remove("cpr-rates-row-pending");
+      tr.style.background = "#fee2e2";
+      setTimeout(function() { tr.style.background = ""; }, 1500);
+    }
+    alert("Failed to save rate: " + (err.message || String(err)));
+  }
+}
+
+// ── 📥 Import Pay Rates modal ────────────────────────────────────
+// Reads a Strata-shaped Pay rates.xlsx (one row per clinician, columns
+// Name + PTF/PTE/OTF/OTE/PTFA/OTFA). Matches names against the roster
+// + memory; previews per-clinician current vs new; Apply persists all
+// rates as source='manual_override'.
+let cprPayRatesImportParsed = null;   // Array<{name, ptf, pte, otf, ote, ptfa, otfa, _matched_key, _action}>
+
+function cprPayRatesImportOpen() {
+  cprPayRatesImportParsed = null;
+  document.getElementById("cpr-rates-import-overlay").style.display = "flex";
+  document.getElementById("cpr-rates-import-file-input").value = "";
+  document.getElementById("cpr-rates-import-status").textContent = "● Awaiting rate sheet…";
+  document.getElementById("cpr-rates-import-status").style.color = "var(--muted)";
+  document.getElementById("cpr-rates-import-error").style.display = "none";
+  document.getElementById("cpr-rates-import-preview").style.display = "none";
+  document.getElementById("cpr-rates-import-preview").innerHTML = "";
+  document.getElementById("cpr-rates-import-apply").disabled = true;
+  // Ensure roster + memory are loaded for matching
+  if (!cprRoster || !cprRoster.length) cprFetchRoster();
+  if (!cprPayRatesLoaded) cprPayRatesLoad(false);
+}
+
+function cprPayRatesImportClose() {
+  document.getElementById("cpr-rates-import-overlay").style.display = "none";
+  cprPayRatesImportParsed = null;
+}
+
+function showCprRatesImportError(html) {
+  const el = document.getElementById("cpr-rates-import-error");
+  el.innerHTML = html;
+  el.style.display = "block";
+  document.getElementById("cpr-rates-import-apply").disabled = true;
+  cprPayRatesImportParsed = null;
+}
+
+// Normalize a header cell to one of the known rate columns.
+// Returns "name" / "ptf" / "pte" / "otf" / "ote" / "ptfa" / "otfa" / null.
+function cprPayRatesNormalizeHeader(h) {
+  const s = String(h || "").trim().toLowerCase().replace(/[^a-z]/g, "");
+  if (!s) return null;
+  if (s === "name" || s === "clinician" || s === "staffname" || s === "therapist" || s === "provider") return "name";
+  if (s === "ptf"  || s === "ptfollowup" || s === "ptfollow"  ) return "ptf";
+  if (s === "pte"  || s === "pteval"     || s === "ptevaluation") return "pte";
+  if (s === "otf"  || s === "otfollowup" || s === "otfollow"  ) return "otf";
+  if (s === "ote"  || s === "oteval"     || s === "otevaluation") return "ote";
+  if (s === "ptfa" || s === "ptaf"       || s === "ptafollow" ) return "ptfa";
+  if (s === "otfa" || s === "otaf"       || s === "otafollow" ) return "otfa";
+  return null;
+}
+
+async function handleCprPayRatesImportFile(file) {
+  const lc = (file.name || "").toLowerCase();
+  if (!lc.endsWith(".xlsx") && !lc.endsWith(".xls") && !lc.endsWith(".csv")) {
+    showCprRatesImportError("Only <strong>.xlsx</strong>, <strong>.xls</strong>, or <strong>.csv</strong> accepted. Got <code>" + escHtml(file.name) + "</code>.");
+    return;
+  }
+  if (typeof XLSX === "undefined") {
+    showCprRatesImportError("Spreadsheet parser (SheetJS) didn't load. Hard-refresh and try again.");
+    return;
+  }
+  try {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: false });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: true });
+    if (!rows.length) {
+      showCprRatesImportError("That file is empty.");
+      return;
+    }
+    // Find the header row (first row containing a recognizable rate header)
+    let headerIdx = -1, colMap = null;
+    for (let i = 0; i < Math.min(5, rows.length); i++) {
+      const candidate = rows[i];
+      if (!candidate || !candidate.length) continue;
+      const map = Object.create(null);
+      candidate.forEach(function(cell, j) {
+        const norm = cprPayRatesNormalizeHeader(cell);
+        if (norm) map[norm] = j;
+      });
+      const hasRate = map.ptf != null || map.pte != null || map.otf != null || map.ote != null || map.ptfa != null || map.otfa != null;
+      if (hasRate && map.name != null) {
+        headerIdx = i;
+        colMap = map;
+        break;
+      }
+    }
+    if (headerIdx < 0 || !colMap) {
+      showCprRatesImportError(
+        "Couldn't detect headers. Expected at least <code>Name</code> plus one of <code>PTF/PTE/OTF/OTE/PTFA/OTFA</code> in the first 5 rows."
+      );
+      return;
+    }
+    const parsed = [];
+    for (let i = headerIdx + 1; i < rows.length; i++) {
+      const r = rows[i];
+      if (!r || !r.length) continue;
+      const name = String(r[colMap.name] || "").trim();
+      if (!name) continue;
+      function num(j) {
+        if (j == null) return null;
+        const raw = r[j];
+        if (raw == null || raw === "") return null;
+        const cleaned = String(raw).replace(/[^\d.\-]/g, "");
+        if (!cleaned) return null;
+        const n = Number(cleaned);
+        return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
+      }
+      parsed.push({
+        name:  name,
+        ptf:   num(colMap.ptf),
+        pte:   num(colMap.pte),
+        otf:   num(colMap.otf),
+        ote:   num(colMap.ote),
+        ptfa:  num(colMap.ptfa),
+        otfa:  num(colMap.otfa),
+        _matched_key: cprClinLookupKey(name),
+        _action: null
+      });
+    }
+    if (!parsed.length) {
+      showCprRatesImportError("No data rows found below the header.");
+      return;
+    }
+    // Resolve each row to a roster clinician + determine which rate pair
+    // to write (driven by discipline in the roster).
+    parsed.forEach(function(row) {
+      const rosterHit = cprRoster.find(function(rr) { return rr.lookup_key === row._matched_key; });
+      row._roster = rosterHit || null;
+      if (!rosterHit) {
+        row._action = "skip-unmatched";
+        return;
+      }
+      const d = String(rosterHit.discipline || "").trim().toUpperCase();
+      // Pick rate fields based on roster discipline
+      if (d === "PT") {
+        if (row.ptf == null && row.pte == null) { row._action = "skip-no-rates"; return; }
+        row._new_rate      = row.ptf;
+        row._new_eval_rate = row.pte;
+        row._action = "write-supervisor";
+      } else if (d === "OT") {
+        if (row.otf == null && row.ote == null) { row._action = "skip-no-rates"; return; }
+        row._new_rate      = row.otf;
+        row._new_eval_rate = row.ote;
+        row._action = "write-supervisor";
+      } else if (d === "PTA") {
+        if (row.ptfa == null) { row._action = "skip-no-rates"; return; }
+        row._new_rate      = row.ptfa;
+        row._new_eval_rate = null;
+        row._action = "write-assistant";
+      } else if (d === "OTA") {
+        if (row.otfa == null) { row._action = "skip-no-rates"; return; }
+        row._new_rate      = row.otfa;
+        row._new_eval_rate = null;
+        row._action = "write-assistant";
+      } else {
+        row._action = "skip-out-of-scope";
+      }
+    });
+    cprPayRatesImportParsed = parsed;
+    const writable = parsed.filter(function(r) { return r._action === "write-supervisor" || r._action === "write-assistant"; });
+    document.getElementById("cpr-rates-import-status").innerHTML =
+      "● Parsed <strong>" + parsed.length + "</strong> rows · <strong>" + writable.length + "</strong> writable · <strong>" + (parsed.length - writable.length) + "</strong> skipped";
+    document.getElementById("cpr-rates-import-status").style.color = "#1B5E20";
+    cprPayRatesImportRenderPreview();
+    document.getElementById("cpr-rates-import-apply").disabled = writable.length === 0;
+  } catch (err) {
+    showCprRatesImportError("Failed to read file: " + escHtml(err.message || String(err)));
+  }
+}
+
+function cprPayRatesImportRenderPreview() {
+  const wrap = document.getElementById("cpr-rates-import-preview");
+  if (!wrap || !cprPayRatesImportParsed) return;
+  const parsed = cprPayRatesImportParsed;
+  const writable = parsed.filter(function(r) { return r._action === "write-supervisor" || r._action === "write-assistant"; });
+  const unmatched = parsed.filter(function(r) { return r._action === "skip-unmatched"; });
+  const noRates   = parsed.filter(function(r) { return r._action === "skip-no-rates"; });
+  const outOfScope = parsed.filter(function(r) { return r._action === "skip-out-of-scope"; });
+
+  let html = "";
+
+  // Writable preview table
+  html += '<div style="font-size:11px;color:var(--muted);margin:6px 0 4px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Will write — ' + writable.length + ' clinicians</div>';
+  html += '<div style="max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
+  html += '<table class="cpr-rates-table"><thead><tr>' +
+    '<th class="col-name">Clinician</th>' +
+    '<th class="col-disc">Disc</th>' +
+    '<th class="col-rate">Follow-up</th>' +
+    '<th class="col-eval">Eval</th>' +
+    '<th class="col-when">Current</th>' +
+  '</tr></thead><tbody>';
+  writable.forEach(function(row) {
+    const k = row._roster.lookup_key;
+    const cur = cprPayRatesByKey.get(k);
+    const curRate = cur && cur.rate != null ? Number(cur.rate).toFixed(2) : "—";
+    const curEval = cur && cur.eval_rate != null ? Number(cur.eval_rate).toFixed(2) : "—";
+    const delta = function(curV, newV) {
+      if (curV === "—" && newV != null) return ' <span style="color:#1B5E20;font-weight:700;">+new</span>';
+      if (newV == null) return '';
+      if (Number(curV) === newV) return ' <span style="color:#94a3b8;">same</span>';
+      return ' <span style="color:#1B5E20;font-weight:700;">(' + (newV > Number(curV) ? "+" : "") + (newV - Number(curV)).toFixed(2) + ')</span>';
+    };
+    html += '<tr>' +
+      '<td class="col-name">' + escHtml(row._roster.name) + '</td>' +
+      '<td class="col-disc"><span>' + escHtml(row._roster.discipline) + '</span></td>' +
+      '<td class="col-rate">' + (row._new_rate != null ? "$" + Number(row._new_rate).toFixed(2) : "—") + delta(curRate, row._new_rate) + '</td>' +
+      '<td class="col-eval">' + (row._new_eval_rate != null ? "$" + Number(row._new_eval_rate).toFixed(2) : (row._roster.discipline.toUpperCase().match(/^(PTA|OTA)$/) ? '<span class="eval-na">—</span>' : "—")) + delta(curEval, row._new_eval_rate) + '</td>' +
+      '<td class="col-when" style="text-align:right;">$' + curRate + (curEval !== "—" ? ' / $' + curEval : '') + '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table></div>';
+
+  // Skipped / warnings
+  if (unmatched.length || noRates.length || outOfScope.length) {
+    html += '<div style="margin-top:10px;padding:8px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;color:#5d4500;line-height:1.5;">';
+    if (unmatched.length) {
+      html += '<div><strong>⚠ ' + unmatched.length + ' unmatched name(s):</strong> ' +
+        unmatched.slice(0, 8).map(function(r) { return escHtml(r.name); }).join(", ") +
+        (unmatched.length > 8 ? ", …" : "") +
+        '</div>';
+    }
+    if (noRates.length) {
+      html += '<div><strong>· ' + noRates.length + ' with no usable rate:</strong> roster discipline doesn\'t have a matching column in this sheet (e.g. PT row but PTF/PTE both blank).</div>';
+    }
+    if (outOfScope.length) {
+      html += '<div><strong>· ' + outOfScope.length + ' out-of-scope:</strong> roster discipline isn\'t PT/PTA/OT/OTA — Med B isn\'t configured for these.</div>';
+    }
+    html += '</div>';
+  }
+
+  wrap.innerHTML = html;
+  wrap.style.display = "block";
+}
+
+async function cprPayRatesImportApply() {
+  if (!cprPayRatesImportParsed) return;
+  const writable = cprPayRatesImportParsed.filter(function(r) { return r._action === "write-supervisor" || r._action === "write-assistant"; });
+  if (!writable.length) return;
+  const rpcRows = writable.map(function(row) {
+    return {
+      lookup_key: row._roster.lookup_key,
+      display:    row._roster.name,
+      discipline: row._roster.discipline,
+      rate:       row._new_rate,
+      eval_rate:  row._new_eval_rate != null ? row._new_eval_rate : null,
+      source:     "manual_override"
+    };
+  });
+  const btn = document.getElementById("cpr-rates-import-apply");
+  btn.disabled = true; btn.textContent = "Saving…";
+  try {
+    const res = await db.rpc("upsert_clinician_medb_rates", { p_rows: rpcRows });
+    if (res.error) throw new Error(res.error.message);
+    cprPayRatesImportClose();
+    cprPayRatesLoaded = false;   // force reload
+    await cprPayRatesLoad(true);
+    alert("✓ Imported " + writable.length + " clinician rate" + (writable.length === 1 ? "" : "s") + ".");
+  } catch (err) {
+    btn.disabled = false; btn.textContent = "Apply rates";
+    alert("Import failed: " + (err.message || String(err)));
+  }
+}
+
+// Wire the import modal's event handlers on DOMContentLoaded
+document.addEventListener("DOMContentLoaded", function() {
+  const dz = document.getElementById("cpr-rates-import-dropzone");
+  if (dz) {
+    dz.addEventListener("dragover",  function(e) { e.preventDefault(); dz.classList.add("is-dragover"); });
+    dz.addEventListener("dragleave", function()  { dz.classList.remove("is-dragover"); });
+    dz.addEventListener("drop", function(e) {
+      e.preventDefault(); dz.classList.remove("is-dragover");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleCprPayRatesImportFile(f);
+    });
+    const fi = document.getElementById("cpr-rates-import-file-input");
+    if (fi) fi.addEventListener("change", function(e) {
+      const f = e.target.files && e.target.files[0];
+      if (f) handleCprPayRatesImportFile(f);
+    });
+  }
+  const cancelBtn = document.getElementById("cpr-rates-import-cancel");
+  if (cancelBtn) cancelBtn.addEventListener("click", cprPayRatesImportClose);
+  const applyBtn = document.getElementById("cpr-rates-import-apply");
+  if (applyBtn) applyBtn.addEventListener("click", cprPayRatesImportApply);
+});
 
 async function handleCprFile(file) {
   const lc = (file.name || "").toLowerCase();
@@ -5373,19 +6237,33 @@ function cprApplyMedbRetro() {
   const r = cprViewState.run;
   if (!r || r.status !== "open" || !cprMedbRetroParsed) return;
   const rateMap = cprMedbRetroRateMap || cprComputeDerivedRates(r);
+  // Sum Strata visits + eval counts by lookup_key (migration 38).
   const visitsByKey = Object.create(null);
+  const evalByKey   = Object.create(null);
   cprMedbRetroParsed.rows.forEach(function(row) {
     if (!row.lookup_key) return;
     visitsByKey[row.lookup_key] = (visitsByKey[row.lookup_key] || 0) + (Number(row.visits_billed) || 0);
+    evalByKey  [row.lookup_key] = (evalByKey  [row.lookup_key] || 0) + (Number(row.eval_count   ) || 0);
   });
-  // Rate resolver: admin's typed rate (cprRateEdits) wins over memory.
+  // Rate resolver: admin's typed rate (cprRateEdits + cprRateEditsEval)
+  // wins over memory. Returns {rate, eval_rate}.
   function resolveRate(k) {
+    let rate = null, eval_rate = null;
     if (cprRateEdits.has(k)) {
       const n = Number(cprRateEdits.get(k));
-      if (Number.isFinite(n) && n >= 0) return n;
+      if (Number.isFinite(n) && n >= 0) rate = n;
+    } else {
+      const meta = rateMap.get(k);
+      if (meta) rate = meta.rate;
     }
-    const meta = rateMap.get(k);
-    return meta ? meta.rate : null;
+    if (cprRateEditsEval && cprRateEditsEval.has(k)) {
+      const e = Number(cprRateEditsEval.get(k));
+      if (Number.isFinite(e) && e >= 0) eval_rate = e;
+    } else {
+      const meta = rateMap.get(k);
+      if (meta && meta.eval_rate != null) eval_rate = Number(meta.eval_rate);
+    }
+    return { rate: rate, eval_rate: eval_rate };
   }
   // (1) Walk every existing clinician in the period; assign Med B for
   // matches, ZERO out any prior Med B for clinicians NOT in the Strata
@@ -5395,19 +6273,20 @@ function cprApplyMedbRetro() {
     const k = cprClinLookupKey(c.clinician);
     existingKeys.add(k);
     const sv = visitsByKey[k] || 0;
+    const ec = evalByKey  [k] || 0;
     if (sv === 0) {
       c.medb_total = 0;
       c.medb_source = null;
       return;
     }
-    const rate = resolveRate(k);
-    if (rate == null) {
+    const rr = resolveRate(k);
+    if (rr.rate == null) {
       c.medb_total = 0;
       c.medb_source = null;
       return;
     }
-    c.medb_total  = Math.round(sv * rate * 100) / 100;
-    c.medb_source = "Strata";
+    c.medb_total  = computeMedbForClin(sv, ec, rr.rate, rr.eval_rate);
+    c.medb_source = c.medb_total > 0 ? "Strata" : null;
   });
   // (2) Append Med B-only rows for roster clinicians mapped via alias
   // to a Strata entry but not present in this audit's TB perClin.
@@ -5418,8 +6297,9 @@ function cprApplyMedbRetro() {
     if (!rosterHit) return;   // unmatched & not in roster → skip
     existingKeys.add(k);
     const sv = visitsByKey[k] || 0;
-    const rate = resolveRate(k);
-    const amt  = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
+    const ec = evalByKey  [k] || 0;
+    const rr = resolveRate(k);
+    const amt = computeMedbForClin(sv, ec, rr.rate, rr.eval_rate);
     r.per_clinician_payload.push({
       clinician:       rosterHit.name,
       discipline:      rosterHit.discipline,
@@ -9321,6 +10201,9 @@ function maybeInitQbTools() {
 function maybeInitExpenses() {
   if (currentRole === "admin") EXP.init();
 }
+function maybeInitPayroll() {
+  if (currentRole === "admin") cprPayRatesInit();
+}
 // Re-init / refresh when switching to billing / qbtools / expenses view
 const _originalSwitchView = switchView;
 switchView = function(viewName, skipPushState) {
@@ -9328,6 +10211,7 @@ switchView = function(viewName, skipPushState) {
   if (viewName === "billing")  maybeInitVdr();
   if (viewName === "qbtools")  maybeInitQbTools();
   if (viewName === "expenses") maybeInitExpenses();
+  if (viewName === "payroll")  maybeInitPayroll();
 };
 
 // Hook into launchApp completion (the admin role check is already in launchApp)
@@ -9338,9 +10222,10 @@ launchApp = async function(user) {
     // If URL deep-links to billing or qbtools, init the right modules immediately
     const params = new URLSearchParams(location.search);
     const v = params.get("view") || "landing";
-    if (v === "billing") { VDR.init(); IIF.init(); ATTACH.init(); }
+    if (v === "billing")  { VDR.init(); IIF.init(); ATTACH.init(); }
     if (v === "qbtools")  { BANK.init(); HIST.init(); }
     if (v === "expenses") { EXP.init(); }
+    if (v === "payroll")  { cprPayRatesInit(); }
   }
 };
 
@@ -9427,6 +10312,34 @@ checkSession();
     <div class="cpr-modal-footer">
       <button type="button" class="btn-secondary" id="cpr-medb-retro-cancel">Cancel</button>
       <button type="button" class="btn-secondary" id="cpr-medb-retro-apply" disabled style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;">Apply to Audit</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 📥 Import Pay Rates modal (migration 38) ── -->
+<div class="cpr-modal-overlay" id="cpr-rates-import-overlay" style="display:none;">
+  <div class="cpr-modal-box" style="width:920px;max-width:97vw;">
+    <div class="cpr-modal-title">📥 Import Pay Rates</div>
+    <div class="cpr-modal-sub">
+      Drop the <strong>Pay rates.xlsx</strong> exported from Strata. Expected columns:
+      <code>Name</code> · <code>PTF</code> · <code>PTE</code> · <code>OTF</code> · <code>OTE</code> · <code>PTFA</code> · <code>OTFA</code> (case-insensitive).
+      Rows are matched to clinicians by name (same normalization the Med B importer uses). Unmatched names get a roster picker.
+      Apply persists rates as <strong>manual_override</strong>.
+    </div>
+
+    <label class="cpr-dropzone" id="cpr-rates-import-dropzone" for="cpr-rates-import-file-input">
+      <div class="cpr-dz-icon">💵</div>
+      <div><strong>Drop Pay rates .xlsx here</strong></div>
+      <div class="cpr-dz-hint">XLSX only · headers: Name, PTF, PTE, OTF, OTE, PTFA, OTFA</div>
+      <input type="file" id="cpr-rates-import-file-input" accept=".xlsx,.xls,.csv" />
+    </label>
+    <div id="cpr-rates-import-status" style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45;">● Awaiting rate sheet…</div>
+    <div id="cpr-rates-import-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:8px 12px;font-size:12px;color:#c62828;margin-top:8px;line-height:1.5;"></div>
+    <div id="cpr-rates-import-preview" style="display:none;margin-top:12px;"></div>
+
+    <div class="cpr-modal-footer">
+      <button type="button" class="btn-secondary" id="cpr-rates-import-cancel">Cancel</button>
+      <button type="button" class="btn-secondary" id="cpr-rates-import-apply" disabled style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;">Apply rates</button>
     </div>
   </div>
 </div>
