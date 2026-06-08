@@ -4561,15 +4561,53 @@ function renderCprImportPreview() {
   // Picked aliases land in cprAliasPending and persist to memory
   // (migration 36) on audit save. Once mapped, the row will auto-
   // resolve on every future import.
-  if (cprPreparedMedb && previewMerged.unmatched.length) {
+  // Build the picker rows = mergePayAndMedb's `unmatched` PLUS any
+  // already-mapped rows from this session (rows whose original Strata
+  // key is in cprAliasPending). Keeping mapped rows visible until Apply
+  // gives the admin a confirmation badge + Undo, avoiding accidental
+  // silent matches.
+  const importPickerRows = [];
+  if (cprPreparedMedb) {
+    // Strata rows that mergePayAndMedb declared unmatched (true orphans)
+    previewMerged.unmatched.forEach(function(u) {
+      const strataRow = cprPreparedMedb.rows.find(function(r) { return r.clinician_raw === u.name; });
+      const sk = strataRow ? (strataRow._original_lookup_key || strataRow.lookup_key) : cprClinLookupKey(u.name);
+      importPickerRows.push({
+        sk:           sk,
+        display:      u.name,
+        visits:       u.visits || 0,
+        pendingAlias: cprAliasPending.get(sk) || null
+      });
+    });
+    // Strata rows that got matched via an alias this session — they're
+    // no longer in `unmatched`, but we want to keep them visible until Apply.
+    cprPreparedMedb.rows.forEach(function(r) {
+      const sk = r._original_lookup_key || r.lookup_key;
+      if (!cprAliasPending.has(sk)) return;
+      // Skip if we already added this row in the unmatched pass
+      if (importPickerRows.find(function(x) { return x.sk === sk; })) return;
+      importPickerRows.push({
+        sk:           sk,
+        display:      r.clinician_raw,
+        visits:       Number(r.visits_billed) || 0,
+        pendingAlias: cprAliasPending.get(sk)
+      });
+    });
+  }
+  if (cprPreparedMedb && importPickerRows.length) {
     const tbOptions = cprTbClinicianOptions(p.per_clinician_payload);
     const optionsHtml = tbOptions.map(function(o) {
       return '<option value="' + escAttr(o.value) + '">' + escHtml(o.label) + '</option>';
     }).join("");
+    const unmappedCount = importPickerRows.filter(function(r) { return !r.pendingAlias; }).length;
+    const mappedCount   = importPickerRows.length - unmappedCount;
+    const headlineParts = [];
+    if (unmappedCount) headlineParts.push("⚠ " + unmappedCount + " unmatched");
+    if (mappedCount)   headlineParts.push("✓ " + mappedCount + " mapped");
     html += '<div style="margin:8px 0;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
-      '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ Strata Med B — ' + previewMerged.unmatched.length + ' unmatched name(s)</div>' +
+      '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">Strata Med B — ' + headlineParts.join(" · ") + '</div>' +
       '<div style="color:#5d4500;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
-        '<span>Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</span>' +
+        '<span>Pick the matching TB clinician for each unmatched name — click <strong>✕ Undo</strong> if a pick was wrong. Save Run commits all mapped rows.</span>' +
         '<label style="white-space:nowrap;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;">' +
           '<input type="checkbox" id="cpr-show-inactive-import"' + (cprShowInactive ? ' checked' : '') + ' />' +
           ' Include inactive' +
@@ -4579,27 +4617,37 @@ function renderCprImportPreview() {
         '<thead><tr style="border-bottom:1px solid #ffd54f;">' +
           '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Strata name</th>' +
           '<th style="text-align:right;padding:4px 6px;color:#8a5a00;font-size:11px;">Visits</th>' +
-          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Map to TB clinician</th>' +
+          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Status / Map to</th>' +
         '</tr></thead>' +
         '<tbody>' +
-        previewMerged.unmatched.slice(0, 20).map(function(u) {
-          // The unmatched record's `name` is the raw Strata display.
-          // We need the strata's NORMALIZED key (lookup_key as parsed).
-          // Find it from cprPreparedMedb.rows.
-          const strataRow = cprPreparedMedb.rows.find(function(r) { return r.clinician_raw === u.name; });
-          const strataKey = strataRow ? (strataRow._original_lookup_key || strataRow.lookup_key) : cprClinLookupKey(u.name);
-          return '<tr>' +
-            '<td style="padding:4px 6px;color:#5d4500;">' + escHtml(u.name) + '</td>' +
-            '<td style="padding:4px 6px;text-align:right;color:#5d4500;">' + (u.visits || 0) + '</td>' +
-            '<td style="padding:4px 6px;">' +
-              '<select class="cpr-alias-picker" data-strata-key="' + escAttr(strataKey) + '" data-strata-display="' + escAttr(u.name) + '" style="font-size:11px;padding:2px 4px;border:1px solid #ffb74d;border-radius:4px;background:#fff;max-width:240px;">' +
+        importPickerRows.slice(0, 20).map(function(u) {
+          let actionCell, rowStyle = "", nameColor = "color:#5d4500;";
+          if (u.pendingAlias) {
+            rowStyle = ' style="background:#f0fdf4;"';
+            nameColor = "color:#0f5132;";
+            actionCell =
+              '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                '<span style="color:#1B5E20;font-weight:700;">✓ Mapped to:</span>' +
+                '<span style="color:#0f5132;font-weight:600;">' + escHtml(u.pendingAlias.tb_display) + '</span>' +
+                '<button type="button" class="cpr-alias-undo-import" data-strata-key="' + escAttr(u.sk) + '" title="Undo this pick" ' +
+                  'style="font-size:10px;padding:1px 6px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;color:#a53935;cursor:pointer;font-weight:700;">' +
+                  '✕ Undo' +
+                '</button>' +
+              '</div>';
+          } else {
+            actionCell =
+              '<select class="cpr-alias-picker" data-strata-key="' + escAttr(u.sk) + '" data-strata-display="' + escAttr(u.display) + '" style="font-size:11px;padding:2px 4px;border:1px solid #ffb74d;border-radius:4px;background:#fff;max-width:240px;">' +
                 '<option value="">— Skip (no match) —</option>' +
                 optionsHtml +
-              '</select>' +
-            '</td>' +
+              '</select>';
+          }
+          return '<tr' + rowStyle + '>' +
+            '<td style="padding:4px 6px;' + nameColor + '">' + escHtml(u.display) + '</td>' +
+            '<td style="padding:4px 6px;text-align:right;' + nameColor + '">' + u.visits + '</td>' +
+            '<td style="padding:4px 6px;">' + actionCell + '</td>' +
           '</tr>';
         }).join("") +
-        (previewMerged.unmatched.length > 20 ? '<tr><td colspan="3" style="padding:4px 6px;color:var(--muted);">…and ' + (previewMerged.unmatched.length - 20) + ' more — fix the rest in Strata</td></tr>' : '') +
+        (importPickerRows.length > 20 ? '<tr><td colspan="3" style="padding:4px 6px;color:var(--muted);">…and ' + (importPickerRows.length - 20) + ' more — fix the rest in Strata</td></tr>' : '') +
         '</tbody>' +
       '</table>' +
     '</div>';
@@ -4745,6 +4793,16 @@ function renderCprImportPreview() {
   // Wire alias-picker change handlers (migration 36).
   Array.from(wrap.querySelectorAll(".cpr-alias-picker")).forEach(function(sel) {
     sel.addEventListener("change", cprOnAliasPickerChange);
+  });
+  // Wire Undo buttons on confirmed alias picks (import-modal version).
+  Array.from(wrap.querySelectorAll(".cpr-alias-undo-import")).forEach(function(btn) {
+    btn.addEventListener("click", function(e) {
+      const sk = e.currentTarget.getAttribute("data-strata-key") || "";
+      if (!sk) return;
+      cprAliasPending.delete(sk);
+      if (cprPreparedMedb) cprApplyAliases(cprPreparedMedb);
+      renderCprImportPreview();
+    });
   });
   // "Include inactive" checkbox toggles cprShowInactive + re-renders.
   const inactiveCb = document.getElementById("cpr-show-inactive-import");
@@ -6122,12 +6180,22 @@ function renderCprMedbRetroPreview() {
   // appear in unmatched, they get synthesized as Med B-only preview rows).
   const rosterByKey = Object.create(null);
   cprRoster.forEach(function(rr) { if (rr.lookup_key) rosterByKey[rr.lookup_key] = rr; });
-  // Unmatched = Strata rows neither in TB nor in roster (truly orphaned).
-  const unmatched = cprMedbRetroParsed.rows.filter(function(row) {
+  // Picker rows = Strata rows that don't match TB or roster directly,
+  // OR that have a pending alias from this session (so admin sees the
+  // confirmation badge + Undo until Apply, instead of the row silently
+  // disappearing the moment they pick).
+  const pickerRows = cprMedbRetroParsed.rows.filter(function(row) {
+    const orig = row._original_lookup_key || row.lookup_key;
+    if (cprAliasPending.has(orig))   return true;   // mapped → show as confirmed
     if (tbByKey[row.lookup_key])     return false;
     if (rosterByKey[row.lookup_key]) return false;
     return true;
   });
+  const unmappedCount = pickerRows.filter(function(row) {
+    return !cprAliasPending.has(row._original_lookup_key || row.lookup_key);
+  }).length;
+  const mappedCount = pickerRows.length - unmappedCount;
+
   // Roster-only Strata rows — preview them as Med B-only additions below.
   const medbOnlyPreview = cprMedbRetroParsed.rows.filter(function(row) {
     if (tbByKey[row.lookup_key])      return false;
@@ -6135,15 +6203,18 @@ function renderCprMedbRetroPreview() {
   });
 
   let html = "";
-  if (unmatched.length) {
+  if (pickerRows.length) {
     const tbOptions = cprTbClinicianOptions(perClin);
     const optionsHtml = tbOptions.map(function(o) {
       return '<option value="' + escAttr(o.value) + '">' + escHtml(o.label) + '</option>';
     }).join("");
+    const headlineParts = [];
+    if (unmappedCount) headlineParts.push("⚠ " + unmappedCount + " unmatched");
+    if (mappedCount)   headlineParts.push("✓ " + mappedCount + " mapped");
     html += '<div style="margin-bottom:10px;padding:10px 12px;background:#fff8e1;border:1px solid #ffd54f;border-radius:8px;font-size:12px;line-height:1.5;">' +
-      '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">⚠ ' + unmatched.length + ' Strata name(s) didn\'t match this audit\'s clinicians</div>' +
+      '<div style="font-weight:700;color:#8a5a00;margin-bottom:4px;">' + headlineParts.join(" · ") + '</div>' +
       '<div style="color:#5d4500;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
-        '<span>Pick the matching TB clinician for each. The mapping is remembered — future imports auto-resolve.</span>' +
+        '<span>Pick the matching TB clinician for each unmatched name — click <strong>✕ Undo</strong> if a pick was wrong. Apply commits all mapped rows.</span>' +
         '<label style="white-space:nowrap;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:4px;">' +
           '<input type="checkbox" id="cpr-show-inactive-retro"' + (cprShowInactive ? ' checked' : '') + ' />' +
           ' Include inactive' +
@@ -6153,22 +6224,39 @@ function renderCprMedbRetroPreview() {
         '<thead><tr style="border-bottom:1px solid #ffd54f;">' +
           '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Strata name</th>' +
           '<th style="text-align:right;padding:4px 6px;color:#8a5a00;font-size:11px;">Visits</th>' +
-          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Map to TB clinician</th>' +
+          '<th style="text-align:left;padding:4px 6px;color:#8a5a00;font-size:11px;">Status / Map to</th>' +
         '</tr></thead><tbody>' +
-        unmatched.slice(0, 15).map(function(u) {
+        pickerRows.slice(0, 20).map(function(u) {
           const sk = u._original_lookup_key || u.lookup_key;
-          return '<tr>' +
-            '<td style="padding:4px 6px;color:#5d4500;">' + escHtml(u.clinician_raw) + '</td>' +
-            '<td style="padding:4px 6px;text-align:right;color:#5d4500;">' + u.visits_billed + '</td>' +
-            '<td style="padding:4px 6px;">' +
+          const pendingAlias = cprAliasPending.get(sk);
+          let actionCell, rowStyle = "", strataNameColor = "color:#5d4500;";
+          if (pendingAlias) {
+            // Confirmation badge + Undo
+            rowStyle = ' style="background:#f0fdf4;"';
+            strataNameColor = "color:#0f5132;";
+            actionCell =
+              '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                '<span style="color:#1B5E20;font-weight:700;">✓ Mapped to:</span>' +
+                '<span style="color:#0f5132;font-weight:600;">' + escHtml(pendingAlias.tb_display) + '</span>' +
+                '<button type="button" class="cpr-alias-undo-retro" data-strata-key="' + escAttr(sk) + '" title="Undo this pick" ' +
+                  'style="font-size:10px;padding:1px 6px;border:1px solid #cbd5e1;border-radius:4px;background:#fff;color:#a53935;cursor:pointer;font-weight:700;">' +
+                  '✕ Undo' +
+                '</button>' +
+              '</div>';
+          } else {
+            actionCell =
               '<select class="cpr-retro-alias-picker" data-strata-key="' + escAttr(sk) + '" data-strata-display="' + escAttr(u.clinician_raw) + '" style="font-size:11px;padding:2px 4px;border:1px solid #ffb74d;border-radius:4px;background:#fff;max-width:240px;">' +
                 '<option value="">— Skip (no match) —</option>' +
                 optionsHtml +
-              '</select>' +
-            '</td>' +
+              '</select>';
+          }
+          return '<tr' + rowStyle + '>' +
+            '<td style="padding:4px 6px;' + strataNameColor + '">' + escHtml(u.clinician_raw) + '</td>' +
+            '<td style="padding:4px 6px;text-align:right;' + strataNameColor + '">' + u.visits_billed + '</td>' +
+            '<td style="padding:4px 6px;">' + actionCell + '</td>' +
           '</tr>';
         }).join("") +
-        (unmatched.length > 15 ? '<tr><td colspan="3" style="padding:4px 6px;color:var(--muted);">…and ' + (unmatched.length - 15) + ' more</td></tr>' : '') +
+        (pickerRows.length > 20 ? '<tr><td colspan="3" style="padding:4px 6px;color:var(--muted);">…and ' + (pickerRows.length - 20) + ' more</td></tr>' : '') +
       '</tbody></table>' +
     '</div>';
   }
@@ -6335,6 +6423,18 @@ function renderCprMedbRetroPreview() {
   // logic as the import-modal picker but targets cprMedbRetroParsed).
   Array.from(wrap.querySelectorAll(".cpr-retro-alias-picker")).forEach(function(sel) {
     sel.addEventListener("change", cprOnRetroAliasPickerChange);
+  });
+  // Wire Undo buttons on confirmed alias picks — removes the pending
+  // alias, re-applies (which reverts the row's lookup_key to original),
+  // and re-renders so the row flips back to the dropdown picker state.
+  Array.from(wrap.querySelectorAll(".cpr-alias-undo-retro")).forEach(function(btn) {
+    btn.addEventListener("click", function(e) {
+      const sk = e.currentTarget.getAttribute("data-strata-key") || "";
+      if (!sk) return;
+      cprAliasPending.delete(sk);
+      if (cprMedbRetroParsed) cprApplyAliases(cprMedbRetroParsed);
+      renderCprMedbRetroPreview();
+    });
   });
   // Wire rate-cell editors — typed value lands in cprRateEdits and the
   // preview re-renders so New Med B updates live.
