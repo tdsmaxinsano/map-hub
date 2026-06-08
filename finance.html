@@ -6106,11 +6106,13 @@ function renderCprMedbRetroPreview() {
   const r = cprViewState.run;
   if (!r) return;
   const rateMap = cprMedbRetroRateMap || cprComputeDerivedRates(r);
-  // Index Strata visits by lookup key
+  // Index Strata visits + eval counts by lookup key (migration 38)
   const visitsByKey = Object.create(null);
+  const evalByKey   = Object.create(null);
   cprMedbRetroParsed.rows.forEach(function(row) {
     if (!row.lookup_key) return;
     visitsByKey[row.lookup_key] = (visitsByKey[row.lookup_key] || 0) + (Number(row.visits_billed) || 0);
+    evalByKey  [row.lookup_key] = (evalByKey  [row.lookup_key] || 0) + (Number(row.eval_count   ) || 0);
   });
   // Per-clinician preview
   const perClin = r.per_clinician_payload || [];
@@ -6174,88 +6176,154 @@ function renderCprMedbRetroPreview() {
   // Per-clinician table — show rows where Strata has visits OR where
   // the current row already has Med B (so user sees both "what will
   // change" and "what was already set").
-  html += '<div style="font-size:11px;color:var(--muted);margin:4px 0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Preview — Med B will be replaced for matched clinicians</div>';
-  html += '<div style="max-height:280px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
+  html += '<div style="font-size:11px;color:var(--muted);margin:4px 0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Preview — Med B will be replaced for matched clinicians · split into F-up + Eval where applicable</div>';
+  html += '<div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
   html += '<table class="cpr-per-clin-table"><thead><tr>' +
     '<th>Clinician</th><th>Disc</th>' +
-    '<th class="cpr-num">Strata Vis</th>' +
-    '<th class="cpr-num">$ / visit</th>' +
-    '<th class="cpr-num">Current Med B</th>' +
+    '<th class="cpr-num" title="Total Strata visits this period">Vis</th>' +
+    '<th class="cpr-num" title="Visits at the EVAL rate (CPT 97161-97164 for PT, 97165-97168 for OT)">Eval</th>' +
+    '<th class="cpr-num" title="Follow-up visits (Vis − Eval)">F-up</th>' +
+    '<th class="cpr-num" title="Follow-up per-visit rate (PTF / OTF / PTFA / OTFA)">$ F-up</th>' +
+    '<th class="cpr-num" title="Eval per-visit rate (PTE / OTE) · disabled for assistants">$ Eval</th>' +
+    '<th class="cpr-num">Current</th>' +
     '<th class="cpr-num">New Med B</th>' +
   '</tr></thead><tbody>';
 
-  // Helper: build the editable rate cell. Reads cprRateEdits first
-  // (admin hand-edits), then memory/derived rate.
-  function buildRetroRateCell(lookupKey, baseRate) {
-    const editedRt = cprRateEdits.has(lookupKey) ? Number(cprRateEdits.get(lookupKey)) : null;
+  // Helper: build the editable rate cell. Reads cprRateEdits (follow-up)
+  // or cprRateEditsEval (eval) first, then memory/derived rate.
+  // field = "rate" | "eval_rate"
+  function buildRetroRateCell(lookupKey, baseRate, field, disabled) {
+    if (disabled) {
+      return '<span class="eval-na" style="color:#cbd5e1;font-style:italic;">—</span>';
+    }
+    const editsMap = field === "eval_rate" ? cprRateEditsEval : cprRateEdits;
+    const editedRt = editsMap.has(lookupKey) ? Number(editsMap.get(lookupKey)) : null;
     const effRate  = editedRt != null ? editedRt : baseRate;
     return '<input type="number" step="0.01" min="0" class="cpr-rate-input-retro" ' +
-      'data-clin-key="' + escAttr(lookupKey) + '" ' +
+      'data-clin-key="' + escAttr(lookupKey) + '" data-field="' + field + '" ' +
       'value="' + (effRate != null ? Number(effRate).toFixed(2) : "") + '" ' +
-      'placeholder="—" style="width:64px;padding:2px 4px;font-size:11px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;" />';
+      'placeholder="—" style="width:60px;padding:2px 4px;font-size:11px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;" />';
   }
-  // Helper: resolve effective rate (edits → memory/derived → null)
-  function resolveRetroRate(lookupKey, baseRate) {
+  // Helper: resolve effective rate pair (edits → memory/derived → null)
+  // Returns {rate, eval_rate}
+  function resolveRetroRatePair(lookupKey, meta) {
+    let rate = null, eval_rate = null;
     if (cprRateEdits.has(lookupKey)) {
       const n = Number(cprRateEdits.get(lookupKey));
-      return Number.isFinite(n) ? n : null;
+      if (Number.isFinite(n) && n >= 0) rate = n;
+    } else if (meta && meta.rate != null) {
+      rate = Number(meta.rate);
     }
-    return baseRate;
+    if (cprRateEditsEval && cprRateEditsEval.has(lookupKey)) {
+      const e = Number(cprRateEditsEval.get(lookupKey));
+      if (Number.isFinite(e) && e >= 0) eval_rate = e;
+    } else if (meta && meta.eval_rate != null) {
+      eval_rate = Number(meta.eval_rate);
+    }
+    return { rate: rate, eval_rate: eval_rate };
+  }
+
+  // Per-clinician row renderer — handles both existing-audit rows AND
+  // Med B-only preview rows so the math display + columns stay identical.
+  function renderRetroRow(opts) {
+    const k          = opts.lookup_key;
+    const display    = opts.display;
+    const disc       = opts.discipline;
+    const cur        = opts.current;
+    const isMedbOnly = !!opts.medbOnly;
+    const sv         = visitsByKey[k] || 0;
+    let   ec         = evalByKey  [k] || 0;
+    if (ec > sv) ec = sv;
+    const fuc        = Math.max(0, sv - ec);
+    const meta       = rateMap.get(k);
+    const rr         = resolveRetroRatePair(k, meta);
+    const newMedb    = computeMedbForClin(sv, ec, rr.rate, rr.eval_rate);
+    const discU      = String(disc || "").trim().toUpperCase();
+    const isAsst     = cprIsAssistant(discU);
+    const isSupSplit = !isAsst && rr.rate != null && rr.eval_rate != null && ec > 0;
+
+    if (sv === 0 && cur === 0) return null;   // nothing to render
+
+    const newCellStyle = newMedb > 0 ? 'color:#1B5E20;font-weight:700;' : 'color:#cbd5e1;';
+    const curCellStyle = cur > 0    ? 'color:#475569;'               : 'color:#cbd5e1;';
+    const deltaHint = (newMedb !== cur)
+      ? ' <span style="color:' + (newMedb > cur ? '#1B5E20' : '#a53935') + ';font-size:10px;">(' + (newMedb > cur ? '+' : '') + cprFmtMoney(newMedb - cur) + ')</span>'
+      : '';
+    // Math breakdown sub-line — shows under New Med B when split applied.
+    // Example: "2 × $70 + 9 × $65" for PT supervisor with 2 evals + 9 follow-ups.
+    let mathLine = '';
+    if (isSupSplit) {
+      mathLine = '<div style="font-size:9.5px;color:#64748b;font-weight:500;line-height:1.3;">' +
+        ec + ' × ' + cprFmtMoney(rr.eval_rate) + ' + ' + fuc + ' × ' + cprFmtMoney(rr.rate) +
+        '</div>';
+    } else if (sv > 0 && rr.rate != null) {
+      mathLine = '<div style="font-size:9.5px;color:#64748b;font-weight:500;line-height:1.3;">' +
+        sv + ' × ' + cprFmtMoney(rr.rate) +
+        '</div>';
+    }
+    const evalCellHtml = isAsst
+      ? '<span style="color:#cbd5e1;">—</span>'
+      : (sv > 0 ? ec : '<span style="color:#cbd5e1;">—</span>');
+    const fuCellHtml = sv > 0 ? fuc : '<span style="color:#cbd5e1;">—</span>';
+    const visCellHtml = sv > 0 ? sv  : '<span style="color:#cbd5e1;">—</span>';
+    const rowAttrs = isMedbOnly ? ' style="background:#f5f8ff;"' : '';
+    const nameCell = isMedbOnly
+      ? escHtml(display) + ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only · new</span>'
+      : escHtml(display);
+
+    return {
+      newMedb: newMedb,
+      html:
+        '<tr' + rowAttrs + '>' +
+          '<td>' + nameCell + '</td>' +
+          '<td>' + escHtml(disc || "") + '</td>' +
+          '<td class="cpr-num">' + visCellHtml + '</td>' +
+          '<td class="cpr-num"' + (ec > 0 ? ' style="color:#7c3aed;font-weight:700;"' : '') + '>' + evalCellHtml + '</td>' +
+          '<td class="cpr-num">' + fuCellHtml + '</td>' +
+          '<td class="cpr-num">' + buildRetroRateCell(k, meta ? meta.rate : null, "rate", false) + '</td>' +
+          '<td class="cpr-num">' + buildRetroRateCell(k, meta ? meta.eval_rate : null, "eval_rate", isAsst) + '</td>' +
+          '<td class="cpr-num" style="' + curCellStyle + '">' + cprFmtMoney(cur) + '</td>' +
+          '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + deltaHint + mathLine + '</td>' +
+        '</tr>'
+    };
   }
 
   let newTotal = 0;
   let oldTotal = 0;
   let touchedCount = 0;
   perClin.forEach(function(c) {
-    const k = cprClinLookupKey(c.clinician);
-    const sv = visitsByKey[k] || 0;
-    const cur = Number(c.medb_total) || 0;
-    const meta = rateMap.get(k);
-    const baseRate = meta ? meta.rate : null;
-    const rate = resolveRetroRate(k, baseRate);
-    const newMedb = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
-    if (sv === 0 && cur === 0) return;
-    if (sv > 0) touchedCount++;
-    newTotal += newMedb;
-    oldTotal += cur;
-    const newCellStyle = newMedb > 0 ? 'color:#1B5E20;font-weight:700;' : 'color:#cbd5e1;';
-    const curCellStyle = cur > 0    ? 'color:#475569;'               : 'color:#cbd5e1;';
-    const deltaHint = (newMedb !== cur)
-      ? ' <span style="color:' + (newMedb > cur ? '#1B5E20' : '#a53935') + ';font-size:10px;">(' + (newMedb > cur ? '+' : '') + cprFmtMoney(newMedb - cur) + ')</span>'
-      : '';
-    html += '<tr>' +
-      '<td>' + escHtml(c.clinician) + '</td>' +
-      '<td>' + escHtml(c.discipline || "") + '</td>' +
-      '<td class="cpr-num">' + (sv > 0 ? sv : '<span style="color:#cbd5e1;">—</span>') + '</td>' +
-      '<td class="cpr-num">' + buildRetroRateCell(k, baseRate) + '</td>' +
-      '<td class="cpr-num" style="' + curCellStyle + '">' + cprFmtMoney(cur) + '</td>' +
-      '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + deltaHint + '</td>' +
-    '</tr>';
+    const out = renderRetroRow({
+      lookup_key: cprClinLookupKey(c.clinician),
+      display:    c.clinician,
+      discipline: c.discipline || "",
+      current:    Number(c.medb_total) || 0,
+      medbOnly:   false
+    });
+    if (!out) return;
+    touchedCount++;
+    newTotal += out.newMedb;
+    oldTotal += Number(c.medb_total) || 0;
+    html += out.html;
   });
   // Med B-only preview rows — roster-matched clinicians not yet in the
   // audit's per_clinician_payload. Apply will append them on commit.
   medbOnlyPreview.forEach(function(srow) {
     const rosterHit = rosterByKey[srow.lookup_key];
     if (!rosterHit) return;
-    const sv = visitsByKey[srow.lookup_key] || 0;
-    const meta = rateMap.get(srow.lookup_key);
-    const baseRate = meta ? meta.rate : null;
-    const rate = resolveRetroRate(srow.lookup_key, baseRate);
-    const newMedb = sv > 0 && rate != null ? Math.round(sv * rate * 100) / 100 : 0;
+    const out = renderRetroRow({
+      lookup_key: srow.lookup_key,
+      display:    rosterHit.name,
+      discipline: rosterHit.discipline,
+      current:    0,
+      medbOnly:   true
+    });
+    if (!out) return;
     touchedCount++;
-    newTotal += newMedb;
-    const newCellStyle = newMedb > 0 ? 'color:#1B5E20;font-weight:700;' : 'color:#cbd5e1;';
-    html += '<tr style="background:#f5f8ff;">' +
-      '<td>' + escHtml(rosterHit.name) + ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only · new</span></td>' +
-      '<td>' + escHtml(rosterHit.discipline) + '</td>' +
-      '<td class="cpr-num">' + sv + '</td>' +
-      '<td class="cpr-num">' + buildRetroRateCell(srow.lookup_key, baseRate) + '</td>' +
-      '<td class="cpr-num" style="color:#cbd5e1;">$0.00</td>' +
-      '<td class="cpr-num" style="' + newCellStyle + '">' + cprFmtMoney(newMedb) + '</td>' +
-    '</tr>';
+    newTotal += out.newMedb;
+    html += out.html;
   });
   html += '</tbody><tfoot><tr>' +
-    '<td colspan="4">TOTAL — ' + touchedCount + ' clinicians touched</td>' +
+    '<td colspan="7">TOTAL — ' + touchedCount + ' clinicians touched</td>' +
     '<td class="cpr-num" style="color:#475569;">' + cprFmtMoney(oldTotal) + '</td>' +
     '<td class="cpr-num" style="color:#1B5E20;font-weight:700;">' + cprFmtMoney(newTotal) + '</td>' +
   '</tr></tfoot></table></div>';
@@ -6289,20 +6357,23 @@ function renderCprMedbRetroPreview() {
 }
 
 // Retro-modal rate input commit. Same pattern as cprOnRateInputCommit
-// but routes to the retro preview re-render.
+// but routes to the retro preview re-render. Routes to the eval edits
+// map when data-field="eval_rate" (migration 38 split rates).
 function cprOnRetroRateInputCommit(e) {
   const inp = e.currentTarget;
   const key = inp.getAttribute("data-clin-key") || "";
   if (!key) return;
+  const field = inp.getAttribute("data-field") || "rate";
+  const editsMap = field === "eval_rate" ? cprRateEditsEval : cprRateEdits;
   const raw = inp.value;
   if (raw === "" || raw == null) {
-    cprRateEdits.delete(key);
+    editsMap.delete(key);
   } else {
     const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) {
-      cprRateEdits.delete(key);
+      editsMap.delete(key);
     } else {
-      cprRateEdits.set(key, Math.round(n * 100) / 100);
+      editsMap.set(key, Math.round(n * 100) / 100);
     }
   }
   renderCprMedbRetroPreview();
