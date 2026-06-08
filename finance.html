@@ -3141,28 +3141,51 @@ async function cprParseStrataPdf(arrayBuffer) {
   //
   // Triggers when CUR is a staff line OR a bare discipline marker, AND
   // PREV looks like a short name fragment (letters / hyphens / spaces).
+  // Trailing comma is stripped before the test — Strata occasionally
+  // renders "Jordan Juralbal," with a stray comma after the surname.
   const NAME_FRAGMENT_RE = /^[A-Za-z][A-Za-z\-'\. ]{0,40}$/;
   // "(PTA)" / "(OT)" / etc. alone on a line — no name preceding.
   const DISC_PAREN_ALONE_RE = new RegExp("^\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
   // "PTA" / "OT" / etc. alone on a line.
   const DISC_BARE_ALONE_RE  = new RegExp("^(" + CPR_DISC_RE_GROUP + ")\\s*$");
+
+  // Walk backward from startIdx to find the most recent non-empty,
+  // non-boilerplate line. Page breaks land Strata's page header
+  // ("Staff Productivity Report ...") + page number between a clinician's
+  // name and their discipline-marker line, so the prior-line check alone
+  // misses these cases. Caps lookback at 5 lines — anything farther is
+  // almost certainly not a name fragment.
+  function findCombinePrev(startIdx) {
+    for (let j = startIdx; j >= Math.max(startIdx - 5, 0); j--) {
+      const cand = lines[j];
+      if (!cand) continue;
+      if (isBoilerplate(cand)) continue;
+      return { idx: j, line: cand };
+    }
+    return null;
+  }
+
   for (let i = 1; i < lines.length; i++) {
-    const cur  = lines[i];
-    const prev = lines[i - 1];
-    if (!cur || !prev) continue;
+    const cur = lines[i];
+    if (!cur) continue;
     const isFullStaff      = isStaffLine(cur);
     const isDiscParenAlone = !isFullStaff && DISC_PAREN_ALONE_RE.test(cur);
     const isDiscBareAlone  = !isFullStaff && DISC_BARE_ALONE_RE.test(cur);
     if (!isFullStaff && !isDiscParenAlone && !isDiscBareAlone) continue;
-    if (isStaffLine(prev)) continue;         // prior line is already a full name
-    if (isBoilerplate(prev)) continue;
-    if (!NAME_FRAGMENT_RE.test(prev)) continue;
+    const found = findCombinePrev(i - 1);
+    if (!found) continue;
+    const prev = found.line;
+    if (isStaffLine(prev)) continue;         // prior content is already a full name
+    // Strip a trailing comma — "Jordan Juralbal," should still test as a name.
+    const prevClean = prev.replace(/\s*,\s*$/, "").trim();
+    if (!prevClean) continue;
+    if (!NAME_FRAGMENT_RE.test(prevClean)) continue;
     // Don't combine if prev itself is just a bare discipline code (would
     // produce nonsense like "PT (PTA)"). Guard against pre-process self-
     // collision when names span 3+ lines.
-    if (DISC_BARE_ALONE_RE.test(prev)) continue;
-    lines[i] = prev + " " + cur;
-    lines[i - 1] = "";
+    if (DISC_BARE_ALONE_RE.test(prevClean)) continue;
+    lines[i] = prevClean + " " + cur;
+    lines[found.idx] = "";
   }
   // Recognize a CPT-code line tail like "97140 x" (Strata uses 5-digit
   // CPT codes followed by "x" to introduce a unit-breakdown count).
