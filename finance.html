@@ -3120,20 +3120,42 @@ async function cprParseStrataPdf(arrayBuffer) {
            lc.indexOf("cpt copyright") >= 0;
   }
   // Multi-line name combine — Strata renders long names across two
-  // lines (e.g. "Magdalena\nChowaniec PTA" or "Glenn S Gayondato\n(PT)").
-  // If the prior line is a short alphabetic fragment (just letters,
-  // hyphens, apostrophes, periods, spaces) and the current line is a
-  // staff line, prepend the prior into the current and blank the prior
-  // so subsequent loops ignore it.
+  // lines in several shapes. All of these need to fold into a single
+  // staff line BEFORE the parser walks them:
+  //
+  //   (1) Last-name on its own line + full-staff-line below:
+  //         "Magdalena" + "Chowaniec PTA"      → "Magdalena Chowaniec PTA"
+  //   (2) Full name + JUST a parenthesized discipline on next line:
+  //         "Lyshunda Poe" + "(PTA)"           → "Lyshunda Poe (PTA)"
+  //         "Glenn S Gayondato" + "(PT)"       → "Glenn S Gayondato (PT)"
+  //         "Gina M Pelehac" + "(OT)"          → "Gina M Pelehac (OT)"
+  //   (3) Full name + JUST a bare discipline code on next line:
+  //         "APRIL CABRERA" + "PT"             → "APRIL CABRERA PT"
+  //         "Krzysztof Kopacz" + "PTA"         → "Krzysztof Kopacz PTA"
+  //         "Victorya Korobov" + "OT"          → "Victorya Korobov OT"
+  //
+  // Triggers when CUR is a staff line OR a bare discipline marker, AND
+  // PREV looks like a short name fragment (letters / hyphens / spaces).
   const NAME_FRAGMENT_RE = /^[A-Za-z][A-Za-z\-'\. ]{0,40}$/;
+  // "(PTA)" / "(OT)" / etc. alone on a line — no name preceding.
+  const DISC_PAREN_ALONE_RE = new RegExp("^\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
+  // "PTA" / "OT" / etc. alone on a line.
+  const DISC_BARE_ALONE_RE  = new RegExp("^(" + CPR_DISC_RE_GROUP + ")\\s*$");
   for (let i = 1; i < lines.length; i++) {
     const cur  = lines[i];
     const prev = lines[i - 1];
     if (!cur || !prev) continue;
-    if (!isStaffLine(cur)) continue;
+    const isFullStaff      = isStaffLine(cur);
+    const isDiscParenAlone = !isFullStaff && DISC_PAREN_ALONE_RE.test(cur);
+    const isDiscBareAlone  = !isFullStaff && DISC_BARE_ALONE_RE.test(cur);
+    if (!isFullStaff && !isDiscParenAlone && !isDiscBareAlone) continue;
     if (isStaffLine(prev)) continue;         // prior line is already a full name
     if (isBoilerplate(prev)) continue;
     if (!NAME_FRAGMENT_RE.test(prev)) continue;
+    // Don't combine if prev itself is just a bare discipline code (would
+    // produce nonsense like "PT (PTA)"). Guard against pre-process self-
+    // collision when names span 3+ lines.
+    if (DISC_BARE_ALONE_RE.test(prev)) continue;
     lines[i] = prev + " " + cur;
     lines[i - 1] = "";
   }
