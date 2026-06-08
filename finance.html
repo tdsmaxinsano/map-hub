@@ -3931,18 +3931,48 @@ function showCprRatesImportError(html) {
   cprPayRatesImportParsed = null;
 }
 
-// Normalize a header cell to one of the known rate columns.
-// Returns "name" / "ptf" / "pte" / "otf" / "ote" / "ptfa" / "otfa" / null.
+// Normalize a header cell to one of the known semantic columns. The
+// REAL Strata Pay rates export is LONG format:
+//   Name | Discipline | Episode type | Service | Type | Pay rate | Per hour | Paid
+// One row per (clinician, rate-code). The Type column (PTF/PTE/OTF/OTE/PTFA/OTFA/...)
+// + the Pay rate column tell us which rate to write.
+// We also accept WIDE format (one row per clinician with PTF/PTE/OTF/OTE/... as
+// separate columns) for back-compat — both shapes resolve here.
+//
+// Returns one of: "name" / "discipline" / "type" / "pay_rate" / "ptf" / "pte" /
+// "otf" / "ote" / "ptfa" / "otfa" / null.
 function cprPayRatesNormalizeHeader(h) {
   const s = String(h || "").trim().toLowerCase().replace(/[^a-z]/g, "");
   if (!s) return null;
+  // Long-format columns
   if (s === "name" || s === "clinician" || s === "staffname" || s === "therapist" || s === "provider") return "name";
+  if (s === "discipline" || s === "disc" || s === "role") return "discipline";
+  if (s === "type" || s === "ratetype" || s === "ratecode" || s === "code") return "type";
+  if (s === "payrate" || s === "rate" || s === "amount") return "pay_rate";
+  // Wide-format rate columns
   if (s === "ptf"  || s === "ptfollowup" || s === "ptfollow"  ) return "ptf";
   if (s === "pte"  || s === "pteval"     || s === "ptevaluation") return "pte";
   if (s === "otf"  || s === "otfollowup" || s === "otfollow"  ) return "otf";
   if (s === "ote"  || s === "oteval"     || s === "otevaluation") return "ote";
   if (s === "ptfa" || s === "ptaf"       || s === "ptafollow" ) return "ptfa";
   if (s === "otfa" || s === "otaf"       || s === "otafollow" ) return "otfa";
+  return null;
+}
+
+// Normalize a "Type" cell value (the long-format rate code) into one of
+// our canonical buckets. Strata has many type codes (PTF/PTR/PTE/PTEO/
+// PTROC/PTRCT/PTDC/...); for Med B compute we only care about the
+// follow-up and eval rates. Returns "ptf" / "pte" / "otf" / "ote" /
+// "ptfa" / "otfa" / null for irrelevant codes.
+function cprPayRatesNormalizeTypeCode(t) {
+  const s = String(t || "").trim().toUpperCase().replace(/[^A-Z]/g, "");
+  if (!s) return null;
+  if (s === "PTF") return "ptf";
+  if (s === "PTE") return "pte";
+  if (s === "OTF") return "otf";
+  if (s === "OTE") return "ote";
+  if (s === "PTFA" || s === "PTAF") return "ptfa";
+  if (s === "OTFA" || s === "OTAF") return "otfa";
   return null;
 }
 
@@ -3965,8 +3995,18 @@ async function handleCprPayRatesImportFile(file) {
       showCprRatesImportError("That file is empty.");
       return;
     }
-    // Find the header row (first row containing a recognizable rate header)
-    let headerIdx = -1, colMap = null;
+    // Find the header row + detect format. We support TWO file shapes:
+    //
+    //   LONG (real Strata export):
+    //     Name | Discipline | Episode type | Service | Type | Pay rate | Per hour | Paid
+    //     One row per (clinician, rate-code). Type column carries PTF/PTE/OTF/OTE/PTFA/OTFA.
+    //
+    //   WIDE (back-compat):
+    //     Name | PTF | PTE | OTF | OTE | PTFA | OTFA
+    //     One row per clinician.
+    //
+    // We try LONG first (Strata's actual shape), then WIDE.
+    let headerIdx = -1, colMap = null, format = null;
     for (let i = 0; i < Math.min(5, rows.length); i++) {
       const candidate = rows[i];
       if (!candidate || !candidate.length) continue;
@@ -3975,52 +4015,95 @@ async function handleCprPayRatesImportFile(file) {
         const norm = cprPayRatesNormalizeHeader(cell);
         if (norm) map[norm] = j;
       });
-      const hasRate = map.ptf != null || map.pte != null || map.otf != null || map.ote != null || map.ptfa != null || map.otfa != null;
-      if (hasRate && map.name != null) {
-        headerIdx = i;
-        colMap = map;
-        break;
+      // LONG signature: Name + Type + Pay rate (Discipline optional but recommended)
+      if (map.name != null && map.type != null && map.pay_rate != null) {
+        headerIdx = i; colMap = map; format = "long"; break;
+      }
+      // WIDE signature: Name + at least one rate column
+      const hasWideRate = map.ptf != null || map.pte != null || map.otf != null || map.ote != null || map.ptfa != null || map.otfa != null;
+      if (map.name != null && hasWideRate) {
+        headerIdx = i; colMap = map; format = "wide"; break;
       }
     }
     if (headerIdx < 0 || !colMap) {
       showCprRatesImportError(
-        "Couldn't detect headers. Expected at least <code>Name</code> plus one of <code>PTF/PTE/OTF/OTE/PTFA/OTFA</code> in the first 5 rows."
+        "Couldn't detect headers. Expected either:<br>" +
+        "<strong>LONG format</strong> — <code>Name · Discipline · Type · Pay rate</code> (Strata's default)<br>" +
+        "<strong>WIDE format</strong> — <code>Name · PTF · PTE · OTF · OTE · PTFA · OTFA</code>"
       );
       return;
     }
-    const parsed = [];
-    for (let i = headerIdx + 1; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r || !r.length) continue;
-      const name = String(r[colMap.name] || "").trim();
-      if (!name) continue;
-      function num(j) {
-        if (j == null) return null;
-        const raw = r[j];
-        if (raw == null || raw === "") return null;
-        const cleaned = String(raw).replace(/[^\d.\-]/g, "");
-        if (!cleaned) return null;
-        const n = Number(cleaned);
-        return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
-      }
-      parsed.push({
-        name:  name,
-        ptf:   num(colMap.ptf),
-        pte:   num(colMap.pte),
-        otf:   num(colMap.otf),
-        ote:   num(colMap.ote),
-        ptfa:  num(colMap.ptfa),
-        otfa:  num(colMap.otfa),
-        _matched_key: cprClinLookupKey(name),
-        _action: null
-      });
+
+    function num(raw) {
+      if (raw == null || raw === "") return null;
+      const cleaned = String(raw).replace(/[^\d.\-]/g, "");
+      if (!cleaned) return null;
+      const n = Number(cleaned);
+      return Number.isFinite(n) && n >= 0 ? Math.round(n * 100) / 100 : null;
     }
+
+    // Group rows by (name, discipline) into one consolidated record per clinician.
+    const byKey = new Map();
+    function getOrInit(name, discipline) {
+      const key = cprClinLookupKey(name);
+      if (!key) return null;
+      let rec = byKey.get(key);
+      if (!rec) {
+        rec = {
+          name:        name,
+          _file_disc:  String(discipline || "").trim().toUpperCase(),
+          _matched_key: key,
+          ptf: null, pte: null, otf: null, ote: null, ptfa: null, otfa: null,
+          _action: null
+        };
+        byKey.set(key, rec);
+      }
+      return rec;
+    }
+
+    if (format === "long") {
+      for (let i = headerIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r.length) continue;
+        const name = String(r[colMap.name] || "").trim();
+        if (!name) continue;
+        const disc = colMap.discipline != null ? String(r[colMap.discipline] || "").trim() : "";
+        const typeCode = cprPayRatesNormalizeTypeCode(r[colMap.type]);
+        if (!typeCode) continue;   // irrelevant rate code (PTR, PTEO, PTROC, PTDC, etc.)
+        const amount = num(r[colMap.pay_rate]);
+        if (amount == null) continue;
+        const rec = getOrInit(name, disc);
+        if (!rec) continue;
+        rec[typeCode] = amount;
+      }
+    } else {
+      // wide format
+      for (let i = headerIdx + 1; i < rows.length; i++) {
+        const r = rows[i];
+        if (!r || !r.length) continue;
+        const name = String(r[colMap.name] || "").trim();
+        if (!name) continue;
+        const disc = colMap.discipline != null ? String(r[colMap.discipline] || "").trim() : "";
+        const rec = getOrInit(name, disc);
+        if (!rec) continue;
+        if (colMap.ptf  != null) rec.ptf  = num(r[colMap.ptf]);
+        if (colMap.pte  != null) rec.pte  = num(r[colMap.pte]);
+        if (colMap.otf  != null) rec.otf  = num(r[colMap.otf]);
+        if (colMap.ote  != null) rec.ote  = num(r[colMap.ote]);
+        if (colMap.ptfa != null) rec.ptfa = num(r[colMap.ptfa]);
+        if (colMap.otfa != null) rec.otfa = num(r[colMap.otfa]);
+      }
+    }
+
+    const parsed = Array.from(byKey.values());
     if (!parsed.length) {
       showCprRatesImportError("No data rows found below the header.");
       return;
     }
+
     // Resolve each row to a roster clinician + determine which rate pair
-    // to write (driven by discipline in the roster).
+    // to write. Prefer the file's Discipline column when present (long
+    // format always has it); fall back to roster discipline.
     parsed.forEach(function(row) {
       const rosterHit = cprRoster.find(function(rr) { return rr.lookup_key === row._matched_key; });
       row._roster = rosterHit || null;
@@ -4028,8 +4111,8 @@ async function handleCprPayRatesImportFile(file) {
         row._action = "skip-unmatched";
         return;
       }
-      const d = String(rosterHit.discipline || "").trim().toUpperCase();
-      // Pick rate fields based on roster discipline
+      const d = (row._file_disc || rosterHit.discipline || "").trim().toUpperCase();
+      // Pick rate fields based on discipline
       if (d === "PT") {
         if (row.ptf == null && row.pte == null) { row._action = "skip-no-rates"; return; }
         row._new_rate      = row.ptf;
@@ -10321,16 +10404,16 @@ checkSession();
   <div class="cpr-modal-box" style="width:920px;max-width:97vw;">
     <div class="cpr-modal-title">📥 Import Pay Rates</div>
     <div class="cpr-modal-sub">
-      Drop the <strong>Pay rates.xlsx</strong> exported from Strata. Expected columns:
-      <code>Name</code> · <code>PTF</code> · <code>PTE</code> · <code>OTF</code> · <code>OTE</code> · <code>PTFA</code> · <code>OTFA</code> (case-insensitive).
-      Rows are matched to clinicians by name (same normalization the Med B importer uses). Unmatched names get a roster picker.
-      Apply persists rates as <strong>manual_override</strong>.
+      Drop the <strong>Pay rates.xlsx</strong> exported from Strata.
+      <strong>Long format</strong> (Strata's default): <code>Name · Discipline · Type · Pay rate</code> — Type column carries the rate code (PTF/PTE/OTF/OTE/PTFA/OTFA). Other Type codes (PTR/PTEO/PTROC/PTDC/...) are skipped.
+      <strong>Wide format</strong> is also accepted: <code>Name · PTF · PTE · OTF · OTE · PTFA · OTFA</code>.
+      Rows are matched to clinicians by name + discipline. Apply persists rates as <strong>manual_override</strong>.
     </div>
 
     <label class="cpr-dropzone" id="cpr-rates-import-dropzone" for="cpr-rates-import-file-input">
       <div class="cpr-dz-icon">💵</div>
       <div><strong>Drop Pay rates .xlsx here</strong></div>
-      <div class="cpr-dz-hint">XLSX only · headers: Name, PTF, PTE, OTF, OTE, PTFA, OTFA</div>
+      <div class="cpr-dz-hint">XLSX · long format (Name/Discipline/Type/Pay rate) OR wide format (Name/PTF/PTE/...)</div>
       <input type="file" id="cpr-rates-import-file-input" accept=".xlsx,.xls,.csv" />
     </label>
     <div id="cpr-rates-import-status" style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45;">● Awaiting rate sheet…</div>
