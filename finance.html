@@ -2796,8 +2796,10 @@ function renderCprMedbStatus() {
   }
   el.style.color = "#1B5E20";
   const totalV = cprPreparedMedb.total_visits || 0;
+  const dr     = cprPreparedMedb.date_range;
+  const drLabel = dr ? ' · <strong>' + escHtml(dr.raw) + '</strong>' : '';
   el.innerHTML = "● Loaded <strong>" + cprPreparedMedb.rows.length + "</strong> clinician" +
-    (cprPreparedMedb.rows.length === 1 ? "" : "s") + " · <strong>" + totalV + "</strong> total visits" +
+    (cprPreparedMedb.rows.length === 1 ? "" : "s") + " · <strong>" + totalV + "</strong> total visits" + drLabel +
     (cprPreparedMedb.source_filename ? ' <span style="color:var(--muted);">(' + escHtml(cprPreparedMedb.source_filename) + ')</span>' : '');
 }
 
@@ -3327,7 +3329,106 @@ async function cprParseStrataPdf(arrayBuffer) {
       if (lines.length > 80) console.warn("[cpr-pdf-debug] …(" + (lines.length - 80) + " more lines truncated)");
     } catch (_) { /* logging is best-effort */ }
   }
-  return rows;
+
+  // Extract the "Date Range" header. Strata renders it two ways depending
+  // on Y-banding luck:
+  //   • Single line:  "May 17, 2026 - June 30, 2026 (5/17/2026 through 6/30/2026)"
+  //   • Split:        "Date Range" + "May 17, 2026 - June 30, 2026" + "(5/17/2026 through 6/30/2026)"
+  // The parenthesized M/D/YYYY form is unambiguous and easiest to parse, so
+  // we look for that first. Fallback: the long-form "Month DD, YYYY - Month
+  // DD, YYYY" pattern. Returns null if neither matches.
+  const dateRange = extractStrataDateRange(lines);
+
+  return { rows: rows, date_range: dateRange };
+}
+
+// Returns banner HTML comparing a parsed Strata Date Range against the
+// target pay period. Three states:
+//   • null parsed       → muted note ("Couldn't read Strata date range")
+//   • exact match       → green confirmation chip
+//   • subset / mismatch → yellow warning with the two ranges side-by-side
+// `strataRange` shape: { start, end, raw } from extractStrataDateRange.
+// `periodStart`, `periodEnd` are 'YYYY-MM-DD' strings on the audit/period.
+function cprBuildDateRangeBanner(strataRange, periodStart, periodEnd) {
+  if (!periodStart || !periodEnd) return "";
+  function fmt(iso) {
+    if (!iso) return "—";
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+    return m ? (parseInt(m[2], 10) + "/" + parseInt(m[3], 10) + "/" + m[1]) : iso;
+  }
+  const periodLabel = fmt(periodStart) + " – " + fmt(periodEnd);
+  if (!strataRange) {
+    return '<div style="margin-bottom:10px;padding:8px 12px;background:#f1f5f9;border:1px solid #cbd5e1;border-radius:8px;font-size:12px;color:#475569;">' +
+      '<strong>📅 Date range:</strong> couldn\'t read the Date Range header from this PDF. ' +
+      'Confirm visually that it matches the pay period <strong>' + periodLabel + '</strong>.' +
+      '</div>';
+  }
+  const sLabel = fmt(strataRange.start) + " – " + fmt(strataRange.end);
+  const exactMatch = strataRange.start === periodStart && strataRange.end === periodEnd;
+  if (exactMatch) {
+    return '<div style="margin-bottom:10px;padding:8px 12px;background:#ecfdf5;border:1px solid #86efac;border-radius:8px;font-size:12px;color:#065f46;">' +
+      '<strong>📅 Date range matches:</strong> Strata report <strong>' + sLabel + '</strong> = pay period <strong>' + periodLabel + '</strong> ✓' +
+      '</div>';
+  }
+  // Mismatch — figure out the relationship for a clearer message.
+  const isWider  = strataRange.start <= periodStart && strataRange.end >= periodEnd;
+  const isNarrower = strataRange.start >= periodStart && strataRange.end <= periodEnd;
+  let msg;
+  if (isWider) {
+    msg = "Strata report spans <strong>more</strong> than this pay period — visits OUTSIDE " + periodLabel + " will be counted toward Med B. Re-run the Strata report scoped to just this period.";
+  } else if (isNarrower) {
+    msg = "Strata report is <strong>narrower</strong> than this pay period — some days are missing. Re-run the Strata report for the full period.";
+  } else {
+    msg = "Strata report covers a <strong>different</strong> window than this pay period. Re-run the Strata report for the audit's period.";
+  }
+  return '<div style="margin-bottom:10px;padding:10px 12px;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;font-size:12px;line-height:1.5;color:#78350f;">' +
+    '<div style="font-weight:700;margin-bottom:4px;">⚠ Date range mismatch</div>' +
+    '<div style="display:grid;grid-template-columns:90px 1fr;gap:2px 8px;margin-bottom:6px;">' +
+      '<div style="font-weight:600;">Strata PDF:</div><div>' + sLabel + '</div>' +
+      '<div style="font-weight:600;">Pay period:</div><div>' + periodLabel + '</div>' +
+    '</div>' +
+    '<div>' + msg + '</div>' +
+    '</div>';
+}
+
+// Pulls the report-header Date Range out of the reconstructed line list.
+// Returns { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD', raw: string } or null.
+function extractStrataDateRange(lines) {
+  const PAREN_RE = /\((\d{1,2})\/(\d{1,2})\/(\d{4})\s+through\s+(\d{1,2})\/(\d{1,2})\/(\d{4})\)/i;
+  const MONTHS = {
+    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+    jul: "07", aug: "08", sep: "09", sept: "09", oct: "10", nov: "11", dec: "12",
+    january: "01", february: "02", march: "03", april: "04", june: "06", july: "07",
+    august: "08", september: "09", october: "10", november: "11", december: "12"
+  };
+  const LONG_RE = /([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})\s*[-–—]\s*([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})/;
+  function pad(n) { return n.length === 1 ? "0" + n : n; }
+  // Only scan the first ~40 lines — the header sits at the top of page 1.
+  const head = lines.slice(0, 40);
+  for (let i = 0; i < head.length; i++) {
+    const line = head[i] || "";
+    const pm = PAREN_RE.exec(line);
+    if (pm) {
+      return {
+        start: pm[3] + "-" + pad(pm[1]) + "-" + pad(pm[2]),
+        end:   pm[6] + "-" + pad(pm[4]) + "-" + pad(pm[5]),
+        raw:   pm[0].replace(/^\(|\)$/g, "")
+      };
+    }
+    const lm = LONG_RE.exec(line);
+    if (lm) {
+      const m1 = MONTHS[lm[1].toLowerCase()];
+      const m2 = MONTHS[lm[4].toLowerCase()];
+      if (m1 && m2) {
+        return {
+          start: lm[3] + "-" + m1 + "-" + pad(lm[2]),
+          end:   lm[6] + "-" + m2 + "-" + pad(lm[5]),
+          raw:   lm[0]
+        };
+      }
+    }
+  }
+  return null;
 }
 async function handleCprMedbFile(file) {
   const lc = (file.name || "").toLowerCase();
@@ -3346,8 +3447,9 @@ async function handleCprMedbPdf(file) {
     return;
   }
   try {
-    const buf  = await file.arrayBuffer();
-    const rows = await cprParseStrataPdf(buf);
+    const buf    = await file.arrayBuffer();
+    const parsed = await cprParseStrataPdf(buf);
+    const rows   = parsed.rows;
 
     if (!rows.length) {
       showCprMedbError(
@@ -3365,6 +3467,9 @@ async function handleCprMedbPdf(file) {
       // kept here as a derived value once the rate map is built.
       total:           0,
       source_filename: file.name,
+      // PDF-header Date Range — used to warn when the Strata range doesn't
+      // match the TB Prepare-payroll period the audit is being created for.
+      date_range:      parsed.date_range || null,
       unmatched:       []
     };
     // Apply alias memory (migration 36) — rewrites each row's
@@ -4558,6 +4663,14 @@ function renderCprImportPreview() {
     '<div class="cpr-stat-card"><div class="cpr-stat-label">Clinicians</div><div class="cpr-stat-value">' + p.distinct_clinicians + '</div></div>' +
     '<div class="cpr-stat-card ' + nonpayWarn + '"><div class="cpr-stat-label">Non-payable</div><div class="cpr-stat-value">' + p.nonpayable_visits + '</div></div>' +
   '</div>';
+
+  // Strata Med B date-range banner — only render when a Strata PDF was
+  // dropped. Compares the PDF's Date Range header against the TB-derived
+  // pay period. Yellow warning on mismatch protects against importing a
+  // Strata report that spans a different window than the TB Excel.
+  if (cprPreparedMedb) {
+    html += cprBuildDateRangeBanner(cprPreparedMedb.date_range, p.period_start, p.period_end);
+  }
 
   // Strata Med B unmatched-names — surface a dropdown picker for each
   // unmatched name so admin can map it to a TB clinician inline.
@@ -6131,8 +6244,9 @@ async function handleCprMedbRetroPdf(file) {
     return;
   }
   try {
-    const buf  = await file.arrayBuffer();
-    const rows = await cprParseStrataPdf(buf);
+    const buf    = await file.arrayBuffer();
+    const parsed = await cprParseStrataPdf(buf);
+    const rows   = parsed.rows;
     if (!rows.length) {
       showCprMedbRetroError("Couldn't find any clinician rows in the PDF. Confirm this is the Strata <strong>Staff Productivity Report (by Charge Submission)</strong>.");
       return;
@@ -6140,15 +6254,20 @@ async function handleCprMedbRetroPdf(file) {
     cprMedbRetroParsed = {
       rows:            rows,
       total_visits:    rows.reduce(function(s, r) { return s + r.visits_billed; }, 0),
-      source_filename: file.name
+      source_filename: file.name,
+      // PDF-header Date Range — used to warn when the Strata range doesn't
+      // match the audit's pay period.
+      date_range:      parsed.date_range || null
     };
     // Apply alias memory (migration 36) before rendering, so learned
     // name mappings auto-resolve "Gina M Pelehac" → "Gina Pelehac".
     cprApplyAliases(cprMedbRetroParsed);
     document.getElementById("cpr-medb-retro-error").style.display = "none";
+    const dr = cprMedbRetroParsed.date_range;
+    const drLabel = dr ? ' · <strong>' + escHtml(dr.raw) + '</strong>' : '';
     document.getElementById("cpr-medb-retro-status").innerHTML =
       "● Parsed <strong>" + rows.length + "</strong> clinicians · <strong>" +
-      cprMedbRetroParsed.total_visits + "</strong> total visits";
+      cprMedbRetroParsed.total_visits + "</strong> total visits" + drLabel;
     document.getElementById("cpr-medb-retro-status").style.color = "#1B5E20";
     renderCprMedbRetroPreview();
   } catch (err) {
@@ -6206,6 +6325,11 @@ function renderCprMedbRetroPreview() {
   });
 
   let html = "";
+  // Date-range banner — match Strata's Date Range header against the
+  // audit's period bounds. Yellow warning on mismatch, green ✓ on match,
+  // muted note if the PDF's date header couldn't be parsed.
+  html += cprBuildDateRangeBanner(cprMedbRetroParsed.date_range, r.period_start, r.period_end);
+
   if (pickerRows.length) {
     const tbOptions = cprTbClinicianOptions(perClin);
     const optionsHtml = tbOptions.map(function(o) {
