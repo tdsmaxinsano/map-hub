@@ -430,6 +430,14 @@
     background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9;
     text-transform: uppercase;
   }
+  /* Breakdown-sent chip (📋 column on the audit per-clinician table) */
+  .cpr-bkdn-chip {
+    display: inline-block; vertical-align: middle;
+    font-size: 10px; font-weight: 700; white-space: nowrap;
+    padding: 1px 6px; border-radius: 6px;
+    background: #ecfdf5; color: #065f46; border: 1px solid #86efac;
+  }
+  .cpr-bkdn-load { font-size: 13px; }
 
   /* Med B (migration 34) — Strata pay column. Distinct green tint when > 0.  */
   .cpr-clin-table td.col-medb  {
@@ -2466,6 +2474,16 @@ document.addEventListener("DOMContentLoaded", function() {
   if (retroCancel) retroCancel.addEventListener("click", cprCloseMedbRetro);
   const retroApply = document.getElementById("cpr-medb-retro-apply");
   if (retroApply) retroApply.addEventListener("click", cprApplyMedbRetro);
+  // Per-clinician 📋 breakdown picker (audit detail column). The input
+  // lives outside the re-rendered detail body, so wire once here.
+  const bkdnInput = document.getElementById("cpr-bkdn-file-input");
+  if (bkdnInput) {
+    bkdnInput.addEventListener("change", function(e) {
+      const f = e.target.files && e.target.files[0];
+      if (f) cprHandleBreakdownFile(f);
+      e.target.value = "";
+    });
+  }
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -3719,6 +3737,120 @@ function extractStrataTotals(lines) {
   const v = parseInt(m[1], 10);
   if (!Number.isFinite(v) || v < 0) return null;
   return { total_visits: v };
+}
+
+// ── Per-clinician breakdown parser ─────────────────────────────────
+// Parses the Strata "Staff Productivity - <Name> (<DISC>)" per-clinician
+// detail export: one row per visit with Patient | Service Date |
+// Submission Date | Payer | Unit Breakdown | Total Units | Total Minutes
+// | Total Amount. The PAYER and TOTAL AMOUNT are deliberately parsed
+// past and DISCARDED — the whole point of this feature is producing a
+// therapist-shareable breakdown without them.
+//
+// Returns { clinician_name, discipline, visits: [{ patient, service_date,
+// submission_date, cpt: [{code, units}], total_units, total_minutes }] }.
+async function cprParseClinBreakdownPdf(arrayBuffer) {
+  // Y-band line reconstruction — same approach as cprParseStrataPdf
+  // (kept inline there too; small enough to duplicate).
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const lines = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const page  = await pdf.getPage(p);
+    const tc    = await page.getTextContent();
+    const items = (tc.items || []).map(function(it) {
+      return { str: String(it.str || ""), x: it.transform[4], y: it.transform[5] };
+    }).filter(function(it) { return it.str.trim().length > 0; });
+    const bands = [];
+    items.forEach(function(it) {
+      let band = null;
+      for (let i = 0; i < bands.length; i++) {
+        if (Math.abs(bands[i].y - it.y) < 3) { band = bands[i]; break; }
+      }
+      if (!band) { band = { y: it.y, items: [] }; bands.push(band); }
+      band.items.push(it);
+    });
+    bands.sort(function(a, b) { return b.y - a.y; });
+    bands.forEach(function(band) {
+      band.items.sort(function(a, b) { return a.x - b.x; });
+      const txt = band.items.map(function(i) { return i.str; }).join(" ").replace(/\s+/g, " ").trim();
+      if (txt) lines.push(txt);
+    });
+  }
+
+  const out = { clinician_name: null, discipline: null, visits: [] };
+  const BOILER_RE = /lawler avenue|suite 206|skokie|phone:|fax:|dependablecarestaffing|please note that|patient name|service date|submission date|unit breakdown|total units|total minutes|total amount|^payer\b|^page \d+ of \d+|dcs therapy/i;
+  const HEADER_RE = /staff productivity\s*[-–—]\s*(.+?)\s*\(([A-Za-z]+)\)/i;
+  // A visit row anchor: optional patient name, then service date +
+  // submission date (+ optional time). Tail carries payer / first CPT
+  // tokens / sometimes the units+minutes integers, depending on Y-banding.
+  const DATEPAIR_RE = /^(.*?)(\d{1,2}\/\d{1,2}\/\d{4})\s+(\d{1,2}\/\d{1,2}\/\d{4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?\s*[AP]M)?\s*(.*)$/i;
+  // Purely alphabetic-ish line = patient-name fragment for a row whose
+  // name column landed on its own Y-band (e.g. "Nina Odlen" alone).
+  const NAME_FRAG_RE = /^[A-Za-z][A-Za-z\-'\., ]{1,50}$/;
+
+  let cur = null;
+  let pendingName = null;
+  function collectCpt(text, visit) {
+    const re = /(\d{5})\s*x\s*(\d+)/g;
+    let m, found = false;
+    while ((m = re.exec(text)) !== null) {
+      visit.cpt.push({ code: m[1], units: parseInt(m[2], 10) });
+      found = true;
+    }
+    return found;
+  }
+  function closeCur() { if (cur) { out.visits.push(cur); cur = null; } }
+
+  lines.forEach(function(line) {
+    if (!line) return;
+    const hm = HEADER_RE.exec(line);
+    if (hm) { out.clinician_name = hm[1].trim(); out.discipline = hm[2].toUpperCase(); return; }
+    if (BOILER_RE.test(line)) return;
+
+    const dm = DATEPAIR_RE.exec(line);
+    if (dm) {
+      closeCur();
+      let patient = (dm[1] || "").trim().replace(/[,;]\s*$/, "");
+      if (!patient && pendingName) patient = pendingName;
+      pendingName = null;
+      cur = {
+        patient:         patient || "(unknown)",
+        service_date:    dm[2],
+        submission_date: dm[3],
+        cpt:             [],
+        total_units:     null,
+        total_minutes:   null
+      };
+      const tail = dm[4] || "";
+      collectCpt(tail, cur);
+      // After stripping CPT tokens + $-amounts, any standalone integers
+      // left in the tail are Total Units then Total Minutes (payer text
+      // is alphabetic and falls away naturally).
+      const stripped = tail.replace(/\d{5}\s*x\s*\d+/g, " ").replace(/\$[\d,]+(?:\.\d{2})?/g, " ");
+      const ints = stripped.match(/\b\d{1,4}\b/g) || [];
+      if (ints.length >= 1) cur.total_units   = parseInt(ints[0], 10);
+      if (ints.length >= 2) cur.total_minutes = parseInt(ints[1], 10);
+      return;
+    }
+    if (cur) {
+      // Dollar-amount line (Total Amount cell on its own band) → discard.
+      if (/^\$[\d,]+(?:\.\d{2})?$/.test(line.trim())) return;
+      // Continuation CPT tokens ("97140 x 1") append to the open visit.
+      if (collectCpt(line, cur)) return;
+      // Bare integer band = Total Units (first seen) then Total Minutes.
+      const bare = /^(\d{1,4})$/.exec(line.trim());
+      if (bare) {
+        const v = parseInt(bare[1], 10);
+        if (cur.total_units == null)        cur.total_units   = v;
+        else if (cur.total_minutes == null) cur.total_minutes = v;
+        return;
+      }
+    }
+    // Possible wrapped patient name for the NEXT visit row.
+    if (NAME_FRAG_RE.test(line.trim())) { pendingName = line.trim(); }
+  });
+  closeCur();
+  return out;
 }
 
 // Returns banner HTML comparing a parsed Strata Date Range against the
@@ -5839,6 +5971,112 @@ function cprComputeOriginalTotals() {
   return { pay: pay, visits: visitCt };
 }
 
+// ── Per-clinician breakdown (📋 column) ──────────────────────────────
+// Which audit-row index the hidden file picker is loading for.
+let cprBkdnTargetCidx = null;
+
+// Handles the picked Strata "Staff Productivity - <Name>" PDF: parse →
+// verify it's the right clinician → auto-flag the row as sent → open the
+// cleaned print view. The PDF itself is parsed and DISCARDED (decision:
+// no storage; the flag + date are what persist).
+async function cprHandleBreakdownFile(file) {
+  const r = cprViewState.run;
+  const idx = cprBkdnTargetCidx;
+  cprBkdnTargetCidx = null;
+  if (!r || r.status !== "open" || !Number.isFinite(idx)) return;
+  const c = (r.per_clinician_payload || [])[idx];
+  if (!c) return;
+  if (!/\.pdf$/i.test(file.name || "")) {
+    alert("The Strata breakdown export is a PDF. Got: " + file.name);
+    return;
+  }
+  if (!window.pdfjsLib) {
+    alert("PDF library (PDF.js) didn't load. Hard-refresh and try again.");
+    return;
+  }
+  try {
+    const buf    = await file.arrayBuffer();
+    const parsed = await cprParseClinBreakdownPdf(buf);
+    if (!parsed.visits.length) {
+      alert("Couldn't read any visit rows from this PDF. Confirm it's the Strata per-clinician \"Staff Productivity\" export.");
+      return;
+    }
+    // Wrong-file guard: the PDF header names its clinician — fuzzy-match
+    // against the row it was dropped on. Mismatch → confirm, not block
+    // (name spellings drift between Strata and TB).
+    if (parsed.clinician_name) {
+      const sim = cprNameSimilarity(parsed.clinician_name, c.clinician);
+      if (sim < 0.6 && !confirm(
+        "This PDF is for \"" + parsed.clinician_name + "\" but you clicked 📋 on \"" +
+        (cprTitleCase(c.clinician) || c.clinician) + "\".\n\nPrint it for this row anyway?")) {
+        return;
+      }
+    }
+    // Auto-flag as sent (decision: stamp on print, un-flag via ✕). Fields
+    // ride inside per_clinician_payload JSONB → persist on Save Adjustments.
+    c.breakdown_sent_at  = new Date().toISOString();
+    c.breakdown_sent_by  = (currentUser && currentUser.email) || null;
+    c.breakdown_filename = file.name || null;
+    cprViewState.dirty = true;
+    cprRenderDetail();
+    cprOpenBreakdownPrint(c, parsed, r);
+  } catch (err) {
+    alert("Failed to parse the breakdown PDF: " + (err.message || err));
+  }
+}
+
+// Opens the cleaned, therapist-shareable print view: Patient / Service
+// Date / Submitted / Unit Breakdown / Units / Minutes. NO payer column,
+// NO dollar amounts anywhere — that's the entire point. Auto-opens the
+// print dialog; the admin uses "Save as PDF" or prints directly.
+function cprOpenBreakdownPrint(c, parsed, run) {
+  const title = "Med B Visit Breakdown — " + (cprTitleCase(c.clinician) || c.clinician);
+  const periodLabel = cprFmtDate(run.period_start) + " – " + cprFmtDate(run.period_end);
+  let totalUnits = 0, totalMinutes = 0;
+  const rowsHtml = parsed.visits.map(function(v) {
+    totalUnits   += Number(v.total_units)   || 0;
+    totalMinutes += Number(v.total_minutes) || 0;
+    const cptLbl = (v.cpt || []).map(function(t) { return t.code + "×" + t.units; }).join(" · ");
+    return "<tr>" +
+      "<td>" + escHtml(v.patient) + "</td>" +
+      "<td>" + escHtml(v.service_date) + "</td>" +
+      "<td>" + escHtml(v.submission_date) + "</td>" +
+      "<td>" + escHtml(cptLbl || "—") + "</td>" +
+      "<td class='num'>" + (v.total_units != null ? v.total_units : "—") + "</td>" +
+      "<td class='num'>" + (v.total_minutes != null ? v.total_minutes : "—") + "</td>" +
+    "</tr>";
+  }).join("");
+  const doc =
+    "<!DOCTYPE html><html><head><meta charset='utf-8'><title>" + escHtml(title) + "</title>" +
+    "<style>" +
+      "body{font-family:'Segoe UI',Arial,sans-serif;color:#1e293b;margin:32px;font-size:13px;}" +
+      "h1{font-size:18px;margin:0 0 2px;}" +
+      ".sub{color:#64748b;font-size:12px;margin-bottom:18px;}" +
+      "table{width:100%;border-collapse:collapse;}" +
+      "th{font-size:10.5px;text-transform:uppercase;letter-spacing:0.4px;text-align:left;color:#475569;border-bottom:2px solid #cbd5e1;padding:6px 8px;}" +
+      "td{padding:6px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top;}" +
+      "td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;}" +
+      "tfoot td{font-weight:700;border-top:2px solid #cbd5e1;border-bottom:none;}" +
+      "@media print{body{margin:12mm;}}" +
+    "</style></head><body>" +
+    "<h1>" + escHtml(title) + (parsed.discipline ? " (" + escHtml(parsed.discipline) + ")" : "") + "</h1>" +
+    "<div class='sub'>Pay period " + escHtml(periodLabel) + " · generated " + escHtml(new Date().toLocaleDateString()) + " · Dependable Care Staffing</div>" +
+    "<table><thead><tr>" +
+      "<th>Patient</th><th>Service Date</th><th>Submitted</th><th>Unit Breakdown</th><th class='num'>Units</th><th class='num'>Minutes</th>" +
+    "</tr></thead><tbody>" + rowsHtml + "</tbody><tfoot><tr>" +
+      "<td colspan='4'>TOTAL — " + parsed.visits.length + " visit" + (parsed.visits.length === 1 ? "" : "s") + "</td>" +
+      "<td class='num'>" + totalUnits + "</td><td class='num'>" + totalMinutes + "</td>" +
+    "</tr></tfoot></table>" +
+    "</body></html>";
+  const w = window.open("", "_blank");
+  if (!w) { alert("Popup blocked — allow popups for this site to print breakdowns."); return; }
+  w.document.write(doc);
+  w.document.close();
+  // Give the new document a tick to lay out, then open the print dialog.
+  // The window stays open so the admin can re-print or Save-as-PDF again.
+  setTimeout(function() { try { w.focus(); w.print(); } catch (_) {} }, 300);
+}
+
 function cprRenderDetail() {
   const body = document.getElementById("cpr-detail-body");
   if (!body || !cprViewState.run) return;
@@ -6003,9 +6241,12 @@ function cprRenderDetail() {
 
   // Header strip — search input + result counter + clear button
   const searchEsc = escAttr(cprViewState.search || "");
-  const headerLabel = searchTerm
+  // 📋 breakdowns-sent tally — quick visibility of who has gotten one.
+  const bkdnSentCount = perClin.filter(function(c) { return c.breakdown_sent_at; }).length;
+  const bkdnLabel = bkdnSentCount > 0 ? " · 📋 " + bkdnSentCount + " breakdown" + (bkdnSentCount === 1 ? "" : "s") + " sent" : "";
+  const headerLabel = (searchTerm
     ? "Per-clinician (" + filteredPerClin.length + " of " + perClin.length + ")"
-    : "Per-clinician (" + perClin.length + ") — click a row to expand";
+    : "Per-clinician (" + perClin.length + ") — click a row to expand") + bkdnLabel;
   html += '<div class="cpr-clin-search-row">' +
     '<input type="text" id="cpr-clin-search" class="cpr-clin-search-input" placeholder="🔍 Search clinician name…" value="' + searchEsc + '" autocomplete="off" />' +
     (searchTerm ? '<button type="button" class="cpr-btn-mini" data-action="clear-clin-search" title="Clear">✕ Clear</button>' : '') +
@@ -6022,11 +6263,12 @@ function cprRenderDetail() {
     '<th style="text-align:right;">Pay</th>' +
     '<th style="text-align:right;" title="Strata Med B — separate QB Bill, same Subcontractor:&lt;discipline&gt; GL">Med B</th>' +
     '<th style="text-align:right;">Total</th>' +
+    '<th style="text-align:center;width:66px;" title="Per-clinician breakdown — load this clinician\'s Strata Staff Productivity export and print a cleaned copy for the therapist (payer + dollar amounts removed). Optional; chip marks who has gotten one.">📋</th>' +
   '</tr></thead>';
   html += '<tbody>';
 
   if (!filteredPerClin.length) {
-    html += '<tr><td colspan="7" style="text-align:center;color:#94a3b8;padding:24px;">No clinicians match "' + escHtml(cprViewState.search) + '"</td></tr>';
+    html += '<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">No clinicians match "' + escHtml(cprViewState.search) + '"</td></tr>';
   }
 
   // ── Bucket filteredPerClin by DELIVERY (3 buckets) ────────────────────────
@@ -6066,7 +6308,7 @@ function cprRenderDetail() {
       ? cprFmtMoney(sumPay + sumMedb) + ' (Pay ' + cprFmtMoney(sumPay) + ' + Med B ' + cprFmtMoney(sumMedb) + ')'
       : cprFmtMoney(sumPay);
     html += '<tr class="cpr-pay-section cpr-pay-section-' + m + (open ? ' is-open' : '') + '" data-method="' + m + '">' +
-      '<td colspan="7">' +
+      '<td colspan="8">' +
         '<span class="cpr-pay-section-caret">' + caret + '</span>' +
         '<span class="cpr-pay-section-icon">' + meta.icon + '</span> ' +
         '<span class="cpr-pay-section-label">' + escHtml(meta.long || meta.short) + '</span>' +
@@ -6147,6 +6389,27 @@ function cprRenderDetail() {
         (isLocked ? '' : ' <button type="button" class="cpr-btn-edit-pay" data-action="edit-medb" title="Set Med B amount">✎</button>');
     }
     const totalCombined = c.pay_total + medbAmt;
+    // 📋 Breakdown cell — per-clinician Strata Staff Productivity export
+    // workflow. Optional: load the PDF → print a cleaned copy (payer +
+    // dollars removed) for the therapist → row auto-flags as sent. Flag
+    // fields (breakdown_sent_at / _by / _filename) live in the JSONB
+    // payload and round-trip with the save — no schema work.
+    let bkdnHtml;
+    if (c.breakdown_sent_at) {
+      const sentD   = new Date(c.breakdown_sent_at);
+      const sentLbl = (sentD.getMonth() + 1) + "/" + sentD.getDate();
+      bkdnHtml =
+        '<span class="cpr-bkdn-chip" title="Breakdown printed ' + escAttr(sentD.toLocaleString()) +
+          (c.breakdown_sent_by ? ' by ' + escAttr(c.breakdown_sent_by) : '') +
+          (c.breakdown_filename ? ' · ' + escAttr(c.breakdown_filename) : '') + '">📋 ✓ ' + sentLbl + '</span>' +
+        (isLocked ? '' :
+          ' <button type="button" class="cpr-btn-mini" data-action="load-breakdown" title="Load a new breakdown PDF for this clinician">↻</button>' +
+          '<button type="button" class="cpr-btn-mini" data-action="clear-breakdown" title="Clear the breakdown-sent flag">✕</button>');
+    } else {
+      bkdnHtml = isLocked
+        ? '<span style="color:#cbd5e1;">—</span>'
+        : '<button type="button" class="cpr-btn-mini cpr-bkdn-load" data-action="load-breakdown" title="Load this clinician\'s Strata Staff Productivity PDF → print a cleaned breakdown (payer + $ removed)">📋</button>';
+    }
     html += '<tr class="cpr-clin-row ' + (exp ? "is-open" : "") + ' ' + rowFlagCls + '" data-cidx="' + idx + '">' +
       '<td class="col-caret">' + (exp ? '▾' : '▸') + '</td>' +
       '<td class="col-name">' + escHtml(cprTitleCase(c.clinician) || "(unnamed)") + payChip + flagBadge +
@@ -6157,10 +6420,11 @@ function cprRenderDetail() {
       '<td class="col-pay">' + cprFmtMoney(c.pay_total) + deltaHtml + '</td>' +
       '<td class="col-medb cpr-medb-cell" style="text-align:right;">' + medbHtml + '</td>' +
       '<td class="col-total" style="text-align:right;font-weight:700;">' + cprFmtMoney(totalCombined) + '</td>' +
+      '<td class="col-bkdn" style="text-align:center;white-space:nowrap;">' + bkdnHtml + '</td>' +
     '</tr>';
 
     if (exp) {
-      html += '<tr class="cpr-expand-row"><td colspan="7">';
+      html += '<tr class="cpr-expand-row"><td colspan="8">';
       // Visits table
       html += '<table class="cpr-visits-table"><thead><tr>' +
         '<th></th>' +
@@ -6515,6 +6779,32 @@ function cprWireDetailEvents() {
       const tr = t.closest("tr");
       const vid = tr && tr.dataset.vid;
       if (vid) cprRevertVisitPay(vid);
+      return;
+    }
+    // ── Per-clinician breakdown (📋 column) ─────────────────────
+    // Load this clinician's Strata Staff Productivity export → print a
+    // cleaned copy (payer + $ removed) → auto-flag as sent.
+    if (t.dataset && t.dataset.action === "load-breakdown") {
+      const tr = t.closest("tr.cpr-clin-row");
+      const idx = tr && Number(tr.dataset.cidx);
+      if (Number.isFinite(idx)) {
+        cprBkdnTargetCidx = idx;
+        const fi = document.getElementById("cpr-bkdn-file-input");
+        if (fi) { fi.value = ""; fi.click(); }
+      }
+      return;
+    }
+    if (t.dataset && t.dataset.action === "clear-breakdown") {
+      const tr = t.closest("tr.cpr-clin-row");
+      const idx = tr && Number(tr.dataset.cidx);
+      const c = cprViewState.run && cprViewState.run.per_clinician_payload[idx];
+      if (c && confirm("Clear the breakdown-sent flag for " + (cprTitleCase(c.clinician) || c.clinician) + "?")) {
+        delete c.breakdown_sent_at;
+        delete c.breakdown_sent_by;
+        delete c.breakdown_filename;
+        cprViewState.dirty = true;
+        cprRenderDetail();
+      }
       return;
     }
     // ── Per-row Med B editing (retroactive correction) ─────────
@@ -11863,6 +12153,10 @@ checkSession();
 <div class="cpr-modal-overlay" id="cpr-detail-overlay" style="display:none;">
   <div class="cpr-modal-box" style="width:900px;max-width:95vw;">
     <div class="cpr-modal-title" id="cpr-detail-title">Payroll Run</div>
+    <!-- Shared hidden picker for the per-clinician 📋 breakdown column.
+         Lives OUTSIDE #cpr-detail-body so re-renders don't wipe its
+         change listener; the target clinician index is module state. -->
+    <input type="file" id="cpr-bkdn-file-input" accept=".pdf" style="display:none;" />
     <div id="cpr-detail-body"></div>
     <div class="cpr-modal-footer">
       <button type="button" class="btn-secondary" id="cpr-detail-close">Close</button>
