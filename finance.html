@@ -3150,9 +3150,16 @@ async function cprParseStrataPdf(arrayBuffer) {
   // line reads "(PTA) 97116 x" — still recognizably a disc-marker line
   // that needs to combine with the name fragment above it.
   const DISC_PAREN_LEAD_RE = new RegExp("^\\((" + CPR_DISC_RE_GROUP + ")\\)(?=\\s|$)");
-  // "PTA" / "OT" / etc. alone on a line (bare variant stays strict —
-  // a bare "PT" followed by random text could match all kinds of noise).
+  // "PTA" / "OT" / etc. alone on a line.
   const DISC_BARE_ALONE_RE = new RegExp("^(" + CPR_DISC_RE_GROUP + ")\\s*$");
+  // Bare disc marker at the start of a line, followed by row-merged
+  // breakdown content. Observed shape from real Strata PDFs:
+  //   Line N:   "Krzysztof Kopacz 97110 x"   ← name + CPT row-merged
+  //   Line N+1: "PTA 1 (25.0%)"              ← bare disc + breakdown
+  // Restricted to disc + space + digit so it doesn't match English
+  // prose that happens to start with "PT" / "OT" (e.g. "PT visit");
+  // a breakdown count or visits number always starts with a digit.
+  const DISC_BARE_LEAD_RE = new RegExp("^(" + CPR_DISC_RE_GROUP + ")\\s+\\d");
 
   // Walk backward from startIdx to find the most recent non-empty,
   // non-boilerplate line. Page breaks land Strata's page header
@@ -3178,7 +3185,9 @@ async function cprParseStrataPdf(arrayBuffer) {
     // triggers a combine with the name fragment above.
     const isDiscParenLead  = !isFullStaff && DISC_PAREN_LEAD_RE.test(cur);
     const isDiscBareAlone  = !isFullStaff && DISC_BARE_ALONE_RE.test(cur);
-    if (!isFullStaff && !isDiscParenLead && !isDiscBareAlone) continue;
+    // Bare-lead variant: bare disc + digit (breakdown content merged in).
+    const isDiscBareLead   = !isFullStaff && !isDiscBareAlone && DISC_BARE_LEAD_RE.test(cur);
+    if (!isFullStaff && !isDiscParenLead && !isDiscBareAlone && !isDiscBareLead) continue;
     const found = findCombinePrev(i - 1);
     if (!found) continue;
     const prev = found.line;
