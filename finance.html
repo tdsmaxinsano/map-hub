@@ -279,7 +279,11 @@
   .cpr-per-clin-table thead th {
     background: #f7f9fc; color: var(--blue); font-size: 10.5px; font-weight: 800;
     text-transform: uppercase; letter-spacing: 0.4px; text-align: left;
-    padding: 6px 10px; border-bottom: 1.5px solid var(--border);
+    padding: 6px 10px;
+    /* Pin the header when the preview body scrolls. border-collapse drops
+       a sticky border, so use an inset box-shadow for the divider line. */
+    position: sticky; top: 0; z-index: 2;
+    box-shadow: inset 0 -1.5px 0 var(--border);
   }
   .cpr-per-clin-table tbody td { padding: 5px 10px; border-bottom: 1px solid #edf1f7; }
   .cpr-per-clin-table tbody tr:last-child td { border-bottom: none; }
