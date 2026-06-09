@@ -3144,10 +3144,15 @@ async function cprParseStrataPdf(arrayBuffer) {
   // Trailing comma is stripped before the test — Strata occasionally
   // renders "Jordan Juralbal," with a stray comma after the surname.
   const NAME_FRAGMENT_RE = /^[A-Za-z][A-Za-z\-'\. ]{0,40}$/;
-  // "(PTA)" / "(OT)" / etc. alone on a line — no name preceding.
-  const DISC_PAREN_ALONE_RE = new RegExp("^\\((" + CPR_DISC_RE_GROUP + ")\\)\\s*$");
-  // "PTA" / "OT" / etc. alone on a line.
-  const DISC_BARE_ALONE_RE  = new RegExp("^(" + CPR_DISC_RE_GROUP + ")\\s*$");
+  // "(PTA)" / "(OT)" / etc. at the START of a line — alone OR followed
+  // by row data the Y-band merged from the right-hand columns. The
+  // common case is "(PTA)" merged with the Unit Breakdown column so the
+  // line reads "(PTA) 97116 x" — still recognizably a disc-marker line
+  // that needs to combine with the name fragment above it.
+  const DISC_PAREN_LEAD_RE = new RegExp("^\\((" + CPR_DISC_RE_GROUP + ")\\)(?=\\s|$)");
+  // "PTA" / "OT" / etc. alone on a line (bare variant stays strict —
+  // a bare "PT" followed by random text could match all kinds of noise).
+  const DISC_BARE_ALONE_RE = new RegExp("^(" + CPR_DISC_RE_GROUP + ")\\s*$");
 
   // Walk backward from startIdx to find the most recent non-empty,
   // non-boilerplate line. Page breaks land Strata's page header
@@ -3169,9 +3174,11 @@ async function cprParseStrataPdf(arrayBuffer) {
     const cur = lines[i];
     if (!cur) continue;
     const isFullStaff      = isStaffLine(cur);
-    const isDiscParenAlone = !isFullStaff && DISC_PAREN_ALONE_RE.test(cur);
+    // Row-merged "(PTA) <data>" subsumes the alone case; either form
+    // triggers a combine with the name fragment above.
+    const isDiscParenLead  = !isFullStaff && DISC_PAREN_LEAD_RE.test(cur);
     const isDiscBareAlone  = !isFullStaff && DISC_BARE_ALONE_RE.test(cur);
-    if (!isFullStaff && !isDiscParenAlone && !isDiscBareAlone) continue;
+    if (!isFullStaff && !isDiscParenLead && !isDiscBareAlone) continue;
     const found = findCombinePrev(i - 1);
     if (!found) continue;
     const prev = found.line;
