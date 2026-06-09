@@ -6720,6 +6720,7 @@ let cprRetroVisitEdits   = new Map();   // visit-count overrides
 let cprRetroEvalEdits    = new Map();   // eval-count overrides
 let cprRetroExtraRows    = [];          // manually-added rows: {lookup_key, display, discipline}
 let cprRetroBypassVerify = false;       // escape hatch when admin clicks "Apply unverified anyway"
+let cprRetroNameFilter   = "";          // type-to-isolate filter on the preview (visual only)
 
 function cprOpenMedbRetro() {
   if (!cprViewState || !cprViewState.run) return;
@@ -6738,6 +6739,7 @@ function cprOpenMedbRetro() {
   cprRetroEvalEdits    = new Map();
   cprRetroExtraRows    = [];
   cprRetroBypassVerify = false;
+  cprRetroNameFilter   = "";
   document.getElementById("cpr-medb-retro-file-input").value = "";
   document.getElementById("cpr-medb-retro-status").innerHTML = "● Awaiting Strata PDF…";
   document.getElementById("cpr-medb-retro-status").style.color = "var(--muted)";
@@ -6793,6 +6795,7 @@ function cprCloseMedbRetro() {
   cprRetroEvalEdits    = new Map();
   cprRetroExtraRows    = [];
   cprRetroBypassVerify = false;
+  cprRetroNameFilter   = "";
 }
 
 // Seeds cprMedbRetroParsed from the audit's already-applied Med B (using the
@@ -6888,6 +6891,7 @@ async function handleCprMedbRetroPdf(file) {
     cprRetroEvalEdits    = new Map();
     cprRetroExtraRows    = [];
     cprRetroBypassVerify = false;
+    cprRetroNameFilter   = "";
     cprMedbRetroParsed = {
       rows:            rows,
       total_visits:    rows.reduce(function(s, r) { return s + r.visits_billed; }, 0),
@@ -7119,9 +7123,13 @@ function renderCprMedbRetroPreview() {
   // Per-clinician table — show rows where Strata has visits OR where
   // the current row already has Med B (so user sees both "what will
   // change" and "what was already set").
-  html += '<div style="font-size:11px;color:var(--muted);margin:4px 0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
-    '<span>Preview — verify each row · Vis / Eval are editable · use ＋Add for clinicians the PDF missed</span>' +
-    '<button type="button" id="cpr-retro-verify-all" style="font-size:10px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;padding:2px 8px;border-radius:5px;cursor:pointer;font-family:inherit;text-transform:none;letter-spacing:0;">✓ Verify all</button>' +
+  html += '<div style="font-size:11px;color:var(--muted);margin:4px 0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+    '<span>Preview — rows in PDF order · verify each · Vis / Eval editable · ＋Add for rows the PDF missed</span>' +
+    '<span style="display:flex;align-items:center;gap:6px;">' +
+      '<input type="text" id="cpr-retro-name-filter" placeholder="🔍 Type to isolate name…" value="' + escAttr(cprRetroNameFilter) + '" ' +
+        'style="font-size:11px;padding:3px 8px;border:1px solid #cbd5e1;border-radius:5px;width:170px;font-family:inherit;text-transform:none;letter-spacing:0;font-weight:500;" />' +
+      '<button type="button" id="cpr-retro-verify-all" style="font-size:10px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;padding:2px 8px;border-radius:5px;cursor:pointer;font-family:inherit;text-transform:none;letter-spacing:0;">✓ Verify all</button>' +
+    '</span>' +
     '</div>';
   html += '<div style="max-height:380px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
   html += '<table class="cpr-per-clin-table"><thead><tr>' +
@@ -7260,7 +7268,7 @@ function renderCprMedbRetroPreview() {
       newMedb: newMedb,
       visits:  sv,
       html:
-        '<tr' + rowAttrs + '>' +
+        '<tr data-clin-name="' + escAttr(String(display || "").toLowerCase()) + '"' + rowAttrs + '>' +
           '<td style="text-align:center;">' + verifyCell + '</td>' +
           '<td>' + nameCell + removeBtn + '</td>' +
           '<td>' + escHtml(disc || "") + '</td>' +
@@ -7281,48 +7289,40 @@ function renderCprMedbRetroPreview() {
   let assignedVisits = 0;   // running sum of effective visits across all rows
   // Track keys in the table so the "+ Add" picker can filter them out.
   const renderedKeys = new Set();
+
+  // Collect every row spec first, THEN sort into the PDF's own row order
+  // before rendering — so the preview reads top-to-bottom exactly like the
+  // printed Strata report for side-by-side checking. Rows not present in
+  // the PDF (TB clinicians with existing Med B only, manual extras) sink
+  // to the bottom in their original relative order.
+  const rowSpecs = [];
   perClin.forEach(function(c) {
-    const k = cprClinLookupKey(c.clinician);
-    const out = renderRetroRow({
-      lookup_key: k,
+    rowSpecs.push({
+      lookup_key: cprClinLookupKey(c.clinician),
       display:    c.clinician,
       discipline: c.discipline || "",
       current:    Number(c.medb_total) || 0,
       medbOnly:   false
     });
-    if (!out) return;
-    renderedKeys.add(k);
-    touchedCount++;
-    newTotal += out.newMedb;
-    oldTotal += Number(c.medb_total) || 0;
-    assignedVisits += out.visits || 0;
-    html += out.html;
   });
   // Med B-only preview rows — roster-matched clinicians not yet in the
   // audit's per_clinician_payload. Apply will append them on commit.
   medbOnlyPreview.forEach(function(srow) {
     const rosterHit = rosterByKey[srow.lookup_key];
     if (!rosterHit) return;
-    const out = renderRetroRow({
+    rowSpecs.push({
       lookup_key: srow.lookup_key,
       display:    rosterHit.name,
       discipline: rosterHit.discipline,
       current:    0,
       medbOnly:   true
     });
-    if (!out) return;
-    renderedKeys.add(srow.lookup_key);
-    touchedCount++;
-    newTotal += out.newMedb;
-    assignedVisits += out.visits || 0;
-    html += out.html;
   });
   // Manually-added rows (cprRetroExtraRows) — covers clinicians the
-  // parser dropped entirely (Krzysztof) or the mystery row whose name
-  // PDF.js never extracted.
+  // parser dropped entirely or whose name PDF.js never extracted.
   cprRetroExtraRows.forEach(function(extra) {
-    if (renderedKeys.has(extra.lookup_key)) return;   // dedupe
-    const out = renderRetroRow({
+    if (rowSpecs.some(function(s) { return s.lookup_key === extra.lookup_key; })) return;   // dedupe
+    rowSpecs.push({
       lookup_key: extra.lookup_key,
       display:    extra.display,
       discipline: extra.discipline,
@@ -7330,10 +7330,25 @@ function renderCprMedbRetroPreview() {
       medbOnly:   true,
       isExtra:    true
     });
+  });
+  // PDF document order: first occurrence of each lookup_key in the parsed
+  // rows (post-alias, so aliased names order by their Strata position).
+  const pdfOrder = new Map();
+  cprMedbRetroParsed.rows.forEach(function(prow, i) {
+    if (prow.lookup_key && !pdfOrder.has(prow.lookup_key)) pdfOrder.set(prow.lookup_key, i);
+  });
+  rowSpecs.sort(function(a, b) {
+    const pa = pdfOrder.has(a.lookup_key) ? pdfOrder.get(a.lookup_key) : Infinity;
+    const pb = pdfOrder.has(b.lookup_key) ? pdfOrder.get(b.lookup_key) : Infinity;
+    return pa - pb;   // stable sort: non-PDF rows keep relative order at the bottom
+  });
+  rowSpecs.forEach(function(spec) {
+    const out = renderRetroRow(spec);
     if (!out) return;
-    renderedKeys.add(extra.lookup_key);
+    renderedKeys.add(spec.lookup_key);
     touchedCount++;
     newTotal += out.newMedb;
+    oldTotal += spec.current || 0;
     assignedVisits += out.visits || 0;
     html += out.html;
   });
@@ -7458,6 +7473,27 @@ function renderCprMedbRetroPreview() {
           : "Tick ✓ on every row first (or click 'Apply anyway' to bypass)")
       : "";
   }
+  // Type-to-isolate name filter — purely visual (hides rows by display
+  // toggling, NO re-render, so typing never loses focus and the verify /
+  // reconcile math is untouched). Filter state persists across the
+  // re-renders triggered by checkbox ticks / edits.
+  function cprApplyRetroNameFilter() {
+    const q = String(cprRetroNameFilter || "").trim().toLowerCase();
+    Array.from(wrap.querySelectorAll("tr[data-clin-name]")).forEach(function(tr) {
+      tr.style.display = (!q || tr.getAttribute("data-clin-name").indexOf(q) >= 0) ? "" : "none";
+    });
+  }
+  const nameFilterInput = document.getElementById("cpr-retro-name-filter");
+  if (nameFilterInput) {
+    nameFilterInput.addEventListener("input", function(e) {
+      cprRetroNameFilter = e.target.value || "";
+      cprApplyRetroNameFilter();
+    });
+    nameFilterInput.addEventListener("keydown", function(e) {
+      if (e.key === "Escape") { e.target.value = ""; cprRetroNameFilter = ""; cprApplyRetroNameFilter(); }
+    });
+  }
+  cprApplyRetroNameFilter();   // re-apply persisted filter after re-render
   // Wire ✓ checkboxes — toggle the verified set + re-render so the
   // counter + Apply gate update.
   Array.from(wrap.querySelectorAll(".cpr-retro-verify-cb")).forEach(function(cb) {
