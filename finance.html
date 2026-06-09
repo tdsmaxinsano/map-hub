@@ -6032,10 +6032,9 @@ async function cprHandleBreakdownFile(file) {
 function cprOpenBreakdownPrint(c, parsed, run) {
   const title = "Med B Visit Breakdown — " + (cprTitleCase(c.clinician) || c.clinician);
   const periodLabel = cprFmtDate(run.period_start) + " – " + cprFmtDate(run.period_end);
-  let totalUnits = 0, totalMinutes = 0;
+  let totalUnits = 0;
   const rowsHtml = parsed.visits.map(function(v) {
-    totalUnits   += Number(v.total_units)   || 0;
-    totalMinutes += Number(v.total_minutes) || 0;
+    totalUnits += Number(v.total_units) || 0;
     const cptLbl = (v.cpt || []).map(function(t) { return t.code + "×" + t.units; }).join(" · ");
     return "<tr>" +
       "<td>" + escHtml(v.patient) + "</td>" +
@@ -6065,7 +6064,10 @@ function cprOpenBreakdownPrint(c, parsed, run) {
       "<th>Patient</th><th>Service Date</th><th>Submitted</th><th>Unit Breakdown</th><th class='num'>Units</th><th class='num'>Minutes</th>" +
     "</tr></thead><tbody>" + rowsHtml + "</tbody><tfoot><tr>" +
       "<td colspan='4'>TOTAL — " + parsed.visits.length + " visit" + (parsed.visits.length === 1 ? "" : "s") + "</td>" +
-      "<td class='num'>" + totalUnits + "</td><td class='num'>" + totalMinutes + "</td>" +
+      // Units total only — minutes deliberately NOT summed (per user:
+      // per-visit minutes are informational; a summed figure invites
+      // hours-worked readings the breakdown isn't meant to support).
+      "<td class='num'>" + totalUnits + "</td><td></td>" +
     "</tr></tfoot></table>" +
     "</body></html>";
   const w = window.open("", "_blank");
