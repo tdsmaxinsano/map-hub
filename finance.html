@@ -2706,14 +2706,24 @@ const CPR_DISC_RE_GROUP = CPR_KNOWN_DISCIPLINES.join("|");
 // these as evals (higher rate); regular treatment visits use the other
 // PT/OT CPT codes (97110/97112/97116/97140/97530/97535/97542/...).
 //   PT evals: 97161 / 97162 / 97163 (low/mod/high complexity) + 97164 (re-eval)
-//   OT evals: 97165 / 97166 / 97167                            + 97168 (re-eval)
-// ST is out of scope for Med B in this shop.
-const CPR_PT_EVAL_CODES = new Set(["97161", "97162", "97163", "97164"]);
-const CPR_OT_EVAL_CODES = new Set(["97165", "97166", "97167", "97168"]);
+//   OT evals: 97165 / 97166 / 97167 (low/mod/high complexity) + 97168 (re-eval)
+// Also included defensively: the pre-2017 legacy codes (97001 PT eval /
+// 97002 PT re-eval / 97003 OT eval / 97004 OT re-eval). CPT deleted them
+// in 2017 so nothing else can collide with these numbers — zero false-
+// positive risk, but they'd count correctly if an old report or odd payer
+// mapping ever surfaced them.
+// ST is out of scope for Med B in this shop. (97169-97172 are athletic-
+// trainer evals — AT isn't a discipline here, deliberately excluded.)
+const CPR_PT_EVAL_CODES = new Set(["97161", "97162", "97163", "97164", "97001", "97002"]);
+const CPR_OT_EVAL_CODES = new Set(["97165", "97166", "97167", "97168", "97003", "97004"]);
 function cprEvalCodesFor(discipline) {
   const d = String(discipline || "").trim().toUpperCase();
-  if (d === "PT") return CPR_PT_EVAL_CODES;
-  if (d === "OT") return CPR_OT_EVAL_CODES;
+  // DPT (Doctor of Physical Therapy) and OTR (Registered OT) are
+  // supervisor credential variants the PDF parser recognizes — they bill
+  // the same eval codes as PT/OT. Without these aliases their eval
+  // visits would silently count as follow-ups (underpaid Med B).
+  if (d === "PT" || d === "DPT") return CPR_PT_EVAL_CODES;
+  if (d === "OT" || d === "OTR") return CPR_OT_EVAL_CODES;
   return null;   // assistants + ST/SLP/etc. don't split
 }
 
@@ -2864,10 +2874,11 @@ function cprIsAssistant(discipline) {
 // PT/OT supervisor split-rate eligibility (migration 38).
 // Only PT and OT supervisors bill at both an eval rate AND a follow-up
 // rate. PTAs/OTAs and out-of-scope disciplines (ST/SLP/etc.) keep the
-// single-rate model.
+// single-rate model. DPT / OTR are supervisor credential variants of
+// PT / OT — same split-rate treatment (kept in sync with cprEvalCodesFor).
 function cprIsPtOrOtSupervisor(discipline) {
   const d = String(discipline || "").trim().toUpperCase();
-  return d === "PT" || d === "OT";
+  return d === "PT" || d === "DPT" || d === "OT" || d === "OTR";
 }
 
 // Derive a single clinician's per-visit rate(s) from this period's TB visits.
@@ -4215,10 +4226,13 @@ function cprPayRatesRenderTable() {
   });
   cprRoster.forEach(function(rr) {
     if (!rr.lookup_key || seenKeys.has(rr.lookup_key)) return;
-    // Only show in-scope disciplines (PT/PTA/OT/OTA) for roster-only rows
-    // — that's where the workflow lives. Other disciplines would just be noise.
+    // Only show in-scope disciplines for roster-only rows — that's where
+    // the workflow lives. Other disciplines would just be noise. Includes
+    // the credential variants DPT (PT), OTR (OT), COTA (OTA) so those
+    // clinicians aren't invisible in the rates card.
     const d = String(rr.discipline || "").trim().toUpperCase();
-    if (d !== "PT" && d !== "PTA" && d !== "OT" && d !== "OTA") return;
+    if (d !== "PT" && d !== "DPT" && d !== "PTA" &&
+        d !== "OT" && d !== "OTR" && d !== "OTA" && d !== "COTA") return;
     rows.push({
       lookup_key: rr.lookup_key,
       display:    rr.name,
@@ -4617,13 +4631,15 @@ async function handleCprPayRatesImportFile(file) {
         return;
       }
       const d = (row._file_disc || rosterHit.discipline || "").trim().toUpperCase();
-      // Pick rate fields based on discipline
-      if (d === "PT") {
+      // Pick rate fields based on discipline. Credential variants map to
+      // their family: DPT→PT, OTR→OT, COTA→OTA (kept in sync with
+      // cprEvalCodesFor / cprIsPtOrOtSupervisor).
+      if (d === "PT" || d === "DPT") {
         if (row.ptf == null && row.pte == null) { row._action = "skip-no-rates"; return; }
         row._new_rate      = row.ptf;
         row._new_eval_rate = row.pte;
         row._action = "write-supervisor";
-      } else if (d === "OT") {
+      } else if (d === "OT" || d === "OTR") {
         if (row.otf == null && row.ote == null) { row._action = "skip-no-rates"; return; }
         row._new_rate      = row.otf;
         row._new_eval_rate = row.ote;
@@ -4633,7 +4649,7 @@ async function handleCprPayRatesImportFile(file) {
         row._new_rate      = row.ptfa;
         row._new_eval_rate = null;
         row._action = "write-assistant";
-      } else if (d === "OTA") {
+      } else if (d === "OTA" || d === "COTA") {
         if (row.otfa == null) { row._action = "skip-no-rates"; return; }
         row._new_rate      = row.otfa;
         row._new_eval_rate = null;
