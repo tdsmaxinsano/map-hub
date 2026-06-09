@@ -6309,8 +6309,17 @@ function cprEditMedb(clinName, newRaw) {
 
 // Holds the just-parsed PDF payload + the rate map built for this audit.
 // Lives only while the retro modal is open.
-let cprMedbRetroParsed = null;
+let cprMedbRetroParsed  = null;
 let cprMedbRetroRateMap = null;
+// Verify-and-correct state for the retro modal preview (PR per user
+// request: "we should have it where the user has to verify with a
+// check mark to make sure nothing is missed, and make each field
+// editable for correction"). All keyed by lookup_key.
+let cprRetroVerified     = new Set();   // rows the admin has ticked ✓
+let cprRetroVisitEdits   = new Map();   // visit-count overrides
+let cprRetroEvalEdits    = new Map();   // eval-count overrides
+let cprRetroExtraRows    = [];          // manually-added rows: {lookup_key, display, discipline}
+let cprRetroBypassVerify = false;       // escape hatch when admin clicks "Apply unverified anyway"
 
 function cprOpenMedbRetro() {
   if (!cprViewState || !cprViewState.run) return;
@@ -6318,11 +6327,17 @@ function cprOpenMedbRetro() {
     alert("Reopen the audit first — Med B updates need an editable run.");
     return;
   }
-  cprMedbRetroParsed = null;
+  cprMedbRetroParsed  = null;
   cprMedbRetroRateMap = null;
   // Reset alias maps so the retro modal's UX matches the import modal's.
-  cprAliasMap = new Map();
+  cprAliasMap     = new Map();
   cprAliasPending = new Map();
+  // Reset verify/correct state for a fresh PDF drop.
+  cprRetroVerified     = new Set();
+  cprRetroVisitEdits   = new Map();
+  cprRetroEvalEdits    = new Map();
+  cprRetroExtraRows    = [];
+  cprRetroBypassVerify = false;
   document.getElementById("cpr-medb-retro-file-input").value = "";
   document.getElementById("cpr-medb-retro-status").innerHTML = "● Awaiting Strata PDF…";
   document.getElementById("cpr-medb-retro-status").style.color = "var(--muted)";
@@ -6357,8 +6372,13 @@ function cprOpenMedbRetro() {
 
 function cprCloseMedbRetro() {
   document.getElementById("cpr-medb-retro-overlay").style.display = "none";
-  cprMedbRetroParsed = null;
+  cprMedbRetroParsed  = null;
   cprMedbRetroRateMap = null;
+  cprRetroVerified     = new Set();
+  cprRetroVisitEdits   = new Map();
+  cprRetroEvalEdits    = new Map();
+  cprRetroExtraRows    = [];
+  cprRetroBypassVerify = false;
 }
 
 function showCprMedbRetroError(html) {
@@ -6565,12 +6585,16 @@ function renderCprMedbRetroPreview() {
   // Per-clinician table — show rows where Strata has visits OR where
   // the current row already has Med B (so user sees both "what will
   // change" and "what was already set").
-  html += '<div style="font-size:11px;color:var(--muted);margin:4px 0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;">Preview — Med B will be replaced for matched clinicians · split into F-up + Eval where applicable</div>';
-  html += '<div style="max-height:340px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
+  html += '<div style="font-size:11px;color:var(--muted);margin:4px 0;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
+    '<span>Preview — verify each row · Vis / Eval are editable · use ＋Add for clinicians the PDF missed</span>' +
+    '<button type="button" id="cpr-retro-verify-all" style="font-size:10px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;padding:2px 8px;border-radius:5px;cursor:pointer;font-family:inherit;text-transform:none;letter-spacing:0;">✓ Verify all</button>' +
+    '</div>';
+  html += '<div style="max-height:380px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
   html += '<table class="cpr-per-clin-table"><thead><tr>' +
+    '<th style="text-align:center;width:32px;" title="Tick each row to confirm visits + eval count are correct">✓</th>' +
     '<th>Clinician</th><th>Disc</th>' +
-    '<th class="cpr-num" title="Total Strata visits this period">Vis</th>' +
-    '<th class="cpr-num" title="Visits at the EVAL rate (CPT 97161-97164 for PT, 97165-97168 for OT)">Eval</th>' +
+    '<th class="cpr-num" title="Strata visits — click to edit if parser got it wrong">Vis</th>' +
+    '<th class="cpr-num" title="Eval visits (CPT 97161-97164 PT / 97165-97168 OT) — editable">Eval</th>' +
     '<th class="cpr-num" title="Follow-up visits (Vis − Eval)">F-up</th>' +
     '<th class="cpr-num" title="Follow-up per-visit rate (PTF / OTF / PTFA / OTFA)">$ F-up</th>' +
     '<th class="cpr-num" title="Eval per-visit rate (PTE / OTE) · disabled for assistants">$ Eval</th>' +
@@ -6620,10 +6644,18 @@ function renderCprMedbRetroPreview() {
     const disc       = opts.discipline;
     const cur        = opts.current;
     const isMedbOnly = !!opts.medbOnly;
-    const sv         = visitsByKey[k] || 0;
-    let   ec         = evalByKey  [k] || 0;
+    const isExtra    = !!opts.isExtra;   // manually added by admin
+    // Resolve Vis + Eval: edit map wins over parsed value.
+    const parsedSv   = visitsByKey[k] || 0;
+    const parsedEc   = evalByKey  [k] || 0;
+    const sv = cprRetroVisitEdits.has(k)
+      ? Math.max(0, Number(cprRetroVisitEdits.get(k)) || 0)
+      : parsedSv;
+    let   ec = cprRetroEvalEdits.has(k)
+      ? Math.max(0, Number(cprRetroEvalEdits.get(k)) || 0)
+      : parsedEc;
     if (ec > sv) ec = sv;
-    const fuc        = Math.max(0, sv - ec);
+    const fuc = Math.max(0, sv - ec);
     const meta       = rateMap.get(k);
     const rr         = resolveRetroRatePair(k, meta);
     const newMedb    = computeMedbForClin(sv, ec, rr.rate, rr.eval_rate);
@@ -6650,24 +6682,55 @@ function renderCprMedbRetroPreview() {
         sv + ' × ' + cprFmtMoney(rr.rate) +
         '</div>';
     }
-    const evalCellHtml = isAsst
+    // Editable Vis + Eval cells. Number input wired in event-delegation
+    // block at end of render. Eval is hidden for assistants (— em-dash).
+    const visInput =
+      '<input type="number" min="0" step="1" class="cpr-retro-vis-input" ' +
+        'data-clin-key="' + escAttr(k) + '" data-field="visits" ' +
+        'value="' + sv + '" ' +
+        'style="width:48px;padding:2px 4px;font-size:11px;border:1px solid #cbd5e1;border-radius:4px;text-align:right;" />';
+    const evalInput = isAsst
       ? '<span style="color:#cbd5e1;">—</span>'
-      : (sv > 0 ? ec : '<span style="color:#cbd5e1;">—</span>');
-    const fuCellHtml = sv > 0 ? fuc : '<span style="color:#cbd5e1;">—</span>';
-    const visCellHtml = sv > 0 ? sv  : '<span style="color:#cbd5e1;">—</span>';
-    const rowAttrs = isMedbOnly ? ' style="background:#f5f8ff;"' : '';
-    const nameCell = isMedbOnly
-      ? escHtml(display) + ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only · new</span>'
-      : escHtml(display);
+      : '<input type="number" min="0" step="1" class="cpr-retro-vis-input" ' +
+        'data-clin-key="' + escAttr(k) + '" data-field="eval" ' +
+        'value="' + ec + '" max="' + sv + '" ' +
+        'style="width:48px;padding:2px 4px;font-size:11px;border:1px solid ' + (ec > 0 ? '#c4b5fd' : '#cbd5e1') + ';border-radius:4px;text-align:right;' + (ec > 0 ? 'color:#7c3aed;font-weight:700;' : '') + '" />';
+    const fuCellHtml  = sv > 0 ? fuc : '<span style="color:#cbd5e1;">—</span>';
+
+    // ✓ verify checkbox — controlled by cprRetroVerified Set.
+    const verified = cprRetroVerified.has(k);
+    const verifyCell =
+      '<input type="checkbox" class="cpr-retro-verify-cb" ' +
+        'data-clin-key="' + escAttr(k) + '" ' +
+        (verified ? 'checked' : '') +
+        ' style="cursor:pointer;width:16px;height:16px;" />';
+
+    let rowBg = "";
+    if (isExtra)         rowBg = "background:#fefce8;";
+    else if (isMedbOnly) rowBg = "background:#f5f8ff;";
+    if (verified)        rowBg = "background:#ecfdf5;";
+    const rowAttrs = rowBg ? ' style="' + rowBg + '"' : '';
+
+    let nameCellChips = "";
+    if (isExtra)         nameCellChips = ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;background:#fde68a;color:#78350f;">manual</span>';
+    else if (isMedbOnly) nameCellChips = ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only · new</span>';
+    const nameCell = escHtml(display) + nameCellChips;
+
+    // For manual rows, render a tiny ✕ remove button next to the name
+    // so the admin can undo an accidental add.
+    const removeBtn = isExtra
+      ? ' <button type="button" class="cpr-retro-extra-remove" data-clin-key="' + escAttr(k) + '" title="Remove this manually-added clinician" style="font-size:10px;background:transparent;border:1px solid #fbbf24;color:#92400e;padding:0 4px;border-radius:4px;cursor:pointer;margin-left:4px;">✕</button>'
+      : '';
 
     return {
       newMedb: newMedb,
       html:
         '<tr' + rowAttrs + '>' +
-          '<td>' + nameCell + '</td>' +
+          '<td style="text-align:center;">' + verifyCell + '</td>' +
+          '<td>' + nameCell + removeBtn + '</td>' +
           '<td>' + escHtml(disc || "") + '</td>' +
-          '<td class="cpr-num">' + visCellHtml + '</td>' +
-          '<td class="cpr-num"' + (ec > 0 ? ' style="color:#7c3aed;font-weight:700;"' : '') + '>' + evalCellHtml + '</td>' +
+          '<td class="cpr-num">' + visInput + '</td>' +
+          '<td class="cpr-num">' + evalInput + '</td>' +
           '<td class="cpr-num">' + fuCellHtml + '</td>' +
           '<td class="cpr-num">' + buildRetroRateCell(k, meta ? meta.rate : null, "rate", false) + '</td>' +
           '<td class="cpr-num">' + buildRetroRateCell(k, meta ? meta.eval_rate : null, "eval_rate", isAsst) + '</td>' +
@@ -6680,15 +6743,19 @@ function renderCprMedbRetroPreview() {
   let newTotal = 0;
   let oldTotal = 0;
   let touchedCount = 0;
+  // Track keys in the table so the "+ Add" picker can filter them out.
+  const renderedKeys = new Set();
   perClin.forEach(function(c) {
+    const k = cprClinLookupKey(c.clinician);
     const out = renderRetroRow({
-      lookup_key: cprClinLookupKey(c.clinician),
+      lookup_key: k,
       display:    c.clinician,
       discipline: c.discipline || "",
       current:    Number(c.medb_total) || 0,
       medbOnly:   false
     });
     if (!out) return;
+    renderedKeys.add(k);
     touchedCount++;
     newTotal += out.newMedb;
     oldTotal += Number(c.medb_total) || 0;
@@ -6707,19 +6774,167 @@ function renderCprMedbRetroPreview() {
       medbOnly:   true
     });
     if (!out) return;
+    renderedKeys.add(srow.lookup_key);
     touchedCount++;
     newTotal += out.newMedb;
     html += out.html;
   });
+  // Manually-added rows (cprRetroExtraRows) — covers clinicians the
+  // parser dropped entirely (Krzysztof) or the mystery row whose name
+  // PDF.js never extracted.
+  cprRetroExtraRows.forEach(function(extra) {
+    if (renderedKeys.has(extra.lookup_key)) return;   // dedupe
+    const out = renderRetroRow({
+      lookup_key: extra.lookup_key,
+      display:    extra.display,
+      discipline: extra.discipline,
+      current:    0,
+      medbOnly:   true,
+      isExtra:    true
+    });
+    if (!out) return;
+    renderedKeys.add(extra.lookup_key);
+    touchedCount++;
+    newTotal += out.newMedb;
+    html += out.html;
+  });
+
+  // "+ Add missing clinician" footer row — roster typeahead via a
+  // <select> filtered to clinicians not in the current preview.
+  const rosterPool = (cprRoster || []).filter(function(rc) {
+    if (!rc.lookup_key || renderedKeys.has(rc.lookup_key)) return false;
+    if (!cprShowInactive && rc.status === "Inactive") return false;
+    return true;
+  });
+  const addOptions = rosterPool.length
+    ? rosterPool.map(function(rc) {
+        const statusTag = rc.status && rc.status !== "Active" ? " · " + rc.status.toLowerCase() : "";
+        return '<option value="' + escAttr(rc.lookup_key) + '">' +
+          escHtml(rc.name) + (rc.discipline ? " (" + escHtml(rc.discipline) + ")" : "") + statusTag + '</option>';
+      }).join("")
+    : '<option value="" disabled>(no more roster clinicians)</option>';
+
+  html += '<tr style="background:#fffbeb;border-top:2px dashed #fbbf24;">' +
+    '<td colspan="3" style="padding:6px 8px;">' +
+      '<label style="font-size:11px;color:#78350f;font-weight:700;display:flex;align-items:center;gap:6px;">' +
+        '<span style="font-size:16px;">＋</span> Add missing clinician' +
+      '</label>' +
+    '</td>' +
+    '<td colspan="6" style="padding:6px 8px;">' +
+      '<select id="cpr-retro-add-picker" style="width:100%;padding:3px 6px;font-size:11px;border:1px solid #fbbf24;border-radius:4px;background:#fff;">' +
+        '<option value="">— Pick from roster… —</option>' +
+        addOptions +
+      '</select>' +
+    '</td>' +
+    '<td></td>' +
+  '</tr>';
+
   html += '</tbody><tfoot><tr>' +
-    '<td colspan="7">TOTAL — ' + touchedCount + ' clinicians touched</td>' +
+    '<td colspan="8">TOTAL — ' + touchedCount + ' clinicians touched</td>' +
     '<td class="cpr-num" style="color:#475569;">' + cprFmtMoney(oldTotal) + '</td>' +
     '<td class="cpr-num" style="color:#1B5E20;font-weight:700;">' + cprFmtMoney(newTotal) + '</td>' +
   '</tr></tfoot></table></div>';
 
+  // Verification counter — shown below the table, gates Apply button.
+  const verifiedCount = Array.from(cprRetroVerified).filter(function(k) { return renderedKeys.has(k); }).length;
+  const allVerified   = touchedCount > 0 && verifiedCount === touchedCount;
+  html += '<div style="margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;' +
+    (allVerified ? 'background:#ecfdf5;border:1px solid #86efac;color:#065f46;' : 'background:#fef3c7;border:1px solid #f59e0b;color:#78350f;') +
+    '">' +
+    '<div>' +
+      (allVerified ? '<strong>✓ All ' + touchedCount + ' row(s) verified</strong> — ready to Apply.' :
+        '<strong>✓ ' + verifiedCount + ' of ' + touchedCount + ' verified</strong> — tick the ✓ on every row before Apply unlocks.') +
+    '</div>' +
+    (allVerified ? '' :
+      '<button type="button" id="cpr-retro-verify-skip" style="font-size:10px;background:#fff;border:1px solid #f59e0b;color:#78350f;padding:3px 8px;border-radius:5px;cursor:pointer;font-family:inherit;">Apply unverified anyway</button>'
+    ) +
+    '</div>';
+
   wrap.innerHTML = html;
   wrap.style.display = "block";
-  document.getElementById("cpr-medb-retro-apply").disabled = false;
+  // Apply is GATED on full verification. The "Apply unverified anyway"
+  // escape hatch (rendered above) flips a bypass flag if the admin
+  // chooses to override.
+  const applyBtn = document.getElementById("cpr-medb-retro-apply");
+  if (applyBtn) {
+    applyBtn.disabled = !allVerified && !cprRetroBypassVerify;
+    applyBtn.title = applyBtn.disabled
+      ? "Tick ✓ on every row first (or click 'Apply unverified anyway' to bypass)"
+      : "";
+  }
+  // Wire ✓ checkboxes — toggle the verified set + re-render so the
+  // counter + Apply gate update.
+  Array.from(wrap.querySelectorAll(".cpr-retro-verify-cb")).forEach(function(cb) {
+    cb.addEventListener("change", function(e) {
+      const k = e.currentTarget.getAttribute("data-clin-key") || "";
+      if (!k) return;
+      if (e.currentTarget.checked) cprRetroVerified.add(k);
+      else                          cprRetroVerified.delete(k);
+      renderCprMedbRetroPreview();
+    });
+  });
+  // Wire ✓ Verify all button — ticks every row.
+  const verifyAllBtn = document.getElementById("cpr-retro-verify-all");
+  if (verifyAllBtn) {
+    verifyAllBtn.addEventListener("click", function() {
+      Array.from(wrap.querySelectorAll(".cpr-retro-verify-cb")).forEach(function(cb) {
+        const k = cb.getAttribute("data-clin-key") || "";
+        if (k) cprRetroVerified.add(k);
+      });
+      renderCprMedbRetroPreview();
+    });
+  }
+  // Wire "Apply unverified anyway" escape hatch — flips the bypass and
+  // re-renders, which enables the Apply button.
+  const skipBtn = document.getElementById("cpr-retro-verify-skip");
+  if (skipBtn) {
+    skipBtn.addEventListener("click", function() {
+      if (!confirm("Apply without verifying every row? Med B for unticked clinicians will be saved as-is.")) return;
+      cprRetroBypassVerify = true;
+      renderCprMedbRetroPreview();
+    });
+  }
+  // Wire editable Vis + Eval number inputs.
+  Array.from(wrap.querySelectorAll(".cpr-retro-vis-input")).forEach(function(inp) {
+    inp.addEventListener("change", cprOnRetroVisInputCommit);
+    inp.addEventListener("blur",   cprOnRetroVisInputCommit);
+    inp.addEventListener("keydown", function(e) {
+      if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
+    });
+  });
+  // Wire the "+ Add missing clinician" picker.
+  const addPicker = document.getElementById("cpr-retro-add-picker");
+  if (addPicker) {
+    addPicker.addEventListener("change", function(e) {
+      const k = e.target.value;
+      if (!k) return;
+      const rosterHit = (cprRoster || []).find(function(rc) { return rc.lookup_key === k; });
+      if (!rosterHit) return;
+      // Don't dupe if already present in any list.
+      if (cprRetroExtraRows.some(function(r) { return r.lookup_key === k; })) return;
+      cprRetroExtraRows.push({
+        lookup_key: k,
+        display:    rosterHit.name,
+        discipline: rosterHit.discipline
+      });
+      // Default to 1 visit so the row has something useful out of the
+      // gate; admin will type the real number.
+      if (!cprRetroVisitEdits.has(k)) cprRetroVisitEdits.set(k, 1);
+      renderCprMedbRetroPreview();
+    });
+  }
+  // Wire ✕ remove on manually-added rows.
+  Array.from(wrap.querySelectorAll(".cpr-retro-extra-remove")).forEach(function(btn) {
+    btn.addEventListener("click", function(e) {
+      const k = e.currentTarget.getAttribute("data-clin-key") || "";
+      if (!k) return;
+      cprRetroExtraRows = cprRetroExtraRows.filter(function(r) { return r.lookup_key !== k; });
+      cprRetroVisitEdits.delete(k);
+      cprRetroEvalEdits.delete(k);
+      cprRetroVerified.delete(k);
+      renderCprMedbRetroPreview();
+    });
+  });
   // Wire alias-picker change handlers (retro modal version — same
   // logic as the import-modal picker but targets cprMedbRetroParsed).
   Array.from(wrap.querySelectorAll(".cpr-retro-alias-picker")).forEach(function(sel) {
@@ -6755,6 +6970,31 @@ function renderCprMedbRetroPreview() {
       renderCprMedbRetroPreview();
     });
   }
+}
+
+// Retro-modal visits/eval input commit — visit-count correction when
+// the parser got it wrong. Routes to cprRetroVisitEdits or
+// cprRetroEvalEdits depending on data-field, then re-renders so New
+// Med B recomputes live. Auto-clamps eval ≤ visits.
+function cprOnRetroVisInputCommit(e) {
+  const inp = e.currentTarget;
+  const k   = inp.getAttribute("data-clin-key") || "";
+  if (!k) return;
+  const field = inp.getAttribute("data-field") || "visits";
+  const editsMap = field === "eval" ? cprRetroEvalEdits : cprRetroVisitEdits;
+  const raw = inp.value;
+  if (raw === "" || raw == null) {
+    editsMap.delete(k);
+  } else {
+    const n = Math.max(0, Math.round(Number(raw) || 0));
+    editsMap.set(k, n);
+    // Auto-clamp eval to visits when visits change down.
+    if (field === "visits" && cprRetroEvalEdits.has(k)) {
+      const ec = Number(cprRetroEvalEdits.get(k)) || 0;
+      if (ec > n) cprRetroEvalEdits.set(k, n);
+    }
+  }
+  renderCprMedbRetroPreview();
 }
 
 // Retro-modal rate input commit. Same pattern as cprOnRateInputCommit
@@ -6815,12 +7055,25 @@ function cprApplyMedbRetro() {
   if (!r || r.status !== "open" || !cprMedbRetroParsed) return;
   const rateMap = cprMedbRetroRateMap || cprComputeDerivedRates(r);
   // Sum Strata visits + eval counts by lookup_key (migration 38).
+  // Then apply per-row overrides (cprRetroVisitEdits / cprRetroEvalEdits)
+  // — admin's typed correction wins over the parser's extracted value.
   const visitsByKey = Object.create(null);
   const evalByKey   = Object.create(null);
   cprMedbRetroParsed.rows.forEach(function(row) {
     if (!row.lookup_key) return;
     visitsByKey[row.lookup_key] = (visitsByKey[row.lookup_key] || 0) + (Number(row.visits_billed) || 0);
     evalByKey  [row.lookup_key] = (evalByKey  [row.lookup_key] || 0) + (Number(row.eval_count   ) || 0);
+  });
+  // Apply visit/eval edits — admin's typed value wins.
+  cprRetroVisitEdits.forEach(function(v, k) {
+    visitsByKey[k] = Math.max(0, Number(v) || 0);
+  });
+  cprRetroEvalEdits.forEach(function(v, k) {
+    evalByKey[k] = Math.max(0, Number(v) || 0);
+  });
+  // Defensive: clamp eval ≤ visits for every key.
+  Object.keys(visitsByKey).forEach(function(k) {
+    if ((evalByKey[k] || 0) > visitsByKey[k]) evalByKey[k] = visitsByKey[k];
   });
   // Rate resolver: admin's typed rate (cprRateEdits + cprRateEditsEval)
   // wins over memory. Returns {rate, eval_rate}.
@@ -6888,6 +7141,33 @@ function cprApplyMedbRetro() {
       adjustments:     [],
       medb_total:      amt,
       medb_source:     amt > 0 ? "Strata" : null,
+      _medb_only:      true
+    });
+  });
+  // (3) Append manually-added rows (cprRetroExtraRows) — clinicians the
+  // admin added through the "+ Add missing clinician" picker because the
+  // PDF parser couldn't extract them (Krzysztof's collapsed data row,
+  // the unnamed mystery clinician). Use the override visit count as the
+  // source of truth.
+  cprRetroExtraRows.forEach(function(extra) {
+    const k = extra.lookup_key;
+    if (!k || existingKeys.has(k)) return;
+    existingKeys.add(k);
+    const sv  = Math.max(0, Number(cprRetroVisitEdits.get(k)) || 0);
+    const ec  = Math.max(0, Math.min(sv, Number(cprRetroEvalEdits.get(k)) || 0));
+    const rr  = resolveRate(k);
+    const amt = computeMedbForClin(sv, ec, rr.rate, rr.eval_rate);
+    r.per_clinician_payload.push({
+      clinician:       extra.display,
+      discipline:      extra.discipline,
+      visits:          0,
+      payable:         0,
+      nonpayable:      0,
+      pay_total:       0,
+      expenses_total:  0,
+      adjustments:     [],
+      medb_total:      amt,
+      medb_source:     amt > 0 ? "Strata (manual)" : null,
       _medb_only:      true
     });
   });
