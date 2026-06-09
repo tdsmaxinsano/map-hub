@@ -2798,8 +2798,10 @@ function renderCprMedbStatus() {
   const totalV = cprPreparedMedb.total_visits || 0;
   const dr     = cprPreparedMedb.date_range;
   const drLabel = dr ? ' · <strong>' + escHtml(dr.raw) + '</strong>' : '';
+  const rt      = cprPreparedMedb.report_totals;
+  const rtLabel = rt ? ' · report total: <strong>' + rt.total_visits + ' visits</strong>' : '';
   el.innerHTML = "● Loaded <strong>" + cprPreparedMedb.rows.length + "</strong> clinician" +
-    (cprPreparedMedb.rows.length === 1 ? "" : "s") + " · <strong>" + totalV + "</strong> total visits" + drLabel +
+    (cprPreparedMedb.rows.length === 1 ? "" : "s") + " · <strong>" + totalV + "</strong> total visits" + drLabel + rtLabel +
     (cprPreparedMedb.source_filename ? ' <span style="color:var(--muted);">(' + escHtml(cprPreparedMedb.source_filename) + ')</span>' : '');
 }
 
@@ -3466,19 +3468,84 @@ async function cprParseStrataPdf(arrayBuffer) {
   // DD, YYYY" pattern. Returns null if neither matches.
   const dateRange = extractStrataDateRange(lines);
 
+  // Extract the printed "Combined Staff Totals → Visits Billed" number — the
+  // report's own ground truth for total visits this period. We reconcile the
+  // assigned visit total against THIS, so the user can prove nothing is
+  // missed even when PDF.js drops rows. (Only the visits integer — the
+  // dollar total is unreliable per the user, so it's intentionally ignored.)
+  const reportTotals = extractStrataTotals(lines);
+
+  // Enumerate every canonical data row (a line that starts with
+  // "<int> $<dollar>.XX" — the Visits-Billed + Total-Billed cell pair) and
+  // flag those NOT claimed by any clinician name. These are rows PDF.js
+  // emitted but the parser couldn't attach to a name — they're exactly what
+  // the user must add manually to reach the printed total. `consumed` holds
+  // the line indices already claimed by findVisits.
+  const DATA_ROW_RE = /^(\d+)\s+\$[\d,]+\.\d{2}\b/;
+  const orphanDataRows = [];
+  for (let j = 0; j < lines.length; j++) {
+    const ln = lines[j];
+    if (!ln || consumed.has(j)) continue;
+    if (/combined staff/i.test(ln)) continue;   // totals line, not a clinician
+    const dm = DATA_ROW_RE.exec(ln);
+    if (!dm) continue;
+    const visits = parseInt(dm[1], 10);
+    if (!Number.isFinite(visits) || visits <= 0) continue;
+    // Grab a few CPT codes near this row so the user can identify the card.
+    const cptBits = [];
+    for (let k = j; k < Math.min(j + 10, lines.length); k++) {
+      const cl = lines[k];
+      if (!cl) continue;
+      if (k !== j && isStaffLine(cl)) break;
+      const cpt = /\b(\d{5})\s*x[^\d]{0,40}?(\d+)\b/g;
+      let cc;
+      while ((cc = cpt.exec(cl)) !== null) {
+        cptBits.push(cc[1] + "×" + cc[2]);
+        if (cptBits.length >= 4) break;
+      }
+      if (cptBits.length >= 4) break;
+    }
+    orphanDataRows.push({ visits: visits, breakdown: cptBits.join(" / ") });
+  }
+
   // Stash the reconstructed lines + parsed rows on the window for
   // post-mortem inspection (UI "🔎 Parser trace" button reads this).
   // Cheap — under 50KB for a typical 3-page Strata report.
   try {
     window._cprLastParse = {
-      timestamp:   new Date().toISOString(),
-      lines:       lines.slice(),       // copy so later mutations don't leak in
-      parsed_rows: rows.slice(),
-      date_range:  dateRange
+      timestamp:     new Date().toISOString(),
+      lines:         lines.slice(),       // copy so later mutations don't leak in
+      parsed_rows:   rows.slice(),
+      date_range:    dateRange,
+      report_totals: reportTotals,
+      orphan_data_rows: orphanDataRows.slice()
     };
   } catch (_) { /* best-effort */ }
 
-  return { rows: rows, date_range: dateRange };
+  return {
+    rows:             rows,
+    date_range:       dateRange,
+    report_totals:    reportTotals,
+    orphan_data_rows: orphanDataRows
+  };
+}
+
+// Pulls the "Combined Staff Totals → Visits Billed" number out of the
+// reconstructed line list. This is the report's authoritative total-visits
+// figure, used for reconciliation. Returns { total_visits } or null.
+//
+// The line renders as "Combined Staff 52 $12,780.00 210 …" (the "Totals"
+// label often wraps to the next line, and the visits integer "52" comes
+// immediately after "Combined Staff"). Joining all lines into one haystack
+// makes the match robust to wherever the label/number wrap. We deliberately
+// capture ONLY the visits integer — the dollar total is unreliable.
+function extractStrataTotals(lines) {
+  const hay = (lines || []).join(" ").replace(/\s+/g, " ");
+  const m = /combined staff\s+(?:totals\s+)?(\d+)\b/i.exec(hay);
+  if (!m) return null;
+  const v = parseInt(m[1], 10);
+  if (!Number.isFinite(v) || v < 0) return null;
+  return { total_visits: v };
 }
 
 // Returns banner HTML comparing a parsed Strata Date Range against the
@@ -3609,6 +3676,10 @@ async function handleCprMedbPdf(file) {
       // PDF-header Date Range — used to warn when the Strata range doesn't
       // match the TB Prepare-payroll period the audit is being created for.
       date_range:      parsed.date_range || null,
+      // Report's printed Visits-Billed total + orphan (unassigned) data
+      // rows — drive the reconciliation banner.
+      report_totals:    parsed.report_totals || null,
+      orphan_data_rows: parsed.orphan_data_rows || [],
       unmatched:       []
     };
     // Apply alias memory (migration 36) — rewrites each row's
@@ -4809,6 +4880,26 @@ function renderCprImportPreview() {
   // Strata report that spans a different window than the TB Excel.
   if (cprPreparedMedb) {
     html += cprBuildDateRangeBanner(cprPreparedMedb.date_range, p.period_start, p.period_end);
+    // Reconciliation note — compare parsed Strata visits against the report's
+    // own printed Visits-Billed total. Informational here (the initial-import
+    // flow has no ＋Add machinery); the 🩺 Add/Update Med B modal is where
+    // gaps get filled + hard-gated. Surfaces a short-parse early.
+    const irt = cprPreparedMedb.report_totals;
+    if (irt && irt.total_visits != null) {
+      const parsedV = cprPreparedMedb.total_visits || 0;
+      if (parsedV === irt.total_visits) {
+        html += '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#ecfdf5;border:1px solid #86efac;color:#065f46;">' +
+          '<strong>✓ Reconciled:</strong> parsed ' + parsedV + ' of ' + irt.total_visits + ' printed visits.' +
+          '</div>';
+      } else {
+        const gap = irt.total_visits - parsedV;
+        html += '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;">' +
+          '<strong>⚠ Parsed ' + parsedV + ' of ' + irt.total_visits + ' printed visits' +
+          (gap > 0 ? ' — ' + gap + ' unaccounted' : ' — ' + Math.abs(gap) + ' over') + '.</strong> ' +
+          'After saving, open the audit → <strong>🩺 Add / Update Strata Med B</strong> to reconcile the missing clinician(s).' +
+          '</div>';
+      }
+    }
   }
 
   // Strata Med B unmatched-names — surface a dropdown picker for each
@@ -4890,11 +4981,32 @@ function renderCprImportPreview() {
                 '</button>' +
               '</div>';
           } else {
+            // Smart suggestion — fuzzy-match against the TB+roster options.
+            // Pre-select a confident match + offer one-click ✓ Confirm.
+            const suggestion = cprSuggestMatch(u.display, tbOptions);
+            const hasSuggest = suggestion && suggestion.score >= CPR_SUGGEST_THRESHOLD;
+            const suggestKey = hasSuggest ? suggestion.option.value : "";
+            const optsWithSel = tbOptions.map(function(o) {
+              const sel = (o.value === suggestKey) ? " selected" : "";
+              return '<option value="' + escAttr(o.value) + '"' + sel + '>' + escHtml(o.label) + '</option>';
+            }).join("");
+            const skipSel = hasSuggest ? "" : " selected";
+            let suggestHint = "";
+            if (hasSuggest) {
+              const pct = Math.round(suggestion.score * 100);
+              suggestHint =
+                '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">' +
+                  '<span style="font-size:10.5px;color:#1d4ed8;">💡 Suggested: <strong>' + escHtml(suggestion.option.label) + '</strong> <span style="color:#94a3b8;">(' + pct + '% match)</span></span>' +
+                  '<button type="button" class="cpr-import-suggest-confirm" data-strata-key="' + escAttr(u.sk) + '" data-strata-display="' + escAttr(u.display) + '" data-tb-key="' + escAttr(suggestKey) + '" ' +
+                    'style="font-size:10px;padding:1px 8px;border:1px solid #1d4ed8;border-radius:4px;background:#eff6ff;color:#1d4ed8;cursor:pointer;font-weight:700;">✓ Confirm</button>' +
+                '</div>';
+            }
             actionCell =
-              '<select class="cpr-alias-picker" data-strata-key="' + escAttr(u.sk) + '" data-strata-display="' + escAttr(u.display) + '" style="font-size:11px;padding:2px 4px;border:1px solid #ffb74d;border-radius:4px;background:#fff;max-width:240px;">' +
-                '<option value="">— Skip (no match) —</option>' +
-                optionsHtml +
-              '</select>';
+              '<select class="cpr-alias-picker" data-strata-key="' + escAttr(u.sk) + '" data-strata-display="' + escAttr(u.display) + '" style="font-size:11px;padding:2px 4px;border:1px solid ' + (hasSuggest ? '#93c5fd' : '#ffb74d') + ';border-radius:4px;background:#fff;max-width:240px;">' +
+                '<option value=""' + skipSel + '>— Skip (no match) —</option>' +
+                optsWithSel +
+              '</select>' +
+              suggestHint;
           }
           return '<tr' + rowStyle + '>' +
             '<td style="padding:4px 6px;' + nameColor + '">' + escHtml(u.display) + '</td>' +
@@ -5048,6 +5160,24 @@ function renderCprImportPreview() {
   // Wire alias-picker change handlers (migration 36).
   Array.from(wrap.querySelectorAll(".cpr-alias-picker")).forEach(function(sel) {
     sel.addEventListener("change", cprOnAliasPickerChange);
+  });
+  // Wire ✓ Confirm buttons on smart suggestions (import-modal version) —
+  // commits the pre-selected suggestion through the same alias-pick path.
+  Array.from(wrap.querySelectorAll(".cpr-import-suggest-confirm")).forEach(function(btn) {
+    btn.addEventListener("click", function(e) {
+      const t = e.currentTarget;
+      const sk = t.getAttribute("data-strata-key") || "";
+      const tbKey = t.getAttribute("data-tb-key") || "";
+      const strataDisplay = t.getAttribute("data-strata-display") || "";
+      if (!sk || !tbKey) return;
+      const matchedTb = (cprPrepared ? cprPrepared.per_clinician_payload : [])
+        .find(function(c) { return cprClinLookupKey(c.clinician) === tbKey; });
+      const rosterHit = cprRoster.find(function(rc) { return rc.lookup_key === tbKey; });
+      const tbDisplay = matchedTb ? matchedTb.clinician : rosterHit ? rosterHit.name : tbKey;
+      cprAliasPending.set(sk, { tb_lookup_key: tbKey, tb_display: tbDisplay, strata_display: strataDisplay });
+      if (cprPreparedMedb) cprApplyAliases(cprPreparedMedb);
+      renderCprImportPreview();
+    });
   });
   // Wire Undo buttons on confirmed alias picks (import-modal version).
   Array.from(wrap.querySelectorAll(".cpr-alias-undo-import")).forEach(function(btn) {
@@ -5275,6 +5405,74 @@ function cprClinLookupKey(name) {
     .trim().toLowerCase()
     .replace(/\s+(pt|pta|ot|ota|st|sta|slp|otr|rn|lpn|cna|md|do|dpt|np|pa)$/i, "");
 }
+
+// ── Fuzzy name similarity (for the smart unmatched-name suggester) ────────
+// No string-similarity helper existed in the codebase, so this is a compact
+// purpose-built scorer. Returns 0..1 where 1 is an exact normalized match.
+// Blends two signals so it's robust to the real Strata-vs-TB drift:
+//   • Token-set Jaccard — handles middle-initial drop + first/last swaps
+//     ("Lizabeth B Metzger" vs "Lizabeth Metzger", "Gina M Pelehac" vs
+//     "Gina Pelehac"). Weighted higher because name-order/extra-token noise
+//     is the common case.
+//   • Normalized Levenshtein on the whole normalized string — catches minor
+//     spelling drift the token set misses.
+function cprLevenshtein(a, b) {
+  a = String(a || ""); b = String(b || "");
+  if (a === b) return 0;
+  if (!a.length) return b.length;
+  if (!b.length) return a.length;
+  let prev = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    let cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}
+function cprNameSimilarity(a, b) {
+  // Normalize via the same key logic used everywhere else (lowercase, trim,
+  // strip trailing discipline). Also drop punctuation so "Pelehac," matches.
+  const na = cprClinLookupKey(a).replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  const nb = cprClinLookupKey(b).replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  if (!na || !nb) return 0;
+  if (na === nb) return 1;
+  // Token-set Jaccard (drop 1-char tokens like middle initials).
+  const ta = na.split(" ").filter(function(t) { return t.length > 1; });
+  const tb = nb.split(" ").filter(function(t) { return t.length > 1; });
+  const setB = new Set(tb);
+  let inter = 0;
+  const seen = new Set();
+  ta.forEach(function(t) { if (setB.has(t) && !seen.has(t)) { inter++; seen.add(t); } });
+  const union = new Set(ta.concat(tb)).size || 1;
+  const jaccard = inter / union;
+  // Normalized Levenshtein similarity on the full normalized strings.
+  const dist = cprLevenshtein(na, nb);
+  const lev  = 1 - dist / Math.max(na.length, nb.length);
+  // Blend — token overlap weighted higher (name-order noise dominates).
+  return Math.max(0, Math.min(1, 0.65 * jaccard + 0.35 * lev));
+}
+// Given a raw Strata name and the cprTbClinicianOptions() list, return the
+// best-scoring candidate as { option, score } (or null if no options).
+function cprSuggestMatch(strataName, options) {
+  if (!Array.isArray(options) || !options.length) return null;
+  let best = null, bestScore = -1;
+  options.forEach(function(o) {
+    // Score against the option's label sans the " · roster/paused" tag and
+    // the trailing "(DISC)" so we compare name-to-name.
+    const cleanLabel = String(o.label || "").replace(/\s*·\s*\w+\s*$/, "").replace(/\s*\([^)]*\)\s*$/, "");
+    const s = cprNameSimilarity(strataName, cleanLabel);
+    if (s > bestScore) { bestScore = s; best = o; }
+  });
+  return best ? { option: best, score: bestScore } : null;
+}
+// Confidence threshold above which we pre-select the suggestion. Tuned so
+// "Lizabeth B Metzger" → "Lizabeth Metzger" (token-overlap ~0.8) and
+// "Gina M Pelehac" → "Gina Pelehac" clear it, but unrelated names don't.
+const CPR_SUGGEST_THRESHOLD = 0.6;
 // Module-scope name → {bill, delivery} map, refreshed each time a run is opened.
 let cprPaymentByName = new Map();
 
@@ -6416,7 +6614,11 @@ async function handleCprMedbRetroPdf(file) {
       source_filename: file.name,
       // PDF-header Date Range — used to warn when the Strata range doesn't
       // match the audit's pay period.
-      date_range:      parsed.date_range || null
+      date_range:      parsed.date_range || null,
+      // Report's printed Visits-Billed total + orphan (unassigned) data
+      // rows — drive the reconciliation banner + hard Apply gate.
+      report_totals:    parsed.report_totals || null,
+      orphan_data_rows: parsed.orphan_data_rows || []
     };
     // Apply alias memory (migration 36) before rendering, so learned
     // name mappings auto-resolve "Gina M Pelehac" → "Gina Pelehac".
@@ -6424,9 +6626,11 @@ async function handleCprMedbRetroPdf(file) {
     document.getElementById("cpr-medb-retro-error").style.display = "none";
     const dr = cprMedbRetroParsed.date_range;
     const drLabel = dr ? ' · <strong>' + escHtml(dr.raw) + '</strong>' : '';
+    const rt = cprMedbRetroParsed.report_totals;
+    const rtLabel = rt ? ' · report total: <strong>' + rt.total_visits + ' visits</strong>' : '';
     document.getElementById("cpr-medb-retro-status").innerHTML =
       "● Parsed <strong>" + rows.length + "</strong> clinicians · <strong>" +
-      cprMedbRetroParsed.total_visits + "</strong> total visits" + drLabel;
+      cprMedbRetroParsed.total_visits + "</strong> total visits" + drLabel + rtLabel;
     document.getElementById("cpr-medb-retro-status").style.color = "#1B5E20";
     // Show the parser-trace button so we can debug under-parsed PDFs
     // without devtools. Wires the click handler once.
@@ -6452,9 +6656,19 @@ async function handleCprMedbRetroPdf(file) {
           const lineDump = (dbg.lines || []).map(function(l, i) {
             return String(i).padStart(3, " ") + ": " + l;
           }).join("\n");
+          const parsedSum = (dbg.parsed_rows || []).reduce(function(s, r) { return s + (Number(r.visits_billed) || 0); }, 0);
+          const reportV   = dbg.report_totals ? dbg.report_totals.total_visits : null;
+          const orphanDump = (dbg.orphan_data_rows || []).length
+            ? (dbg.orphan_data_rows || []).map(function(o) {
+                return "    [?] " + o.visits + " vis" + (o.breakdown ? " · " + o.breakdown : "");
+              }).join("\n")
+            : "    (none)";
           traceOut.textContent =
-            "PARSED " + (dbg.parsed_rows || []).length + " CLINICIANS:\n" +
+            "PARSED " + (dbg.parsed_rows || []).length + " CLINICIANS (" + parsedSum + " visits):\n" +
             parsedNames + "\n\n" +
+            "REPORT PRINTED TOTAL: " + (reportV != null ? reportV + " visits" : "(not found)") +
+              (reportV != null ? "  →  " + (parsedSum === reportV ? "✓ reconciled" : "⚠ " + (reportV - parsedSum) + " unaccounted") : "") + "\n\n" +
+            "ORPHAN DATA ROWS (PDF rows with no name):\n" + orphanDump + "\n\n" +
             "DATE RANGE: " + (dbg.date_range ? dbg.date_range.raw : "(not found)") + "\n\n" +
             "RECONSTRUCTED LINES (" + (dbg.lines || []).length + "):\n" +
             lineDump;
@@ -6565,11 +6779,35 @@ function renderCprMedbRetroPreview() {
                 '</button>' +
               '</div>';
           } else {
+            // Smart suggestion — fuzzy-match the Strata name against the TB +
+            // roster option list. If a confident match exists, pre-select it
+            // in the dropdown and offer a one-click ✓ Confirm. Below the
+            // threshold we leave it on Skip (the "if not, then search"
+            // fallback — the user uses the dropdown manually).
+            const suggestion = cprSuggestMatch(u.clinician_raw, tbOptions);
+            const hasSuggest = suggestion && suggestion.score >= CPR_SUGGEST_THRESHOLD;
+            const suggestKey = hasSuggest ? suggestion.option.value : "";
+            const optsWithSel = tbOptions.map(function(o) {
+              const sel = (o.value === suggestKey) ? " selected" : "";
+              return '<option value="' + escAttr(o.value) + '"' + sel + '>' + escHtml(o.label) + '</option>';
+            }).join("");
+            const skipSel = hasSuggest ? "" : " selected";
+            let suggestHint = "";
+            if (hasSuggest) {
+              const pct = Math.round(suggestion.score * 100);
+              suggestHint =
+                '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">' +
+                  '<span style="font-size:10.5px;color:#1d4ed8;">💡 Suggested: <strong>' + escHtml(suggestion.option.label) + '</strong> <span style="color:#94a3b8;">(' + pct + '% match)</span></span>' +
+                  '<button type="button" class="cpr-retro-suggest-confirm" data-strata-key="' + escAttr(sk) + '" data-strata-display="' + escAttr(u.clinician_raw) + '" data-tb-key="' + escAttr(suggestKey) + '" ' +
+                    'style="font-size:10px;padding:1px 8px;border:1px solid #1d4ed8;border-radius:4px;background:#eff6ff;color:#1d4ed8;cursor:pointer;font-weight:700;">✓ Confirm</button>' +
+                '</div>';
+            }
             actionCell =
-              '<select class="cpr-retro-alias-picker" data-strata-key="' + escAttr(sk) + '" data-strata-display="' + escAttr(u.clinician_raw) + '" style="font-size:11px;padding:2px 4px;border:1px solid #ffb74d;border-radius:4px;background:#fff;max-width:240px;">' +
-                '<option value="">— Skip (no match) —</option>' +
-                optionsHtml +
-              '</select>';
+              '<select class="cpr-retro-alias-picker" data-strata-key="' + escAttr(sk) + '" data-strata-display="' + escAttr(u.clinician_raw) + '" style="font-size:11px;padding:2px 4px;border:1px solid ' + (hasSuggest ? '#93c5fd' : '#ffb74d') + ';border-radius:4px;background:#fff;max-width:240px;">' +
+                '<option value=""' + skipSel + '>— Skip (no match) —</option>' +
+                optsWithSel +
+              '</select>' +
+              suggestHint;
           }
           return '<tr' + rowStyle + '>' +
             '<td style="padding:4px 6px;' + strataNameColor + '">' + escHtml(u.clinician_raw) + '</td>' +
@@ -6724,6 +6962,7 @@ function renderCprMedbRetroPreview() {
 
     return {
       newMedb: newMedb,
+      visits:  sv,
       html:
         '<tr' + rowAttrs + '>' +
           '<td style="text-align:center;">' + verifyCell + '</td>' +
@@ -6743,6 +6982,7 @@ function renderCprMedbRetroPreview() {
   let newTotal = 0;
   let oldTotal = 0;
   let touchedCount = 0;
+  let assignedVisits = 0;   // running sum of effective visits across all rows
   // Track keys in the table so the "+ Add" picker can filter them out.
   const renderedKeys = new Set();
   perClin.forEach(function(c) {
@@ -6759,6 +6999,7 @@ function renderCprMedbRetroPreview() {
     touchedCount++;
     newTotal += out.newMedb;
     oldTotal += Number(c.medb_total) || 0;
+    assignedVisits += out.visits || 0;
     html += out.html;
   });
   // Med B-only preview rows — roster-matched clinicians not yet in the
@@ -6777,6 +7018,7 @@ function renderCprMedbRetroPreview() {
     renderedKeys.add(srow.lookup_key);
     touchedCount++;
     newTotal += out.newMedb;
+    assignedVisits += out.visits || 0;
     html += out.html;
   });
   // Manually-added rows (cprRetroExtraRows) — covers clinicians the
@@ -6796,6 +7038,7 @@ function renderCprMedbRetroPreview() {
     renderedKeys.add(extra.lookup_key);
     touchedCount++;
     newTotal += out.newMedb;
+    assignedVisits += out.visits || 0;
     html += out.html;
   });
 
@@ -6835,31 +7078,86 @@ function renderCprMedbRetroPreview() {
     '<td class="cpr-num" style="color:#1B5E20;font-weight:700;">' + cprFmtMoney(newTotal) + '</td>' +
   '</tr></tfoot></table></div>';
 
+  // ── Reconciliation banner — assigned visits vs the report's printed
+  // Visits-Billed total. This is the hard accuracy gate: nothing applies
+  // until the assigned total matches what Strata itself printed. ───────────
+  const rt          = cprMedbRetroParsed.report_totals;
+  const printedV    = rt ? rt.total_visits : null;
+  const orphanRows  = cprMedbRetroParsed.orphan_data_rows || [];
+  let reconciled    = true;   // when no printed total, fall back to verify-only gate
+  if (printedV != null) {
+    reconciled = (assignedVisits === printedV);
+    if (reconciled) {
+      html += '<div style="margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#ecfdf5;border:1px solid #86efac;color:#065f46;">' +
+        '<strong>✓ Reconciled:</strong> ' + assignedVisits + ' of ' + printedV + ' visits assigned — matches the report total.' +
+        '</div>';
+    } else if (assignedVisits < printedV) {
+      const gap = printedV - assignedVisits;
+      let orphanHint = '';
+      if (orphanRows.length) {
+        orphanHint = '<div style="margin-top:6px;font-size:11px;color:#7f1d1d;">' +
+          'Unassigned in the PDF — use <strong>＋Add missing clinician</strong> below to assign:' +
+          '<ul style="margin:3px 0 0;padding-left:18px;">' +
+          orphanRows.map(function(o) {
+            return '<li>' + o.visits + ' visit' + (o.visits === 1 ? '' : 's') +
+              (o.breakdown ? ' · <span style="color:#9a3412;">' + escHtml(o.breakdown) + '</span>' : '') + '</li>';
+          }).join("") +
+          '</ul></div>';
+      }
+      html += '<div style="margin-top:8px;padding:10px 12px;border-radius:8px;font-size:12px;background:#fef2f2;border:1px solid #fca5a5;color:#991b1b;">' +
+        '<strong>⚠ ' + assignedVisits + ' of ' + printedV + ' visits assigned — ' + gap + ' unaccounted.</strong> ' +
+        'Add the missing clinician(s) below (or correct a visit count) before applying.' +
+        orphanHint +
+        '</div>';
+    } else {
+      const over = assignedVisits - printedV;
+      html += '<div style="margin-top:8px;padding:10px 12px;border-radius:8px;font-size:12px;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;">' +
+        '<strong>⚠ ' + assignedVisits + ' assigned vs ' + printedV + ' printed — ' + over + ' over.</strong> ' +
+        'Check for a double-counted row or an over-typed visit count before applying.' +
+        '</div>';
+    }
+  } else {
+    html += '<div style="margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;">' +
+      '<strong>Reconcile:</strong> couldn\'t read the report\'s printed Visits-Billed total from this PDF. ' +
+      'Verify each row manually — assigned so far: <strong>' + assignedVisits + '</strong> visits.' +
+      '</div>';
+  }
+
   // Verification counter — shown below the table, gates Apply button.
   const verifiedCount = Array.from(cprRetroVerified).filter(function(k) { return renderedKeys.has(k); }).length;
   const allVerified   = touchedCount > 0 && verifiedCount === touchedCount;
+  // Apply unlocks only when BOTH gates pass (verified AND reconciled), unless
+  // the admin explicitly bypassed via the escape hatch.
+  const gatesPass = allVerified && reconciled;
+  let gateMsg, gateOk = gatesPass;
+  if (gatesPass) {
+    gateMsg = '<strong>✓ All ' + touchedCount + ' row(s) verified' + (printedV != null ? ' & reconciled' : '') + '</strong> — ready to Apply.';
+  } else if (!reconciled) {
+    gateMsg = '<strong>Reconcile the visit total above, then tick ✓ on every row</strong> — Apply stays locked until both are clear.';
+  } else {
+    gateMsg = '<strong>✓ ' + verifiedCount + ' of ' + touchedCount + ' verified</strong> — tick the ✓ on every row before Apply unlocks.';
+  }
   html += '<div style="margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;' +
-    (allVerified ? 'background:#ecfdf5;border:1px solid #86efac;color:#065f46;' : 'background:#fef3c7;border:1px solid #f59e0b;color:#78350f;') +
+    (gateOk ? 'background:#ecfdf5;border:1px solid #86efac;color:#065f46;' : 'background:#fef3c7;border:1px solid #f59e0b;color:#78350f;') +
     '">' +
-    '<div>' +
-      (allVerified ? '<strong>✓ All ' + touchedCount + ' row(s) verified</strong> — ready to Apply.' :
-        '<strong>✓ ' + verifiedCount + ' of ' + touchedCount + ' verified</strong> — tick the ✓ on every row before Apply unlocks.') +
-    '</div>' +
-    (allVerified ? '' :
-      '<button type="button" id="cpr-retro-verify-skip" style="font-size:10px;background:#fff;border:1px solid #f59e0b;color:#78350f;padding:3px 8px;border-radius:5px;cursor:pointer;font-family:inherit;">Apply unverified anyway</button>'
+    '<div>' + gateMsg + '</div>' +
+    (gateOk ? '' :
+      '<button type="button" id="cpr-retro-verify-skip" style="font-size:10px;background:#fff;border:1px solid #f59e0b;color:#78350f;padding:3px 8px;border-radius:5px;cursor:pointer;font-family:inherit;white-space:nowrap;">Apply anyway</button>'
     ) +
     '</div>';
 
   wrap.innerHTML = html;
   wrap.style.display = "block";
-  // Apply is GATED on full verification. The "Apply unverified anyway"
-  // escape hatch (rendered above) flips a bypass flag if the admin
-  // chooses to override.
+  // Apply is GATED on full verification AND reconciliation. The "Apply
+  // anyway" escape hatch (rendered above) flips a bypass flag if the admin
+  // chooses to override (e.g. a PDF whose printed total couldn't be read).
   const applyBtn = document.getElementById("cpr-medb-retro-apply");
   if (applyBtn) {
-    applyBtn.disabled = !allVerified && !cprRetroBypassVerify;
+    applyBtn.disabled = !gatesPass && !cprRetroBypassVerify;
     applyBtn.title = applyBtn.disabled
-      ? "Tick ✓ on every row first (or click 'Apply unverified anyway' to bypass)"
+      ? (!reconciled
+          ? "Assigned visits don't match the report total — reconcile first (or click 'Apply anyway')"
+          : "Tick ✓ on every row first (or click 'Apply anyway' to bypass)")
       : "";
   }
   // Wire ✓ checkboxes — toggle the verified set + re-render so the
@@ -6884,12 +7182,13 @@ function renderCprMedbRetroPreview() {
       renderCprMedbRetroPreview();
     });
   }
-  // Wire "Apply unverified anyway" escape hatch — flips the bypass and
-  // re-renders, which enables the Apply button.
+  // Wire "Apply anyway" escape hatch — flips the bypass and re-renders,
+  // which enables the Apply button despite an unverified or unreconciled
+  // state (e.g. a PDF whose printed total couldn't be read).
   const skipBtn = document.getElementById("cpr-retro-verify-skip");
   if (skipBtn) {
     skipBtn.addEventListener("click", function() {
-      if (!confirm("Apply without verifying every row? Med B for unticked clinicians will be saved as-is.")) return;
+      if (!confirm("Apply without fully verifying / reconciling? Med B will be saved exactly as shown — any unaccounted visits will NOT be added.")) return;
       cprRetroBypassVerify = true;
       renderCprMedbRetroPreview();
     });
@@ -6939,6 +7238,26 @@ function renderCprMedbRetroPreview() {
   // logic as the import-modal picker but targets cprMedbRetroParsed).
   Array.from(wrap.querySelectorAll(".cpr-retro-alias-picker")).forEach(function(sel) {
     sel.addEventListener("change", cprOnRetroAliasPickerChange);
+  });
+  // Wire ✓ Confirm buttons on smart suggestions — commits the pre-selected
+  // suggestion (the dropdown shows it selected, but no change event fires
+  // until the user interacts; Confirm is that interaction). Routes through
+  // the same alias-pick path so confirm/undo/persist stay identical.
+  Array.from(wrap.querySelectorAll(".cpr-retro-suggest-confirm")).forEach(function(btn) {
+    btn.addEventListener("click", function(e) {
+      const t = e.currentTarget;
+      const sk = t.getAttribute("data-strata-key") || "";
+      const tbKey = t.getAttribute("data-tb-key") || "";
+      const strataDisplay = t.getAttribute("data-strata-display") || "";
+      if (!sk || !tbKey) return;
+      const matchedTb = (r.per_clinician_payload || [])
+        .find(function(c) { return cprClinLookupKey(c.clinician) === tbKey; });
+      const rosterHit = cprRoster.find(function(rc) { return rc.lookup_key === tbKey; });
+      const tbDisplay = matchedTb ? matchedTb.clinician : rosterHit ? rosterHit.name : tbKey;
+      cprAliasPending.set(sk, { tb_lookup_key: tbKey, tb_display: tbDisplay, strata_display: strataDisplay });
+      if (cprMedbRetroParsed) cprApplyAliases(cprMedbRetroParsed);
+      renderCprMedbRetroPreview();
+    });
   });
   // Wire Undo buttons on confirmed alias picks — removes the pending
   // alias, re-applies (which reverts the row's lookup_key to original),
