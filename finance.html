@@ -6549,12 +6549,19 @@ function cprOpenMedbRetro() {
   document.getElementById("cpr-medb-retro-apply").disabled = true;
   document.getElementById("cpr-medb-retro-overlay").style.display = "flex";
 
-  // Show the currently-applied Med B as a read-only reference the moment
-  // the modal opens — so re-opening "Update Strata Med B" isn't just a blank
-  // dropzone. The user can see what's already on the audit without
-  // re-dropping the PDF. Dropping a new PDF replaces this with the live
-  // editable preview. (Replaced as soon as a PDF parses.)
-  cprRenderMedbCurrentReference();
+  // If the audit already has Med B, rebuild the FULL editable preview from
+  // the stored derivation (visits × rate, eval split) so re-opening shows
+  // exactly how each amount was achieved — not just a dollar figure, and
+  // not a blank dropzone. Dropping a new PDF still replaces everything.
+  const seeded = cprSeedMedbRetroFromApplied();
+  if (seeded) {
+    document.getElementById("cpr-medb-retro-status").innerHTML =
+      "● Showing <strong>currently applied</strong> Med B — edit below & Apply to re-save, or drop a PDF to replace.";
+    document.getElementById("cpr-medb-retro-status").style.color = "#1E3A5F";
+    // rateMap may still be loading; render now with the derived fallback,
+    // then the async cprBuildRateMap re-render refines the rate columns.
+    renderCprMedbRetroPreview();
+  }
 
   // Build the rate map for THIS audit's saved TB data. The shape we
   // need mirrors cprPrepared (per_clinician_payload + all_visits_payload),
@@ -6590,54 +6597,60 @@ function cprCloseMedbRetro() {
   cprRetroBypassVerify = false;
 }
 
-// Renders a read-only "currently applied Med B" reference table into the
-// retro modal's preview area — shown on open so the user can SEE what's
-// already on the audit without re-dropping the PDF. Dropping a PDF replaces
-// this with the live editable preview. Renders nothing if no Med B is set.
-function cprRenderMedbCurrentReference() {
-  const wrap = document.getElementById("cpr-medb-retro-preview");
-  if (!wrap) return;
+// Seeds cprMedbRetroParsed from the audit's already-applied Med B (using the
+// derivation stored at apply time: medb_visits / medb_eval / medb_rate) so a
+// reopen shows the FULL editable preview — the same Vis / Eval / rate / math
+// breakdown that produced each amount — instead of a blank dropzone. Returns
+// true if anything was seeded. Dropping a PDF afterward overwrites this.
+function cprSeedMedbRetroFromApplied() {
   const r = cprViewState && cprViewState.run;
-  if (!r) return;
-  const rows = (r.per_clinician_payload || [])
-    .filter(function(c) { return (Number(c.medb_total) || 0) > 0; })
-    .sort(function(a, b) { return (Number(b.medb_total) || 0) - (Number(a.medb_total) || 0); });
-  if (!rows.length) {
-    // Nothing applied yet — leave the preview hidden (clean dropzone).
-    wrap.style.display = "none";
-    wrap.innerHTML = "";
-    return;
-  }
-  const total = rows.reduce(function(s, c) { return s + (Number(c.medb_total) || 0); }, 0);
-  let html = '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a5f;line-height:1.5;">' +
-    '<strong>📋 Currently applied Med B</strong> — this is what\'s on the audit now. ' +
-    'Drop a new PDF above to <strong>replace</strong> it (full re-import + reconcile), or close this and use the ' +
-    '<strong>✎</strong> on any row\'s Med B cell to edit a single amount.' +
-    '</div>';
-  html += '<div style="max-height:300px;overflow:auto;border:1px solid var(--border);border-radius:8px;">';
-  html += '<table class="cpr-per-clin-table"><thead><tr>' +
-    '<th>Clinician</th><th>Disc</th>' +
-    '<th class="cpr-num">Med B</th>' +
-    '<th>Source</th>' +
-  '</tr></thead><tbody>';
-  rows.forEach(function(c) {
-    const amt = Number(c.medb_total) || 0;
-    const src = c.medb_source || "—";
-    html += '<tr>' +
-      '<td>' + escHtml(cprTitleCase(c.clinician) || c.clinician) +
-        (c._medb_only ? ' <span class="cpr-medb-only-chip" style="font-size:8.5px;padding:0 4px;">Med B only</span>' : '') + '</td>' +
-      '<td>' + escHtml(c.discipline || "") + '</td>' +
-      '<td class="cpr-num" style="color:#1B5E20;font-weight:700;">' + cprFmtMoney(amt) + '</td>' +
-      '<td style="color:var(--muted);font-size:11px;">' + escHtml(src) + '</td>' +
-    '</tr>';
+  if (!r) return false;
+  const applied = (r.per_clinician_payload || []).filter(function(c) {
+    return (Number(c.medb_total) || 0) > 0 || (Number(c.medb_visits) || 0) > 0;
   });
-  html += '</tbody><tfoot><tr>' +
-    '<td colspan="2">TOTAL — ' + rows.length + ' clinician' + (rows.length === 1 ? '' : 's') + '</td>' +
-    '<td class="cpr-num" style="color:#1B5E20;font-weight:700;">' + cprFmtMoney(total) + '</td>' +
-    '<td></td>' +
-  '</tr></tfoot></table></div>';
-  wrap.innerHTML = html;
-  wrap.style.display = "block";
+  if (!applied.length) return false;
+  // Synchronous derived-rate map for backward-compat visit derivation (audits
+  // applied before medb_visits was stored). Built lazily, only if needed.
+  let derivedRates = null;
+  const rows = applied.map(function(c) {
+    // Prefer the stored visit/eval derivation. Backward-compat for audits
+    // applied before derivation was stored: best-effort visits = total / rate.
+    let sv = (c.medb_visits != null) ? Math.max(0, Number(c.medb_visits) || 0) : null;
+    let ec = (c.medb_eval   != null) ? Math.max(0, Number(c.medb_eval)   || 0) : 0;
+    if (sv == null) {
+      let rate = Number(c.medb_rate) || 0;
+      if (!rate) {
+        // No stored rate — derive from the audit's TB pay data.
+        if (!derivedRates) derivedRates = cprComputeDerivedRates(r);
+        const meta = derivedRates.get(cprClinLookupKey(c.clinician));
+        rate = meta && meta.rate ? Number(meta.rate) : 0;
+      }
+      sv = rate > 0 ? Math.round((Number(c.medb_total) || 0) / rate) : 0;
+    }
+    if (ec > sv) ec = sv;
+    const disc = c.discipline || "";
+    return {
+      clinician_raw:   c.clinician + (disc ? " " + disc : ""),
+      lookup_key:      cprClinLookupKey(c.clinician),
+      discipline:      disc,
+      visits_billed:   sv,
+      eval_count:      ec,
+      follow_up_count: Math.max(0, sv - ec)
+    };
+  });
+  cprMedbRetroParsed = {
+    rows:             rows,
+    total_visits:     rows.reduce(function(s, x) { return s + (x.visits_billed || 0); }, 0),
+    source_filename:  null,
+    date_range:       null,
+    report_totals:    null,     // no PDF → nothing to reconcile against
+    orphan_data_rows: [],
+    _fromApplied:     true      // flag: reopened from applied state, not a PDF
+  };
+  // Pre-verify every seeded row — these were already applied, so the verify
+  // gate shouldn't block re-saving an unchanged reopen.
+  rows.forEach(function(x) { if (x.lookup_key) cprRetroVerified.add(x.lookup_key); });
+  return true;
 }
 
 function showCprMedbRetroError(html) {
@@ -6669,6 +6682,14 @@ async function handleCprMedbRetroPdf(file) {
       showCprMedbRetroError("Couldn't find any clinician rows in the PDF. Confirm this is the Strata <strong>Staff Productivity Report (by Charge Submission)</strong>.");
       return;
     }
+    // A fresh PDF replaces any seeded reopen state — reset verify/edit so
+    // the new rows must be verified from scratch (and the seeded pre-verify
+    // doesn't carry over and falsely unlock Apply).
+    cprRetroVerified     = new Set();
+    cprRetroVisitEdits   = new Map();
+    cprRetroEvalEdits    = new Map();
+    cprRetroExtraRows    = [];
+    cprRetroBypassVerify = false;
     cprMedbRetroParsed = {
       rows:            rows,
       total_visits:    rows.reduce(function(s, r) { return s + r.visits_billed; }, 0),
@@ -6794,10 +6815,21 @@ function renderCprMedbRetroPreview() {
   });
 
   let html = "";
-  // Date-range banner — match Strata's Date Range header against the
-  // audit's period bounds. Yellow warning on mismatch, green ✓ on match,
-  // muted note if the PDF's date header couldn't be parsed.
-  html += cprBuildDateRangeBanner(cprMedbRetroParsed.date_range, r.period_start, r.period_end);
+  const fromApplied = !!cprMedbRetroParsed._fromApplied;
+  if (fromApplied) {
+    // Reopened from the already-applied Med B (no PDF). Show how each amount
+    // was achieved, fully editable. A clear note explains the two paths.
+    html += '<div style="margin-bottom:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a5f;line-height:1.5;">' +
+      '<strong>📋 Currently applied Med B</strong> — this is how each amount was computed (visits × rate). ' +
+      'Edit any Vis / Eval / rate and click <strong>Apply to Audit</strong> to re-save, or drop a new PDF above to ' +
+      '<strong>replace</strong> everything with a fresh import.' +
+      '</div>';
+  } else {
+    // Date-range banner — match Strata's Date Range header against the
+    // audit's period bounds. Yellow warning on mismatch, green ✓ on match,
+    // muted note if the PDF's date header couldn't be parsed.
+    html += cprBuildDateRangeBanner(cprMedbRetroParsed.date_range, r.period_start, r.period_end);
+  }
 
   if (pickerRows.length) {
     const tbOptions = cprTbClinicianOptions(perClin);
@@ -7146,7 +7178,9 @@ function renderCprMedbRetroPreview() {
   const printedV    = rt ? rt.total_visits : null;
   const orphanRows  = cprMedbRetroParsed.orphan_data_rows || [];
   let reconciled    = true;   // when no printed total, fall back to verify-only gate
-  if (printedV != null) {
+  // Skip reconciliation entirely on a reopen-from-applied (no PDF, nothing to
+  // reconcile against). The blue "currently applied" note above stands in.
+  if (!fromApplied && printedV != null) {
     reconciled = (assignedVisits === printedV);
     if (reconciled) {
       html += '<div style="margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#ecfdf5;border:1px solid #86efac;color:#065f46;">' +
@@ -7177,7 +7211,7 @@ function renderCprMedbRetroPreview() {
         'Check for a double-counted row or an over-typed visit count before applying.' +
         '</div>';
     }
-  } else {
+  } else if (!fromApplied) {
     html += '<div style="margin-top:8px;padding:8px 12px;border-radius:8px;font-size:12px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;">' +
       '<strong>Reconcile:</strong> couldn\'t read the report\'s printed Visits-Billed total from this PDF. ' +
       'Verify each row manually — assigned so far: <strong>' + assignedVisits + '</strong> visits.' +
@@ -7487,16 +7521,22 @@ function cprApplyMedbRetro() {
     if (sv === 0) {
       c.medb_total = 0;
       c.medb_source = null;
+      c.medb_visits = 0; c.medb_eval = 0; c.medb_rate = null; c.medb_eval_rate = null;
       return;
     }
     const rr = resolveRate(k);
     if (rr.rate == null) {
       c.medb_total = 0;
       c.medb_source = null;
+      c.medb_visits = 0; c.medb_eval = 0; c.medb_rate = null; c.medb_eval_rate = null;
       return;
     }
     c.medb_total  = computeMedbForClin(sv, ec, rr.rate, rr.eval_rate);
     c.medb_source = c.medb_total > 0 ? "Strata" : null;
+    // Store the derivation so a later reopen can rebuild the full
+    // "how was this computed" breakdown (visits × rate, eval split).
+    c.medb_visits = sv; c.medb_eval = ec;
+    c.medb_rate = rr.rate; c.medb_eval_rate = rr.eval_rate;
   });
   // (2) Append Med B-only rows for roster clinicians mapped via alias
   // to a Strata entry but not present in this audit's TB perClin.
@@ -7521,6 +7561,10 @@ function cprApplyMedbRetro() {
       adjustments:     [],
       medb_total:      amt,
       medb_source:     amt > 0 ? "Strata" : null,
+      medb_visits:     sv,
+      medb_eval:       ec,
+      medb_rate:       rr.rate,
+      medb_eval_rate:  rr.eval_rate,
       _medb_only:      true
     });
   });
@@ -7548,6 +7592,10 @@ function cprApplyMedbRetro() {
       adjustments:     [],
       medb_total:      amt,
       medb_source:     amt > 0 ? "Strata (manual)" : null,
+      medb_visits:     sv,
+      medb_eval:       ec,
+      medb_rate:       rr.rate,
+      medb_eval_rate:  rr.eval_rate,
       _medb_only:      true
     });
   });
