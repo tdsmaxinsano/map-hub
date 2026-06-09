@@ -3677,6 +3677,9 @@ async function handleCprMedbPdf(file) {
       // kept here as a derived value once the rate map is built.
       total:           0,
       source_filename: file.name,
+      // Keep the original File so Save Run can upload it to the source-PDF
+      // bucket (migration 39 — reference/audit trail).
+      _file:           file,
       // PDF-header Date Range — used to warn when the Strata range doesn't
       // match the TB Prepare-payroll period the audit is being created for.
       date_range:      parsed.date_range || null,
@@ -5280,6 +5283,9 @@ async function saveCprRun() {
     const merged = mergePayAndMedb(p.per_clinician_payload, cprPreparedMedb, cprRateMap, cprRateEdits);
     const medbSource = cprPreparedMedb && cprPreparedMedb.source_filename
       ? " + Strata: " + cprPreparedMedb.source_filename : "";
+    // Upload the source Strata PDF if one was dropped (migration 39 —
+    // reference/audit trail). Non-fatal: never block the payroll save.
+    const medbPdfPath = await cprUploadMedbPdf(p, cprPreparedMedb && cprPreparedMedb._file);
     const { data, error } = await db.rpc("upsert_clinician_payroll_run", {
       p_period_start:          p.period_start,
       p_period_end:            p.period_end,
@@ -5293,7 +5299,8 @@ async function saveCprRun() {
       p_distinct_clinicians:   p.distinct_clinicians,
       p_per_clinician_payload: merged.perClin,              // now carries medb_total/medb_source
       p_all_visits_payload:    p.all_visits_payload,
-      p_source_filename:       p.source_filename + medbSource
+      p_source_filename:       p.source_filename + medbSource,
+      p_medb_pdf_path:         medbPdfPath
     });
     if (error) throw new Error(error.message);
     // Persist per-clinician rates to memory (migration 35) AFTER the
@@ -5349,6 +5356,10 @@ async function loadCprHistory() {
       // Red-tinted to signal destructive. Confirms before firing.
       const delBtn = '<button type="button" class="btn-secondary cpr-del-btn" title="Delete this run" ' +
         'onclick="deleteCprRun(\'' + r.id + '\', \'' + escAttr(periodLabel) + '\', ' + (r.total_pay || 0) + ')">✕</button>';
+      // Source Strata PDF link (migration 39) — opens the stored PDF.
+      const pdfBtn = r.medb_pdf_path
+        ? '<button type="button" class="btn-secondary" title="View the source Strata Med B PDF" onclick="cprOpenMedbPdf(\'' + escAttr(r.medb_pdf_path) + '\')">📄</button>'
+        : '';
       // Med B (migration 34) — annotate the Pay cell with the Med B add-on
       // and combined total when total_medb > 0. Pre-migration rows show
       // just the Pay number unchanged.
@@ -5369,6 +5380,7 @@ async function loadCprHistory() {
         '<td>' + pill + '</td>' +
         '<td class="cpr-row-actions" style="text-align:right;">' +
           '<button type="button" class="btn-secondary" onclick="viewCprRun(\'' + r.id + '\')">View</button>' +
+          pdfBtn +
           auditBtn +
           delBtn +
         '</td>' +
@@ -6148,9 +6160,21 @@ function cprRenderDetail() {
   html += '</div>';
 
   if (r.source_filename) {
-    html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;">Source: <code>' + escHtml(r.source_filename) + '</code> · imported ' + (r.imported_at ? new Date(r.imported_at).toLocaleString() : "—") + '</div>';
+    html += '<div style="font-size:11px;color:var(--muted);margin-top:10px;">Source: <code>' + escHtml(r.source_filename) + '</code> · imported ' + (r.imported_at ? new Date(r.imported_at).toLocaleString() : "—") +
+      // Source Strata PDF link (migration 39) — opens the stored PDF via a
+      // signed URL so admins can verify against the ground-truth document.
+      (r.medb_pdf_path ? ' · <a href="#" class="cpr-view-medb-pdf" data-pdf-path="' + escAttr(r.medb_pdf_path) + '" style="color:var(--accent);text-decoration:none;font-weight:600;">📄 View source PDF</a>' : '') +
+      '</div>';
   }
   body.innerHTML = html;
+  // Wire the source-PDF link (delegated would also work, but the detail
+  // re-renders wholesale so a direct bind is simplest).
+  Array.from(body.querySelectorAll(".cpr-view-medb-pdf")).forEach(function(a) {
+    a.addEventListener("click", function(e) {
+      e.preventDefault();
+      cprOpenMedbPdf(e.currentTarget.getAttribute("data-pdf-path") || "");
+    });
+  });
 
   // Restore all three scroll positions. The document scroll matters most
   // here — the modal-box doesn't scroll on most screens (it fits in the
@@ -6694,6 +6718,9 @@ async function handleCprMedbRetroPdf(file) {
       rows:            rows,
       total_visits:    rows.reduce(function(s, r) { return s + r.visits_billed; }, 0),
       source_filename: file.name,
+      // Keep the original File so Save can upload it to the source-PDF
+      // bucket (migration 39 — reference/audit trail). Discarded otherwise.
+      _file:           file,
       // PDF-header Date Range — used to warn when the Strata range doesn't
       // match the audit's pay period.
       date_range:      parsed.date_range || null,
@@ -7600,6 +7627,14 @@ function cprApplyMedbRetro() {
     });
   });
   cprViewState.dirty = true;
+  // Carry the just-applied Strata PDF onto the view state so the later
+  // Save Adjustments click can upload it to the source-PDF bucket
+  // (migration 39). cprCloseMedbRetro nulls cprMedbRetroParsed, so stash
+  // it here. A reopen-from-applied seed has no _file → nothing to upload,
+  // and the COALESCE rule preserves the existing stored PDF.
+  if (cprMedbRetroParsed && cprMedbRetroParsed._file) {
+    cprViewState._pendingMedbPdfFile = cprMedbRetroParsed._file;
+  }
   // Stash the rateMap snapshot so the post-save persistence call uses
   // the same rates (memory bumps + manual_override-preservation rule).
   // cprRateEdits stays populated so cprBuildRateRows promotes typed
@@ -7672,12 +7707,49 @@ function cprRemoveAdj(clinName, adjId) {
   cprRenderDetail();
 }
 
+// Uploads the source Strata Med B PDF to the private admin-only bucket
+// (migration 39) and returns the storage path, or null if there's no file
+// to upload or the upload fails. NON-FATAL by design — a storage hiccup
+// must never block the payroll save. Path is deterministic per period
+// (one run per period), so upsert:true replaces on re-import.
+async function cprUploadMedbPdf(periodObj, file) {
+  if (!file || !periodObj || !periodObj.period_start) return null;
+  const path = "medb-" + periodObj.period_start + ".pdf";
+  try {
+    const { error } = await db.storage.from("strata-medb-pdfs")
+      .upload(path, file, { contentType: "application/pdf", upsert: true });
+    if (error) throw error;
+    return path;
+  } catch (err) {
+    console.warn("[cpr] source PDF upload failed (saving numbers anyway):", err && err.message);
+    return null;
+  }
+}
+
+// Opens a stored source Strata PDF in a new tab via a short-lived signed URL
+// (the bucket is private). Mirrors the vdr-reports 📊 View handler.
+async function cprOpenMedbPdf(path) {
+  if (!path) return;
+  try {
+    const { data, error } = await db.storage.from("strata-medb-pdfs").createSignedUrl(path, 60);
+    if (error) throw error;
+    window.open(data.signedUrl, "_blank");
+  } catch (err) {
+    alert("Couldn't open the source PDF: " + (err.message || err));
+  }
+}
+
 // ── Save / Finalize / Reopen ─────────────────────────────────────────
 async function cprSaveRun(finalize) {
   const r = cprViewState.run;
   if (!r) return;
   // Re-fire the upsert with the mutated payload; ON CONFLICT preserves audit state.
   try {
+    // Upload the source Strata PDF if one was applied this session
+    // (migration 39 — reference/audit trail). Non-fatal: a storage hiccup
+    // must not block payroll from saving. NULL path → COALESCE preserves
+    // any previously stored PDF.
+    const medbPdfPath = await cprUploadMedbPdf(r, cprViewState._pendingMedbPdfFile);
     const { error } = await db.rpc("upsert_clinician_payroll_run", {
       p_period_start:          r.period_start,
       p_period_end:            r.period_end,
@@ -7693,9 +7765,14 @@ async function cprSaveRun(finalize) {
       p_distinct_clinicians:   r.distinct_clinicians,
       p_per_clinician_payload: r.per_clinician_payload,
       p_all_visits_payload:    r.all_visits_payload,
-      p_source_filename:       r.source_filename
+      p_source_filename:       r.source_filename,
+      p_medb_pdf_path:         medbPdfPath
     });
     if (error) throw new Error(error.message);
+    // Reflect the stored path locally + clear the pending file so a plain
+    // re-save (no new PDF) doesn't re-upload.
+    if (medbPdfPath) r.medb_pdf_path = medbPdfPath;
+    cprViewState._pendingMedbPdfFile = null;
     // If a retro Med B add populated the rate map, persist rates to
     // memory after the audit save succeeds (mirrors saveCprRun's flow,
     // migration 35). Manual cell edits (feature B) don't populate
@@ -7762,12 +7839,24 @@ async function deleteCprRun(runId, periodLabel, totalPay) {
   // Two-step confirm to prevent accidental loss of an audited run.
   const niceTotal = cprFmtMoney(totalPay);
   if (!confirm("⚠ Delete the payroll run for " + periodLabel + " (" + niceTotal + ")?\n\nThis cannot be undone. You can re-import the same period afterwards if needed.")) return;
+  // Look up the stored source-PDF path (migration 39) from the history cache
+  // BEFORE the row is deleted, so we can clean up the storage object too.
+  let pdfPath = null;
+  Object.keys(cprRunsByPeriodStart || {}).forEach(function(k) {
+    const run = cprRunsByPeriodStart[k];
+    if (run && run.id === runId && run.medb_pdf_path) pdfPath = run.medb_pdf_path;
+  });
   try {
     const { data, error } = await db.rpc("delete_clinician_payroll_run", { run_id: runId });
     if (error) throw new Error(error.message);
     const n = Number(data) || 0;
     if (n === 0) {
       alert("Nothing was deleted — the run may have been removed already. Refreshing list.");
+    }
+    // Best-effort: remove the stored source PDF so no orphan lingers.
+    if (pdfPath) {
+      try { await db.storage.from("strata-medb-pdfs").remove([pdfPath]); }
+      catch (e) { console.warn("[cpr] source PDF cleanup failed:", e && e.message); }
     }
     await loadCprHistory();
   } catch (err) {
