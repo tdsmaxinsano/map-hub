@@ -3369,6 +3369,18 @@ async function cprParseStrataPdf(arrayBuffer) {
   // DD, YYYY" pattern. Returns null if neither matches.
   const dateRange = extractStrataDateRange(lines);
 
+  // Stash the reconstructed lines + parsed rows on the window for
+  // post-mortem inspection (UI "🔎 Parser trace" button reads this).
+  // Cheap — under 50KB for a typical 3-page Strata report.
+  try {
+    window._cprLastParse = {
+      timestamp:   new Date().toISOString(),
+      lines:       lines.slice(),       // copy so later mutations don't leak in
+      parsed_rows: rows.slice(),
+      date_range:  dateRange
+    };
+  } catch (_) { /* best-effort */ }
+
   return { rows: rows, date_range: dateRange };
 }
 
@@ -6299,6 +6311,41 @@ async function handleCprMedbRetroPdf(file) {
       "● Parsed <strong>" + rows.length + "</strong> clinicians · <strong>" +
       cprMedbRetroParsed.total_visits + "</strong> total visits" + drLabel;
     document.getElementById("cpr-medb-retro-status").style.color = "#1B5E20";
+    // Show the parser-trace button so we can debug under-parsed PDFs
+    // without devtools. Wires the click handler once.
+    const traceWrap = document.getElementById("cpr-medb-retro-trace");
+    if (traceWrap) {
+      traceWrap.style.display = "block";
+      const traceBtn = document.getElementById("cpr-medb-retro-trace-btn");
+      const traceOut = document.getElementById("cpr-medb-retro-trace-out");
+      if (traceBtn && !traceBtn._cprWired) {
+        traceBtn._cprWired = true;
+        traceBtn.addEventListener("click", function() {
+          const dbg = window._cprLastParse;
+          if (!dbg) { traceOut.textContent = "(no parse data — drop a PDF first)"; traceOut.style.display = "block"; return; }
+          if (traceOut.style.display === "block") {
+            traceOut.style.display = "none";
+            traceBtn.textContent = "🔎 Show parser trace";
+            return;
+          }
+          const parsedNames = (dbg.parsed_rows || []).map(function(r) {
+            return "    [✓] " + r.clinician_raw + "  → " + r.visits_billed + " vis" +
+              (r.eval_count ? " (eval=" + r.eval_count + ")" : "");
+          }).join("\n");
+          const lineDump = (dbg.lines || []).map(function(l, i) {
+            return String(i).padStart(3, " ") + ": " + l;
+          }).join("\n");
+          traceOut.textContent =
+            "PARSED " + (dbg.parsed_rows || []).length + " CLINICIANS:\n" +
+            parsedNames + "\n\n" +
+            "DATE RANGE: " + (dbg.date_range ? dbg.date_range.raw : "(not found)") + "\n\n" +
+            "RECONSTRUCTED LINES (" + (dbg.lines || []).length + "):\n" +
+            lineDump;
+          traceOut.style.display = "block";
+          traceBtn.textContent = "▴ Hide parser trace";
+        });
+      }
+    }
     renderCprMedbRetroPreview();
   } catch (err) {
     showCprMedbRetroError("Failed to parse PDF: " + escHtml(err.message || String(err)));
@@ -10739,6 +10786,10 @@ checkSession();
       <input type="file" id="cpr-medb-retro-file-input" accept=".pdf" />
     </label>
     <div id="cpr-medb-retro-status" style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45;">● Awaiting Strata PDF…</div>
+    <div id="cpr-medb-retro-trace" style="margin-top:6px;display:none;">
+      <button type="button" id="cpr-medb-retro-trace-btn" style="font-size:11px;background:#f1f5f9;border:1px solid #cbd5e1;color:#475569;padding:3px 8px;border-radius:5px;cursor:pointer;font-family:inherit;">🔎 Show parser trace</button>
+      <pre id="cpr-medb-retro-trace-out" style="display:none;background:#0f172a;color:#e2e8f0;border-radius:6px;padding:10px;margin-top:6px;max-height:300px;overflow:auto;font-size:11px;font-family:'SFMono-Regular',Consolas,monospace;line-height:1.4;white-space:pre-wrap;word-break:break-all;"></pre>
+    </div>
     <div id="cpr-medb-retro-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:8px 12px;font-size:12px;color:#c62828;margin-top:8px;line-height:1.5;"></div>
     <div id="cpr-medb-retro-preview" style="display:none;margin-top:12px;"></div>
 
