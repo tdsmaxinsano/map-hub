@@ -3183,8 +3183,17 @@ async function cprParseStrataPdf(arrayBuffer) {
     if (!found) continue;
     const prev = found.line;
     if (isStaffLine(prev)) continue;         // prior content is already a full name
-    // Strip a trailing comma — "Jordan Juralbal," should still test as a name.
-    const prevClean = prev.replace(/\s*,\s*$/, "").trim();
+    // Strip trailing noise before testing as a name fragment:
+    //   • CPT-code tail like "97530 x" — Y-band-merges the name column
+    //     with the Unit Breakdown column for big rows where the disc
+    //     marker happens to share a Y coordinate with a CPT line.
+    //     Without this strip, "Kasia Slesinska 97530 x" fails the
+    //     name regex because of the digits and Kasia gets dropped.
+    //   • Trailing comma — Strata occasionally renders "Jordan Juralbal,".
+    const prevClean = prev
+      .replace(/\s+\d{5}\s*x\s*$/, "")
+      .replace(/\s*,\s*$/, "")
+      .trim();
     if (!prevClean) continue;
     if (!NAME_FRAGMENT_RE.test(prevClean)) continue;
     // Don't combine if prev itself is just a bare discipline code (would
@@ -3291,13 +3300,39 @@ async function cprParseStrataPdf(arrayBuffer) {
       const im = /^\s+(\d+)(?:\s*\(\d+(?:\.\d+)?%\))?(?=\s|$)/.exec(rest);
       if (im) result = { value: parseInt(im[1], 10), idx: i };
     }
-    // (1) Forward search (normal case: name first, data after).
+    // (1) Decide search direction by layout pattern. Strata renders each
+    // clinician as a "row" with two possible orientations:
+    //
+    //   BIG ROW (lots of CPT codes) — data appears ABOVE, name BELOW,
+    //   embedded mid-breakdown. PDF.js Y-banding leaves a CPT-tail on
+    //   the same line as the disc marker because they share a Y:
+    //     "Ewa Skora (PTA) 97530 x"
+    //     "Kasia Slesinska (PTA) 4 (20.0%)"   (after our combine pass)
+    //   For these, the data row is BACKWARD of the name.
+    //
+    //   SMALL ROW — name appears at the TOP with data immediately
+    //   following. The staff line is clean — no trailing content after
+    //   the disc marker:
+    //     "Lyshunda Poe (PTA)"
+    //     "Lizabeth B Metzger (OT)"
+    //   For these, the data row is FORWARD of the name.
+    //
+    // Signal: presence of non-whitespace trail after the matched
+    // name+discipline. If something trails, it's the CPT/breakdown
+    // column merged in — i.e., a big-row → search backward first.
     if (!result) {
-      result = findVisits(i + 1, Math.min(i + 40, lines.length - 1), 1, consumed);
-    }
-    // (2) Backward search (split-row case: data on prior page, name on next).
-    if (!result) {
-      result = findVisits(i - 1, Math.max(i - 60, 0), -1, consumed);
+      const matchEnd = m.index + m[0].length;
+      const trail    = line.slice(matchEnd).trim();
+      const tryBackwardFirst = trail.length > 0;
+      const fwdResult = function() { return findVisits(i + 1, Math.min(i + 40, lines.length - 1),  1, consumed); };
+      const bwdResult = function() { return findVisits(i - 1, Math.max(i - 60, 0),                -1, consumed); };
+      if (tryBackwardFirst) {
+        result = bwdResult();
+        if (!result) result = fwdResult();
+      } else {
+        result = fwdResult();
+        if (!result) result = bwdResult();
+      }
     }
     if (!result) continue;
     consumed.add(result.idx);
