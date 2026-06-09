@@ -3075,6 +3075,40 @@ function cprTbClinicianOptions(perClinPayload) {
 //      stealing a prior clinician's data line.
 //
 // Returns: [{ clinician_raw, lookup_key, discipline, visits_billed }, ...]
+// Returns true if the staff line that comes AFTER `currentIdx` would
+// need the data row at `dataIdx` as its only option (so we should
+// yield, not claim it). Used by the trail-content forward-fallback to
+// avoid stealing the last available data row from an upcoming clean-
+// trail name. See the call site for the concrete Krzysztof / APRIL case.
+function nextStaffWouldNeedBackwardData(currentIdx, dataIdx, lines, consumed) {
+  const CPR_DISC_BARE_RE  = new RegExp("^(.+?)\\s*,?\\s*\\((" + CPR_DISC_RE_GROUP + ")\\)(?=\\s|$)");
+  const CPR_BARE_RE       = new RegExp("^(.+?)\\s+(" + CPR_DISC_RE_GROUP + ")(?=\\s|$)");
+  const HAS_DOLLAR = /\$[\d,]+\.\d{2}/;
+  const INT_HEAD  = /^(\d+)(?=\s|$)/;
+  function isStaff(l) { return CPR_DISC_BARE_RE.test(l) || CPR_BARE_RE.test(l); }
+  // Find the next staff line index after currentIdx.
+  let nextStaffIdx = -1;
+  for (let k = currentIdx + 1; k < lines.length; k++) {
+    const l = lines[k];
+    if (!l) continue;
+    if (isStaff(l)) { nextStaffIdx = k; break; }
+  }
+  if (nextStaffIdx === -1) return false;
+  // If the candidate data row is AFTER the next staff name, it would
+  // belong to that next staff naturally — let the forward fallback grab it.
+  if (dataIdx > nextStaffIdx) return false;
+  // Check if the next staff line has another forward data option of its
+  // own within the next ~12 lines. If yes, no yield is needed.
+  for (let k = nextStaffIdx + 1; k < Math.min(nextStaffIdx + 12, lines.length); k++) {
+    const l = lines[k];
+    if (!l) continue;
+    if (isStaff(l)) break;   // hit yet another staff line — stop
+    if (consumed.has(k)) continue;
+    if (INT_HEAD.test(l) && HAS_DOLLAR.test(l)) return false;
+  }
+  return true;   // next staff has no forward data → it needs the backward data row
+}
+
 async function cprParseStrataPdf(arrayBuffer) {
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   // Build a single document-order line array across all pages.
@@ -3337,7 +3371,26 @@ async function cprParseStrataPdf(arrayBuffer) {
       const bwdResult = function() { return findVisits(i - 1, Math.max(i - 60, 0),                -1, consumed); };
       if (tryBackwardFirst) {
         result = bwdResult();
-        if (!result) result = fwdResult();
+        if (!result) {
+          // Forward fallback for a big-row name. Before claiming, check
+          // if the NEXT staff line is a clean-trail (small-row) name
+          // with no forward data of its own. If so, that next name's
+          // only option is a backward search to here — yield to it
+          // rather than claim this row (which would orphan them).
+          //
+          // Concrete case: Krzysztof Kopacz (trail-content) backward
+          // fails because Gina's data was already consumed. The next
+          // staff is APRIL CABRERA (clean) whose forward would only
+          // hit the "Combined Staff Totals" footer — no data. So
+          // APRIL's only path is backward to this data row. Krzysztof
+          // yields; APRIL claims it in her turn. (PDF.js Y-banded
+          // Krzysztof's own data row into oblivion in this PDF — no
+          // way to recover his count from the text alone.)
+          const candidate = fwdResult();
+          if (candidate && !nextStaffWouldNeedBackwardData(i, candidate.idx, lines, consumed)) {
+            result = candidate;
+          }
+        }
       } else {
         result = fwdResult();
         if (!result) result = bwdResult();
