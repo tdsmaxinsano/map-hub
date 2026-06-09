@@ -3324,6 +3324,160 @@ async function cprParseStrataPdf(arrayBuffer) {
   const seenKeys = new Set();
   const consumed = new Set();   // line indices already claimed as Visits Billed
 
+  // ── Ordered-bijection assignment (preferred path) ──────────────────
+  // Strata sorts staff cards by Visits Billed (descending) and stacks
+  // them vertically; each card contains exactly ONE staff name and ONE
+  // data row. So the Nth name in document order owns the Nth data row
+  // in document order — regardless of whether Y-banding rendered the
+  // name above, amid, or below its own numbers. (That ambiguity is what
+  // broke proximity-based search: a name drawn at the bottom of its
+  // card sits Y-adjacent to the NEXT card's data row, producing an
+  // off-by-one cascade through every later assignment.)
+  //
+  // Proven on a real export (Report (6).pdf) by per-card CPT semantics
+  // (97537 → the OT's card; 97163 eval + $390 eval charge → a PT card)
+  // and exact dollar arithmetic (Adam: 8 × $240 + 1 × $390 = his
+  // printed $2,310; all 13 rows sum to the printed $12,780 and the
+  // printed 52 visits).
+  //
+  // Validation gates — ALL must hold, else fall back to the legacy
+  // per-name proximity search below:
+  //   (a) names found === data rows found (no extraction holes)
+  //   (b) visit counts are non-increasing (matches Strata's sort)
+  //   (c) when the printed Combined-Staff total parsed, the row sum
+  //       equals it (extraction is provably complete)
+  //   (d) no duplicate clinician keys (pairing would be ambiguous)
+  let zipApplied = false;
+  (function tryOrderedZip() {
+    // Collect staff names in document order. A row-merged staff line
+    // ("Basma Rafael (PT) 8 (18.6%) $2,100.00 …") contributes its own
+    // visits value inline — it is both a name and a data row.
+    const staffEntries = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || isBoilerplate(line)) continue;
+      let m = STAFF_RE_PAREN.exec(line);
+      if (!m) m = STAFF_RE_BARE.exec(line);
+      if (!m) continue;
+      const nameRaw = m[1].replace(/[,;]\s*$/, "").trim();
+      if (!nameRaw) continue;
+      let mergedVisits = null;
+      if (HAS_DOLLAR_RE.test(line)) {
+        const im = /^\s+(\d+)(?:\s*\(\d+(?:\.\d+)?%\))?(?=\s|$)/.exec(line.slice(m.index + m[0].length));
+        if (im) mergedVisits = { idx: i, value: parseInt(im[1], 10) };
+      }
+      staffEntries.push({ idx: i, nameRaw: nameRaw, disc: m[2], mergedVisits: mergedVisits });
+    }
+    if (!staffEntries.length) return;
+    // Gate (d): duplicate keys make positional pairing ambiguous.
+    const zipKeys = staffEntries.map(function(s) { return cprClinLookupKey(s.nameRaw + " " + s.disc); });
+    if (new Set(zipKeys).size !== zipKeys.length) return;
+
+    // Collect data rows in document order — same per-line validation the
+    // legacy search uses, plus a hard guard against the Combined-Staff
+    // totals row (its visits integer would otherwise look like a row).
+    function nearTotals(j) {
+      let seen = 0;
+      for (let k = j; k >= 0 && seen < 3; k--) {
+        const l = lines[k];
+        if (!l) continue;
+        seen++;
+        if (/combined staff|^totals\b/i.test(l)) return true;
+      }
+      return false;
+    }
+    const mergedRowIdx = new Set(staffEntries
+      .filter(function(s) { return s.mergedVisits; })
+      .map(function(s) { return s.mergedVisits.idx; }));
+    const dataRows = [];
+    for (let j = 0; j < lines.length; j++) {
+      const line = lines[j];
+      if (!line || isBoilerplate(line)) continue;
+      if (mergedRowIdx.has(j)) {
+        const s = staffEntries.find(function(x) { return x.mergedVisits && x.mergedVisits.idx === j; });
+        dataRows.push({ idx: j, value: s.mergedVisits.value });
+        continue;
+      }
+      if (isStaffLine(line)) continue;
+      const cm = /^(\d+)(?=\s|$)/.exec(line);
+      if (!cm) continue;
+      if (/^\d+\s+x\b/.test(line)) continue;
+      if (nearTotals(j)) continue;
+      if (!validateVisitsAt(j)) continue;
+      dataRows.push({ idx: j, value: parseInt(cm[1], 10) });
+    }
+
+    // Gate (a): counts must match exactly.
+    if (dataRows.length !== staffEntries.length) return;
+    // Gate (b): Strata sorts by visits descending — any increase means a
+    // false row slipped in (or sort assumption broken). Bail.
+    for (let n = 1; n < dataRows.length; n++) {
+      if (dataRows[n].value > dataRows[n - 1].value) return;
+    }
+    // Gate (c): cross-check against the report's own printed total.
+    const printed = extractStrataTotals(lines);
+    const zipSum  = dataRows.reduce(function(s, r) { return s + r.value; }, 0);
+    if (printed && printed.total_visits !== zipSum) return;
+
+    // All gates pass — pair Nth name with Nth row. Eval codes are
+    // attributed per-card: scan from this card's data row up to the next
+    // card's data row, capped at the Combined-Staff line so the totals
+    // breakdown can't bleed into the last clinician (that bleed
+    // previously produced a false eval on the final card).
+    let csIdx = -1;
+    for (let k = 0; k < lines.length; k++) {
+      if (lines[k] && /combined staff/i.test(lines[k])) { csIdx = k; break; }
+    }
+    const endIdx = csIdx === -1 ? lines.length : csIdx;
+    // [^\d$] (not [^\d]) so the skip-run can never jump across a dollar
+    // amount and read its digits as the unit count ("97530 x $0.00" must
+    // not yield 97530×0).
+    const cptZipRe = /\b(\d{5})\s*x[^\d$]{0,80}?(\d+)\b/g;
+    staffEntries.forEach(function(s, n) {
+      const dr     = dataRows[n];
+      const visits = dr.value;
+      let evalCount = 0;
+      const evalCodes = cprEvalCodesFor(s.disc);
+      if (evalCodes && !cprIsAssistant(s.disc)) {
+        const lo = dr.idx;
+        let hi = (n + 1 < dataRows.length) ? dataRows[n + 1].idx : endIdx;
+        if (hi > endIdx) hi = endIdx;
+        const parts = [];
+        for (let k = lo; k < hi; k++) {
+          if (lines[k] && !isBoilerplate(lines[k])) parts.push(lines[k]);
+        }
+        // Small-card layout renders the name ABOVE its own data row, so
+        // the name line (with any merged CPT tail) can sit outside
+        // [lo, hi) — include it explicitly.
+        if (s.idx < lo || s.idx >= hi) parts.push(lines[s.idx]);
+        const text = parts.join(" | ");
+        let cm2;
+        cptZipRe.lastIndex = 0;
+        while ((cm2 = cptZipRe.exec(text)) !== null) {
+          const cnt = parseInt(cm2[2], 10);
+          if (evalCodes.has(cm2[1]) && Number.isFinite(cnt) && cnt > 0) evalCount += cnt;
+        }
+        if (evalCount > visits) evalCount = visits;
+      }
+      consumed.add(dr.idx);
+      seenKeys.add(zipKeys[n]);
+      rows.push({
+        clinician_raw:   s.nameRaw + " " + s.disc,
+        lookup_key:      zipKeys[n],
+        discipline:      s.disc,
+        visits_billed:   visits,
+        eval_count:      evalCount,
+        follow_up_count: Math.max(0, visits - evalCount)
+      });
+    });
+    zipApplied = true;
+  })();
+
+  // ── Legacy per-name proximity search (fallback) ─────────────────────
+  // Runs only when a zip gate failed — e.g. a name or data row is
+  // genuinely missing from the text layer, so positional pairing would
+  // misalign. Keeps the pre-zip behavior exactly.
+  if (!zipApplied)
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     if (!line || isBoilerplate(line)) continue;
@@ -3426,7 +3580,9 @@ async function cprParseStrataPdf(arrayBuffer) {
       // Pattern: "<5-digit code> x ... <count>" — tolerates a percent
       // or whitespace between the "x" and the count. Captures "97162 x 2"
       // (row-merged) AND "97162 x | 2 (6.3%)" (column-separated bands).
-      const cptRe = /\b(\d{5})\s*x[^\d]{0,80}?(\d+)\b/g;
+      // [^\d$] so the skip-run can't jump across a dollar amount and
+      // read its digits as the count ("97530 x $0.00" ≠ 97530×0).
+      const cptRe = /\b(\d{5})\s*x[^\d$]{0,80}?(\d+)\b/g;
       let cm;
       while ((cm = cptRe.exec(breakdownText)) !== null) {
         const code  = cm[1];
@@ -3501,7 +3657,8 @@ async function cprParseStrataPdf(arrayBuffer) {
       const cl = lines[k];
       if (!cl) continue;
       if (k !== j && isStaffLine(cl)) break;
-      const cpt = /\b(\d{5})\s*x[^\d]{0,40}?(\d+)\b/g;
+      // [^\d$] so "97530 x $0.00" can't yield a bogus 97530×0 hint.
+      const cpt = /\b(\d{5})\s*x[^\d$]{0,40}?(\d+)\b/g;
       let cc;
       while ((cc = cpt.exec(cl)) !== null) {
         cptBits.push(cc[1] + "×" + cc[2]);
@@ -3522,7 +3679,8 @@ async function cprParseStrataPdf(arrayBuffer) {
       parsed_rows:   rows.slice(),
       date_range:    dateRange,
       report_totals: reportTotals,
-      orphan_data_rows: orphanDataRows.slice()
+      orphan_data_rows: orphanDataRows.slice(),
+      assignment_mode:  zipApplied ? "ordered-zip" : "per-name-search"
     };
   } catch (_) { /* best-effort */ }
 
@@ -6775,6 +6933,8 @@ async function handleCprMedbRetroPdf(file) {
           traceOut.textContent =
             "PARSED " + (dbg.parsed_rows || []).length + " CLINICIANS (" + parsedSum + " visits):\n" +
             parsedNames + "\n\n" +
+            "ASSIGNMENT MODE: " + (dbg.assignment_mode || "per-name-search") +
+              (dbg.assignment_mode === "ordered-zip" ? "  (names↔rows bijection, sort + sum validated)" : "  (proximity fallback)") + "\n\n" +
             "REPORT PRINTED TOTAL: " + (reportV != null ? reportV + " visits" : "(not found)") +
               (reportV != null ? "  →  " + (parsedSum === reportV ? "✓ reconciled" : "⚠ " + (reportV - parsedSum) + " unaccounted") : "") + "\n\n" +
             "ORPHAN DATA ROWS (PDF rows with no name):\n" + orphanDump + "\n\n" +
