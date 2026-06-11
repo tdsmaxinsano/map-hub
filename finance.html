@@ -5868,16 +5868,26 @@ function cprOfficeHoursForStaff(entries, startMs, endMs) {
 }
 
 async function cprLoadOfficeStaff(run) {
+  // Helper: stash a visible status so the header NEVER stays silent —
+  // loading / error / empty / loaded all render distinctly. (Lesson from
+  // the parser saga: silent failure is undebuggable from a screenshot.)
+  function setOfficeState(state) {
+    if (cprViewState && cprViewState.run === run) {
+      cprViewState.office = state;
+      cprRenderDetail();
+    }
+  }
   try {
     const DAY = 86400000;
     const startMs = Date.parse(run.period_start + "T00:00:00Z") + 7 * DAY;
     const endMs   = startMs + 14 * DAY - 1;
     // Sanity: the office grid is anchored at 2026-04-12T00:00Z — the
-    // shifted start must land on it. If Strata/TB anchors ever change,
-    // fail silently rather than show wrong-period money.
+    // shifted start must land on it. If anchors ever change, surface it
+    // rather than show wrong-period money.
     const OFFICE_ANCHOR_MS = Date.parse("2026-04-12T00:00:00Z");
     if ((startMs - OFFICE_ANCHOR_MS) % (14 * DAY) !== 0) {
       console.warn("[cpr] office period misaligned with anchor — skipping office payroll");
+      setOfficeState({ error: "office period misaligned with the Time Tracker anchor" });
       return;
     }
     const periodDate = new Date(startMs).toISOString().slice(0, 10);
@@ -5933,17 +5943,19 @@ async function cprLoadOfficeStaff(run) {
     });
     const sum = function(list) { return Math.round(list.reduce(function(s, x) { return s + x.net; }, 0) * 100) / 100; };
     const fmtD = function(ms) { const d = new Date(ms); return (d.getUTCMonth() + 1) + "/" + d.getUTCDate(); };
-    cprViewState.office = {
+    console.log("[cpr] office payroll loaded:", { period: periodDate, staff: staff.length, entries: entries.length, adjustments: adjs.length, wise: wise.length, direct: direct.length });
+    setOfficeState({
       period_start: periodDate,
       period_label: fmtD(startMs) + " – " + fmtD(endMs),
       wise:         wise.sort(function(a, b) { return b.net - a.net; }),
       direct:       direct.sort(function(a, b) { return b.net - a.net; }),
       wise_total:   sum(wise),
-      direct_total: sum(direct)
-    };
-    cprRenderDetail();
+      direct_total: sum(direct),
+      _counts: { staff: staff.length, entries: entries.length, adjustments: adjs.length }
+    });
   } catch (err) {
     console.warn("[cpr] office-staff payroll fetch failed (audit unaffected):", err && err.message);
+    setOfficeState({ error: (err && err.message) || String(err) });
   }
 }
 
@@ -6257,7 +6269,20 @@ function cprRenderDetail() {
   // inside the Direct Deposit section below.
   const office = cprViewState.office;
   let officeRowHtml = "";
-  if (office && (office.wise_total > 0 || office.direct_total > 0)) {
+  if (!office) {
+    // Loader hasn't resolved yet (it runs async after the audit renders).
+    officeRowHtml =
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">+ OFFICE STAFF</span>' +
+        '<span class="cpr-audit-value" style="color:var(--muted);font-weight:500;font-size:12px;">loading timesheets…</span>' +
+      '</div>';
+  } else if (office.error) {
+    officeRowHtml =
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">+ OFFICE STAFF</span>' +
+        '<span class="cpr-audit-value" style="color:#a53935;font-weight:600;font-size:12px;">⚠ couldn\'t load timesheets — ' + escHtml(office.error) + '</span>' +
+      '</div>';
+  } else if (office.wise_total > 0 || office.direct_total > 0) {
     const officeTotal = office.wise_total + office.direct_total;
     officeRowHtml =
       '<div class="cpr-audit-row">' +
@@ -6271,6 +6296,14 @@ function cprRenderDetail() {
         '<span class="cpr-audit-label">ALL PAYROLL</span>' +
         '<span class="cpr-audit-value" style="color:#1E3A5F;font-weight:800;">' + cprFmtMoney(totalCombined + officeTotal) +
           ' <span style="font-size:10.5px;color:var(--muted);font-weight:600;">Wise batch sent by admin via Time Tracker · fees added at Wise upload</span></span>' +
+      '</div>';
+  } else {
+    // Loaded fine, just nothing to pay this period.
+    officeRowHtml =
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">+ OFFICE STAFF</span>' +
+        '<span class="cpr-audit-value" style="color:var(--muted);font-weight:500;font-size:12px;">no timesheet hours for ' + escHtml(office.period_label || "the synced period") +
+          (office._counts ? ' <span style="font-size:10px;">(staff ' + office._counts.staff + ' · entries ' + office._counts.entries + ' · adj ' + office._counts.adjustments + ')</span>' : '') + '</span>' +
       '</div>';
   }
 
