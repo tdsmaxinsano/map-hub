@@ -5825,6 +5825,128 @@ async function cprLoadPaymentMethods() {
   }
 }
 
+// ── Office-staff timesheets in the payroll run (display-only) ────────
+// The Time Tracker's office pay periods (anchor 2026-04-12, 14-day,
+// Sun→Sat) run exactly 7 days behind the clinician grid (anchor
+// 2025-12-14): clinician run 05/17–05/30 ↔ office timesheets 05/24–06/06.
+// Both grids are bi-weekly, so the +7d offset holds for every period.
+//
+// This loader reads the synced office period's hours/rates/adjustments
+// straight from the Time Tracker tables and surfaces them on the audit:
+//   • header card: "+ OFFICE STAFF" line (Wise + US direct) + ALL PAYROLL
+//   • Direct Deposit section: US direct-payment staff listed as a
+//     read-only office sub-block
+// Wise totals are summary-only — the admin sends the Wise batch
+// internally from the Time Tracker; nothing here routes to QB.
+// Nothing is persisted: recomputed live on every audit open, exactly
+// like the Time Tracker's own Pay Period view (same math, see
+// hoursInPeriod there — per-day "Timesheet|" overrides replace clock
+// sums; zero-duration absence rows contribute 0h).
+const CPR_OFFICE_TZ = "America/Chicago";
+
+function cprOfficeHoursForStaff(entries, startMs, endMs) {
+  const byDay = new Map();
+  entries.forEach(function(e) {
+    const ci = new Date(e.clock_in);
+    const t  = ci.getTime();
+    if (!(t >= startMs && t <= endMs)) return;
+    const dayKey = ci.toLocaleDateString("en-US", { timeZone: CPR_OFFICE_TZ });
+    if (!byDay.has(dayKey)) byDay.set(dayKey, []);
+    byDay.get(dayKey).push(e);
+  });
+  let total = 0;
+  byDay.forEach(function(list) {
+    const overrides = list.filter(function(e) { return String(e.manual_note || "").startsWith("Timesheet|"); });
+    const src = overrides.length ? overrides : list;
+    src.forEach(function(e) {
+      const ci = new Date(e.clock_in);
+      const co = e.clock_out ? new Date(e.clock_out) : new Date();
+      total += Math.max(0, (co - ci) / 3600000);
+    });
+  });
+  return total;
+}
+
+async function cprLoadOfficeStaff(run) {
+  try {
+    const DAY = 86400000;
+    const startMs = Date.parse(run.period_start + "T00:00:00Z") + 7 * DAY;
+    const endMs   = startMs + 14 * DAY - 1;
+    // Sanity: the office grid is anchored at 2026-04-12T00:00Z — the
+    // shifted start must land on it. If Strata/TB anchors ever change,
+    // fail silently rather than show wrong-period money.
+    const OFFICE_ANCHOR_MS = Date.parse("2026-04-12T00:00:00Z");
+    if ((startMs - OFFICE_ANCHOR_MS) % (14 * DAY) !== 0) {
+      console.warn("[cpr] office period misaligned with anchor — skipping office payroll");
+      return;
+    }
+    const periodDate = new Date(startMs).toISOString().slice(0, 10);
+    const startIso   = new Date(startMs).toISOString();
+    const endIso     = new Date(endMs).toISOString();
+
+    const results = await Promise.all([
+      db.from("staff_config")
+        .select("user_id, display_name, hourly_rate, pay_type, is_active")
+        .eq("is_active", true),
+      db.from("time_entries")
+        .select("user_id, clock_in, clock_out, is_manual, manual_note")
+        .gte("clock_in", startIso)
+        .lte("clock_in", endIso),
+      db.from("pay_period_adjustments")
+        .select("user_id, amount")
+        .eq("period_start", periodDate)
+    ]);
+    for (let i = 0; i < results.length; i++) {
+      if (results[i].error) throw results[i].error;
+    }
+    const staff   = results[0].data || [];
+    const entries = results[1].data || [];
+    const adjs    = results[2].data || [];
+
+    const entriesByUser = new Map();
+    entries.forEach(function(e) {
+      if (!entriesByUser.has(e.user_id)) entriesByUser.set(e.user_id, []);
+      entriesByUser.get(e.user_id).push(e);
+    });
+    const adjByUser = new Map();
+    adjs.forEach(function(a) {
+      adjByUser.set(a.user_id, (adjByUser.get(a.user_id) || 0) + (parseFloat(a.amount) || 0));
+    });
+
+    const wise = [], direct = [];
+    staff.forEach(function(s) {
+      const hrs     = cprOfficeHoursForStaff(entriesByUser.get(s.user_id) || [], startMs, endMs);
+      const rate    = parseFloat(s.hourly_rate) || 0;
+      const earned  = hrs * rate;
+      const adjTot  = adjByUser.get(s.user_id) || 0;
+      const netPay  = earned + adjTot;
+      if (Math.abs(netPay) < 0.005 && hrs < 0.005) return;   // skip zero rows (match totals either way)
+      const row = {
+        name:   s.display_name || s.user_id,
+        hours:  Math.round(hrs * 100) / 100,
+        rate:   rate,
+        adj:    Math.round(adjTot * 100) / 100,
+        net:    Math.round(netPay * 100) / 100
+      };
+      if ((s.pay_type || "philippines") === "us") direct.push(row);
+      else wise.push(row);
+    });
+    const sum = function(list) { return Math.round(list.reduce(function(s, x) { return s + x.net; }, 0) * 100) / 100; };
+    const fmtD = function(ms) { const d = new Date(ms); return (d.getUTCMonth() + 1) + "/" + d.getUTCDate(); };
+    cprViewState.office = {
+      period_start: periodDate,
+      period_label: fmtD(startMs) + " – " + fmtD(endMs),
+      wise:         wise.sort(function(a, b) { return b.net - a.net; }),
+      direct:       direct.sort(function(a, b) { return b.net - a.net; }),
+      wise_total:   sum(wise),
+      direct_total: sum(direct)
+    };
+    cprRenderDetail();
+  } catch (err) {
+    console.warn("[cpr] office-staff payroll fetch failed (audit unaffected):", err && err.message);
+  }
+}
+
 async function viewCprRun(runId) {
   const body  = document.getElementById("cpr-detail-body");
   const title = document.getElementById("cpr-detail-title");
@@ -5878,7 +6000,10 @@ async function viewCprRun(runId) {
       search: "",
       // Which payment-method sections are expanded in the per-clinician table.
       // All collapsed by default — admin clicks a section header to open.
-      expandedMethods: new Set()
+      expandedMethods: new Set(),
+      // Office-staff timesheet payroll for the synced Time Tracker period
+      // (loaded async by cprLoadOfficeStaff — display-only, never persisted).
+      office: null
     };
     // Fetch the payment-method lookup once per audit-open. Failure is
     // non-fatal — the chip + summary just won't render for unmapped names.
@@ -5886,6 +6011,9 @@ async function viewCprRun(runId) {
 
     cprRecompute();
     cprRenderDetail();
+    // Office-staff timesheets load in the background and re-render when
+    // ready — non-fatal, the audit works without them.
+    cprLoadOfficeStaff(r);
   } catch (err) {
     body.innerHTML = '<div style="padding:20px;color:#c62828;">Failed: ' + escHtml(err.message || String(err)) + '</div>';
   }
@@ -6122,6 +6250,29 @@ function cprRenderDetail() {
         '<span class="cpr-audit-value" style="color:#1E3A5F;">' + cprFmtMoney(totalCombined) + '</span>' +
       '</div>'
     : '';
+  // Office staff (Time Tracker timesheets — display-only, loaded async by
+  // cprLoadOfficeStaff). Wise batch is sent internally by the admin from
+  // the Time Tracker, so it appears here as a summary line, not as
+  // per-person QB-routable rows. US direct-payment staff get listed
+  // inside the Direct Deposit section below.
+  const office = cprViewState.office;
+  let officeRowHtml = "";
+  if (office && (office.wise_total > 0 || office.direct_total > 0)) {
+    const officeTotal = office.wise_total + office.direct_total;
+    officeRowHtml =
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">+ OFFICE STAFF</span>' +
+        '<span class="cpr-audit-value" style="color:#7c3aed;">' + cprFmtMoney(officeTotal) +
+          ' <span style="font-size:11px;color:var(--muted);font-weight:600;">(Wise ' + cprFmtMoney(office.wise_total) +
+          ' · US direct ' + cprFmtMoney(office.direct_total) +
+          ' · timesheets ' + escHtml(office.period_label) + ')</span></span>' +
+      '</div>' +
+      '<div class="cpr-audit-row">' +
+        '<span class="cpr-audit-label">ALL PAYROLL</span>' +
+        '<span class="cpr-audit-value" style="color:#1E3A5F;font-weight:800;">' + cprFmtMoney(totalCombined + officeTotal) +
+          ' <span style="font-size:10.5px;color:var(--muted);font-weight:600;">Wise batch sent by admin via Time Tracker · fees added at Wise upload</span></span>' +
+      '</div>';
+  }
 
   html += '<div class="cpr-audit-header">';
   if (adjustedDiffer || cprCountAdjustments(perClin) > 0 || cprCountExcluded(visits) > 0) {
@@ -6139,6 +6290,7 @@ function cprRenderDetail() {
         '</span>' +
       '</div>' +
       medbRowHtml +
+      officeRowHtml +
     '</div>';
   } else {
     html += '<div class="cpr-audit-summary">' +
@@ -6147,6 +6299,7 @@ function cprRenderDetail() {
         '<span class="cpr-audit-value">' + cprFmtMoney(r.total_pay) + ' · ' + r.total_visits + ' visits · ' + r.distinct_clinicians + ' clinicians</span>' +
       '</div>' +
       medbRowHtml +
+      officeRowHtml +
     '</div>';
   }
   html += '<div class="cpr-stat-card" style="margin-top:8px;background:transparent;border:none;padding:0;">' +
@@ -6578,6 +6731,36 @@ function cprRenderDetail() {
       html += '</td></tr>'; // /expand-row
     }
   });    // /bucket.list.forEach
+
+  // ── Office-staff sub-block (Direct Deposit section only) ─────────
+  // US direct-payment office staff from the synced Time Tracker period
+  // ride INSIDE the Direct Deposit section as read-only rows — they're
+  // paid from timesheets (hours × rate + adjustments), not QB Bills, so
+  // no expand/edit affordances. Wise staff deliberately NOT listed here
+  // (admin sends that batch internally from the Time Tracker; the total
+  // shows on the header card instead).
+  if (m === "direct_deposit" && cprViewState.office && cprViewState.office.direct.length) {
+    const office = cprViewState.office;
+    html += '<tr class="cpr-office-subhead"><td colspan="8" style="background:#f5f3ff;color:#5b21b6;font-size:11.5px;font-weight:800;padding:6px 12px;border-bottom:1px solid #ddd6fe;">' +
+      '👔 Office staff — direct payment · timesheets ' + escHtml(office.period_label) +
+      ' · ' + cprFmtMoney(office.direct_total) +
+      ' <span style="font-weight:600;color:#7c3aed;">(from Time Tracker — display only)</span>' +
+    '</td></tr>';
+    office.direct.forEach(function(o) {
+      html += '<tr class="cpr-office-row" style="background:#fbfaff;">' +
+        '<td class="col-caret"></td>' +
+        '<td class="col-name" style="font-weight:600;color:#5b21b6;">' + escHtml(o.name) +
+          ' <span class="cpr-medb-only-chip" style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd;">Office</span></td>' +
+        '<td class="col-disc"><span>—</span></td>' +
+        '<td class="col-vc">' + o.hours + ' h × ' + cprFmtMoney(o.rate) +
+          (o.adj ? ' · adj ' + (o.adj > 0 ? '+' : '') + cprFmtMoney(o.adj) : '') + '</td>' +
+        '<td class="col-pay">' + cprFmtMoney(o.net) + '</td>' +
+        '<td class="col-medb" style="text-align:right;color:#cbd5e1;">—</td>' +
+        '<td class="col-total" style="text-align:right;font-weight:700;">' + cprFmtMoney(o.net) + '</td>' +
+        '<td class="col-bkdn" style="text-align:center;color:#cbd5e1;">—</td>' +
+      '</tr>';
+    });
+  }
   });    // /orderedBuckets.forEach
   html += '</tbody></table></div>';
 
