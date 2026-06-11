@@ -5896,7 +5896,7 @@ async function cprLoadOfficeStaff(run) {
 
     const results = await Promise.all([
       db.from("staff_config")
-        .select("user_id, display_name, hourly_rate, pay_type, is_active")
+        .select("user_id, display_name, hourly_rate, pay_type, pay_category, salary_per_period, is_active")
         .eq("is_active", true),
       db.from("time_entries")
         .select("user_id, clock_in, clock_out, is_manual, manual_note")
@@ -5925,21 +5925,27 @@ async function cprLoadOfficeStaff(run) {
 
     const wise = [], direct = [];
     staff.forEach(function(s) {
-      const hrs     = cprOfficeHoursForStaff(entriesByUser.get(s.user_id) || [], startMs, endMs);
-      const rate    = parseFloat(s.hourly_rate) || 0;
-      const earned  = hrs * rate;
-      const adjTot  = adjByUser.get(s.user_id) || 0;
-      const netPay  = earned + adjTot;
+      const hrs  = cprOfficeHoursForStaff(entriesByUser.get(s.user_id) || [], startMs, endMs);
+      const rate = parseFloat(s.hourly_rate) || 0;
+      // Pay category (migration 40): salary_dd staff earn their fixed
+      // per-period salary regardless of hours; hourly_bill staff submit
+      // hours and accounting computes the QB Bill (portal shows hours ×
+      // rate when the rate is configured to match QB; 0 rate → hours only).
+      const cat = s.pay_category || ((s.pay_type || "philippines") === "us" ? "hourly_bill" : "wise_hourly");
+      const earned = cat === "salary_dd" ? (parseFloat(s.salary_per_period) || 0) : hrs * rate;
+      const adjTot = adjByUser.get(s.user_id) || 0;
+      const netPay = earned + adjTot;
       if (Math.abs(netPay) < 0.005 && hrs < 0.005) return;   // skip zero rows (match totals either way)
       const row = {
         name:   s.display_name || s.user_id,
+        cat:    cat,
         hours:  Math.round(hrs * 100) / 100,
         rate:   rate,
         adj:    Math.round(adjTot * 100) / 100,
         net:    Math.round(netPay * 100) / 100
       };
-      if ((s.pay_type || "philippines") === "us") direct.push(row);
-      else wise.push(row);
+      if (cat === "wise_hourly") wise.push(row);
+      else direct.push(row);
     });
     const sum = function(list) { return Math.round(list.reduce(function(s, x) { return s + x.net; }, 0) * 100) / 100; };
     const fmtD = function(ms) { const d = new Date(ms); return (d.getUTCMonth() + 1) + "/" + d.getUTCDate(); };
@@ -6780,16 +6786,33 @@ function cprRenderDetail() {
       ' <span style="font-weight:600;color:#7c3aed;">(from Time Tracker — display only)</span>' +
     '</td></tr>';
     office.direct.forEach(function(o) {
+      // Detail cell varies by pay category:
+      //   salary_dd   → "salary" (hours not used for pay)
+      //   hourly_bill → hours × rate, or hours-only when the portal rate
+      //                 is unset (accounting computes the QB Bill amount)
+      let detail, chip;
+      if (o.cat === "salary_dd") {
+        detail = 'salary' + (o.adj ? ' · adj ' + (o.adj > 0 ? '+' : '') + cprFmtMoney(o.adj) : '');
+        chip   = 'Salary DD';
+      } else {
+        detail = (o.rate > 0
+            ? o.hours + ' h × ' + cprFmtMoney(o.rate)
+            : o.hours + ' h — rate unset (accounting calculates)') +
+          (o.adj ? ' · adj ' + (o.adj > 0 ? '+' : '') + cprFmtMoney(o.adj) : '');
+        chip   = 'QB Bill';
+      }
+      const netCell = (o.cat !== "salary_dd" && o.rate <= 0 && o.net <= 0)
+        ? '<span style="color:#94a3b8;" title="Hours submitted — accounting computes the amount in QuickBooks">submit ' + o.hours + ' h</span>'
+        : cprFmtMoney(o.net);
       html += '<tr class="cpr-office-row" style="background:#fbfaff;">' +
         '<td class="col-caret"></td>' +
         '<td class="col-name" style="font-weight:600;color:#5b21b6;">' + escHtml(o.name) +
-          ' <span class="cpr-medb-only-chip" style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd;">Office</span></td>' +
+          ' <span class="cpr-medb-only-chip" style="background:#ede9fe;color:#5b21b6;border-color:#c4b5fd;">' + chip + '</span></td>' +
         '<td class="col-disc"><span>—</span></td>' +
-        '<td class="col-vc">' + o.hours + ' h × ' + cprFmtMoney(o.rate) +
-          (o.adj ? ' · adj ' + (o.adj > 0 ? '+' : '') + cprFmtMoney(o.adj) : '') + '</td>' +
-        '<td class="col-pay">' + cprFmtMoney(o.net) + '</td>' +
+        '<td class="col-vc">' + detail + '</td>' +
+        '<td class="col-pay">' + netCell + '</td>' +
         '<td class="col-medb" style="text-align:right;color:#cbd5e1;">—</td>' +
-        '<td class="col-total" style="text-align:right;font-weight:700;">' + cprFmtMoney(o.net) + '</td>' +
+        '<td class="col-total" style="text-align:right;font-weight:700;">' + netCell + '</td>' +
         '<td class="col-bkdn" style="text-align:center;color:#cbd5e1;">—</td>' +
       '</tr>';
     });
