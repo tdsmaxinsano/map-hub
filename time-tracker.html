@@ -2346,12 +2346,18 @@ async function renderPayPeriod() {
   function computeStaff(s) {
     const myEntries = allEntries.filter(e => e.user_id === s.user_id);
     const hrs       = hoursInPeriod(myEntries, period);
-    const earned    = hrs * parseFloat(s.hourly_rate);
+    // Pay category (migration 40): salary_dd staff earn their fixed
+    // per-period salary regardless of hours — no more manual hour-entry
+    // games to make the math come out. Hourly categories unchanged.
+    const cat       = s.pay_category || ((s.pay_type || 'philippines') === 'us' ? 'hourly_bill' : 'wise_hourly');
+    const earned    = cat === 'salary_dd'
+      ? (parseFloat(s.salary_per_period) || 0)
+      : hrs * parseFloat(s.hourly_rate);
     const myAdjs    = allAdjs.filter(a => a.user_id === s.user_id);
     const adjTotal  = myAdjs.reduce((sum, a) => sum + parseFloat(a.amount), 0);
     const netPay    = earned + adjTotal;
-    const isPH      = (s.pay_type || 'philippines') === 'philippines';
-    return { hrs, earned, myAdjs, netPay, isPH };
+    const isPH      = cat === 'wise_hourly';
+    return { hrs, earned, myAdjs, netPay, isPH, cat };
   }
 
   const allActive = staffConfig.filter(s => s.is_active);
@@ -2375,7 +2381,7 @@ async function renderPayPeriod() {
   }).sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || '')));
 
   const rows = visible.map(s => {
-    const { hrs, earned, myAdjs, isPH } = computeStaff(s);
+    const { hrs, earned, myAdjs, isPH, cat } = computeStaff(s);
 
     // Split adjustments: positive ones become their own sendable rows;
     // negative ones (deductions) fold into the main row's base.
@@ -2386,11 +2392,17 @@ async function renderPayPeriod() {
 
     const payBadge = isPH
       ? `<span style="background:#E8F0F8;color:var(--blue);font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;">🇵🇭 Wise</span>`
-      : `<span style="background:#F5F5F5;color:#555;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;">🇺🇸 USD</span>`;
+      : cat === 'salary_dd'
+        ? `<span style="background:#EDE9FE;color:#5B21B6;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;" title="Fixed salary per period — paid by direct deposit">🇺🇸 Salary DD</span>`
+        : `<span style="background:#F5F5F5;color:#555;font-size:10px;font-weight:800;padding:2px 7px;border-radius:10px;" title="Hours submitted — accounting computes the pay in QuickBooks (Contract Labor Bill)">🇺🇸 QB Bill</span>`;
 
     // Inline-editable hours cell. (Pay Period tab is admin-only — it lives
     // inside #admin-view — so no extra role gate is needed here.)
-    const hoursCell = `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h</td>`;
+    // Salaried staff don't need hours for pay — show a muted marker
+    // instead of the input so nobody "enters hours to make pay come out".
+    const hoursCell = cat === 'salary_dd'
+      ? `<td style="color:#999;font-size:11px;" title="Salary — hours not used for pay">— salary</td>`
+      : `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h</td>`;
     const addAdjCell = `<td><button type="button" class="add-adj-btn" data-uid="${s.user_id}">+ adj</button></td>`;
 
     // Pay-period submission pill — lives next to the staff name.
@@ -2429,16 +2441,24 @@ async function renderPayPeriod() {
           <td style="color:var(--gray);font-size:12px;">≈ ${Math.round(phpAmt).toLocaleString()} PHP</td>
         </tr>`;
     } else {
+      // Rate cell: salaried staff show their per-period salary (the rate
+      // is irrelevant); hourly-bill staff show $/hr as usual.
+      const rateCell = cat === 'salary_dd'
+        ? `<td style="font-size:11px;color:#5B21B6;">$${(parseFloat(s.salary_per_period)||0).toFixed(2)}/period</td>`
+        : `<td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>`;
+      const tailLabel = cat === 'salary_dd'
+        ? 'Direct deposit (salary)'
+        : 'Hours → QB Bill (accounting calculates)';
       html = `
         <tr>
           <td class="name-cell">${s.display_name} ${ppsPill}${ppsApprove}</td>
           <td>${payBadge}</td>
           ${hoursCell}
-          <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
+          ${rateCell}
           <td>$${earned.toFixed(2)}</td>
           ${addAdjCell}
           <td><strong>$${baseNet.toFixed(2)}</strong></td>
-          <td colspan="3" style="color:var(--gray);font-size:12px;">Direct payment</td>
+          <td colspan="3" style="color:var(--gray);font-size:12px;">${tailLabel}</td>
         </tr>`;
     }
 
@@ -2734,6 +2754,9 @@ async function renderSettings() {
     const photoEl = s.photo_url
       ? `<img src="${s.photo_url}" class="photo-preview" alt="${s.display_name}" />`
       : `<div class="photo-initials-sm">${s.display_name.charAt(0).toUpperCase()}</div>`;
+    // Pay category (migration 40) — falls back from legacy pay_type for
+    // rows saved before the column existed.
+    const payCat = s.pay_category || ((s.pay_type || 'philippines') === 'us' ? 'hourly_bill' : 'wise_hourly');
     return `
     <div class="setting-row" data-uid="${s.user_id}">
       <div style="display:flex;align-items:center;gap:8px;">
@@ -2756,11 +2779,16 @@ async function renderSettings() {
         </select>
       </div>
       <div class="setting-group">
-        <label>Pay Via</label>
-        <select class="s-paytype">
-          <option value="philippines" ${(s.pay_type||'philippines')==='philippines'?'selected':''}>🇵🇭 Philippines (Wise)</option>
-          <option value="us"          ${s.pay_type==='us'?'selected':''}>🇺🇸 US (Direct)</option>
+        <label>Pay Category</label>
+        <select class="s-paycat">
+          <option value="wise_hourly" ${payCat==='wise_hourly'?'selected':''}>🇵🇭 Wise (hourly)</option>
+          <option value="hourly_bill" ${payCat==='hourly_bill'?'selected':''}>🇺🇸 Hourly → QB Bill</option>
+          <option value="salary_dd"   ${payCat==='salary_dd'?'selected':''}>🇺🇸 Salary (DD)</option>
         </select>
+      </div>
+      <div class="setting-group salary-field" style="${payCat==='salary_dd'?'':'display:none'}">
+        <label>Salary / period ($)</label>
+        <input type="number" class="s-salary" value="${parseFloat(s.salary_per_period||0).toFixed(2)}" step="0.01" min="0" style="width:110px;" />
       </div>
       <div class="setting-group">
         <label>Active</label>
@@ -2773,15 +2801,15 @@ async function renderSettings() {
         <label>🎂 Birthday</label>
         <input type="date" class="s-dob" value="${s.dob || ''}" style="width:150px;" />
       </div>
-      <div class="setting-group wise-fields" style="${(s.pay_type||'philippines')==='us'?'display:none':''}">
+      <div class="setting-group wise-fields" style="${payCat!=='wise_hourly'?'display:none':''}">
         <label>Wise Recipient ID</label>
         <input type="text" class="s-wise-id" value="${s.wise_recipient_id||''}" placeholder="UUID from Wise" style="width:220px;font-size:11px;" />
       </div>
-      <div class="setting-group wise-fields" style="${(s.pay_type||'philippines')==='us'?'display:none':''}">
+      <div class="setting-group wise-fields" style="${payCat!=='wise_hourly'?'display:none':''}">
         <label>Wise Name (exact)</label>
         <input type="text" class="s-wise-name" value="${s.wise_name||''}" placeholder="Full name as in Wise" style="width:200px;" />
       </div>
-      <div class="setting-group wise-fields" style="${(s.pay_type||'philippines')==='us'?'display:none':''}">
+      <div class="setting-group wise-fields" style="${payCat!=='wise_hourly'?'display:none':''}">
         <label>Wise Email</label>
         <input type="text" class="s-wise-email" value="${s.wise_email||''}" placeholder="Email in Wise" style="width:200px;" />
       </div>
@@ -2797,11 +2825,14 @@ async function renderSettings() {
   }).join('');
 
   // Toggle Wise fields when pay type changes
-  document.querySelectorAll('.s-paytype').forEach(sel => {
+  document.querySelectorAll('.s-paycat').forEach(sel => {
     sel.addEventListener('change', function() {
       const row = this.closest('.setting-row');
       row.querySelectorAll('.wise-fields').forEach(f => {
-        f.style.display = this.value === 'us' ? 'none' : '';
+        f.style.display = this.value === 'wise_hourly' ? '' : 'none';
+      });
+      row.querySelectorAll('.salary-field').forEach(f => {
+        f.style.display = this.value === 'salary_dd' ? '' : 'none';
       });
     });
   });
@@ -2815,7 +2846,11 @@ async function saveStaffConfig(uid, btn) {
   const rate    = parseFloat(row.querySelector('.s-rate').value);
   const tz      = row.querySelector('.s-tz').value;
   const active  = row.querySelector('.s-active').value === 'true';
-  const payType = row.querySelector('.s-paytype').value;
+  const payCat  = row.querySelector('.s-paycat').value;
+  // pay_type stays in sync with the category (legacy consumers: Wise
+  // identity fields, PH/US filters). wise_hourly → philippines; else us.
+  const payType = payCat === 'wise_hourly' ? 'philippines' : 'us';
+  const salary  = parseFloat(row.querySelector('.s-salary')?.value) || 0;
   const wiseId  = row.querySelector('.s-wise-id')?.value.trim() || null;
   const wiseName= row.querySelector('.s-wise-name')?.value.trim() || null;
   const wiseEmail=row.querySelector('.s-wise-email')?.value.trim() || null;
@@ -2834,10 +2869,11 @@ async function saveStaffConfig(uid, btn) {
     if (nameEl) nameEl.dataset.orig = newName;
   }
 
-  // (b) Operational fields (rate / tz / active / pay_type / wise_* / dob)
+  // (b) Operational fields (rate / tz / active / pay category / wise_* / dob)
   const { error } = await db.from('staff_config').update({
     hourly_rate: rate, timezone: tz, is_active: active,
-    pay_type: payType, wise_recipient_id: wiseId,
+    pay_type: payType, pay_category: payCat, salary_per_period: salary,
+    wise_recipient_id: wiseId,
     wise_name: wiseName, wise_email: wiseEmail,
     dob: dob,
     updated_at: new Date().toISOString()
