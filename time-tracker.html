@@ -551,6 +551,34 @@
         <button class="ts-submit-btn" type="button" id="ts-submit-btn" onclick="tsSubmit()">Submit Timesheet</button>
       </div>
 
+      <!-- 💸 My Expenses — staff-submitted office purchases (coffee runs,
+           party favors, …) in PHP or USD. Admin approves on the Pay Period
+           tab; approved ones land in your pay as a reimbursement.
+           Backed by staff_expenses (migration 42). -->
+      <div class="card" id="expenses-card">
+        <div class="ts-header">
+          <h3>💸 My Expenses</h3>
+        </div>
+        <div style="font-size:12px;color:var(--gray);margin:4px 0 10px;">Bought something for the office (coffee, party favors, supplies)? Log it here — once approved it's added to your pay as a reimbursement.</div>
+        <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;background:var(--bg);border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+          <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">DATE</label>
+            <input type="date" id="exp-date" style="padding:7px 9px;font-size:12.5px;border:1.5px solid var(--border);border-radius:6px;" /></div>
+          <div style="flex:1;min-width:160px;"><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">WHAT WAS IT</label>
+            <input type="text" id="exp-desc" placeholder="e.g. Office coffee run" style="width:100%;padding:7px 9px;font-size:12.5px;border:1.5px solid var(--border);border-radius:6px;" /></div>
+          <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">AMOUNT</label>
+            <input type="number" id="exp-amount" min="0" step="0.01" placeholder="0.00" style="width:100px;padding:7px 9px;font-size:12.5px;border:1.5px solid var(--border);border-radius:6px;" /></div>
+          <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">CURRENCY</label>
+            <select id="exp-currency" style="padding:7px 9px;font-size:12.5px;border:1.5px solid var(--border);border-radius:6px;">
+              <option value="PHP">🇵🇭 PHP</option>
+              <option value="USD">🇺🇸 USD</option>
+            </select></div>
+          <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">RECEIPT (OPTIONAL)</label>
+            <input type="file" id="exp-receipt" accept="image/*,application/pdf" style="font-size:11px;max-width:170px;" /></div>
+          <button type="button" class="ts-submit-btn" style="margin:0;" onclick="expSubmit(this)">Submit</button>
+        </div>
+        <div id="exp-list"><div style="color:var(--gray);font-size:12px;">Loading…</div></div>
+      </div>
+
       <div class="recent-title">Recent Shifts</div>
       <div id="recent-list"></div>
     </div>
@@ -641,6 +669,15 @@
               PHP rate is for reference only.<br/>Wise fee is estimated — actual appears in Wise on upload.
             </div>
           </div>
+        </div>
+
+        <!-- 💸 Expense Approvals — staff-submitted expenses (migration 42).
+             Approving inserts a kind='reimbursement' adjustment on the
+             period currently shown, using the PHP rate above. -->
+        <div class="card" id="exp-approvals-card" style="margin-bottom:16px;padding:16px 20px;display:none;">
+          <div style="font-size:13px;font-weight:800;color:var(--blue);margin-bottom:2px;">💸 Expense Approvals <span id="exp-approvals-count" style="background:#FFF4D6;color:#8a5a00;font-size:11px;padding:1px 8px;border-radius:9px;"></span></div>
+          <div style="font-size:11.5px;color:var(--gray);margin-bottom:8px;">Approving adds the expense to the staff member's pay as a reimbursement on the <strong>period shown below</strong> (PHP converts at the rate above). Navigate to the right period first.</div>
+          <div id="exp-approvals-list"></div>
         </div>
 
         <!-- Sort / filter toolbar (data-entry aid) -->
@@ -1185,10 +1222,209 @@ async function loadStaffConfig() {
 const MAX_SHIFT_HOURS = 10;
 let hardStopTimer = null;
 
+// ══════════════════════════════════════════════════════════════
+//  💸 MY EXPENSES (staff self-entry — migration 42)
+//  Staff log office purchases (PHP or USD, optional receipt).
+//  Admin approves on the Pay Period tab → becomes a reimbursement
+//  adjustment in their pay. Withdraw allowed while pending only
+//  (RLS enforces the same rules server-side).
+// ══════════════════════════════════════════════════════════════
+async function expensesLoad() {
+  const list = document.getElementById('exp-list');
+  if (!list) return;
+  const dateEl = document.getElementById('exp-date');
+  if (dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0, 10);
+  try {
+    const { data, error } = await db.from('staff_expenses').select('*')
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    expensesRender(data || []);
+  } catch (err) {
+    list.innerHTML = '<div style="color:var(--red);font-size:12px;">Expenses unavailable — has migration 42 (staff_expenses) been run? ' + escAttr(err.message || '') + '</div>';
+  }
+}
+
+function expFmtAmt(r) {
+  return r.currency === 'PHP'
+    ? '₱' + parseFloat(r.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })
+    : '$' + parseFloat(r.amount).toFixed(2);
+}
+
+function expensesRender(rows) {
+  const list = document.getElementById('exp-list');
+  if (!list) return;
+  if (!rows.length) {
+    list.innerHTML = '<div style="color:var(--gray);font-size:12px;">No expenses submitted yet.</div>';
+    return;
+  }
+  list.innerHTML = rows.map(r => {
+    let pill;
+    if (r.status === 'approved') {
+      pill = '<span style="background:#E6F4EA;color:#1B5E20;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Approved — added to your pay as a reimbursement">✅ Approved</span>';
+    } else if (r.status === 'declined') {
+      pill = '<span style="background:#FDECEA;color:var(--red);font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="' + escAttr(r.decline_reason || 'Declined') + '">⛔ Declined</span>';
+    } else {
+      pill = '<span style="background:#FFF4D6;color:#8a5a00;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;">🟡 Pending</span>';
+    }
+    const receipt = r.receipt_url
+      ? ' <a href="' + escAttr(r.receipt_url) + '" target="_blank" style="font-size:11px;">📎 Receipt</a>'
+      : '';
+    const withdraw = r.status === 'pending'
+      ? ' <button type="button" onclick="expWithdraw(\'' + r.id + '\')" title="Withdraw this expense (pending only)" style="font-size:11px;padding:2px 7px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">🗑</button>'
+      : '';
+    const declineLine = r.status === 'declined' && r.decline_reason
+      ? '<div style="flex-basis:100%;font-size:11px;color:var(--red);padding-left:88px;">Reason: ' + escAttr(r.decline_reason) + '</div>'
+      : '';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;">' +
+      '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>' +
+      '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>' +
+      '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>' +
+      pill + receipt + withdraw + declineLine +
+    '</div>';
+  }).join('');
+}
+
+async function expSubmit(btn) {
+  const date = document.getElementById('exp-date').value || new Date().toISOString().slice(0, 10);
+  const desc = (document.getElementById('exp-desc').value || '').trim();
+  const amt  = parseFloat(document.getElementById('exp-amount').value);
+  const cur  = document.getElementById('exp-currency').value;
+  const file = document.getElementById('exp-receipt').files[0] || null;
+  if (!desc) { showToast('Describe what the expense was.'); return; }
+  if (!Number.isFinite(amt) || amt <= 0) { showToast('Enter a valid amount.'); return; }
+  if (file && file.size > 5 * 1024 * 1024) { showToast('Receipt must be under 5MB.'); return; }
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    let receiptUrl = null;
+    if (file) {
+      const ext  = (file.name.split('.').pop() || 'dat').toLowerCase();
+      // Per-user prefix — the bucket's staff write policy only allows
+      // staff-expenses/<own uid>/… paths.
+      const path = 'staff-expenses/' + currentUser.id + '/' + Date.now() + '.' + ext;
+      const up = await db.storage.from('reimbursement-receipts')
+        .upload(path, file, { contentType: file.type });
+      if (up.error) throw new Error('Receipt upload failed: ' + up.error.message);
+      receiptUrl = db.storage.from('reimbursement-receipts').getPublicUrl(path).data.publicUrl;
+    }
+    const { error } = await db.from('staff_expenses').insert({
+      user_id: currentUser.id, expense_date: date, description: desc,
+      amount: amt, currency: cur, receipt_url: receiptUrl
+    });
+    if (error) throw new Error(error.message);
+    document.getElementById('exp-desc').value = '';
+    document.getElementById('exp-amount').value = '';
+    document.getElementById('exp-receipt').value = '';
+    showToast('Expense submitted — pending admin approval.');
+    await expensesLoad();
+  } catch (err) {
+    showToast('Failed: ' + (err.message || err));
+  }
+  btn.disabled = false; btn.textContent = 'Submit';
+}
+
+async function expWithdraw(id) {
+  if (!confirm('Withdraw this expense? You can re-submit it later if needed.')) return;
+  const { error } = await db.from('staff_expenses').delete().eq('id', id).eq('status', 'pending');
+  if (error) { showToast('Withdraw failed: ' + error.message); return; }
+  await expensesLoad();
+}
+
+// ── Admin: 💸 Expense Approvals (Pay Period tab) ────────────────
+// Pending staff expenses across everyone. ✓ Approve converts into a
+// kind='reimbursement' pay_period_adjustments row on the period the
+// admin is currently viewing (PHP → USD at the #php-rate input, same
+// as manual reimbursements), then links adjustment_id back onto the
+// expense. ✕ Decline records a reason the staff member can see.
+let expPendingCache = [];
+
+async function expApprovalsLoad() {
+  const card = document.getElementById('exp-approvals-card');
+  if (!card) return;
+  try {
+    const { data, error } = await db.from('staff_expenses').select('*')
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+    if (error) throw error;
+    expPendingCache = data || [];
+  } catch (err) {
+    // Table missing (migration 42 not run) → keep the card hidden.
+    card.style.display = 'none';
+    return;
+  }
+  if (!expPendingCache.length) { card.style.display = 'none'; return; }
+  card.style.display = '';
+  document.getElementById('exp-approvals-count').textContent = expPendingCache.length + ' pending';
+  document.getElementById('exp-approvals-list').innerHTML = expPendingCache.map(r => {
+    const s = staffConfig.find(x => x.user_id === r.user_id);
+    const name = s?.display_name || r.user_id;
+    const receipt = r.receipt_url
+      ? ' <a href="' + escAttr(r.receipt_url) + '" target="_blank" style="font-size:11px;">📎 Receipt</a>'
+      : ' <span style="font-size:11px;color:var(--gray);">no receipt</span>';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;">' +
+      '<strong style="min-width:90px;">' + escAttr(name) + '</strong>' +
+      '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>' +
+      '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>' +
+      '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>' +
+      receipt +
+      '<button type="button" onclick="expApprove(\'' + r.id + '\')" style="font-size:12px;padding:4px 12px;border:none;border-radius:5px;background:#1B5E20;color:#fff;cursor:pointer;font-weight:700;">✓ Approve</button>' +
+      '<button type="button" onclick="expDecline(\'' + r.id + '\')" style="font-size:12px;padding:4px 10px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">✕ Decline</button>' +
+    '</div>';
+  }).join('');
+}
+
+async function expApprove(id) {
+  const r = expPendingCache.find(x => x.id === id);
+  if (!r) return;
+  const period     = getPayPeriod(periodOffset);
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const phpRate    = parseFloat(document.getElementById('php-rate')?.value || 59.69);
+  const usd        = r.currency === 'PHP' ? parseFloat(r.amount) / phpRate : parseFloat(r.amount);
+  const amtLabel   = expFmtAmt(r) + (r.currency === 'PHP' ? ' (≈ $' + usd.toFixed(2) + ' at ' + phpRate + ')' : '');
+  const s = staffConfig.find(x => x.user_id === r.user_id);
+  if (!confirm('Approve ' + (s?.display_name || 'staff') + "'s expense — " + r.description + ' — ' + amtLabel +
+    '?\n\nIt will be added as a reimbursement to the pay period currently shown (' + periodDate + ' start).')) return;
+  // (1) Create the reimbursement adjustment (existing downstream flow:
+  //     sendable sub-row, Wise gross-up, receipt link).
+  const { data: adjRow, error: adjErr } = await db.from('pay_period_adjustments').insert({
+    user_id: r.user_id, period_start: periodDate, kind: 'reimbursement',
+    amount: Math.round(usd * 100) / 100,
+    original_amount: parseFloat(r.amount), original_currency: r.currency,
+    fx_rate: phpRate, receipt_url: r.receipt_url || null,
+    note: 'Expense: ' + r.description,
+    created_by: currentUser.id
+  }).select('id').single();
+  if (adjErr) { showToast('Approve failed: ' + adjErr.message); return; }
+  // (2) Flip the expense to approved + link the adjustment.
+  const { error: updErr } = await db.from('staff_expenses').update({
+    status: 'approved', reviewed_at: new Date().toISOString(),
+    reviewed_by: currentUser.id, adjustment_id: adjRow.id
+  }).eq('id', id);
+  if (updErr) { showToast('Adjustment created but expense flag failed: ' + updErr.message); }
+  showToast('Approved — added to ' + periodDate + ' as a reimbursement.');
+  renderPayPeriod();
+}
+
+async function expDecline(id) {
+  const reason = prompt('Decline reason (the staff member will see this):', '') ;
+  if (reason === null) return;   // cancelled
+  const { error } = await db.from('staff_expenses').update({
+    status: 'declined', decline_reason: reason.trim() || null,
+    reviewed_at: new Date().toISOString(), reviewed_by: currentUser.id
+  }).eq('id', id);
+  if (error) { showToast('Decline failed: ' + error.message); return; }
+  showToast('Declined.');
+  expApprovalsLoad();
+}
+
 async function loadStaffView() {
   const myConfig = staffConfig.find(s => s.user_id === currentUser.id);
   const myTZ     = myConfig?.timezone || 'Asia/Manila';
   const period   = getPayPeriod(0);
+
+  // 💸 My Expenses card (migration 42) — non-blocking.
+  expensesLoad();
 
   const [{ data: entries }, { data: myRequests }] = await Promise.all([
     db.from('time_entries').select('*').eq('user_id', currentUser.id).order('clock_in', { ascending: false }),
@@ -2290,6 +2526,9 @@ async function renderPayPeriod() {
   const period  = getPayPeriod(periodOffset);
   const phpRate = parseFloat(document.getElementById('php-rate')?.value || 59.69);
   const feePct  = parseFloat(document.getElementById('wise-fee-pct')?.value || 1.10) / 100;
+
+  // 💸 pending expense approvals (migration 42) — non-blocking refresh.
+  expApprovalsLoad();
 
   document.getElementById('pp-label').textContent = fmtPeriod(period);
   document.getElementById('pp-sub').textContent   = periodOffset === 0 ? 'Current period' : (periodOffset < 0 ? `${Math.abs(periodOffset)} period(s) ago` : `${periodOffset} period(s) ahead`);
