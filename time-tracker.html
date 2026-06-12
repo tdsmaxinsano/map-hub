@@ -2920,12 +2920,39 @@ async function saveStaffConfig(uid, btn) {
 //  drift. Deleting an entry is history cleanup only — it does NOT
 //  revert the current rate.
 // ══════════════════════════════════════════════════════════════
+// Which history entry is in inline-edit mode (one at a time).
+let reviewEditId = null;
+
 async function toggleReviewPanel(uid) {
   const panel = document.getElementById('review-panel-' + uid);
   if (!panel) return;
-  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; reviewEditId = null; return; }
   panel.style.display = 'block';
   panel.innerHTML = '<div style="color:var(--gray);font-size:12px;">Loading history…</div>';
+  await renderReviewPanel(uid);
+}
+
+// Persist an inline edit of a history entry (date / old / new / note).
+// History correction ONLY — never touches staff_config; the live rate
+// is governed by the Add-raise flow and the Settings Save button.
+async function saveReviewEntryEdit(id, uid, kind) {
+  const date = document.getElementById('redit-date-' + id)?.value;
+  const note = (document.getElementById('redit-note-' + id)?.value || '').trim() || null;
+  if (!date) { showToast('Pick an effective date'); return; }
+  const patch = { effective_date: date, note: note };
+  if (kind === 'raise') {
+    const oldV = parseFloat(document.getElementById('redit-old-' + id)?.value);
+    const newV = parseFloat(document.getElementById('redit-new-' + id)?.value);
+    if (!Number.isFinite(oldV) || oldV < 0 || !Number.isFinite(newV) || newV < 0) {
+      showToast('Enter valid old / new values'); return;
+    }
+    patch.old_value = oldV;
+    patch.new_value = newV;
+  }
+  const { error } = await db.from('staff_pay_reviews').update(patch).eq('id', id);
+  if (error) { showToast('Update failed: ' + error.message); return; }
+  reviewEditId = null;
+  showToast('Entry updated.');
   await renderReviewPanel(uid);
 }
 
@@ -2952,6 +2979,28 @@ async function renderReviewPanel(uid) {
   }
 
   const histHtml = rows.length ? rows.map(r => {
+    // Inline edit mode — fix a wrong date / value / note WITHOUT
+    // deleting the record (delete loses the old→new trail forever).
+    // Editing here is history correction only: it NEVER touches the
+    // live rate in staff_config.
+    if (reviewEditId === r.id) {
+      const isRaise = r.kind === 'raise';
+      return '<div style="display:flex;align-items:flex-end;gap:8px;padding:8px 0;border-bottom:1px solid #EFECF8;font-size:12px;flex-wrap:wrap;background:#FFFBEB;border-radius:6px;padding:8px;">' +
+        '<div><label style="font-size:9.5px;color:var(--gray);font-weight:700;display:block;">EFFECTIVE</label>' +
+          '<input type="date" id="redit-date-' + r.id + '" value="' + r.effective_date + '" style="padding:5px 7px;font-size:12px;" /></div>' +
+        (isRaise
+          ? '<div><label style="font-size:9.5px;color:var(--gray);font-weight:700;display:block;">OLD ($)</label>' +
+              '<input type="number" id="redit-old-' + r.id + '" value="' + parseFloat(r.old_value || 0).toFixed(2) + '" step="0.01" min="0" style="width:80px;padding:5px 7px;font-size:12px;" /></div>' +
+            '<div><label style="font-size:9.5px;color:var(--gray);font-weight:700;display:block;">NEW ($)</label>' +
+              '<input type="number" id="redit-new-' + r.id + '" value="' + parseFloat(r.new_value || 0).toFixed(2) + '" step="0.01" min="0" style="width:80px;padding:5px 7px;font-size:12px;" /></div>'
+          : '') +
+        '<div style="flex:1;min-width:120px;"><label style="font-size:9.5px;color:var(--gray);font-weight:700;display:block;">NOTE</label>' +
+          '<input type="text" id="redit-note-' + r.id + '" value="' + escAttr(r.note || '') + '" style="width:100%;padding:5px 7px;font-size:12px;" /></div>' +
+        '<button type="button" onclick="saveReviewEntryEdit(\'' + r.id + '\',\'' + uid + '\',\'' + r.kind + '\')" style="font-size:12px;padding:5px 10px;border:none;border-radius:5px;background:#1B5E20;color:#fff;cursor:pointer;font-weight:700;">✓</button>' +
+        '<button type="button" onclick="reviewEditId=null;renderReviewPanel(\'' + uid + '\')" style="font-size:12px;padding:5px 10px;border:1px solid var(--border);border-radius:5px;background:#fff;cursor:pointer;">✕</button>' +
+        '<div style="flex-basis:100%;font-size:10px;color:#92400E;">History correction only — saving here does NOT change the current rate.</div>' +
+      '</div>';
+    }
     const kindChip = r.kind === 'raise'
       ? '<span style="background:#E6F4EA;color:#1B5E20;font-size:10px;font-weight:800;padding:1px 7px;border-radius:8px;">RAISE</span>'
       : '<span style="background:#E8F0F8;color:var(--blue);font-size:10px;font-weight:800;padding:1px 7px;border-radius:8px;">REVIEW</span>';
@@ -2967,6 +3016,7 @@ async function renderReviewPanel(uid) {
       '<span style="min-width:150px;">' + valTxt + '</span>' +
       (r.note ? '<span style="color:var(--gray);flex:1;">' + escAttr(r.note) + '</span>' : '<span style="flex:1;"></span>') +
       docBtn +
+      '<button type="button" onclick="reviewEditId=\'' + r.id + '\';renderReviewPanel(\'' + uid + '\')" title="Edit this entry (date / values / note) — does not change the current rate" style="font-size:11px;padding:2px 7px;border:1px solid var(--border);border-radius:5px;background:#fff;cursor:pointer;">✎</button>' +
       '<button type="button" onclick="deleteReviewEntry(\'' + r.id + '\',\'' + uid + '\',\'' + escAttr(r.doc_path || '') + '\')" title="Delete this history entry (does NOT change the current rate)" style="font-size:11px;padding:2px 7px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">🗑</button>' +
     '</div>';
   }).join('') : '<div style="color:var(--gray);font-size:12px;padding:4px 0;">No raises or reviews recorded yet.</div>';
@@ -3048,7 +3098,7 @@ async function addReviewEntry(uid, btn) {
 }
 
 async function deleteReviewEntry(id, uid, docPath) {
-  if (!confirm('Delete this history entry? (This does NOT change the current rate — it only removes the record.)')) return;
+  if (!confirm('Permanently delete this history entry?\n\nThere is NO undo — the old → new record (and any attached doc) is gone for good. If you just need to fix the date, value, or note, use ✎ Edit instead.\n\n(The current rate is not affected either way.)')) return;
   const del = await db.from('staff_pay_reviews').delete().eq('id', id);
   if (del.error) { showToast('Delete failed: ' + del.error.message); return; }
   if (docPath) {
