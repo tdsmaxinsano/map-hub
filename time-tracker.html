@@ -2821,6 +2821,8 @@ async function renderSettings() {
         </label>
       </div>
       <button class="btn-save-staff" onclick="saveStaffConfig('${s.user_id}', this)">Save</button>
+      <button class="btn-save-staff" style="background:#EDE9FE;color:#5B21B6;" onclick="toggleReviewPanel('${s.user_id}')" title="Raise history + review documents">📋 Reviews</button>
+      <div class="review-panel" id="review-panel-${s.user_id}" style="display:none;flex-basis:100%;width:100%;background:#FAF9FF;border:1px solid #E9E5F8;border-radius:8px;padding:12px 14px;margin-top:4px;"></div>
     </div>`;
   }).join('');
 
@@ -2879,10 +2881,191 @@ async function saveStaffConfig(uid, btn) {
     updated_at: new Date().toISOString()
   }).eq('user_id', uid);
   if (error) { showToast('Error: ' + error.message); btn.textContent = 'Save'; return; }
+
+  // Auto-log pay changes to the raise history (migration 41) so the
+  // history stays complete even when the admin changes the rate here
+  // instead of through the 📋 Reviews panel. Compare against the cached
+  // staffConfig (pre-update values). Non-fatal if the table is missing.
+  try {
+    const prev = staffConfig.find(x => x.user_id === uid);
+    const logs = [];
+    if (prev && Math.abs((parseFloat(prev.hourly_rate) || 0) - rate) > 0.004) {
+      logs.push({ user_id: uid, kind: 'raise', pay_field: 'hourly_rate',
+        old_value: parseFloat(prev.hourly_rate) || 0, new_value: rate,
+        note: 'Changed via Settings save', created_by: currentUser.id });
+    }
+    if (prev && Math.abs((parseFloat(prev.salary_per_period) || 0) - salary) > 0.004) {
+      logs.push({ user_id: uid, kind: 'raise', pay_field: 'salary_per_period',
+        old_value: parseFloat(prev.salary_per_period) || 0, new_value: salary,
+        note: 'Changed via Settings save', created_by: currentUser.id });
+    }
+    if (logs.length) {
+      const { error: logErr } = await db.from('staff_pay_reviews').insert(logs);
+      if (logErr) console.warn('[reviews] raise auto-log failed (run migration 41?):', logErr.message);
+    }
+  } catch (e) { console.warn('[reviews] raise auto-log failed:', e); }
+
   await loadStaffConfig();
   showToast('Saved!');
   btn.textContent = '✓ Saved';
   setTimeout(() => btn.textContent = 'Save', 2000);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  REVIEWS & RAISES (migration 41 — staff_pay_reviews +
+//  private staff-review-docs bucket, both admin-only)
+//  Per-staff panel in Settings: raise history (old → new value),
+//  review docs on file, and an add-entry form. Recording a raise
+//  here ALSO updates staff_config so history and live rate never
+//  drift. Deleting an entry is history cleanup only — it does NOT
+//  revert the current rate.
+// ══════════════════════════════════════════════════════════════
+async function toggleReviewPanel(uid) {
+  const panel = document.getElementById('review-panel-' + uid);
+  if (!panel) return;
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '<div style="color:var(--gray);font-size:12px;">Loading history…</div>';
+  await renderReviewPanel(uid);
+}
+
+async function renderReviewPanel(uid) {
+  const panel = document.getElementById('review-panel-' + uid);
+  if (!panel) return;
+  const s = staffConfig.find(x => x.user_id === uid) || {};
+  const payCat   = s.pay_category || ((s.pay_type || 'philippines') === 'us' ? 'hourly_bill' : 'wise_hourly');
+  const isSalary = payCat === 'salary_dd';
+  const curVal   = isSalary ? (parseFloat(s.salary_per_period) || 0) : (parseFloat(s.hourly_rate) || 0);
+  const unit     = isSalary ? '/period' : '/hr';
+
+  let rows = [];
+  try {
+    const { data, error } = await db.from('staff_pay_reviews').select('*')
+      .eq('user_id', uid)
+      .order('effective_date', { ascending: false })
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    rows = data || [];
+  } catch (err) {
+    panel.innerHTML = '<div style="color:var(--red);font-size:12px;">Couldn\'t load history — has migration 41 (staff_pay_reviews) been run? ' + escAttr(err.message || '') + '</div>';
+    return;
+  }
+
+  const histHtml = rows.length ? rows.map(r => {
+    const kindChip = r.kind === 'raise'
+      ? '<span style="background:#E6F4EA;color:#1B5E20;font-size:10px;font-weight:800;padding:1px 7px;border-radius:8px;">RAISE</span>'
+      : '<span style="background:#E8F0F8;color:var(--blue);font-size:10px;font-weight:800;padding:1px 7px;border-radius:8px;">REVIEW</span>';
+    const valTxt = r.kind === 'raise' && r.new_value != null
+      ? '$' + parseFloat(r.old_value || 0).toFixed(2) + ' → <strong>$' + parseFloat(r.new_value).toFixed(2) + '</strong><span style="color:var(--gray);font-size:11px;">' + (r.pay_field === 'salary_per_period' ? '/period' : '/hr') + '</span>'
+      : '<em style="color:var(--gray);">review on file</em>';
+    const docBtn = r.doc_path
+      ? ' <button type="button" onclick="viewReviewDoc(\'' + escAttr(r.doc_path) + '\')" style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:5px;background:#fff;cursor:pointer;">📎 Doc</button>'
+      : '';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #EFECF8;font-size:12.5px;flex-wrap:wrap;">' +
+      '<span style="color:var(--gray);min-width:78px;">' + r.effective_date + '</span>' +
+      kindChip +
+      '<span style="min-width:150px;">' + valTxt + '</span>' +
+      (r.note ? '<span style="color:var(--gray);flex:1;">' + escAttr(r.note) + '</span>' : '<span style="flex:1;"></span>') +
+      docBtn +
+      '<button type="button" onclick="deleteReviewEntry(\'' + r.id + '\',\'' + uid + '\',\'' + escAttr(r.doc_path || '') + '\')" title="Delete this history entry (does NOT change the current rate)" style="font-size:11px;padding:2px 7px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">🗑</button>' +
+    '</div>';
+  }).join('') : '<div style="color:var(--gray);font-size:12px;padding:4px 0;">No raises or reviews recorded yet.</div>';
+
+  panel.innerHTML =
+    '<div style="font-size:11px;font-weight:800;color:#5B21B6;text-transform:uppercase;letter-spacing:0.4px;margin-bottom:6px;">📋 Reviews &amp; Raises — current: $' + curVal.toFixed(2) + unit + '</div>' +
+    '<div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid #E9E5F8;border-radius:8px;padding:10px 12px;margin-bottom:10px;">' +
+      '<div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">TYPE</label>' +
+        '<select id="rev-kind-' + uid + '" onchange="document.getElementById(\'rev-val-wrap-' + uid + '\').style.display = this.value === \'raise\' ? \'\' : \'none\';" style="padding:6px 8px;font-size:12px;">' +
+          '<option value="raise">💲 Raise</option>' +
+          '<option value="review">📝 Review only</option>' +
+        '</select></div>' +
+      '<div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">EFFECTIVE</label>' +
+        '<input type="date" id="rev-date-' + uid + '" value="' + new Date().toISOString().slice(0, 10) + '" style="padding:6px 8px;font-size:12px;" /></div>' +
+      '<div id="rev-val-wrap-' + uid + '"><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">NEW ' + (isSalary ? 'SALARY ($' + unit + ')' : 'RATE ($' + unit + ')') + '</label>' +
+        '<input type="number" id="rev-val-' + uid + '" value="' + curVal.toFixed(2) + '" step="0.01" min="0" style="width:100px;padding:6px 8px;font-size:12px;" /></div>' +
+      '<div style="flex:1;min-width:140px;"><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">NOTE</label>' +
+        '<input type="text" id="rev-note-' + uid + '" placeholder="e.g. Annual review — performance raise" style="width:100%;padding:6px 8px;font-size:12px;" /></div>' +
+      '<div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">REVIEW DOC</label>' +
+        '<input type="file" id="rev-file-' + uid + '" accept=".pdf,.doc,.docx,image/*" style="font-size:11px;max-width:180px;" /></div>' +
+      '<button type="button" class="btn-save-staff" onclick="addReviewEntry(\'' + uid + '\', this)">Add</button>' +
+    '</div>' +
+    '<div>' + histHtml + '</div>';
+}
+
+async function addReviewEntry(uid, btn) {
+  const s = staffConfig.find(x => x.user_id === uid);
+  if (!s) return;
+  const kind = document.getElementById('rev-kind-' + uid).value;
+  const date = document.getElementById('rev-date-' + uid).value || new Date().toISOString().slice(0, 10);
+  const note = (document.getElementById('rev-note-' + uid).value || '').trim() || null;
+  const file = document.getElementById('rev-file-' + uid).files[0] || null;
+  const payCat   = s.pay_category || ((s.pay_type || 'philippines') === 'us' ? 'hourly_bill' : 'wise_hourly');
+  const isSalary = payCat === 'salary_dd';
+  const field    = isSalary ? 'salary_per_period' : 'hourly_rate';
+  const oldVal   = parseFloat(s[field]) || 0;
+  let   newVal   = null;
+  if (kind === 'raise') {
+    newVal = parseFloat(document.getElementById('rev-val-' + uid).value);
+    if (!Number.isFinite(newVal) || newVal < 0) { showToast('Enter a valid new ' + (isSalary ? 'salary' : 'rate')); return; }
+  }
+  btn.textContent = '...';
+  try {
+    // (1) Upload the review doc first (if provided) — private bucket.
+    let docPath = null;
+    if (file) {
+      const safe = String(file.name || 'doc').replace(/[^A-Za-z0-9._-]/g, '_');
+      docPath = uid + '/' + Date.now() + '_' + safe;
+      const up = await db.storage.from('staff-review-docs').upload(docPath, file, { upsert: false });
+      if (up.error) throw new Error('Doc upload failed: ' + up.error.message);
+    }
+    // (2) Insert the history entry.
+    const entry = {
+      user_id: uid, kind: kind, effective_date: date, note: note,
+      doc_path: docPath, created_by: currentUser.id
+    };
+    if (kind === 'raise') { entry.pay_field = field; entry.old_value = oldVal; entry.new_value = newVal; }
+    const ins = await db.from('staff_pay_reviews').insert(entry);
+    if (ins.error) throw new Error(ins.error.message);
+    // (3) A raise also updates the live config so history + rate never drift.
+    if (kind === 'raise' && Math.abs(newVal - oldVal) > 0.004) {
+      const updPayload = { updated_at: new Date().toISOString() };
+      updPayload[field] = newVal;
+      const upd = await db.from('staff_config').update(updPayload).eq('user_id', uid);
+      if (upd.error) throw new Error('History saved but rate update failed: ' + upd.error.message);
+      await loadStaffConfig();
+      renderSettings();
+      // Re-open this panel after the grid re-render (renderSettings wipes it).
+      await toggleReviewPanel(uid);
+      showToast('Raise recorded — rate updated.');
+      return;
+    }
+    showToast(kind === 'raise' ? 'Raise recorded.' : 'Review added.');
+    await renderReviewPanel(uid);
+  } catch (err) {
+    showToast('Failed: ' + (err.message || err));
+    if (btn) btn.textContent = 'Add';
+  }
+}
+
+async function deleteReviewEntry(id, uid, docPath) {
+  if (!confirm('Delete this history entry? (This does NOT change the current rate — it only removes the record.)')) return;
+  const del = await db.from('staff_pay_reviews').delete().eq('id', id);
+  if (del.error) { showToast('Delete failed: ' + del.error.message); return; }
+  if (docPath) {
+    try { await db.storage.from('staff-review-docs').remove([docPath]); }
+    catch (e) { console.warn('[reviews] doc cleanup failed:', e); }
+  }
+  await renderReviewPanel(uid);
+}
+
+async function viewReviewDoc(path) {
+  try {
+    const { data, error } = await db.storage.from('staff-review-docs').createSignedUrl(path, 60);
+    if (error) throw error;
+    window.open(data.signedUrl, '_blank');
+  } catch (err) {
+    showToast('Couldn\'t open doc: ' + (err.message || err));
+  }
 }
 
 // ══════════════════════════════════════════════════════════════
