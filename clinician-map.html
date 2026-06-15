@@ -18448,7 +18448,14 @@
       var chips = fields.map(function(f) {
         return "<span class='ikh-col-chip'>" + escapeHtml(f.label) + "</span>";
       }).join("");
+      // Per-type "what happens" line. Each import type does one fixed thing —
+      // except Clinicians, which is the only one with selectable modes (the
+      // mode buttons below). getImportFooterMessage is per-kind and, for
+      // clinicians, reflects the currently-selected mode, so this line stays
+      // accurate as the user switches type or mode.
+      var whatHappens = getImportFooterMessage(appState.importKind);
       el.innerHTML =
+        "<div class='ikh-row'><span class='ikh-label'>What happens when you upload:</span> " + escapeHtml(whatHappens) + "</div>" +
         "<div class='ikh-row'><span class='ikh-label'>Where to get the file:</span> " + escapeHtml(cfg.whereToGet) + "</div>" +
         "<div class='ikh-row'><span class='ikh-label'>Pulled in automatically — the importer grabs what it needs from your file:</span></div>" +
         "<div class='ikh-cols'>" + chips + "</div>" +
