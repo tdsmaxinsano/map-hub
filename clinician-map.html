@@ -903,6 +903,12 @@
       margin-top: 6px; padding: 6px 9px; border-radius: 7px;
       background: #fffbeb; border: 1px solid #fcd34d; color: #78350f; font-size: 11.5px;
     }
+    .import-mode-scope-note { font-weight: 500; color: #94a3b8; text-transform: none; letter-spacing: 0; font-size: 11px; }
+    .import-admin-tag {
+      display: inline-block; margin-left: 4px; font-size: 9px; font-weight: 800;
+      text-transform: uppercase; letter-spacing: 0.05em; vertical-align: middle;
+      padding: 1px 5px; border-radius: 8px; background: #fee2e2; color: #b91c1c;
+    }
     .import-kind-help .ikh-cols { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
     .import-kind-help .ikh-col-chip {
       font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 9px;
@@ -6475,9 +6481,9 @@
                   <div id="import-kind-help" class="import-kind-help"></div>
                 </div>
                 <div id="clinician-import-mode-shell" class="field">
-                  <label>Clinician Import Mode</label>
+                  <label>Clinician Import Mode <span class="import-mode-scope-note">— applies to Clinician imports only</span></label>
                   <div class="import-kind-row import-submode-row" role="group" aria-label="Clinician import mode">
-                    <button type="button" class="import-kind-button" data-clinician-import-mode="full_initial_load">Full Initial Load</button>
+                    <button type="button" class="import-kind-button admin-only" data-clinician-import-mode="full_initial_load">Full Initial Load <span class="import-admin-tag">admin</span></button>
                     <button type="button" class="import-kind-button active" data-clinician-import-mode="additions_only">Additions Only</button>
                     <button type="button" class="import-kind-button" data-clinician-import-mode="status_update">Sync Update</button>
                   </div>
@@ -18158,7 +18164,14 @@
 
     function setClinicianImportMode(mode, options) {
       const safeOptions = options || {};
-      const normalizedMode = mode === "full_initial_load" ? "full_initial_load" : mode === "status_update" ? "status_update" : "additions_only";
+      let normalizedMode = mode === "full_initial_load" ? "full_initial_load" : mode === "status_update" ? "status_update" : "additions_only";
+      // Full Initial Load can overwrite the whole roster — admin only.
+      // Editors get bounced back to the safe default (the button is also
+      // hidden for them, so this only fires on a stale/forced value).
+      if (normalizedMode === "full_initial_load" && appUserRole !== "admin") {
+        normalizedMode = "additions_only";
+        if (!safeOptions.silent) setImportStatus("Full Initial Load is admin-only. Using Additions Only.", "error");
+      }
       if (appState.clinicianImportMode === normalizedMode) {
         syncImportKindUi();
         return;
@@ -20384,6 +20397,15 @@
 
     async function uploadImportToSupabase() {
       if (appState.importUploadInProgress) return;
+
+      // Full Initial Load is admin-only (can overwrite the whole roster).
+      if (appState.importKind === "clinician_master" &&
+          appState.clinicianImportMode === "full_initial_load" &&
+          appUserRole !== "admin") {
+        setClinicianImportMode("additions_only");
+        setImportStatus("Full Initial Load is admin-only — switched to Additions Only. Review the preview and upload again.", "error");
+        return;
+      }
 
       if (!appState.importRows.length) {
         setImportStatus("Load an import file before uploading.", "error");
