@@ -6461,13 +6461,13 @@
             <ol id="import-steps" class="import-steps" aria-label="Import steps">
               <li class="import-step" data-step="1"><span class="import-step-num">1</span> Choose what you're importing</li>
               <li class="import-step" data-step="2"><span class="import-step-num">2</span> Pick the file</li>
-              <li class="import-step" data-step="3"><span class="import-step-num">3</span> Check the columns</li>
+              <li class="import-step admin-only" data-step="3"><span class="import-step-num">3</span> Check the columns</li>
               <li class="import-step" data-step="4"><span class="import-step-num">4</span> Preview &amp; upload</li>
             </ol>
             <div class="import-grid">
               <section class="import-card">
-                <h3>Step 1 · What are you importing?</h3>
-                <p>Pick the type that matches your export, then choose the file in Step 2. Each type knows which columns to look for.</p>
+                <h3>What are you importing?</h3>
+                <p>Pick the type that matches your export, then choose the file below. The importer already knows which columns to read.</p>
                 <div class="field">
                   <label>Import Type</label>
                   <div class="import-kind-row" role="group" aria-label="Import type">
@@ -6494,7 +6494,7 @@
                   </div>
                 </div>
                 <div class="field">
-                  <label for="import-file-input">Step 2 · Import File</label>
+                  <label for="import-file-input">Import File</label>
                   <input id="import-file-input" type="file" accept=".csv,text/csv,.txt,text/plain,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
                   <div class="toolbar-subtext">Choose the CSV or XLSX you exported from TherapyBoss. See the help above for which report to run.</div>
                 </div>
@@ -6508,20 +6508,20 @@
                 <div id="import-file-meta" class="import-file-meta"></div>
                 <div id="import-status" class="import-status">Choose a CSV or XLSX file to begin.</div>
               </section>
-              <section class="import-card">
-                <h3>Step 3 · Check the columns</h3>
-                <p>We auto-match your file's columns to the right fields. Skim the dropdowns — each should point at the matching column in your file. Change any that look off. (You won't see this until you've picked a file.)</p>
+              <section class="import-card admin-only">
+                <h3>Check the columns <span class="import-admin-tag">admin</span></h3>
+                <p>Auto-matched from your file — you normally don't need to change anything. Override a dropdown only if a column looks wrong. (Admins only; editors don't see this step — the importer handles it.)</p>
                 <div id="import-mapping-grid" class="import-mapping-grid"></div>
               </section>
             </div>
             <section class="import-card">
-              <h3>Step 4 · Preview &amp; upload</h3>
+              <h3>Preview &amp; upload</h3>
               <p>This is a preview only — <strong>nothing is saved yet.</strong> Check that a few rows look right (names, dates, matches), then click <strong>Upload</strong> at the bottom.</p>
               <div id="import-preview-shell" class="import-preview-shell"></div>
             </section>
           </div>
           <div class="import-modal-footer">
-            <div id="import-footer-copy" class="import-footer-copy">Clinician imports upsert into `clinician_v2`, preserving map-ready records while updating the roster profile data.</div>
+            <div id="import-footer-copy" class="import-footer-copy">Pick what you're importing and choose your file — the importer reads the columns it needs and shows a preview before anything is saved.</div>
             <div class="button-row">
               <button id="import-reset" type="button" class="btn-secondary">Reset</button>
               <button id="import-upload" type="button" class="btn-primary edit-only" disabled>Upload to Supabase</button>
@@ -7468,6 +7468,10 @@
       } else {
         document.body.classList.add("readonly-mode");
       }
+      // The import steps strip renumbers its visible badges by role (the
+      // "Check the columns" step is admin-only). Re-sync now that the role
+      // is known so admins get 1-4 and editors get 1-2-3.
+      if (typeof syncImportSteps === "function") syncImportSteps();
     }
 
     function showToast(message, type, duration) {
@@ -18446,7 +18450,7 @@
       }).join("");
       el.innerHTML =
         "<div class='ikh-row'><span class='ikh-label'>Where to get the file:</span> " + escapeHtml(cfg.whereToGet) + "</div>" +
-        "<div class='ikh-row'><span class='ikh-label'>Matched automatically (nothing to pick — just skim Step 3):</span></div>" +
+        "<div class='ikh-row'><span class='ikh-label'>Pulled in automatically — the importer grabs what it needs from your file:</span></div>" +
         "<div class='ikh-cols'>" + chips + "</div>" +
         (cfg.note ? "<div class='ikh-note'>" + escapeHtml(cfg.note) + "</div>" : "");
     }
@@ -18454,15 +18458,25 @@
     function syncImportSteps() {
       var steps = document.querySelectorAll("#import-steps .import-step");
       if (!steps.length) return;
+      var isAdmin = appUserRole === "admin";
       var hasFile = appState.importRows.length > 0;
       var hasMap = getImportMappedFieldCount() > 0;
       // A type is always selected → step 1 is complete from the start.
       // Active = the first incomplete step; earlier steps render as done.
-      var activeStep = !hasFile ? 2 : (!hasMap ? 3 : 4);
+      // Step 3 (Check the columns) is admin-only; editors never see it, and
+      // the auto-mapper fills the field map on file load, so for editors the
+      // flow goes straight to step 4 (Preview & upload) once a file is picked.
+      var activeStep = !hasFile ? 2 : ((isAdmin && !hasMap) ? 3 : 4);
+      // Renumber the visible step badges so editors read 1-2-3 (not 1-2-4)
+      // once the admin-only Check-the-columns step is hidden.
+      var visibleSeq = 0;
       steps.forEach(function(li) {
         var n = Number(li.getAttribute("data-step"));
+        var hidden = !isAdmin && li.classList.contains("admin-only");
         li.classList.toggle("is-active", n === activeStep);
         li.classList.toggle("is-done", n < activeStep);
+        var badge = li.querySelector(".import-step-num");
+        if (badge && !hidden) badge.textContent = String(++visibleSeq);
       });
     }
 
@@ -18470,6 +18484,12 @@
     function getImportRecommendedNudge() {
       if (!appState.importRows.length) return "";
       var map = appState.importFieldMap || {};
+      // Editors don't have the column-mapping step, so if the auto-matcher
+      // recognized nothing they can't fix it here — tell them what to do
+      // instead of leaving a silently-disabled Upload button.
+      if (appUserRole !== "admin" && getImportMappedFieldCount() === 0) {
+        return "We couldn't recognize this file's columns. Re-export from TherapyBoss (Status: All → green Excel icon), or ask an admin to check the column mapping.";
+      }
       if (appState.importKind === "completed_services" && !map["clinician_names"]) {
         return "Heads up: Clinician Names isn't mapped — clinician matches will be empty. You can still upload.";
       }
