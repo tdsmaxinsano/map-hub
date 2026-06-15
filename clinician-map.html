@@ -18418,14 +18418,15 @@
     // mapping dropdowns.
     var IMPORT_KIND_HELP = {
       clinician_master: {
-        whereToGet: "A staff/roster export (CSV or XLSX) with name, discipline, address, ZIP, phone."
+        whereToGet: "In TherapyBoss → Clinicians tab. Change the Status filter from “Active” to “All” and click Apply (so paused/inactive clinicians come along), then click the green Excel icon and choose “Clinicians”. TherapyBoss exports every column for you — there are no columns to pick.",
+        note: "Tip: the green Excel icon is at the top-left, just right of “Add new”."
       },
       completed_services: {
         whereToGet: "TherapyBoss → the \"Completed services\" report. Include the date columns — either the combined “… (MM/DD/YYYY)” columns or the split “.Year / .Month / .Day” columns; the importer reads both.",
         note: "If start dates look wrong after a past import, an admin can run 🛠 Fix Dates once to repair them."
       },
       zip_coverage: {
-        whereToGet: "TherapyBoss → the ZIP coverage export. Manage ZIPs in TherapyBoss first; this mirrors them onto each clinician."
+        whereToGet: "Same TherapyBoss Clinicians screen — set the Status filter to “All”, then click the green Excel icon and choose “Zip coverage” (not “Clinicians”). Manage each clinician’s ZIPs in TherapyBoss first; this mirrors them onto the map."
       },
       home_health_agencies: {
         whereToGet: "An agency directory export (CSV or XLSX) with the agency name plus address / contact columns."
@@ -18445,7 +18446,7 @@
       }).join("");
       el.innerHTML =
         "<div class='ikh-row'><span class='ikh-label'>Where to get the file:</span> " + escapeHtml(cfg.whereToGet) + "</div>" +
-        "<div class='ikh-row'><span class='ikh-label'>Columns the importer looks for:</span></div>" +
+        "<div class='ikh-row'><span class='ikh-label'>Matched automatically (nothing to pick — just skim Step 3):</span></div>" +
         "<div class='ikh-cols'>" + chips + "</div>" +
         (cfg.note ? "<div class='ikh-note'>" + escapeHtml(cfg.note) + "</div>" : "");
     }
