@@ -6153,6 +6153,7 @@
           <div class="toolbar-cell" style="gap:6px; flex-shrink:0;">
             <button type="button" class="toolbar-share-cursor-btn" id="toolbar-share-cursor" style="display:none;" onclick="toggleCursorShare()" title="Share my cursor with others viewing the map (hold Shift for a burst)">👁️ Share Cursor</button>
             <button type="button" class="um-manage-btn admin-only" id="toolbar-manage-users" style="display:none;" onclick="umOpen()">👥 Users</button>
+            <button type="button" class="um-manage-btn admin-only" id="toolbar-repair-dates" style="display:none;" onclick="repairCompletedServiceDates()" title="One-time fix: recompute completed-service dates from each row's original cells (repairs the 1905 / 01-01 start-date bug). Safe to re-run.">🛠 Fix Dates</button>
             <div class="toolbar-user-chip" id="toolbar-user-chip" style="display:none;">
               <div class="toolbar-user-avatar" id="toolbar-user-avatar">?</div>
               <div style="display:flex;flex-direction:column;line-height:1.2">
@@ -7682,8 +7683,162 @@
     /* ── Show "Users" button only when admin is signed in ── */
     function umUpdateManageBtn(role) {
       var btn = document.getElementById("toolbar-manage-users");
-      if (!btn) return;
-      btn.style.display = role === "admin" ? "" : "none";
+      if (btn) btn.style.display = role === "admin" ? "" : "none";
+      var repair = document.getElementById("toolbar-repair-dates");
+      if (repair) repair.style.display = role === "admin" ? "" : "none";
+    }
+
+    // One-time admin repair for completed-service dates corrupted by the
+    // split-column import bug (a ".Year" value fed to the date parser →
+    // 1905 pre-fix, or 01-01 post-fix). Recomputes every row's 4 date
+    // fields from its stored raw_payload using the SAME combined-or-split
+    // logic the fixed importer now uses, updates changed rows in place,
+    // then re-derives each clinician's earliest start date. Idempotent —
+    // a clean re-run reports 0 rows updated. No re-import needed.
+    async function repairCompletedServiceDates() {
+      if (appUserRole !== "admin") { showToast("Admin only.", "error"); return; }
+      if (!confirm("Recompute completed-service dates from each row's original cells?\n\nThis repairs the 1905 / 01-01 start-date bug across the whole history. It only touches the four date columns + the auto-derived start date — explicit hire dates are untouched. Safe to re-run.")) return;
+      showToast("Repairing completed-service dates…", "info", 4000);
+      // Resolve a date field straight from a stored raw_payload object:
+      // prefer a combined date column, else reconstruct from Y/M/D splits.
+      // (Doesn't use appState.importFieldMap — there's no active import.)
+      function repairResolveDate(raw, baseLabel) {
+        const baseNorm = normalizeImportHeader(baseLabel);
+        let comboVal = null;
+        if (raw && typeof raw === "object") {
+          Object.keys(raw).forEach(function(h) {
+            const n = normalizeImportHeader(h);
+            if (/ (year|month|day)$/.test(n)) return;          // skip split parts
+            if (n === baseNorm || n === baseNorm + " mm dd yyyy") {
+              const v = raw[h];
+              if (v !== null && v !== undefined && String(v).trim() !== "") comboVal = v;
+            }
+          });
+        }
+        const combined = normalizeImportDateOnlyValue(comboVal);
+        if (combined) return combined;
+        return reconstructImportDateFromParts(raw, baseLabel);
+      }
+      try {
+        // 1. All completed-service rows.
+        const rowsResp = await fetchAllSupabaseRows(function(from, to) {
+          return supabaseClient
+            .from("therapy_boss_completed_service_import_rows")
+            .select("id, raw_payload, referral_date, ended_date, start_of_episode, last_visit_date")
+            .order("id", { ascending: true })
+            .range(from, to);
+        });
+        if (rowsResp.error) throw rowsResp.error;
+        const rows = rowsResp.data || [];
+
+        // 2. Recompute; collect changed rows + a by-id map for re-derive.
+        const updates = [];
+        const recomputedById = new Map();
+        rows.forEach(function(r) {
+          const raw = r.raw_payload || {};
+          const next = {
+            start_of_episode: repairResolveDate(raw, "Start of episode"),
+            referral_date:    repairResolveDate(raw, "Referral date"),
+            ended_date:       repairResolveDate(raw, "Ended date"),
+            last_visit_date:  repairResolveDate(raw, "Last visit date")
+          };
+          recomputedById.set(r.id, next);
+          const changed =
+            (r.start_of_episode || null) !== (next.start_of_episode || null) ||
+            (r.referral_date    || null) !== (next.referral_date    || null) ||
+            (r.ended_date       || null) !== (next.ended_date       || null) ||
+            (r.last_visit_date  || null) !== (next.last_visit_date  || null);
+          if (changed) updates.push(Object.assign({ id: r.id }, next));
+        });
+
+        // 3. Apply row updates in chunks.
+        const CHUNK = 25;
+        for (let i = 0; i < updates.length; i += CHUNK) {
+          const slice = updates.slice(i, i + CHUNK);
+          const results = await Promise.all(slice.map(function(u) {
+            return supabaseClient
+              .from("therapy_boss_completed_service_import_rows")
+              .update({
+                start_of_episode: u.start_of_episode,
+                referral_date:    u.referral_date,
+                ended_date:       u.ended_date,
+                last_visit_date:  u.last_visit_date
+              })
+              .eq("id", u.id);
+          }));
+          const failed = results.find(function(x) { return x && x.error; });
+          if (failed) throw failed.error;
+          if (updates.length > 200) showToast("Repairing… " + Math.min(i + CHUNK, updates.length) + "/" + updates.length + " rows", "info", 2000);
+        }
+
+        // 4. Re-derive earliest plausible start date per clinician from the
+        //    recomputed rows (via the assignment link table).
+        const assignResp = await fetchAllSupabaseRows(function(from, to) {
+          return supabaseClient
+            .from("therapy_boss_completed_service_import_clinicians")
+            .select("service_row_id, matched_clinician_id")
+            .range(from, to);
+        });
+        if (assignResp.error) throw assignResp.error;
+        const earliestByClin = new Map();
+        (assignResp.data || []).forEach(function(a) {
+          const cid = String(a.matched_clinician_id || "").trim();
+          if (!cid) return;
+          const next = recomputedById.get(a.service_row_id);
+          if (!next) return;
+          const earliest = getCompletedServiceRowEarliestRelevantDate(next);
+          if (!earliest) return;
+          const cur = earliestByClin.get(cid);
+          if (!cur || new Date(earliest) < new Date(cur)) earliestByClin.set(cid, earliest);
+        });
+
+        // 5. Write tags.derivedStartDate directly (merge existing tags so
+        //    other keys + explicit start_date are preserved). Direct write,
+        //    NOT persistClinicianDerivedStartDates — we must override a
+        //    bogus stored value even when the corrected date is later.
+        const clinIds = Array.from(earliestByClin.keys());
+        const tagsById = new Map();
+        for (let i = 0; i < clinIds.length; i += 200) {
+          const chunk = clinIds.slice(i, i + 200);
+          const tResp = await supabaseClient.from("clinician_profiles").select("clinician_id, tags").in("clinician_id", chunk);
+          if (tResp.error) throw tResp.error;
+          (tResp.data || []).forEach(function(row) {
+            const t = (row.tags && typeof row.tags === "object" && !Array.isArray(row.tags)) ? row.tags : {};
+            tagsById.set(row.clinician_id, t);
+          });
+        }
+        const payloads = clinIds.map(function(cid) {
+          const tags = Object.assign({}, tagsById.get(cid) || {});
+          tags.derivedStartDate = earliestByClin.get(cid);
+          return { clinician_id: cid, tags: tags, updated_at: new Date().toISOString() };
+        });
+        for (let i = 0; i < payloads.length; i += 200) {
+          const chunk = payloads.slice(i, i + 200);
+          const uResp = await supabaseClient.from("clinician_profiles").upsert(chunk, { onConflict: "clinician_id" });
+          if (uResp.error) throw uResp.error;
+        }
+
+        // 6. In-memory sync + re-render so the change shows without reload.
+        earliestByClin.forEach(function(date, cid) {
+          if (typeof syncClinicianDerivedStartDateLocally === "function") syncClinicianDerivedStartDateLocally(cid, date);
+        });
+        if (typeof renderSidebar === "function") renderSidebar();
+        if (typeof syncAllMarkerVisuals === "function") syncAllMarkerVisuals();
+
+        // 7. Report (sample earliest recovered for a few clinicians).
+        const sample = clinIds.slice(0, 6).map(function(cid) {
+          const c = appState.clinicians.find(function(x) { return x.id === cid; });
+          return "  " + ((c && c.name) || cid) + " → " + earliestByClin.get(cid);
+        });
+        console.log("[repair] completed-service dates\n  rows scanned: " + rows.length +
+          "\n  rows updated: " + updates.length +
+          "\n  clinicians re-derived: " + clinIds.length +
+          (sample.length ? "\n  sample:\n" + sample.join("\n") : ""));
+        showToast("✓ Repaired " + updates.length + " row(s); re-dated " + clinIds.length + " clinician(s). Earliest dates restored — see console for samples.", "success", 9000);
+      } catch (err) {
+        console.error("[repair] completed-service date repair failed:", err);
+        showToast("Repair failed: " + (err.message || err), "error", 9000);
+      }
     }
 
     window.umChangeRole = async function(userId, newRole) {
@@ -11070,7 +11225,12 @@
         const allYearRows = yearAvailabilityResponse.data || [];
         const availableYears = Array.from(new Set(allYearRows.map(function(row) {
           return getCompletedServiceRowYear(row);
-        }).filter(Boolean))).sort(function(left, right) {
+        }).filter(function(year) {
+          // Floor at 2000 — no real completed service predates it. Keeps a
+          // stray corrupt date (e.g. a residual 1905 from a pre-fix import)
+          // from rendering a bogus year button.
+          return year && Number(year) >= 2000;
+        }))).sort(function(left, right) {
           return Number(right) - Number(left);
         });
 
@@ -18049,6 +18209,16 @@
         }
       }
 
+      // Bare 4-digit year guard. A lone "2026" (e.g. a ".Year" split
+      // column mis-mapped to a date field) must NOT become a date —
+      // new Date("2026") would yield 2026-01-01, fabricating a Jan-1
+      // "start date". Reject it so the caller falls back to proper
+      // Year+Month+Day reconstruction (see resolveCompletedServiceDate).
+      if (/^\d{4}$/.test(rawValue)) {
+        const y = Number(rawValue);
+        if (y >= 1900 && y <= 2100) return null;
+      }
+
       const parsed = new Date(rawValue);
       if (Number.isNaN(parsed.getTime())) return null;
       return parsed.toISOString();
@@ -18057,6 +18227,62 @@
     function normalizeImportDateOnlyValue(value) {
       const isoValue = normalizeImportDateValue(value);
       return isoValue ? isoValue.slice(0, 10) : null;
+    }
+
+    // Month token → 1-12. Accepts full names ("January"), abbreviations
+    // ("Jan"), and numeric ("1" / "01"). Returns null if unrecognized.
+    function parseMonthToken(value) {
+      const raw = String(value ?? "").trim().toLowerCase();
+      if (!raw) return null;
+      if (/^\d{1,2}$/.test(raw)) {
+        const n = Number(raw);
+        return (n >= 1 && n <= 12) ? n : null;
+      }
+      const months = ["january","february","march","april","may","june",
+                      "july","august","september","october","november","december"];
+      for (let i = 0; i < 12; i++) {
+        if (months[i] === raw || months[i].slice(0, 3) === raw.slice(0, 3)) return i + 1;
+      }
+      return null;
+    }
+
+    // Reconstruct a YYYY-MM-DD date from a TherapyBoss split-column export
+    // where the combined "(MM/DD/YYYY)" column is blank but
+    // "<base>.Year" / "<base>.Month" / "<base>.Day" carry the parts
+    // (e.g. baseLabel "Referral date" → "Referral date.Year" = 2026,
+    // ".Month" = "January", ".Day" = 2). Returns null unless all three
+    // parts resolve to a valid date. `rawRow` is keyed by original header.
+    function reconstructImportDateFromParts(rawRow, baseLabel) {
+      if (!rawRow || typeof rawRow !== "object") return null;
+      const baseNorm = normalizeImportHeader(baseLabel);
+      if (!baseNorm) return null;
+      let yearVal = null, monthVal = null, dayVal = null;
+      Object.keys(rawRow).forEach(function(header) {
+        const h = normalizeImportHeader(header);
+        if (h === baseNorm + " year")  yearVal  = rawRow[header];
+        else if (h === baseNorm + " month") monthVal = rawRow[header];
+        else if (h === baseNorm + " day")   dayVal   = rawRow[header];
+      });
+      const y = Number(String(yearVal ?? "").trim());
+      const m = parseMonthToken(monthVal);
+      const d = Number(String(dayVal ?? "").trim());
+      if (!Number.isFinite(y) || y < 1900 || y > 2100) return null;
+      if (!m) return null;
+      if (!Number.isFinite(d) || d < 1 || d > 31) return null;
+      const iso = String(y) + "-" + String(m).padStart(2, "0") + "-" + String(d).padStart(2, "0");
+      const check = new Date(iso + "T00:00:00Z");
+      if (Number.isNaN(check.getTime())) return null;
+      return iso;
+    }
+
+    // Resolve a completed-service date field: prefer the mapped combined
+    // column; if it's blank, reconstruct from the .Year/.Month/.Day split
+    // columns. This makes the importer robust to TB exports that deliver
+    // dates only as split columns (the cause of the 1905 / 01-01 bug).
+    function resolveCompletedServiceDate(rawRow, fieldKey, baseLabel) {
+      const combined = normalizeImportDateOnlyValue(getMappedImportValue(rawRow, fieldKey));
+      if (combined) return combined;
+      return reconstructImportDateFromParts(rawRow, baseLabel);
     }
 
     function hashImportPayload(payload) {
@@ -18378,12 +18604,24 @@
 
       const fieldMap = {};
 
+      // Date fields must never auto-bind to a "<base>.Year/.Month/.Day"
+      // split column — the bare year/month/day would feed the date parser
+      // and fabricate a date (the 1905 / 01-01 bug). Dates are pulled from
+      // the combined column or reconstructed from the splits at row-build
+      // time (resolveCompletedServiceDate), so just skip split headers here.
+      const DATE_FIELD_KEYS = new Set(["start_of_episode", "referral_date", "ended_date", "last_visit_date", "patient_dob"]);
+      const isSplitPartHeader = function(normalized) {
+        return / (year|month|day)$/.test(normalized);
+      };
+
       getActiveImportFields().forEach(function(field) {
         const aliases = [field.label].concat(field.aliases || []).map(normalizeImportHeader);
+        const skipSplit = DATE_FIELD_KEYS.has(field.key);
         let matchedHeader = "";
 
         aliases.some(function(alias) {
           const exact = normalizedHeaders.find(function(entry) {
+            if (skipSplit && isSplitPartHeader(entry.normalized)) return false;
             return entry.normalized === alias;
           });
 
@@ -18393,6 +18631,7 @@
           }
 
           const partial = normalizedHeaders.find(function(entry) {
+            if (skipSplit && isSplitPartHeader(entry.normalized)) return false;
             return entry.normalized.indexOf(alias) !== -1 || alias.indexOf(entry.normalized) !== -1;
           });
 
@@ -18828,12 +19067,12 @@
           patient_lng: null,
           episode_type: normalizeImportTextValue(getMappedImportValue(rawRow, "episode_type")),
           service: normalizeImportTextValue(getMappedImportValue(rawRow, "service")) ? getNormalizedDiscipline(getMappedImportValue(rawRow, "service")) : null,
-          start_of_episode: normalizeImportDateOnlyValue(getMappedImportValue(rawRow, "start_of_episode")),
+          start_of_episode: resolveCompletedServiceDate(rawRow, "start_of_episode", "Start of episode"),
           referral_source: normalizeImportTextValue(getMappedImportValue(rawRow, "referral_source")),
           primary_payer: normalizeImportTextValue(getMappedImportValue(rawRow, "primary_payer")),
-          referral_date: normalizeImportDateOnlyValue(getMappedImportValue(rawRow, "referral_date")),
-          ended_date: normalizeImportDateOnlyValue(getMappedImportValue(rawRow, "ended_date")),
-          last_visit_date: normalizeImportDateOnlyValue(getMappedImportValue(rawRow, "last_visit_date")),
+          referral_date: resolveCompletedServiceDate(rawRow, "referral_date", "Referral date"),
+          ended_date: resolveCompletedServiceDate(rawRow, "ended_date", "Ended date"),
+          last_visit_date: resolveCompletedServiceDate(rawRow, "last_visit_date", "Last visit date"),
           service_days: normalizeImportIntegerValue(getMappedImportValue(rawRow, "service_days")),
           service_visits: normalizeImportIntegerValue(getMappedImportValue(rawRow, "service_visits")),
           visit_duration: normalizeImportTextValue(getMappedImportValue(rawRow, "visit_duration")),
