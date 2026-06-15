@@ -732,6 +732,11 @@
     }
 
     .field { display: grid; gap: 6px; }
+    /* .field's explicit display:grid overrides the [hidden] attribute's
+       default display:none, so a .field element set hidden in JS stays
+       visible. This id+attr rule out-specifies .field to restore hiding —
+       used by the clinician-only import mode shell (hidden for ZIP/HH/etc). */
+    .field[hidden] { display: none !important; }
 
     .field label, .list-title {
       font-size: 12px;
