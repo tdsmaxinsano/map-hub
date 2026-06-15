@@ -16238,12 +16238,20 @@
     }
 
     function getClinicianDerivedStartDateValue(clinician) {
-      return getFirstAvailableFieldValue(clinician, [
+      const value = getFirstAvailableFieldValue(clinician, [
         "derived_start_date",
         "derivedStartDate",
         "auto_start_date",
         "autoStartDate"
       ]) || "";
+      // Suppress an already-persisted corrupt derived date (e.g. the
+      // 1905-07-17 produced when a stray "2024" was read as an Excel
+      // serial). Treat implausible values as "no derived date" so the
+      // profile doesn't show a 1905 start; the next completed-services
+      // refresh re-derives a clean one (import + derivation now both
+      // floor-guard, see normalizeImportDateValue / isPlausibleServiceDate).
+      if (value && !isPlausibleServiceDate(value)) return "";
+      return value;
     }
 
     function getClinicianDisplayStartDateValue(clinician) {
@@ -16263,13 +16271,25 @@
       ]) || "";
     }
 
+    // Sanity floor for service/derived dates. The earliest service date
+    // drives the auto "Start date" — one garbage row (e.g. a value of
+    // 2024 mis-read as an Excel serial → 1905-07-17) must not win the
+    // earliest-comparison. Nothing in this system legitimately predates
+    // ~2010, so reject anything before 2000 as corrupt.
+    function isPlausibleServiceDate(value) {
+      if (!value) return false;
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return false;
+      return d.getFullYear() >= 2000;
+    }
+
     function getCompletedServiceRowEarliestRelevantDate(row) {
       const candidates = [
         row && row.start_of_episode,
         row && row.referral_date,
         row && row.last_visit_date,
         row && row.ended_date
-      ].filter(Boolean);
+      ].filter(isPlausibleServiceDate);
 
       return candidates.reduce(function(currentEarliest, candidate) {
         if (!currentEarliest) return candidate;
@@ -17985,12 +18005,19 @@
       // TB exports DOB without a date number format applied, so SheetJS
       // returns the serial as-is. Convert to ISO via the standard
       // Lotus/Excel epoch (days since 1899-12-30; the 25569 offset gets
-      // us to 1970-01-01 = Unix epoch). Range guard ([1, 80000]) covers
-      // 1900-01-01 through ~2119 so plain ints elsewhere don't false-match.
+      // us to 1970-01-01 = Unix epoch).
+      //
+      // Range guard ([8000, 80000] ≈ 1921-11 through ~2119): the LOW bound
+      // is deliberately high. A bare value like a year (2024) or a small
+      // count would otherwise read as a serial — 2024 → 1905-07-17 — and
+      // poison derived dates. No real date in this system (visit /
+      // referral / episode / working-adult DOB) is before ~1921, so 8000
+      // safely excludes year-like and count-like stray integers while
+      // keeping every legitimate serial.
       const serialMatch = rawValue.match(/^-?\d+(\.\d+)?$/);
       if (serialMatch) {
         const serial = Number(rawValue);
-        if (serial >= 1 && serial < 80000) {
+        if (serial >= 8000 && serial < 80000) {
           const ms = Math.round((serial - 25569) * 86400000);
           const serialDate = new Date(ms);
           if (!Number.isNaN(serialDate.getTime())) {
