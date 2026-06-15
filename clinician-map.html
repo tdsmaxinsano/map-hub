@@ -871,6 +871,44 @@
       color: #6b3e00;
     }
 
+    /* Bulk-import guided steps + per-type help (editor-friendliness) */
+    .import-steps {
+      list-style: none; margin: 0 0 14px; padding: 10px 12px;
+      display: flex; flex-wrap: wrap; gap: 8px;
+      background: #f7f9fc; border: 1px solid #e3e9f2; border-radius: 12px;
+    }
+    .import-step {
+      display: flex; align-items: center; gap: 7px;
+      font-size: 12px; font-weight: 600; color: #64748b;
+      padding: 4px 10px; border-radius: 8px; flex: 1 1 auto; min-width: 150px;
+    }
+    .import-step-num {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 19px; height: 19px; border-radius: 50%;
+      background: #cbd5e1; color: #fff; font-size: 11px; font-weight: 800; flex-shrink: 0;
+    }
+    .import-step.is-active { background: #e8f0fe; color: #1d4ed8; }
+    .import-step.is-active .import-step-num { background: #1d4ed8; }
+    .import-step.is-done { color: #166534; }
+    .import-step.is-done .import-step-num { background: #22c55e; }
+    .import-kind-help {
+      margin-top: 8px; padding: 10px 12px;
+      border: 1px solid #bfdbfe; border-radius: 10px;
+      background: #f0f7ff; color: #1e3a5f; font-size: 12px; line-height: 1.55;
+    }
+    .import-kind-help h4 { margin: 0 0 4px; font-size: 12px; color: #1d4ed8; }
+    .import-kind-help .ikh-row { margin-top: 6px; }
+    .import-kind-help .ikh-label { font-weight: 700; color: #334155; }
+    .import-kind-help .ikh-note {
+      margin-top: 6px; padding: 6px 9px; border-radius: 7px;
+      background: #fffbeb; border: 1px solid #fcd34d; color: #78350f; font-size: 11.5px;
+    }
+    .import-kind-help .ikh-cols { margin-top: 6px; display: flex; flex-wrap: wrap; gap: 4px; }
+    .import-kind-help .ikh-col-chip {
+      font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 9px;
+      background: #e0ecff; color: #1e3a8a; border: 1px solid #c3d9ff;
+    }
+
     button {
       border: 0;
       border-radius: 12px;
@@ -6264,7 +6302,7 @@
               <div class="menu-panel">
                 <button id="toolbar-add-clinician" class="menu-item edit-only" type="button">Add Clinician</button>
                 <button id="toolbar-ruler-tool" class="menu-item" type="button">Ruler Tool</button>
-                <button id="toolbar-bulk-import" class="menu-item edit-only admin-only" type="button">Bulk Import</button>
+                <button id="toolbar-bulk-import" class="menu-item edit-only" type="button">Bulk Import</button>
                 <button id="toolbar-clear-map-search" class="menu-item" type="button">Clear Search Pin</button>
               </div>
             </div>
@@ -6406,16 +6444,24 @@
         <div class="import-modal" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
           <div class="import-modal-header">
             <div class="import-modal-header-copy">
-              <h2 id="import-modal-title">Data Import</h2>
-              <p>Upload a CSV or XLSX file, review detected headers, map fields, preview rows, and load into Supabase.</p>
+              <h2 id="import-modal-title">Bulk Import</h2>
+              <p>Bring data in from TherapyBoss — clinicians, visit history, ZIP coverage, or agencies. Follow the steps below; nothing saves until you click Upload.</p>
             </div>
             <button id="import-modal-close" type="button" class="btn-secondary">Close</button>
           </div>
           <div class="import-modal-body">
+            <!-- Step guide — orients the editor through the flow. Active step
+                 is highlighted by syncImportSteps() from the existing render. -->
+            <ol id="import-steps" class="import-steps" aria-label="Import steps">
+              <li class="import-step" data-step="1"><span class="import-step-num">1</span> Choose what you're importing</li>
+              <li class="import-step" data-step="2"><span class="import-step-num">2</span> Pick the file</li>
+              <li class="import-step" data-step="3"><span class="import-step-num">3</span> Check the columns</li>
+              <li class="import-step" data-step="4"><span class="import-step-num">4</span> Preview &amp; upload</li>
+            </ol>
             <div class="import-grid">
               <section class="import-card">
-                <h3>File</h3>
-                <p>Choose the import lane first, then upload the matching CSV or XLSX file. Each import type keeps its own field map and upload path.</p>
+                <h3>Step 1 · What are you importing?</h3>
+                <p>Pick the type that matches your export, then choose the file in Step 2. Each type knows which columns to look for.</p>
                 <div class="field">
                   <label>Import Type</label>
                   <div class="import-kind-row" role="group" aria-label="Import type">
@@ -6425,7 +6471,8 @@
                     <button type="button" class="import-kind-button" data-import-kind-button="completed_services">Completed Services</button>
 
                   </div>
-                  <div id="import-kind-copy" class="toolbar-subtext">Upsert therapist roster data into clinician profiles and home pins.</div>
+                  <div id="import-kind-copy" class="toolbar-subtext">Adds or updates clinicians on the map (name, discipline, address, status).</div>
+                  <div id="import-kind-help" class="import-kind-help"></div>
                 </div>
                 <div id="clinician-import-mode-shell" class="field">
                   <label>Clinician Import Mode</label>
@@ -6441,8 +6488,9 @@
                   </div>
                 </div>
                 <div class="field">
-                  <label for="import-file-input">Import File</label>
+                  <label for="import-file-input">Step 2 · Import File</label>
                   <input id="import-file-input" type="file" accept=".csv,text/csv,.txt,text/plain,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel">
+                  <div class="toolbar-subtext">Choose the CSV or XLSX you exported from TherapyBoss. See the help above for which report to run.</div>
                 </div>
                 <label class="toggle-row">
                   <div>
@@ -6455,14 +6503,14 @@
                 <div id="import-status" class="import-status">Choose a CSV or XLSX file to begin.</div>
               </section>
               <section class="import-card">
-                <h3>Field Mapping</h3>
-                <p>Header mapping is editable, so if TherapyBoss changes a column name you can still preview and stage the rows without touching code.</p>
+                <h3>Step 3 · Check the columns</h3>
+                <p>We auto-match your file's columns to the right fields. Skim the dropdowns — each should point at the matching column in your file. Change any that look off. (You won't see this until you've picked a file.)</p>
                 <div id="import-mapping-grid" class="import-mapping-grid"></div>
               </section>
             </div>
             <section class="import-card">
-              <h3>Preview</h3>
-              <p>The preview shows the first staged rows after mapping, including clinician matches found from the current directory. Completed-services files also split semicolon-delimited clinician names into child assignment rows for upload.</p>
+              <h3>Step 4 · Preview &amp; upload</h3>
+              <p>This is a preview only — <strong>nothing is saved yet.</strong> Check that a few rows look right (names, dates, matches), then click <strong>Upload</strong> at the bottom.</p>
               <div id="import-preview-shell" class="import-preview-shell"></div>
             </section>
           </div>
@@ -17956,46 +18004,48 @@
 
     function getClinicianImportModeDescription(mode) {
       if (mode === "full_initial_load") {
-        return "Use this only for the first roster baseline. Matched names update existing clinicians and new names are created.";
+        return "Baseline load only. Updates clinicians that match by name AND adds new ones — it can overwrite name, discipline, home pin, phone, and email. Use this just once when first building the roster.";
       }
       if (mode === "status_update") {
-        return "Syncs Active/Inactive status, address, and phone number on matched clinicians. Other fields (name, discipline, EMR, etc.) are left untouched. Unmatched clinicians are skipped.";
+        return "Refresh only. For clinicians that match by name, updates their Active/Inactive status, address, and phone — nothing else. New or unmatched names are skipped. Safe for routine roster syncs.";
       }
-      return "Create missing clinicians only. Name matches are skipped so the map profile stays the source of truth.";
+      return "Safest option. Adds clinicians that aren't on the map yet and leaves everyone already there untouched. Good default for day-to-day.";
     }
 
     function getImportKindDescription(kind) {
       if (kind === "completed_services") {
-        return "Stage TherapyBoss completed-service history, split multi-clinician names, and map service coverage for radius analysis.";
+        return "Adds each clinician's completed visit history so the map can show where they've worked and figure out their start date.";
       }
       if (kind === "zip_coverage") {
-        return "Sync clinician ZIP coverage from TherapyBoss. Maintain ZIPs there first, then import the export here so the profile coverage list stays aligned.";
+        return "Updates which ZIP codes each clinician covers (managed in TherapyBoss, mirrored here).";
       }
       if (kind === "home_health_agencies") {
-        return "Upsert the home health agency directory into its own source table so agency profiles and the HH rollout can stay current.";
+        return "Adds or updates the home-health agency directory (names, addresses, contacts).";
       }
       if (kind === "clinician_master") {
-        return "Upsert therapist roster data into clinician profiles and home pins.";
+        return "Adds or updates clinicians on the map (name, discipline, address, status).";
       }
-      return "Stage referral rows from TherapyBoss for future referral workflows.";
+      return "Stages referral rows from TherapyBoss for later referral workflows.";
     }
 
     function getImportFooterMessage(kind) {
       if (kind === "completed_services") {
-        return "Completed-services uploads now add only new rows to Supabase, skip rows that were already loaded before, and log the latest load date plus the referral-date range from that file.";
+        return "Adds new visit-history rows and skips any already loaded — safe to run whenever you have a fresh export.";
       }
       if (kind === "zip_coverage") {
-        return "ZIP Coverage imports match clinician names from the current directory, replace the synced TherapyBoss ZIP list for matched clinicians in that file, and refresh the profile Preferred ZIPs summary.";
+        return "Replaces each matched clinician's ZIP coverage with what's in this file.";
       }
       if (kind === "home_health_agencies") {
-        return "Home health agency imports upsert into a dedicated agency table and feed the HH directory, with local agency notes and map visibility still layered on top in the app.";
+        return "Adds or updates agencies in the directory.";
       }
       if (kind === "clinician_master") {
         return appState.clinicianImportMode === "full_initial_load"
-          ? "Full Initial Load can update matched clinicians plus create missing names. Use it only for the first baseline roster import."
-          : "Additions Only creates clinicians that are missing by name and skips already matched names so existing map profiles stay untouched.";
+          ? "⚠ Full Initial Load can overwrite existing clinicians — use only for the first baseline import."
+          : appState.clinicianImportMode === "status_update"
+            ? "Refreshes status / address / phone on matched clinicians only."
+            : "Adds only clinicians who aren't on the map yet; existing ones are left untouched.";
       }
-      return "Referral imports create TherapyBoss staging batches for later referral-specific workflows.";
+      return "Stages referral rows for later referral workflows.";
     }
 
     function getActiveImportFields() {
@@ -18068,7 +18118,9 @@
       });
 
       elements.importKindCopy.textContent = getImportKindDescription(appState.importKind);
-      elements.importFooterCopy.textContent = getImportFooterMessage(appState.importKind);
+      refreshImportFooterCopy();
+      renderImportKindHelp();
+      syncImportSteps();
       elements.importGeocodeToggle.disabled = appState.importKind === "home_health_agencies" || appState.importKind === "zip_coverage";
       const showClinicianMode = appState.importKind === "clinician_master";
       elements.clinicianImportModeShell.hidden = !showClinicianMode;
@@ -18342,6 +18394,80 @@
       const canUpload = appState.importRows.length > 0 && getImportMappedFieldCount() > 0 && !appState.importUploadInProgress;
       elements.importUpload.disabled = !canUpload;
       elements.importUpload.textContent = appState.importUploadInProgress ? "Uploading..." : "Upload to Supabase";
+      refreshImportFooterCopy();
+      syncImportSteps();
+    }
+
+    // ── Editor-guidance helpers for Bulk Import ──────────────────────
+    // Per-import-type help shown under the Import Type buttons: what the
+    // file is + which TB report/columns to bring. Expected-column chips
+    // are generated from the live field defs so they always match the
+    // mapping dropdowns.
+    var IMPORT_KIND_HELP = {
+      clinician_master: {
+        whereToGet: "A staff/roster export (CSV or XLSX) with name, discipline, address, ZIP, phone."
+      },
+      completed_services: {
+        whereToGet: "TherapyBoss → the \"Completed services\" report. Include the date columns — either the combined “… (MM/DD/YYYY)” columns or the split “.Year / .Month / .Day” columns; the importer reads both.",
+        note: "If start dates look wrong after a past import, an admin can run 🛠 Fix Dates once to repair them."
+      },
+      zip_coverage: {
+        whereToGet: "TherapyBoss → the ZIP coverage export. Manage ZIPs in TherapyBoss first; this mirrors them onto each clinician."
+      },
+      home_health_agencies: {
+        whereToGet: "An agency directory export (CSV or XLSX) with the agency name plus address / contact columns."
+      },
+      referral: {
+        whereToGet: "A TherapyBoss referral export."
+      }
+    };
+
+    function renderImportKindHelp() {
+      var el = document.getElementById("import-kind-help");
+      if (!el) return;
+      var cfg = IMPORT_KIND_HELP[appState.importKind] || IMPORT_KIND_HELP.referral;
+      var fields = getActiveImportFields() || [];
+      var chips = fields.map(function(f) {
+        return "<span class='ikh-col-chip'>" + escapeHtml(f.label) + "</span>";
+      }).join("");
+      el.innerHTML =
+        "<div class='ikh-row'><span class='ikh-label'>Where to get the file:</span> " + escapeHtml(cfg.whereToGet) + "</div>" +
+        "<div class='ikh-row'><span class='ikh-label'>Columns the importer looks for:</span></div>" +
+        "<div class='ikh-cols'>" + chips + "</div>" +
+        (cfg.note ? "<div class='ikh-note'>" + escapeHtml(cfg.note) + "</div>" : "");
+    }
+
+    function syncImportSteps() {
+      var steps = document.querySelectorAll("#import-steps .import-step");
+      if (!steps.length) return;
+      var hasFile = appState.importRows.length > 0;
+      var hasMap = getImportMappedFieldCount() > 0;
+      // A type is always selected → step 1 is complete from the start.
+      // Active = the first incomplete step; earlier steps render as done.
+      var activeStep = !hasFile ? 2 : (!hasMap ? 3 : 4);
+      steps.forEach(function(li) {
+        var n = Number(li.getAttribute("data-step"));
+        li.classList.toggle("is-active", n === activeStep);
+        li.classList.toggle("is-done", n < activeStep);
+      });
+    }
+
+    // Non-blocking "recommended column not mapped" hint for the footer.
+    function getImportRecommendedNudge() {
+      if (!appState.importRows.length) return "";
+      var map = appState.importFieldMap || {};
+      if (appState.importKind === "completed_services" && !map["clinician_names"]) {
+        return "Heads up: Clinician Names isn't mapped — clinician matches will be empty. You can still upload.";
+      }
+      return "";
+    }
+
+    function refreshImportFooterCopy() {
+      if (!elements.importFooterCopy) return;
+      var base = getImportFooterMessage(appState.importKind);
+      var nudge = getImportRecommendedNudge();
+      elements.importFooterCopy.innerHTML = escapeHtml(base) +
+        (nudge ? " <span style='color:#b45309;font-weight:700;'>" + escapeHtml(nudge) + "</span>" : "");
     }
 
     function renderImportFileMeta() {
