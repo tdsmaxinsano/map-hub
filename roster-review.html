@@ -969,6 +969,16 @@ function fmtDateInput(iso) {
   if (isNaN(d.getTime())) return "";
   return d.toISOString().slice(0, 10);
 }
+// Sanity floor for a derived hire date. A stray "2024" read as an Excel
+// serial becomes 1905-07-17; nothing here legitimately predates ~2010,
+// so treat anything before 2000 as corrupt (mirrors the map's
+// isPlausibleServiceDate). Used to suppress already-persisted 1905 values.
+function isPlausibleHireDate(value) {
+  if (!value) return false;
+  const d = new Date(value);
+  if (isNaN(d.getTime())) return false;
+  return d.getFullYear() >= 2000;
+}
 function normName(s) { return String(s || "").replace(/\s+/g, " ").trim(); }
 
 // Restrictions structure: { clinicians: [names], agencies: [names] }
@@ -1315,8 +1325,12 @@ function buildRow(r) {
       // else fall back to derived_start_date (computed from earliest completed
       // service). When the user edits, we always save to start_date — that
       // promotes a derived value to an explicit one (same as the map).
-      const effective = r.start_date || r.derived_start_date || null;
-      const isDerived = !r.start_date && !!r.derived_start_date;
+      // Suppress an already-persisted corrupt derived date (e.g. 1905-07-17
+      // from a stray "2024" read as an Excel serial) — mirrors the map's
+      // isPlausibleServiceDate read-time guard so 1905 never shows here.
+      const plausibleDerived = isPlausibleHireDate(r.derived_start_date) ? r.derived_start_date : null;
+      const effective = r.start_date || plausibleDerived || null;
+      const isDerived = !r.start_date && !!plausibleDerived;
       const tip = isDerived
         ? "Derived from earliest completed service. Edit to set an explicit hire date."
         : (r.start_date ? "Explicit hire date" : "No hire date set");
