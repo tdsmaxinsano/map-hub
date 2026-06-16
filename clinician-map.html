@@ -6742,7 +6742,20 @@
                   <label for="profile-pause-end">Pause End Date</label>
                   <input id="profile-pause-end" type="date">
                 </div>
+                <div class="profile-field">
+                  <label for="profile-pause-reason">Reason</label>
+                  <select id="profile-pause-reason">
+                    <option value="">Reason…</option>
+                    <option value="Personal">Personal</option>
+                    <option value="Sick">Sick</option>
+                    <option value="Vacation">Vacation</option>
+                    <option value="Other">Other</option>
+                  </select>
+                  <input id="profile-pause-reason-other" type="text" placeholder="Custom reason" style="display:none;margin-top:6px;">
+                </div>
+                <div class="helper-text">Set a future start date and leave Status on Active — the clinician auto-switches to Paused on the start date and shows on the Home News &amp; Alerts board (starts in N days → on vacation → just returned).</div>
               </div>
+              <button id="profile-schedule-pause-btn" type="button" class="btn-secondary edit-only" style="display:none;margin-top:4px;font-size:12px;">📅 Schedule a pause / vacation</button>
               <div id="profile-pause-indicator" class="pause-indicator full"></div>
               <div class="profile-field full">
                 <label for="profile-ignore-history-before">Ignore History Before</label>
@@ -8239,6 +8252,9 @@
       profilePauseRow: document.getElementById("profile-pause-row"),
       profilePauseStart: document.getElementById("profile-pause-start"),
       profilePauseEnd: document.getElementById("profile-pause-end"),
+      profilePauseReason: document.getElementById("profile-pause-reason"),
+      profilePauseReasonOther: document.getElementById("profile-pause-reason-other"),
+      profileSchedulePauseBtn: document.getElementById("profile-schedule-pause-btn"),
       profilePauseIndicator: document.getElementById("profile-pause-indicator"),
       profileIgnoreHistoryBefore: document.getElementById("profile-ignore-history-before"),
       profileWorkCenterSummary: document.getElementById("profile-work-center-summary"),
@@ -8861,6 +8877,7 @@
         start_date: profileRow.start_date || record.start_date || null,
         pause_start_date: profileRow.pause_start_date || record.pause_start_date || null,
         pause_end_date: profileRow.pause_end_date || record.pause_end_date || null,
+        pause_reason: profileRow.pause_reason || record.pause_reason || null,
         therapy_boss_unavailable: typeof profileRow.therapy_boss_unavailable === "boolean"
           ? profileRow.therapy_boss_unavailable
           : getProfileTherapyBossUnavailableFromClinician(record),
@@ -14660,6 +14677,7 @@
         startDateSource: "",
         pauseStart: "",
         pauseEnd: "",
+        pauseReason: "",
         ignoreHistoryBefore: "",
         workCenterSource: "",
         workCenterLat: "",
@@ -15562,6 +15580,12 @@
         delete nextTags.pauseEnd;
       }
 
+      if (draft.pauseReason) {
+        nextTags.pauseReason = draft.pauseReason;
+      } else {
+        delete nextTags.pauseReason;
+      }
+
       return nextTags;
     }
 
@@ -15605,6 +15629,7 @@
         derivedStartDate: getClinicianDerivedStartDateValue(clinician) || "",
         pauseStart: draft.pauseStart || "",
         pauseEnd: draft.pauseEnd || "",
+        pauseReason: draft.pauseReason || "",
         ignoreHistoryBefore: draft.ignoreHistoryBefore || "",
         workCenterSource: normalizeClinicianWorkCenterSource(draft.workCenterSource),
         workCenterLat: toNumber(draft.workCenterLat),
@@ -15646,6 +15671,7 @@
         derivedStartDate: String(snapshot.derivedStartDate || snapshot.derived_start_date || "").trim(),
         pauseStart: String(snapshot.pauseStart || snapshot.pause_start || snapshot.pause_start_date || "").trim(),
         pauseEnd: String(snapshot.pauseEnd || snapshot.pause_end || snapshot.pause_end_date || "").trim(),
+        pauseReason: String(snapshot.pauseReason || snapshot.pause_reason || "").trim(),
         ignoreHistoryBefore: String(snapshot.ignoreHistoryBefore || snapshot.ignore_history_before || "").trim(),
         workCenterSource: normalizeClinicianWorkCenterSource(snapshot.workCenterSource || snapshot.work_center_source || ""),
         workCenterLat: toNumber(snapshot.workCenterLat ?? snapshot.work_center_lat),
@@ -15684,6 +15710,7 @@
         derivedStartDate: safeSnapshot.derivedStartDate || "",
         pauseStart: safeSnapshot.pauseStart || "",
         pauseEnd: safeSnapshot.pauseEnd || "",
+        pauseReason: safeSnapshot.pauseReason || "",
         ignoreHistoryBefore: safeSnapshot.ignoreHistoryBefore || "",
         workCenterSource: normalizeClinicianWorkCenterSource(safeSnapshot.workCenterSource || ""),
         workCenterLat: safeSnapshot.workCenterLat ?? null,
@@ -15873,6 +15900,7 @@
         start_date: draft.startDate || null,
         pause_start_date: draft.pauseStart || null,
         pause_end_date: draft.pauseEnd || null,
+        pause_reason: draft.pauseReason || null,
         therapy_boss_unavailable: Boolean(draft.therapyBossUnavailable),
         do_not_rehire: Boolean(draft.doNotRehire),
         emr_capabilities: normalizedEmrCapabilities,
@@ -16204,6 +16232,7 @@
         startDateSource: startDateSource,
         pauseStart: elements.profilePauseStart.value || "",
         pauseEnd: elements.profilePauseEnd.value || "",
+        pauseReason: getProfilePauseReasonFromInputs(),
         ignoreHistoryBefore: elements.profileIgnoreHistoryBefore.value || "",
         workCenterSource: elements.profileWorkCenterSource.value || "",
         workCenterLat: elements.profileWorkCenterLat.value || "",
@@ -16336,6 +16365,8 @@
       elements.profileStartDate.dataset.startDateSource = safeDraft.startDateSource || (safeDraft.startDate ? "manual" : (safeDraft.derivedStartDate ? "derived" : ""));
       elements.profilePauseStart.value = safeDraft.pauseStart;
       elements.profilePauseEnd.value = safeDraft.pauseEnd;
+      applyProfilePauseReasonToInputs(safeDraft.pauseReason);
+      appState.profilePauseScheduling = false;
       elements.profileIgnoreHistoryBefore.value = safeDraft.ignoreHistoryBefore || "";
       setProfileWorkCenterState({
         source: safeDraft.workCenterSource || "",
@@ -16648,6 +16679,12 @@
           "pauseEndDate",
           "pause_end",
           "pauseEnd"
+        ]) || "";
+      }
+      if (!draft.pauseReason && clinician) {
+        draft.pauseReason = getFirstAvailableFieldValue(clinician, [
+          "pause_reason",
+          "pauseReason"
         ]) || "";
       }
       if (!draft.ignoreHistoryBefore && clinician) {
@@ -17394,19 +17431,65 @@
       applyFilters();
     }
 
+    // Preset pause reasons (mirrors Roster Review's PAUSE_REASON_PRESETS).
+    var PROFILE_PAUSE_REASON_PRESETS = ["Personal", "Sick", "Vacation"];
+
+    // Reads the reason select (+ the "Other" free-text box) into a plain string.
+    function getProfilePauseReasonFromInputs() {
+      if (!elements.profilePauseReason) return "";
+      var val = String(elements.profilePauseReason.value || "").trim();
+      if (val === "Other") return String(elements.profilePauseReasonOther.value || "").trim();
+      return val;
+    }
+
+    // Sets the reason select + Other box from a stored reason string. A reason
+    // that isn't one of the presets lands in "Other" with its text revealed.
+    function applyProfilePauseReasonToInputs(reason) {
+      if (!elements.profilePauseReason) return;
+      var r = String(reason || "").trim();
+      var isPreset = PROFILE_PAUSE_REASON_PRESETS.some(function(p) { return p.toLowerCase() === r.toLowerCase(); });
+      if (!r) {
+        elements.profilePauseReason.value = "";
+        elements.profilePauseReasonOther.value = "";
+        elements.profilePauseReasonOther.style.display = "none";
+      } else if (isPreset) {
+        elements.profilePauseReason.value = PROFILE_PAUSE_REASON_PRESETS.find(function(p) { return p.toLowerCase() === r.toLowerCase(); });
+        elements.profilePauseReasonOther.value = "";
+        elements.profilePauseReasonOther.style.display = "none";
+      } else {
+        elements.profilePauseReason.value = "Other";
+        elements.profilePauseReasonOther.value = r;
+        elements.profilePauseReasonOther.style.display = "";
+      }
+    }
+
     function updatePauseUI() {
       const status = elements.profileStatusInput.value;
       const startValue = elements.profilePauseStart.value;
       const endValue = elements.profilePauseEnd.value;
       const isPaused = status === "Paused";
+      // Show the pause editor when Paused, when a pause is already scheduled
+      // (future dates while still Active), or when the user clicked "Schedule
+      // pause". This lets a coordinator set a future vacation from the Map
+      // without flipping status to Paused early (the auto-transition cron
+      // flips it on the start date — same as Roster Review).
+      const hasDates = Boolean(startValue || endValue);
+      const showEditor = isPaused || hasDates || appState.profilePauseScheduling === true;
 
       updateProfileHeaderStatus();
 
-      elements.profilePauseRow.classList.toggle("visible", isPaused);
-      elements.profilePauseIndicator.classList.toggle("visible", isPaused);
+      elements.profilePauseRow.classList.toggle("visible", showEditor);
+      elements.profilePauseIndicator.classList.toggle("visible", showEditor);
       elements.profilePauseIndicator.classList.toggle("paused", isPaused);
 
-      if (!isPaused) {
+      // "Schedule pause" button: only when Active, no pause yet, not already
+      // scheduling. Editors/admins only (the button carries edit-only).
+      if (elements.profileSchedulePauseBtn) {
+        var canSchedule = (status === "Active") && !showEditor;
+        elements.profileSchedulePauseBtn.style.display = canSchedule ? "" : "none";
+      }
+
+      if (!showEditor) {
         elements.profilePauseIndicator.innerHTML = "";
         return;
       }
@@ -17415,8 +17498,8 @@
       let detail = "";
 
       if (!startValue && !endValue) {
-        title = "Paused";
-        detail = "Add a pause start date and optional end date so the pause window is clear.";
+        title = isPaused ? "Paused" : "Schedule a pause";
+        detail = "Pick a start date (and optional end date) and a reason. Leave Status on Active for a future vacation — it switches to Paused automatically on the start date.";
         elements.profilePauseIndicator.innerHTML = "<div class='pause-indicator-title'>" + escapeHtml(title) + "</div><div class='pause-indicator-detail'>" + escapeHtml(detail) + "</div>";
         return;
       }
@@ -17425,17 +17508,22 @@
       today.setHours(0, 0, 0, 0);
       const startDate = startValue ? new Date(startValue + "T00:00:00") : null;
       const endDate = endValue ? new Date(endValue + "T00:00:00") : null;
+      const dayDiff = function(d) { return d ? Math.round((d.getTime() - today.getTime()) / 86400000) : null; };
+      const startIn = dayDiff(startDate);
+      const backIn = dayDiff(endDate);
 
       if (startDate && startDate > today) {
         title = "Scheduled Pause";
-        detail = formatAcceptedDate(startValue) + (endValue ? " through " + formatAcceptedDate(endValue) + "." : ".");
+        detail = formatAcceptedDate(startValue) + (endValue ? " through " + formatAcceptedDate(endValue) : "")
+          + " — starts in " + startIn + (startIn === 1 ? " day." : " days.");
       } else if (endDate && endDate < today) {
         title = "Pause Ended";
         detail = "Pause window ended on " + formatAcceptedDate(endValue) + ". Switch back to Active when confirmed.";
       } else if (startDate && (!endDate || endDate >= today)) {
-        title = "Paused Now";
+        title = "On Vacation";
         detail = endValue
-          ? formatAcceptedDate(startValue) + " through " + formatAcceptedDate(endValue) + "."
+          ? formatAcceptedDate(startValue) + " through " + formatAcceptedDate(endValue)
+            + " — back in " + backIn + (backIn === 1 ? " day." : " days.")
           : "Started " + formatAcceptedDate(startValue) + " with no end date set.";
       } else {
         title = "Paused";
@@ -23477,6 +23565,32 @@
       });
       elements.profilePauseStart.addEventListener("change", handleProfileDraftChange);
       elements.profilePauseEnd.addEventListener("change", handleProfileDraftChange);
+      if (elements.profilePauseReason) {
+        elements.profilePauseReason.addEventListener("change", function() {
+          // Reveal the free-text box only for "Other"; clear it otherwise.
+          if (elements.profilePauseReason.value === "Other") {
+            elements.profilePauseReasonOther.style.display = "";
+            elements.profilePauseReasonOther.focus();
+          } else {
+            elements.profilePauseReasonOther.style.display = "none";
+            elements.profilePauseReasonOther.value = "";
+          }
+          handleProfileDraftChange();
+        });
+      }
+      if (elements.profilePauseReasonOther) {
+        elements.profilePauseReasonOther.addEventListener("input", handleProfileDraftChange);
+      }
+      if (elements.profileSchedulePauseBtn) {
+        elements.profileSchedulePauseBtn.addEventListener("click", function() {
+          // Reveal the pause editor while keeping Status = Active so a FUTURE
+          // pause can be scheduled. The clinician auto-flips to Paused on the
+          // start date via the auto-transition-pauses cron.
+          appState.profilePauseScheduling = true;
+          updatePauseUI();
+          if (elements.profilePauseStart) elements.profilePauseStart.focus();
+        });
+      }
       elements.profileIgnoreHistoryBefore.addEventListener("change", handleProfileDraftChange);
       elements.profileWorkCenterHistory.addEventListener("click", async function() {
         if (appState.profileCreateMode || !appState.currentProfileClinicianId) {
