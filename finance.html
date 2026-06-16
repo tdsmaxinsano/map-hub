@@ -9028,6 +9028,10 @@ const VDR = (function() {
       const shortAndBillable = (timeVal < 45) && (billable === "Y");
       const missedVisit = type.indexOf("V") >= 0;
       const evalTimeAlert = ["STE","PTE","OTE"].includes(type) && (timeVal <= 59);
+      // Billable visit with no charge entered — the Charge must be filled in
+      // TherapyBoss BEFORE "Create bills" runs, or the bill goes out at $0.
+      // chargeNum is already 0 for blank or "$0.00"; <= 0 also guards negatives.
+      const billableNoCharge = (billable === "Y") && (chargeNum <= 0);
 
       prepared.push({
         Date: dateObj, Submitted: submittedObj, Type: type, Clinician: clinician, Payer: payer,
@@ -9035,7 +9039,8 @@ const VDR = (function() {
         VTime: fmtTime(dateObj),
         DaysBetween: daysBetween,
         OutOfRange: outOfRange, ShortAndBillable: shortAndBillable,
-        MissedVisit: missedVisit, EvalTimeAlert: evalTimeAlert
+        MissedVisit: missedVisit, EvalTimeAlert: evalTimeAlert,
+        BillableNoCharge: billableNoCharge
       });
     });
 
@@ -9079,7 +9084,7 @@ const VDR = (function() {
   // ── Inline preview rendering ──
   function renderStats() {
     const flaggedCount =
-      rawRows.filter(r => r.OutOfRange || r.ShortAndBillable || r.MissedVisit || r.EvalTimeAlert).length;
+      rawRows.filter(r => r.OutOfRange || r.ShortAndBillable || r.MissedVisit || r.EvalTimeAlert || r.BillableNoCharge).length;
     const avgDaysOverall = rawRows.length
       ? (rawRows.reduce((s, r) => s + r.DaysBetween, 0) / rawRows.length).toFixed(1)
       : "—";
@@ -9140,12 +9145,14 @@ const VDR = (function() {
     const sbN    = rawRows.filter(r => !r.OutOfRange && r.ShortAndBillable).length;
     const missN  = rawRows.filter(r => r.MissedVisit).length;
     const evalN  = rawRows.filter(r => r.EvalTimeAlert).length;
+    const bncN   = rawRows.filter(r => r.BillableNoCharge).length;
     const tabs = [
-      { id: "both",  label: "Both Conditions", n: bothN },
-      { id: "oor",   label: "OutOfRange Only", n: oorN },
-      { id: "short", label: "Short & Billable",n: sbN  },
-      { id: "miss",  label: "Missed Visit",    n: missN },
-      { id: "eval",  label: "Eval Time",       n: evalN }
+      { id: "both",     label: "Both Conditions",    n: bothN },
+      { id: "oor",      label: "OutOfRange Only",    n: oorN },
+      { id: "short",    label: "Short & Billable",   n: sbN  },
+      { id: "miss",     label: "Missed Visit",       n: missN },
+      { id: "eval",     label: "Eval Time",          n: evalN },
+      { id: "nocharge", label: "Billable · No Charge", n: bncN }
     ];
     const bar = document.getElementById("vdr-tabs");
     bar.innerHTML = tabs.map(t =>
@@ -9163,6 +9170,7 @@ const VDR = (function() {
       case "short": return { rows: rawRows.filter(r => !r.OutOfRange && r.ShortAndBillable), highlight: ["Time"]        };
       case "miss":  return { rows: rawRows.filter(r => r.MissedVisit),                        highlight: ["Type"]        };
       case "eval":  return { rows: rawRows.filter(r => r.EvalTimeAlert),                      highlight: ["Time"]        };
+      case "nocharge": return { rows: rawRows.filter(r => r.BillableNoCharge),                highlight: ["Billable","Charge"] };
       default: return { rows: [], highlight: [] };
     }
   }
@@ -9211,9 +9219,10 @@ const VDR = (function() {
       { title: "OutOfRange Only",      rows: rawRows.filter(r => r.OutOfRange && !r.ShortAndBillable), highlight: ["VTime"] },
       { title: "ShortAndBillable Only",rows: rawRows.filter(r => !r.OutOfRange && r.ShortAndBillable), highlight: ["Time"] },
       { title: "Missed Visit Alerts",  rows: rawRows.filter(r => r.MissedVisit), highlight: ["Type"] },
-      { title: "Eval Time Alerts",     rows: rawRows.filter(r => r.EvalTimeAlert), highlight: ["Time"] }
+      { title: "Eval Time Alerts",     rows: rawRows.filter(r => r.EvalTimeAlert), highlight: ["Time"] },
+      { title: "Billable · No Charge", rows: rawRows.filter(r => r.BillableNoCharge), highlight: ["Billable", "Charge"] }
     ];
-    const cols = ["Date", "VTime", "Clinician", "Payer", "Type", "Time", "Billable", "Charge", "DaysBetween", "Submitted", "OutOfRange", "ShortAndBillable", "MissedVisit", "EvalTimeAlert"];
+    const cols = ["Date", "VTime", "Clinician", "Payer", "Type", "Time", "Billable", "Charge", "DaysBetween", "Submitted", "OutOfRange", "ShortAndBillable", "MissedVisit", "EvalTimeAlert", "BillableNoCharge"];
 
     sections.forEach(sec => {
       s1.addRow([sec.title]);
@@ -9222,7 +9231,7 @@ const VDR = (function() {
       sec.rows.forEach(r => {
         const dateStr = r.Date.toISOString().slice(0, 10);
         const subStr = r.Submitted.toISOString().slice(0, 10);
-        s1.addRow([dateStr, r.VTime, r.Clinician, r.Payer, r.Type, r.Time, r.Billable, r.Charge, r.DaysBetween, subStr, r.OutOfRange, r.ShortAndBillable, r.MissedVisit, r.EvalTimeAlert]);
+        s1.addRow([dateStr, r.VTime, r.Clinician, r.Payer, r.Type, r.Time, r.Billable, r.Charge, r.DaysBetween, subStr, r.OutOfRange, r.ShortAndBillable, r.MissedVisit, r.EvalTimeAlert, r.BillableNoCharge]);
       });
       // Yellow highlight on the flagged columns
       if (sec.rows.length) {
@@ -9347,7 +9356,8 @@ const VDR = (function() {
         Billable: r.Billable, Charge: r.Charge, Time: r.Time,
         VTime: r.VTime, DaysBetween: r.DaysBetween,
         OutOfRange: r.OutOfRange, ShortAndBillable: r.ShortAndBillable,
-        MissedVisit: r.MissedVisit, EvalTimeAlert: r.EvalTimeAlert
+        MissedVisit: r.MissedVisit, EvalTimeAlert: r.EvalTimeAlert,
+        BillableNoCharge: r.BillableNoCharge
       }));
       const runRow = {
         total_visits: summaries.totalVisits,
@@ -9444,7 +9454,12 @@ const VDR = (function() {
       rawRows = prep.map(row => ({
         ...row,
         Date: row.Date ? new Date(row.Date) : null,
-        Submitted: row.Submitted ? new Date(row.Submitted) : null
+        Submitted: row.Submitted ? new Date(row.Submitted) : null,
+        // Derive the Billable-No-Charge flag for runs saved before this rule
+        // existed (their snapshots already carry Billable + Charge).
+        BillableNoCharge: row.BillableNoCharge !== undefined
+          ? row.BillableNoCharge
+          : (String(row.Billable || "").trim().toUpperCase() === "Y" && Number(row.Charge || 0) <= 0)
       })).filter(r => r.Date && r.Submitted);
 
       summaries = buildSummaries(rawRows);
