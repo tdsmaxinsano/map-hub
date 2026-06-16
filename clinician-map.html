@@ -884,10 +884,12 @@
     }
 
     /* Bulk-import guided steps + per-type help (editor-friendliness) */
+    /* Locked progress bar — sits in its own grid row under the header and
+       above the scrolling body, so it stays visible while the body scrolls. */
     .import-steps {
-      list-style: none; margin: 0 0 14px; padding: 10px 12px;
+      list-style: none; margin: 0; padding: 11px 24px;
       display: flex; flex-wrap: wrap; gap: 8px;
-      background: #f7f9fc; border: 1px solid #e3e9f2; border-radius: 12px;
+      background: #f7f9fc; border: 0; border-bottom: 1px solid #d0ddf0; border-radius: 0;
     }
     .import-step {
       display: flex; align-items: center; gap: 7px;
@@ -3753,7 +3755,8 @@
       min-width: 680px;
       min-height: 480px;
       display: grid;
-      grid-template-rows: auto 1fr auto;
+      /* header / locked steps bar / scrolling body / footer */
+      grid-template-rows: auto auto 1fr auto;
       background: #f4f7fc;
       border: 1px solid rgba(190, 210, 235, 0.9);
       border-radius: 22px;
@@ -6495,15 +6498,16 @@
             </div>
             <button id="import-modal-close" type="button" class="btn-secondary">Close</button>
           </div>
+          <!-- Step guide — its own grid row between the header and the
+               scrolling body, so the progress stays locked/visible while the
+               body scrolls. Active step is highlighted by syncImportSteps(). -->
+          <ol id="import-steps" class="import-steps" aria-label="Import steps">
+            <li class="import-step" data-step="1"><span class="import-step-num">1</span> Choose what you're importing</li>
+            <li class="import-step" data-step="2"><span class="import-step-num">2</span> Pick the file</li>
+            <li class="import-step admin-only" data-step="3"><span class="import-step-num">3</span> Check the columns</li>
+            <li class="import-step" data-step="4"><span class="import-step-num">4</span> Preview &amp; upload</li>
+          </ol>
           <div class="import-modal-body">
-            <!-- Step guide — orients the editor through the flow. Active step
-                 is highlighted by syncImportSteps() from the existing render. -->
-            <ol id="import-steps" class="import-steps" aria-label="Import steps">
-              <li class="import-step" data-step="1"><span class="import-step-num">1</span> Choose what you're importing</li>
-              <li class="import-step" data-step="2"><span class="import-step-num">2</span> Pick the file</li>
-              <li class="import-step admin-only" data-step="3"><span class="import-step-num">3</span> Check the columns</li>
-              <li class="import-step" data-step="4"><span class="import-step-num">4</span> Preview &amp; upload</li>
-            </ol>
             <div class="import-grid">
               <section class="import-card">
                 <h3>What are you importing?</h3>
