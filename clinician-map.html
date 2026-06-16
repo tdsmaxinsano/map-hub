@@ -855,8 +855,15 @@
       box-shadow: 0 8px 18px rgba(30,77,140,0.22);
       transform: none;
     }
-    .import-submode-row { flex-wrap: nowrap; }
-    .import-submode-row .import-kind-button { flex: 1; padding: 7px 6px; text-align: center; }
+    /* Wrap (not nowrap) so the 3 mode buttons drop to the next line instead
+       of overflowing the narrow left column — "Full Initial Load ADMIN" was
+       overlapping the next pill. white-space:normal lets a wide button wrap
+       its own text rather than spill over its neighbor. */
+    .import-submode-row { flex-wrap: wrap; }
+    .import-submode-row .import-kind-button {
+      flex: 1 1 92px; min-width: 92px; padding: 7px 8px; text-align: center;
+      white-space: normal; line-height: 1.2;
+    }
 
     .import-warning {
       margin-top: 6px;
@@ -3725,9 +3732,13 @@
       position: absolute;
       inset: 0;
       display: none;
-      align-items: center;
+      /* Top-anchored (not centered) so dragging the modal's bottom-right
+         corner down actually grows it — a centered flex child re-centers as
+         it resizes, which makes vertical drag feel like it does nothing. */
+      align-items: flex-start;
       justify-content: center;
       padding: 24px;
+      overflow-y: auto;
       background: rgba(10, 18, 42, 0.48);
       backdrop-filter: blur(6px);
       z-index: 6;
@@ -3738,7 +3749,7 @@
       position: relative;
       width: min(1180px, calc(100vw - 24px));
       max-width: calc(100vw - 24px);
-      max-height: 94vh;
+      max-height: calc(100vh - 48px);
       min-width: 680px;
       min-height: 480px;
       display: grid;
