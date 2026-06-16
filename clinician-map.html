@@ -23149,11 +23149,12 @@
         setImportModalOpen(false);
       });
 
-      elements.importModalBackdrop.addEventListener("click", function(event) {
-        if (event.target === elements.importModalBackdrop) {
-          setImportModalOpen(false);
-        }
-      });
+      // Bulk Import is a data-entry view (loaded file, chosen mode, resized
+      // box), so clicking the dimmed area does NOT close it — an accidental
+      // click-away, or a text-selection / resize drag that happens to end on
+      // the backdrop, shouldn't discard the work. Close only via the explicit
+      // Close button or the Esc key (intentional keypress, wired separately).
+      // (Deliberately no backdrop-click-to-close handler here.)
 
       elements.importFileInput.addEventListener("change", function(event) {
         const file = event.target.files && event.target.files[0] ? event.target.files[0] : null;
