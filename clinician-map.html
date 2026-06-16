@@ -3735,8 +3735,12 @@
     .import-modal-backdrop.open { display: flex; }
 
     .import-modal {
-      width: min(1040px, calc(100vw - 48px));
-      max-height: min(88vh, 880px);
+      position: relative;
+      width: min(1180px, calc(100vw - 24px));
+      max-width: calc(100vw - 24px);
+      max-height: 94vh;
+      min-width: 680px;
+      min-height: 480px;
       display: grid;
       grid-template-rows: auto 1fr auto;
       background: #f4f7fc;
@@ -3744,6 +3748,23 @@
       border-radius: 22px;
       box-shadow: 0 32px 80px rgba(10, 18, 42, 0.32), 0 2px 0 rgba(255,255,255,0.6) inset;
       overflow: hidden;
+      /* Drag the bottom-right corner to make the box bigger/smaller. The
+         inner body keeps its own scroll, so resizing just reveals more at once. */
+      resize: both;
+    }
+    /* Discoverable grip in the bottom-right corner for the native resize. */
+    .import-modal::after {
+      content: "";
+      position: absolute;
+      right: 5px;
+      bottom: 5px;
+      width: 14px;
+      height: 14px;
+      pointer-events: none;
+      background:
+        linear-gradient(135deg, transparent 0 6px, var(--accent, #2f6df6) 6px 8px, transparent 8px 10px, var(--accent, #2f6df6) 10px 12px, transparent 12px);
+      opacity: 0.55;
+      z-index: 2;
     }
 
     .import-modal-header {
@@ -5862,8 +5883,11 @@
       }
       .import-modal {
         width: calc(100vw - 32px);
+        min-width: 0;
         max-height: calc(100vh - 32px);
+        resize: none;
       }
+      .import-modal::after { display: none; }
       .import-grid {
         grid-template-columns: 1fr;
       }
