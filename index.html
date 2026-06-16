@@ -915,6 +915,7 @@
   const ALERT_META = {
     pause_starting_today: { icon: "🔴", tint: "red",   verb: "starts" },
     pause_starting_soon:  { icon: "🟡", tint: "amber", verb: "starts" },
+    pause_active:         { icon: "🏖", tint: "blue",  verb: "on" },
     pause_ending_today:   { icon: "🟢", tint: "green", verb: "returns" },
     pause_ending_soon:    { icon: "🟢", tint: "green", verb: "returns" },
     just_returned:        { icon: "🔵", tint: "blue",  verb: "returned" },
@@ -944,6 +945,7 @@
     const o = Number(alert.days_offset != null ? alert.days_offset : alert.days_until);
     if (alert.alert_type === "pause_starting_today")  return "TODAY";
     if (alert.alert_type === "pause_starting_soon")   return "in " + o + (o === 1 ? " day" : " days");
+    if (alert.alert_type === "pause_active")          return (alert.days_offset == null) ? "on vacation" : ("back in " + o + (o === 1 ? " day" : " days"));
     if (alert.alert_type === "pause_ending_today")    return "today";
     if (alert.alert_type === "pause_ending_soon")     return o === 1 ? "tomorrow" : "in " + o + " days";
     if (alert.alert_type === "just_returned")         return Math.abs(o) + (Math.abs(o) === 1 ? " day ago" : " days ago");
@@ -969,6 +971,7 @@
     switch (alert.alert_type) {
       case "pause_starting_today":  return `${meta.verb} ${reason} today${range} — assign coverage?`;
       case "pause_starting_soon":   return `${meta.verb} ${reason}${range}`;
+      case "pause_active":          return alert.pause_end_date ? `${meta.verb} ${reason}${range}` : `${meta.verb} ${reason} — no return date set${range}`;
       case "pause_ending_today":    return `${meta.verb} from ${reason}${range}`;
       case "pause_ending_soon":     return `${meta.verb} from ${reason}${range}`;
       case "just_returned":         return `${meta.verb} to Active (was ${reason})`;
