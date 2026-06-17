@@ -106,6 +106,14 @@
   table.ag th.name-col, table.ag td.name-col { position: sticky; left: 0; z-index: 2; border-right: 1px solid var(--border); min-width: 240px; background: var(--card); }
   table.ag thead th.name-col { z-index: 4; background: #f1f5f9; }
   table.ag tr:hover td.name-col { background: #f9fafb; }
+  /* Click-to-sort column headers */
+  table.ag th[data-sort] { cursor: pointer; user-select: none; }
+  table.ag th[data-sort]:hover { background: #e2e8f0; color: var(--text); }
+  table.ag thead th.name-col[data-sort]:hover { background: #e2e8f0; }
+  table.ag th[data-sort]::after { content: " ⇅"; font-size: 9px; opacity: 0.3; }
+  table.ag th.sort-asc::after  { content: " ▲"; font-size: 9px; opacity: 1; }
+  table.ag th.sort-desc::after { content: " ▼"; font-size: 9px; opacity: 1; }
+  table.ag th.sort-asc, table.ag th.sort-desc { color: var(--text); }
   table.ag tr.row-inactive td.name-col { background: #fafafa; }
   .agency-name-link { color: var(--blue); font-weight: 700; cursor: pointer; text-decoration: none; }
   .agency-name-link:hover { color: var(--accent); text-decoration: underline; }
@@ -303,22 +311,22 @@
     <table class="ag">
       <thead>
         <tr>
-          <th class="name-col">Agency</th>
-          <th>Active</th>
-          <th title="OT Eval rate (OTF)">OT Eval</th>
-          <th title="OTA visit rate (OTFA)">OTA</th>
-          <th title="PT Eval rate (PTF)">PT Eval</th>
-          <th title="PTA visit rate (PTFA)">PTA</th>
-          <th title="ST Eval rate (STE)">ST Eval</th>
-          <th title="ST Other rate (STEO — recert/DC)">ST Other</th>
-          <th title="Payment 1-5 (5=best)">💵 Pay</th>
-          <th title="Communication 1-5 (5=best)">💬 Comm</th>
-          <th>Contract Loc</th>
-          <th>Start</th>
-          <th>Pay Method</th>
-          <th>Sent Via</th>
-          <th>Collections Contact</th>
-          <th>Notes</th>
+          <th class="name-col" data-sort="agency_name" data-sort-type="str">Agency</th>
+          <th data-sort="agency_active" data-sort-type="active">Active</th>
+          <th data-sort="rate_ot_eval" data-sort-type="num" title="OT Eval rate (OTF)">OT Eval</th>
+          <th data-sort="rate_ot_assistant" data-sort-type="num" title="OTA visit rate (OTFA)">OTA</th>
+          <th data-sort="rate_pt_eval" data-sort-type="num" title="PT Eval rate (PTF)">PT Eval</th>
+          <th data-sort="rate_pt_assistant" data-sort-type="num" title="PTA visit rate (PTFA)">PTA</th>
+          <th data-sort="rate_st_eval" data-sort-type="num" title="ST Eval rate (STE)">ST Eval</th>
+          <th data-sort="rate_st_other" data-sort-type="num" title="ST Other rate (STEO — recert/DC)">ST Other</th>
+          <th data-sort="rating_payment" data-sort-type="num" title="Payment 1-5 (5=best)">💵 Pay</th>
+          <th data-sort="rating_communication" data-sort-type="num" title="Communication 1-5 (5=best)">💬 Comm</th>
+          <th data-sort="contract_location" data-sort-type="str">Contract Loc</th>
+          <th data-sort="contract_start_year" data-sort-type="num">Start</th>
+          <th data-sort="preferred_payment_method" data-sort-type="str">Pay Method</th>
+          <th data-sort="sent_via" data-sort-type="str">Sent Via</th>
+          <th data-sort="collections_contact" data-sort-type="str">Collections Contact</th>
+          <th data-sort="notes" data-sort-type="str">Notes</th>
         </tr>
       </thead>
       <tbody id="rows-body">
@@ -406,6 +414,7 @@ let filterState = {
   contract: null,                          // null | "has" | "missing"
   q: ""                                    // free-text search
 };
+let sortState = { key: null, dir: 1, type: "str" };  // dir: 1 asc, -1 desc; key null = natural order
 let importedRows = [];                     // staged xlsx rows
 let importResolutions = {};                // unmatchedName → agency_id selected by user
 let notesDrawerAgencyId = null;
@@ -551,10 +560,54 @@ function filterRows() {
   });
 }
 
+// Sort the filtered rows by the active column header. Empty/unset values
+// always sink to the bottom regardless of direction.
+function sortRows(rows) {
+  if (!sortState.key) return rows;
+  const { key, dir, type } = sortState;
+  const valOf = (r) => {
+    if (type === "active") {
+      if (r.is_active === true) return 2;   // Active
+      if (r.contract_id) return 1;          // Inactive (has contract)
+      return 0;                             // No contract / unset
+    }
+    let v = r[key];
+    if (type === "num") {
+      if (v === null || v === undefined || v === "") return null;
+      v = Number(v);
+      return isNaN(v) ? null : v;
+    }
+    return (v === null || v === undefined) ? "" : String(v).trim();
+  };
+  const isEmpty = (v) => v === null || v === undefined || v === "";
+  return rows.slice().sort((a, b) => {
+    const va = valOf(a), vb = valOf(b);
+    const ea = isEmpty(va), eb = isEmpty(vb);
+    if (ea && eb) return 0;
+    if (ea) return 1;    // empties last
+    if (eb) return -1;
+    let cmp;
+    if (type === "str") cmp = va.localeCompare(vb, undefined, { sensitivity: "base", numeric: true });
+    else cmp = va < vb ? -1 : (va > vb ? 1 : 0);
+    return cmp * dir;
+  });
+}
+
+// Reflect the current sort on the header chevrons.
+function syncSortIndicators() {
+  document.querySelectorAll("table.ag th[data-sort]").forEach(th => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sort === sortState.key) {
+      th.classList.add(sortState.dir === 1 ? "sort-asc" : "sort-desc");
+    }
+  });
+}
+
 function renderTable() {
-  const rows = filterRows();
+  const rows = sortRows(filterRows());
   document.getElementById("hero-counts").innerHTML =
     `<strong>${rows.length}</strong> of <strong>${allRows.length}</strong> agencies shown`;
+  syncSortIndicators();
 
   if (!rows.length) {
     document.getElementById("rows-body").innerHTML =
@@ -759,6 +812,26 @@ document.addEventListener("click", (e) => {
   } else {
     window.open("clinician-map.html?" + qs, "_blank", "noopener");
   }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// COLUMN-HEADER SORT — click a header to cycle asc → desc → off
+// ══════════════════════════════════════════════════════════════════
+document.addEventListener("click", (e) => {
+  const th = e.target.closest("table.ag thead th[data-sort]");
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (sortState.key !== key) {
+    sortState.key = key;
+    sortState.dir = 1;
+    sortState.type = th.dataset.sortType || "str";
+  } else if (sortState.dir === 1) {
+    sortState.dir = -1;
+  } else {
+    sortState.key = null;   // third click → back to natural order
+    sortState.dir = 1;
+  }
+  renderTable();
 });
 
 // ══════════════════════════════════════════════════════════════════
