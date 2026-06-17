@@ -147,6 +147,18 @@
   .year-input { width: 60px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; text-align: center; background: #fff; outline: none; }
   .year-input:focus { border-color: var(--accent); }
 
+  /* Single-select dropdowns (Pay Method / Sent Via) */
+  .select-input { width: 100%; min-width: 110px; max-width: 180px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; background: #fff; outline: none; color: var(--text); cursor: pointer; }
+  .select-input:focus { border-color: var(--accent); }
+
+  /* Contract Location — additive chips + add dropdown */
+  .loc-cell { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-width: 150px; }
+  .loc-chip { display: inline-flex; align-items: center; gap: 3px; padding: 2px 4px 2px 8px; border-radius: 999px; background: #e0ecff; color: #1e3a8a; border: 1px solid #c3d9ff; font-size: 11px; font-weight: 600; white-space: nowrap; }
+  .loc-chip-x { border: 0; background: transparent; color: #1e3a8a; cursor: pointer; font-size: 11px; line-height: 1; padding: 0 2px; opacity: 0.6; }
+  .loc-chip-x:hover { opacity: 1; color: #991b1b; }
+  .loc-add { padding: 3px 4px; border: 1px solid var(--border); border-radius: 5px; font-size: 11px; background: #fff; color: var(--muted); cursor: pointer; outline: none; }
+  .loc-add:focus { border-color: var(--accent); }
+
   /* Notes cell — preview + edit on click */
   .notes-cell { min-width: 200px; max-width: 280px; cursor: pointer; }
   .notes-preview { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding: 4px 6px; border-radius: 5px; }
@@ -638,10 +650,10 @@ function renderRow(r) {
       <td>${renderRateInput(r, "rate_st_other")}</td>
       <td>${renderRatingChip(r, "rating_payment")}</td>
       <td>${renderRatingChip(r, "rating_communication")}</td>
-      <td>${renderTextInput(r, "contract_location", "—")}</td>
+      <td>${renderLocationCell(r)}</td>
       <td>${renderYearInput(r)}</td>
-      <td>${renderTextInput(r, "preferred_payment_method", "—")}</td>
-      <td>${renderTextInput(r, "sent_via", "—")}</td>
+      <td>${renderSelectInput(r, "preferred_payment_method")}</td>
+      <td>${renderSelectInput(r, "sent_via")}</td>
       <td>${renderTextInput(r, "collections_contact", "—")}</td>
       <td class="notes-cell" data-notes-cell="${aid}">
         <div class="notes-preview ${r.notes ? '' : 'empty'}">${r.notes ? escapeHtml(r.notes) : 'Click to add…'}</div>
@@ -686,6 +698,57 @@ function renderYearInput(r) {
             value="${v == null ? '' : v}"
             data-agency-id="${escapeAttr(r.agency_id)}"
             data-field="contract_start_year" />`;
+}
+
+// ── Dropdown option pools — derived from the values already in the data
+// (the lists imported from the Google Sheet), so no list to hand-maintain.
+function distinctFieldValues(field) {
+  const set = new Set();
+  allRows.forEach(r => {
+    const v = String(r[field] || "").trim();
+    if (v) set.add(v);
+  });
+  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+// Contract Location is additive (comma-separated) — split existing values into
+// the atomic option pool.
+function splitLocations(str) {
+  return String(str || "").split(",").map(s => s.trim()).filter(Boolean);
+}
+function distinctLocationOptions() {
+  const set = new Set();
+  allRows.forEach(r => splitLocations(r.contract_location).forEach(loc => set.add(loc)));
+  return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+}
+
+// Single-select dropdown (Pay Method / Sent Via). Options auto-populated; a
+// trailing "＋ Add new…" lets the user introduce a value not yet in the list.
+function renderSelectInput(r, field) {
+  const v = String(r[field] || "").trim();
+  const opts = distinctFieldValues(field);
+  if (v && !opts.some(o => o.toLowerCase() === v.toLowerCase())) opts.unshift(v);
+  let html = `<select class="select-input" data-agency-id="${escapeAttr(r.agency_id)}" data-field="${field}">`;
+  html += `<option value=""${v ? "" : " selected"}>—</option>`;
+  opts.forEach(o => {
+    html += `<option value="${escapeAttr(o)}"${o === v ? " selected" : ""}>${escapeHtml(o)}</option>`;
+  });
+  html += `<option value="__add__">＋ Add new…</option>`;
+  html += `</select>`;
+  return html;
+}
+
+// Multi-select chips for Contract Location, saved comma-joined.
+function renderLocationCell(r) {
+  const aid = escapeAttr(r.agency_id);
+  const current = splitLocations(r.contract_location);
+  const remaining = distinctLocationOptions().filter(o => !current.some(c => c.toLowerCase() === o.toLowerCase()));
+  const chips = current.map(loc =>
+    `<span class="loc-chip">${escapeHtml(loc)}<button type="button" class="loc-chip-x" data-loc-remove="${aid}" data-loc="${escapeAttr(loc)}" title="Remove">✕</button></span>`
+  ).join("");
+  let addSel = `<select class="loc-add" data-loc-add="${aid}"><option value="">${current.length ? "＋ add…" : "— set…"}</option>`;
+  remaining.forEach(o => { addSel += `<option value="${escapeAttr(o)}">${escapeHtml(o)}</option>`; });
+  addSel += `<option value="__add__">＋ new location…</option></select>`;
+  return `<div class="loc-cell" data-loc-cell="${aid}">${chips}${addSel}</div>`;
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -739,6 +802,53 @@ document.addEventListener("input", (e) => {
   if (t.matches(".text-input[data-field]")) {
     scheduleSave(t.dataset.agencyId, t.dataset.field, t.value);
   }
+});
+
+// Single-select dropdowns (Pay Method / Sent Via). "＋ Add new…" prompts for
+// a value not yet in the list; otherwise save the chosen option.
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (!t.matches(".select-input[data-field]")) return;
+  const aid = t.dataset.agencyId, field = t.dataset.field;
+  if (t.value === "__add__") {
+    const entry = (window.prompt("New value:", "") || "").trim();
+    if (entry) {
+      doSave(aid, field, entry).then(renderTable);   // re-render so it joins the option pool
+    } else {
+      renderTable();   // cancelled → reset the select back to its value
+    }
+    return;
+  }
+  doSave(aid, field, t.value || null);   // plain pick — select already shows it; no re-render
+});
+
+// Contract Location — add a location (additive, comma-joined).
+document.addEventListener("change", (e) => {
+  const t = e.target;
+  if (!t.matches(".loc-add[data-loc-add]")) return;
+  const aid = t.dataset.locAdd;
+  const row = allRows.find(r => r.agency_id === aid);
+  if (!row) return;
+  let val = t.value;
+  if (!val) return;
+  if (val === "__add__") {
+    val = (window.prompt("New location:", "") || "").trim();
+    if (!val) { renderTable(); return; }
+  }
+  const current = splitLocations(row.contract_location);
+  if (!current.some(c => c.toLowerCase() === val.toLowerCase())) current.push(val);
+  doSave(aid, "contract_location", current.join(", ")).then(renderTable);
+});
+
+// Contract Location — remove a chip.
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-loc-remove]");
+  if (!btn) return;
+  const aid = btn.dataset.locRemove, loc = btn.dataset.loc;
+  const row = allRows.find(r => r.agency_id === aid);
+  if (!row) return;
+  const next = splitLocations(row.contract_location).filter(c => c.toLowerCase() !== String(loc).toLowerCase());
+  doSave(aid, "contract_location", next.length ? next.join(", ") : null).then(renderTable);
 });
 
 // Active pill cycle: unset → active → inactive → active
