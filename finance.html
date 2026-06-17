@@ -1697,6 +1697,7 @@
 
       <div id="attach-preview-card" style="display:none;margin-top:14px;">
         <div class="stat-strip" id="attach-stats"></div>
+        <div id="attach-sentvia-hud" style="display:none;margin:10px 0 4px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;font-size:12px;color:var(--text);"></div>
         <p style="font-size:11.5px;color:var(--muted);margin:4px 0 8px;">Match preview (first 20 rows):</p>
         <div class="discrep-table-wrap" style="max-height:320px;">
           <table class="discrep" id="attach-preview-table"></table>
@@ -9941,6 +9942,8 @@ const ATTACH = (() => {
   let unmatchedPdf   = [];    // PDF filenames with no invoice match
   let iifFilename    = "";
   let initialized    = false;
+  let customerByInvoice = new Map();  // invoice# → HH agency (Customer) name from the IIF
+  let agencySentViaByNorm = null;     // normalized agency name → sent_via (from Agencies tool); null = not loaded
 
   function escHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -9962,13 +9965,54 @@ const ATTACH = (() => {
     let invIdx = header.indexOf("DOCNUM");
     if (invIdx === -1) invIdx = header.indexOf("Invoice No");
     if (invIdx === -1) throw new Error("Couldn't find DOCNUM or 'Invoice No' column in this IIF.");
+    // Also grab the agency name per invoice — "Customer" (cleaned IIF) or
+    // "NAME" (raw IIF TRNS lines). SPL/ENDTRNS lines have a blank invoice #
+    // so they're skipped naturally.
+    let custIdx = header.indexOf("Customer");
+    if (custIdx === -1) custIdx = header.indexOf("NAME");
+    customerByInvoice = new Map();
     const seen = new Set();
     for (let i = 1; i < lines.length; i++) {
       const cells = lines[i].split("\t");
       const v = (cells[invIdx] || "").trim();
-      if (v && !seen.has(v)) seen.add(v);
+      if (!v) continue;
+      if (!seen.has(v)) seen.add(v);
+      if (custIdx >= 0 && !customerByInvoice.has(v)) {
+        const cust = (cells[custIdx] || "").trim().replace(/^"+|"+$/g, "");
+        if (cust) customerByInvoice.set(v, cust);
+      }
     }
     return Array.from(seen);
+  }
+
+  // ── Agency "Sent Via" reference (from the Agencies tool) ──
+  // Mirror of the SQL normalize_agency_name() so the IIF customer name and the
+  // contract agency_name match even with Inc/LLC/punctuation differences.
+  function normAgencyName(s) {
+    let v = String(s == null ? "" : s).toLowerCase();
+    v = v.replace(/[^a-z0-9\s]/g, " ");                                  // strip punctuation
+    v = v.replace(/\b(inc|llc|ltd|corp|co|pc|services|service)\b/g, " "); // strip entity suffixes
+    return v.replace(/\s+/g, " ").trim();
+  }
+  // Load agency contracts once and index sent_via by normalized name. Non-fatal:
+  // a failure just leaves Sent Via blank (agency names still show).
+  async function ensureAgencyContracts() {
+    if (agencySentViaByNorm) return;
+    agencySentViaByNorm = new Map();
+    try {
+      const { data, error } = await db.rpc("list_agency_contracts");
+      if (error) throw error;
+      (data || []).forEach(row => {
+        const key = normAgencyName(row.agency_name);
+        if (key) agencySentViaByNorm.set(key, (row.sent_via || "").trim());
+      });
+    } catch (e) {
+      console.warn("[ATTACH] agency contracts load failed (Sent Via will be blank):", e && e.message);
+    }
+  }
+  function sentViaForCustomer(customer) {
+    if (!agencySentViaByNorm || !customer) return "";
+    return agencySentViaByNorm.get(normAgencyName(customer)) || "";
   }
 
   // ── Filename → candidate invoice numbers (case-insensitive). Tries
@@ -10047,21 +10091,49 @@ const ATTACH = (() => {
       (unmatchedInv.length ? `<div class="stat-pill flag"><div class="lbl">No PDF for invoice</div><div class="val">${unmatchedInv.length}</div></div>` : "") +
       (unmatchedPdf.length ? `<div class="stat-pill flag"><div class="lbl">PDF unmatched</div><div class="val">${unmatchedPdf.length}</div></div>` : "");
 
-    // Preview table
+    // Sent Via HUD — tally the matched invoices by their agency's Sent Via
+    // method (pulled from the Agencies tool), for at-a-glance reference.
+    const hud = document.getElementById("attach-sentvia-hud");
+    if (hud) {
+      const tally = {};
+      matched.forEach(m => {
+        const sv = sentViaForCustomer(customerByInvoice.get(m.invoiceNo)) || "— unknown";
+        tally[sv] = (tally[sv] || 0) + 1;
+      });
+      const keys = Object.keys(tally).sort((a, b) => tally[b] - tally[a]);
+      if (matched.length && keys.length) {
+        const pills = keys.map(k =>
+          `<span style="display:inline-block;margin:2px 6px 2px 0;padding:2px 9px;border-radius:999px;background:#e0ecff;color:#1e3a8a;border:1px solid #c3d9ff;font-weight:600;">📤 ${escHtml(k)} <strong>×${tally[k]}</strong></span>`
+        ).join("");
+        hud.innerHTML = `<span style="font-weight:700;color:var(--muted);margin-right:6px;">Sent Via (QB reference):</span>${pills}`;
+        hud.style.display = "block";
+      } else {
+        hud.style.display = "none";
+      }
+    }
+
+    // Preview table — Invoice # · Agency · Sent Via · File Name · Status
+    const svChip = (cust) => {
+      const sv = sentViaForCustomer(cust);
+      return sv
+        ? `<span style="display:inline-block;padding:1px 8px;border-radius:999px;background:#e0ecff;color:#1e3a8a;border:1px solid #c3d9ff;font-size:11px;font-weight:600;">${escHtml(sv)}</span>`
+        : `<span style="color:#94a3b8;">—</span>`;
+    };
+    const agencyOf = (inv) => escHtml(customerByInvoice.get(inv) || "—");
     const rowsHtml = matched.slice(0, 20).map(m =>
-      `<tr><td>${escHtml(m.invoiceNo)}</td><td>${escHtml(m.fileName)}</td><td>✓</td></tr>`
+      `<tr><td>${escHtml(m.invoiceNo)}</td><td>${agencyOf(m.invoiceNo)}</td><td>${svChip(customerByInvoice.get(m.invoiceNo))}</td><td>${escHtml(m.fileName)}</td><td>✓</td></tr>`
     ).join("");
     const more = matched.length > 20
-      ? `<tr><td colspan="3" style="text-align:center;padding:10px;color:var(--muted);">… ${matched.length - 20} more matches in the zip.</td></tr>`
+      ? `<tr><td colspan="5" style="text-align:center;padding:10px;color:var(--muted);">… ${matched.length - 20} more matches in the zip.</td></tr>`
       : "";
     const unmatchedInvHtml = unmatchedInv.slice(0, 10).map(n =>
-      `<tr style="background:#fff8e1"><td>${escHtml(n)}</td><td colspan="2" style="color:#92400e;font-style:italic;">no PDF found</td></tr>`
+      `<tr style="background:#fff8e1"><td>${escHtml(n)}</td><td>${agencyOf(n)}</td><td>${svChip(customerByInvoice.get(n))}</td><td colspan="2" style="color:#92400e;font-style:italic;">no PDF found</td></tr>`
     ).join("");
     const unmatchedPdfHtml = unmatchedPdf.slice(0, 10).map(f =>
-      `<tr style="background:#fef2f2"><td colspan="2">${escHtml(f)}</td><td style="color:#991b1b;font-style:italic;">unmatched PDF</td></tr>`
+      `<tr style="background:#fef2f2"><td colspan="4">${escHtml(f)}</td><td style="color:#991b1b;font-style:italic;">unmatched PDF</td></tr>`
     ).join("");
     tbl.innerHTML =
-      `<thead><tr><th>Invoice #</th><th>File Name</th><th>Status</th></tr></thead>` +
+      `<thead><tr><th>Invoice #</th><th>Agency</th><th>Sent Via</th><th>File Name</th><th>Status</th></tr></thead>` +
       `<tbody>${rowsHtml}${more}${unmatchedInvHtml}${unmatchedPdfHtml}</tbody>`;
   }
 
@@ -10073,6 +10145,7 @@ const ATTACH = (() => {
     try {
       iifFilename = file.name;
       invoiceNumbers = await parseIifForInvoiceNumbers(file);
+      await ensureAgencyContracts();   // for the Sent Via reference (non-fatal)
       document.getElementById("attach-iif-sub").textContent = `${invoiceNumbers.length} invoice numbers extracted`;
       setStatus(`✓ ${invoiceNumbers.length} invoice numbers extracted from IIF`, "ok");
       recompute();
@@ -10142,6 +10215,9 @@ const ATTACH = (() => {
   function resetUI() {
     invoiceNumbers = []; pdfFiles = []; matched = [];
     unmatchedInv = []; unmatchedPdf = []; iifFilename = "";
+    customerByInvoice = new Map();
+    const hud = document.getElementById("attach-sentvia-hud");
+    if (hud) { hud.style.display = "none"; hud.innerHTML = ""; }
     document.getElementById("attach-actions").style.display = "none";
     document.getElementById("attach-preview-card").style.display = "none";
     document.getElementById("attach-iif-title").textContent = "Drop the .iif (raw or cleaned)";
