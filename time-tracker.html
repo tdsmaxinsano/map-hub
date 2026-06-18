@@ -572,10 +572,12 @@
               <option value="PHP">🇵🇭 PHP</option>
               <option value="USD">🇺🇸 USD</option>
             </select></div>
-          <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">RECEIPT (OPTIONAL)</label>
-            <input type="file" id="exp-receipt" accept="image/*,application/pdf" style="font-size:11px;max-width:170px;" /></div>
+          <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">RECEIPT(S) (OPTIONAL)</label>
+            <input type="file" id="exp-receipt" accept="image/*,application/pdf" multiple style="font-size:11px;max-width:190px;" /></div>
           <button type="button" class="ts-submit-btn" style="margin:0;" onclick="expSubmit(this)">Submit</button>
+          <button type="button" class="ts-submit-btn" style="margin:0;background:#fff;color:var(--blue);border:1.5px solid var(--blue);" title="Create one pending expense per selected receipt file — then fill in each amount below" onclick="expSubmitPerFile(this)">📎 One per file</button>
         </div>
+        <div style="font-size:11px;color:var(--gray);margin:-4px 0 8px;">Tip: attach several files to one expense, or pick a stack of receipts and hit <strong>📎 One per file</strong> to create a row each — then edit the amounts inline below.</div>
         <div id="exp-list"><div style="color:var(--gray);font-size:12px;">Loading…</div></div>
       </div>
 
@@ -1252,6 +1254,18 @@ function expFmtAmt(r) {
     : '$' + parseFloat(r.amount).toFixed(2);
 }
 
+// Receipt links — array-aware (receipt_urls JSONB from migration 45), with a
+// fallback to the legacy single receipt_url for rows created before it.
+function expReceiptLinks(r) {
+  let urls = Array.isArray(r.receipt_urls) ? r.receipt_urls.filter(Boolean) : [];
+  if (!urls.length && r.receipt_url) urls = [r.receipt_url];
+  if (!urls.length) return '';
+  if (urls.length === 1) return ' <a href="' + escAttr(urls[0]) + '" target="_blank" style="font-size:11px;">📎 Receipt</a>';
+  return ' ' + urls.map((u, i) =>
+    '<a href="' + escAttr(u) + '" target="_blank" style="font-size:11px;" title="Receipt ' + (i + 1) + '">📎' + (i + 1) + '</a>'
+  ).join(' ');
+}
+
 function expensesRender(rows) {
   const list = document.getElementById('exp-list');
   if (!list) return;
@@ -1260,6 +1274,7 @@ function expensesRender(rows) {
     return;
   }
   list.innerHTML = rows.map(r => {
+    const pending = r.status === 'pending';
     let pill;
     if (r.status === 'approved') {
       pill = '<span style="background:#E6F4EA;color:#1B5E20;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Approved — added to your pay as a reimbursement">✅ Approved</span>';
@@ -1268,60 +1283,131 @@ function expensesRender(rows) {
     } else {
       pill = '<span style="background:#FFF4D6;color:#8a5a00;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;">🟡 Pending</span>';
     }
-    const receipt = r.receipt_url
-      ? ' <a href="' + escAttr(r.receipt_url) + '" target="_blank" style="font-size:11px;">📎 Receipt</a>'
-      : '';
-    const withdraw = r.status === 'pending'
+    const receipt = expReceiptLinks(r);
+    const withdraw = pending
       ? ' <button type="button" onclick="expWithdraw(\'' + r.id + '\')" title="Withdraw this expense (pending only)" style="font-size:11px;padding:2px 7px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">🗑</button>'
       : '';
     const declineLine = r.status === 'declined' && r.decline_reason
       ? '<div style="flex-basis:100%;font-size:11px;color:var(--red);padding-left:88px;">Reason: ' + escAttr(r.decline_reason) + '</div>'
       : '';
+    // Pending rows are inline-editable (description + amount) so a "📎 One per
+    // file" batch can be filled in after the fact. Approved/declined are static.
+    const curSym = r.currency === 'PHP' ? '₱' : '$';
+    const descCell = pending
+      ? '<input type="text" value="' + escAttr(r.description) + '" onchange="expEditField(\'' + r.id + '\',\'description\',this.value)" style="flex:1;min-width:140px;padding:4px 7px;font-size:12.5px;border:1px solid var(--border);border-radius:5px;" />'
+      : '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>';
+    const needsAmt = pending && !(parseFloat(r.amount) > 0);
+    const amtCell = pending
+      ? '<span style="min-width:108px;display:inline-flex;align-items:center;gap:2px;justify-content:flex-end;">' + curSym +
+        '<input type="number" min="0" step="0.01" value="' + (parseFloat(r.amount) > 0 ? parseFloat(r.amount) : '') + '" placeholder="0.00" onchange="expEditField(\'' + r.id + '\',\'amount\',this.value)" title="' + (needsAmt ? 'Set the amount' : '') + '" style="width:78px;padding:4px 6px;font-size:12.5px;text-align:right;border:1px solid ' + (needsAmt ? 'var(--red)' : 'var(--border)') + ';border-radius:5px;" /></span>'
+      : '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>';
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;">' +
       '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>' +
-      '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>' +
-      '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>' +
-      pill + receipt + withdraw + declineLine +
+      descCell + amtCell + pill + receipt + withdraw + declineLine +
     '</div>';
   }).join('');
 }
 
+// Inline-edit a pending expense (amount / description). Save silently; RLS +
+// the .eq('status','pending') guard keep it to the owner's pending rows.
+async function expEditField(id, field, value) {
+  const patch = {};
+  if (field === 'amount') {
+    const n = parseFloat(value);
+    if (!Number.isFinite(n) || n < 0) return;
+    patch.amount = Math.round(n * 100) / 100;
+  } else if (field === 'description') {
+    const v = String(value || '').trim();
+    if (!v) return;
+    patch.description = v;
+  } else { return; }
+  const { error } = await db.from('staff_expenses').update(patch)
+    .eq('id', id).eq('user_id', currentUser.id).eq('status', 'pending');
+  if (error) showToast('Save failed: ' + error.message);
+}
+
+// Upload one receipt file → public URL. idx keeps the storage path unique when
+// several files upload in a tight loop. Per-user prefix matches the bucket's
+// staff write policy (staff-expenses/<own uid>/…).
+async function expUploadReceipt(file, idx) {
+  const ext  = (file.name.split('.').pop() || 'dat').toLowerCase();
+  const path = 'staff-expenses/' + currentUser.id + '/' + Date.now() + '-' + (idx || 0) + '.' + ext;
+  const up = await db.storage.from('reimbursement-receipts').upload(path, file, { contentType: file.type });
+  if (up.error) throw new Error('Receipt upload failed: ' + up.error.message);
+  return db.storage.from('reimbursement-receipts').getPublicUrl(path).data.publicUrl;
+}
+
+function expOversizeFile(files) {
+  return files.find(f => f.size > 5 * 1024 * 1024) || null;
+}
+
+// Submit ONE expense — all selected receipt files attach to it (multiple
+// receipts per expense, migration 45).
 async function expSubmit(btn) {
   const date = document.getElementById('exp-date').value || new Date().toISOString().slice(0, 10);
   const desc = (document.getElementById('exp-desc').value || '').trim();
   const amt  = parseFloat(document.getElementById('exp-amount').value);
   const cur  = document.getElementById('exp-currency').value;
-  const file = document.getElementById('exp-receipt').files[0] || null;
+  const files = Array.from(document.getElementById('exp-receipt').files || []);
   if (!desc) { showToast('Describe what the expense was.'); return; }
   if (!Number.isFinite(amt) || amt <= 0) { showToast('Enter a valid amount.'); return; }
-  if (file && file.size > 5 * 1024 * 1024) { showToast('Receipt must be under 5MB.'); return; }
+  const big = expOversizeFile(files);
+  if (big) { showToast('Each receipt must be under 5MB (' + big.name + ').'); return; }
   btn.disabled = true; btn.textContent = '...';
   try {
-    let receiptUrl = null;
-    if (file) {
-      const ext  = (file.name.split('.').pop() || 'dat').toLowerCase();
-      // Per-user prefix — the bucket's staff write policy only allows
-      // staff-expenses/<own uid>/… paths.
-      const path = 'staff-expenses/' + currentUser.id + '/' + Date.now() + '.' + ext;
-      const up = await db.storage.from('reimbursement-receipts')
-        .upload(path, file, { contentType: file.type });
-      if (up.error) throw new Error('Receipt upload failed: ' + up.error.message);
-      receiptUrl = db.storage.from('reimbursement-receipts').getPublicUrl(path).data.publicUrl;
-    }
+    const urls = [];
+    for (let i = 0; i < files.length; i++) urls.push(await expUploadReceipt(files[i], i));
     const { error } = await db.from('staff_expenses').insert({
       user_id: currentUser.id, expense_date: date, description: desc,
-      amount: amt, currency: cur, receipt_url: receiptUrl
+      amount: amt, currency: cur,
+      receipt_url: urls[0] || null, receipt_urls: urls
     });
     if (error) throw new Error(error.message);
     document.getElementById('exp-desc').value = '';
     document.getElementById('exp-amount').value = '';
     document.getElementById('exp-receipt').value = '';
-    showToast('Expense submitted — pending admin approval.');
+    showToast('Expense submitted' + (urls.length > 1 ? ' with ' + urls.length + ' receipts' : '') + ' — pending approval.');
     await expensesLoad();
   } catch (err) {
     showToast('Failed: ' + (err.message || err));
   }
   btn.disabled = false; btn.textContent = 'Submit';
+}
+
+// 📎 One per file — each selected receipt becomes its own pending expense row
+// (amount starts at 0; the staff member fills each in inline). Shares the
+// form's date / currency, and the description (or the file name if blank).
+async function expSubmitPerFile(btn) {
+  const date = document.getElementById('exp-date').value || new Date().toISOString().slice(0, 10);
+  const cur  = document.getElementById('exp-currency').value;
+  const descBase = (document.getElementById('exp-desc').value || '').trim();
+  const sharedAmt = parseFloat(document.getElementById('exp-amount').value);
+  const files = Array.from(document.getElementById('exp-receipt').files || []);
+  if (!files.length) { showToast('Pick one or more receipt files first, then click 📎 One per file.'); return; }
+  const big = expOversizeFile(files);
+  if (big) { showToast('Each receipt must be under 5MB (' + big.name + ').'); return; }
+  btn.disabled = true; btn.textContent = '...';
+  let ok = 0;
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const url  = await expUploadReceipt(files[i], i);
+      const desc = descBase || files[i].name.replace(/\.[^.]+$/, '');
+      const { error } = await db.from('staff_expenses').insert({
+        user_id: currentUser.id, expense_date: date, description: desc,
+        amount: (Number.isFinite(sharedAmt) && sharedAmt > 0) ? sharedAmt : 0,
+        currency: cur, receipt_url: url, receipt_urls: [url]
+      });
+      if (!error) ok++; else console.warn('[exp] per-file insert failed:', error.message);
+    }
+    document.getElementById('exp-desc').value = '';
+    document.getElementById('exp-amount').value = '';
+    document.getElementById('exp-receipt').value = '';
+    showToast('Added ' + ok + ' expense' + (ok === 1 ? '' : 's') + ' — set each amount below (red boxes), then they await approval.');
+    await expensesLoad();
+  } catch (err) {
+    showToast('Failed: ' + (err.message || err));
+  }
+  btn.disabled = false; btn.textContent = '📎 One per file';
 }
 
 async function expWithdraw(id) {
@@ -1356,53 +1442,91 @@ async function expApprovalsLoad() {
   if (!expPendingCache.length) { card.style.display = 'none'; return; }
   card.style.display = '';
   document.getElementById('exp-approvals-count').textContent = expPendingCache.length + ' pending';
-  document.getElementById('exp-approvals-list').innerHTML = expPendingCache.map(r => {
+  // Only rows with a real amount can be approved (a "📎 One per file" row sits
+  // at 0 until the staff member fills it in).
+  const approvable = expPendingCache.filter(r => parseFloat(r.amount) > 0).length;
+  const periodDate = getPayPeriod(periodOffset).start.toISOString().slice(0, 10);
+  const batchBtn = approvable > 1
+    ? '<div style="margin-bottom:8px;"><button type="button" onclick="expApproveAll()" style="font-size:12px;padding:5px 14px;border:none;border-radius:6px;background:#1B5E20;color:#fff;cursor:pointer;font-weight:700;" title="Approve every pending expense (that has an amount) into the pay period currently shown">✓ Approve all ' + approvable + ' → ' + periodDate + ' period</button></div>'
+    : '';
+  document.getElementById('exp-approvals-list').innerHTML = batchBtn + expPendingCache.map(r => {
     const s = staffConfig.find(x => x.user_id === r.user_id);
     const name = s?.display_name || r.user_id;
-    const receipt = r.receipt_url
-      ? ' <a href="' + escAttr(r.receipt_url) + '" target="_blank" style="font-size:11px;">📎 Receipt</a>'
-      : ' <span style="font-size:11px;color:var(--gray);">no receipt</span>';
+    const receipt = expReceiptLinks(r) || ' <span style="font-size:11px;color:var(--gray);">no receipt</span>';
+    const canApprove = parseFloat(r.amount) > 0;
+    const approveBtn = canApprove
+      ? '<button type="button" onclick="expApprove(\'' + r.id + '\')" style="font-size:12px;padding:4px 12px;border:none;border-radius:5px;background:#1B5E20;color:#fff;cursor:pointer;font-weight:700;">✓ Approve</button>'
+      : '<span style="font-size:11px;color:var(--red);font-weight:700;" title="The staff member needs to set the amount before this can be approved">⚠ no amount</span>';
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;">' +
       '<strong style="min-width:90px;">' + escAttr(name) + '</strong>' +
       '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>' +
       '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>' +
       '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>' +
-      receipt +
-      '<button type="button" onclick="expApprove(\'' + r.id + '\')" style="font-size:12px;padding:4px 12px;border:none;border-radius:5px;background:#1B5E20;color:#fff;cursor:pointer;font-weight:700;">✓ Approve</button>' +
+      receipt + approveBtn +
       '<button type="button" onclick="expDecline(\'' + r.id + '\')" style="font-size:12px;padding:4px 10px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">✕ Decline</button>' +
     '</div>';
   }).join('');
 }
 
+// Core approve — create the reimbursement adjustment (existing downstream
+// flow: sendable sub-row, Wise gross-up, receipt link) + flip the expense.
+// No prompt/refresh; callers handle those. Returns { ok, error }.
+async function _expApproveCore(r, periodDate, phpRate) {
+  if (!(parseFloat(r.amount) > 0)) return { ok: false, error: 'no amount set' };
+  const usd = r.currency === 'PHP' ? parseFloat(r.amount) / phpRate : parseFloat(r.amount);
+  const nReceipts = (Array.isArray(r.receipt_urls) ? r.receipt_urls.filter(Boolean).length : 0) || (r.receipt_url ? 1 : 0);
+  const firstReceipt = r.receipt_url || (Array.isArray(r.receipt_urls) ? r.receipt_urls[0] : null) || null;
+  const { data: adjRow, error: adjErr } = await db.from('pay_period_adjustments').insert({
+    user_id: r.user_id, period_start: periodDate, kind: 'reimbursement',
+    amount: Math.round(usd * 100) / 100,
+    original_amount: parseFloat(r.amount), original_currency: r.currency,
+    fx_rate: phpRate, receipt_url: firstReceipt,
+    note: 'Expense: ' + r.description + (nReceipts > 1 ? ' (' + nReceipts + ' receipts)' : ''),
+    created_by: currentUser.id
+  }).select('id').single();
+  if (adjErr) return { ok: false, error: adjErr.message };
+  const { error: updErr } = await db.from('staff_expenses').update({
+    status: 'approved', reviewed_at: new Date().toISOString(),
+    reviewed_by: currentUser.id, adjustment_id: adjRow.id
+  }).eq('id', r.id);
+  if (updErr) return { ok: false, error: 'Adjustment created but expense flag failed: ' + updErr.message };
+  return { ok: true };
+}
+
 async function expApprove(id) {
   const r = expPendingCache.find(x => x.id === id);
   if (!r) return;
-  const period     = getPayPeriod(periodOffset);
-  const periodDate = period.start.toISOString().slice(0, 10);
+  const periodDate = getPayPeriod(periodOffset).start.toISOString().slice(0, 10);
   const phpRate    = parseFloat(document.getElementById('php-rate')?.value || 59.69);
   const usd        = r.currency === 'PHP' ? parseFloat(r.amount) / phpRate : parseFloat(r.amount);
   const amtLabel   = expFmtAmt(r) + (r.currency === 'PHP' ? ' (≈ $' + usd.toFixed(2) + ' at ' + phpRate + ')' : '');
   const s = staffConfig.find(x => x.user_id === r.user_id);
   if (!confirm('Approve ' + (s?.display_name || 'staff') + "'s expense — " + r.description + ' — ' + amtLabel +
     '?\n\nIt will be added as a reimbursement to the pay period currently shown (' + periodDate + ' start).')) return;
-  // (1) Create the reimbursement adjustment (existing downstream flow:
-  //     sendable sub-row, Wise gross-up, receipt link).
-  const { data: adjRow, error: adjErr } = await db.from('pay_period_adjustments').insert({
-    user_id: r.user_id, period_start: periodDate, kind: 'reimbursement',
-    amount: Math.round(usd * 100) / 100,
-    original_amount: parseFloat(r.amount), original_currency: r.currency,
-    fx_rate: phpRate, receipt_url: r.receipt_url || null,
-    note: 'Expense: ' + r.description,
-    created_by: currentUser.id
-  }).select('id').single();
-  if (adjErr) { showToast('Approve failed: ' + adjErr.message); return; }
-  // (2) Flip the expense to approved + link the adjustment.
-  const { error: updErr } = await db.from('staff_expenses').update({
-    status: 'approved', reviewed_at: new Date().toISOString(),
-    reviewed_by: currentUser.id, adjustment_id: adjRow.id
-  }).eq('id', id);
-  if (updErr) { showToast('Adjustment created but expense flag failed: ' + updErr.message); }
+  const res = await _expApproveCore(r, periodDate, phpRate);
+  if (!res.ok) { showToast('Approve failed: ' + res.error); return; }
   showToast('Approved — added to ' + periodDate + ' as a reimbursement.');
+  renderPayPeriod();
+}
+
+// Batch — approve every pending expense that has an amount, into the shown
+// period. Rows still at 0 (un-filled "📎 One per file") are skipped.
+async function expApproveAll() {
+  const periodDate = getPayPeriod(periodOffset).start.toISOString().slice(0, 10);
+  const phpRate    = parseFloat(document.getElementById('php-rate')?.value || 59.69);
+  const list    = expPendingCache.filter(r => parseFloat(r.amount) > 0);
+  const skipped = expPendingCache.length - list.length;
+  if (!list.length) { showToast('No expenses with an amount to approve yet.'); return; }
+  const totalUsd = list.reduce((sum, r) => sum + (r.currency === 'PHP' ? parseFloat(r.amount) / phpRate : parseFloat(r.amount)), 0);
+  if (!confirm('Approve all ' + list.length + ' expense(s) into the ' + periodDate + ' period?\n\n' +
+    'Total ≈ $' + totalUsd.toFixed(2) + ' in reimbursements (PHP converted at ' + phpRate + ').' +
+    (skipped ? '\n\n' + skipped + ' with no amount set will be skipped.' : ''))) return;
+  let ok = 0, fail = 0;
+  for (const r of list) {
+    const res = await _expApproveCore(r, periodDate, phpRate);
+    if (res.ok) ok++; else { fail++; console.warn('[exp] batch approve failed:', res.error); }
+  }
+  showToast('Approved ' + ok + (fail ? ' · ' + fail + ' failed' : '') + (skipped ? ' · ' + skipped + ' skipped (no amount)' : '') + ' → ' + periodDate + '.');
   renderPayPeriod();
 }
 
