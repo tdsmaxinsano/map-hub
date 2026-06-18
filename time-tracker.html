@@ -1231,6 +1231,7 @@ let hardStopTimer = null;
 //  adjustment in their pay. Withdraw allowed while pending only
 //  (RLS enforces the same rules server-side).
 // ══════════════════════════════════════════════════════════════
+let expMyCache = [];   // the staff member's own expenses (for receipt add/remove)
 async function expensesLoad() {
   const list = document.getElementById('exp-list');
   if (!list) return;
@@ -1242,7 +1243,8 @@ async function expensesLoad() {
       .order('created_at', { ascending: false })
       .limit(30);
     if (error) throw error;
-    expensesRender(data || []);
+    expMyCache = data || [];          // so receipt add/remove can read current state
+    expensesRender(expMyCache);
   } catch (err) {
     list.innerHTML = '<div style="color:var(--red);font-size:12px;">Expenses unavailable — has migration 42 (staff_expenses) been run? ' + escAttr(err.message || '') + '</div>';
   }
@@ -1254,16 +1256,81 @@ function expFmtAmt(r) {
     : '$' + parseFloat(r.amount).toFixed(2);
 }
 
-// Receipt links — array-aware (receipt_urls JSONB from migration 45), with a
-// fallback to the legacy single receipt_url for rows created before it.
-function expReceiptLinks(r) {
+function expReceiptUrls(r) {
   let urls = Array.isArray(r.receipt_urls) ? r.receipt_urls.filter(Boolean) : [];
   if (!urls.length && r.receipt_url) urls = [r.receipt_url];
-  if (!urls.length) return '';
-  if (urls.length === 1) return ' <a href="' + escAttr(urls[0]) + '" target="_blank" style="font-size:11px;">📎 Receipt</a>';
-  return ' ' + urls.map((u, i) =>
-    '<a href="' + escAttr(u) + '" target="_blank" style="font-size:11px;" title="Receipt ' + (i + 1) + '">📎' + (i + 1) + '</a>'
-  ).join(' ');
+  return urls;
+}
+
+// Receipt links — array-aware (receipt_urls JSONB from migration 45), with a
+// fallback to the legacy single receipt_url. When `editable` (a pending row,
+// staff side) each receipt gets a ✕ to remove it and there's a ＋📎 to add one
+// — so a forgotten/missing receipt can be fixed without re-submitting.
+function expReceiptLinks(r, editable) {
+  const urls = expReceiptUrls(r);
+  const links = urls.map((u, i) => {
+    const label = urls.length === 1 ? '📎 Receipt' : '📎' + (i + 1);
+    const rm = editable
+      ? '<button type="button" onclick="expRemoveReceipt(\'' + r.id + '\',\'' + escAttr(u) + '\')" title="Remove this receipt" style="border:0;background:none;color:var(--red);cursor:pointer;font-size:10px;padding:0 1px;">✕</button>'
+      : '';
+    return '<a href="' + escAttr(u) + '" target="_blank" style="font-size:11px;" title="Receipt ' + (i + 1) + '">' + label + '</a>' + rm;
+  }).join(' ');
+  if (!editable) return urls.length ? ' ' + links : '';
+  const add = '<label style="font-size:11px;color:var(--blue);cursor:pointer;white-space:nowrap;" title="Add a receipt file">' +
+    (urls.length ? ' ＋📎' : '📎 Add receipt') +
+    '<input type="file" accept="image/*,application/pdf" multiple style="display:none;" onchange="expAddReceipts(\'' + r.id + '\',this)" /></label>';
+  return ' ' + (links ? links + ' ' : '') + add;
+}
+
+// Append one or more receipt files to a pending expense (the "forgot to
+// upload" fix). Reads the row's current receipts from expMyCache.
+async function expAddReceipts(id, input) {
+  const files = Array.from(input.files || []);
+  if (!files.length) return;
+  const big = expOversizeFile(files);
+  if (big) { showToast('Each receipt must be under 5MB (' + big.name + ').'); input.value = ''; return; }
+  const r = expMyCache.find(x => x.id === id);
+  if (!r) return;
+  showToast('Uploading receipt…');
+  try {
+    const cur = expReceiptUrls(r).slice();
+    for (let i = 0; i < files.length; i++) cur.push(await expUploadReceipt(files[i], cur.length + i));
+    const { error } = await db.from('staff_expenses')
+      .update({ receipt_urls: cur, receipt_url: cur[0] || null })
+      .eq('id', id).eq('user_id', currentUser.id).eq('status', 'pending');
+    if (error) throw new Error(error.message);
+    showToast('Receipt' + (files.length > 1 ? 's' : '') + ' added.');
+    await expensesLoad();
+  } catch (e) { showToast('Failed: ' + (e.message || e)); }
+}
+
+// Remove a receipt from a pending expense. Best-effort storage cleanup (staff
+// have no storage DELETE policy, so it just no-ops for them — harmless orphan).
+async function expRemoveReceipt(id, url) {
+  const r = expMyCache.find(x => x.id === id);
+  if (!r) return;
+  const cur = expReceiptUrls(r).filter(u => u !== url);
+  const { error } = await db.from('staff_expenses')
+    .update({ receipt_urls: cur, receipt_url: cur[0] || null })
+    .eq('id', id).eq('user_id', currentUser.id).eq('status', 'pending');
+  if (error) { showToast('Remove failed: ' + error.message); return; }
+  try {
+    const m = String(url).match(/reimbursement-receipts\/([^?]+)/);
+    if (m && m[1]) await db.storage.from('reimbursement-receipts').remove([decodeURIComponent(m[1])]);
+  } catch (_) { /* ignore — orphaned file is harmless */ }
+  await expensesLoad();
+}
+
+// Re-submit a DECLINED expense (e.g. admin said "no receipt"): flip it back to
+// pending so it's editable again + re-enters the approval queue. Allowed by the
+// widened RLS in migration 45.
+async function expResubmit(id) {
+  const { error } = await db.from('staff_expenses')
+    .update({ status: 'pending', decline_reason: null, reviewed_at: null, reviewed_by: null })
+    .eq('id', id).eq('user_id', currentUser.id);
+  if (error) { showToast('Re-submit failed: ' + error.message); return; }
+  showToast('Back in the queue — add the receipt or fix the amount below.');
+  await expensesLoad();
 }
 
 function expensesRender(rows) {
@@ -1283,16 +1350,25 @@ function expensesRender(rows) {
     } else {
       pill = '<span style="background:#FFF4D6;color:#8a5a00;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;">🟡 Pending</span>';
     }
-    const receipt = expReceiptLinks(r);
-    const withdraw = pending
-      ? ' <button type="button" onclick="expWithdraw(\'' + r.id + '\')" title="Withdraw this expense (pending only)" style="font-size:11px;padding:2px 7px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">🗑</button>'
+    const receipt = expReceiptLinks(r, pending);
+    const withdraw = (pending || r.status === 'declined')
+      ? ' <button type="button" onclick="expWithdraw(\'' + r.id + '\')" title="Remove this expense" style="font-size:11px;padding:2px 7px;border:1px solid #F3C0C0;border-radius:5px;background:#fff;color:var(--red);cursor:pointer;">🗑</button>'
+      : '';
+    // Declined rows can be fixed (add the missing receipt etc.) + put back in
+    // the queue.
+    const resubmit = r.status === 'declined'
+      ? ' <button type="button" onclick="expResubmit(\'' + r.id + '\')" title="Fix this and put it back in the approval queue" style="font-size:11px;padding:2px 8px;border:1px solid var(--blue);border-radius:5px;background:#fff;color:var(--blue);cursor:pointer;">↩ Re-submit</button>'
       : '';
     const declineLine = r.status === 'declined' && r.decline_reason
       ? '<div style="flex-basis:100%;font-size:11px;color:var(--red);padding-left:88px;">Reason: ' + escAttr(r.decline_reason) + '</div>'
       : '';
-    // Pending rows are inline-editable (description + amount) so a "📎 One per
-    // file" batch can be filled in after the fact. Approved/declined are static.
+    // Pending rows are fully inline-editable (date / description / amount /
+    // receipts) so a forgotten receipt or a "📎 One per file" batch can be fixed
+    // after the fact. Approved/declined are static.
     const curSym = r.currency === 'PHP' ? '₱' : '$';
+    const dateCell = pending
+      ? '<input type="date" value="' + escAttr(r.expense_date) + '" onchange="expEditField(\'' + r.id + '\',\'expense_date\',this.value)" style="min-width:78px;padding:3px 5px;font-size:11.5px;border:1px solid var(--border);border-radius:5px;color:var(--gray);" />'
+      : '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>';
     const descCell = pending
       ? '<input type="text" value="' + escAttr(r.description) + '" onchange="expEditField(\'' + r.id + '\',\'description\',this.value)" style="flex:1;min-width:140px;padding:4px 7px;font-size:12.5px;border:1px solid var(--border);border-radius:5px;" />'
       : '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>';
@@ -1302,8 +1378,7 @@ function expensesRender(rows) {
         '<input type="number" min="0" step="0.01" value="' + (parseFloat(r.amount) > 0 ? parseFloat(r.amount) : '') + '" placeholder="0.00" onchange="expEditField(\'' + r.id + '\',\'amount\',this.value)" title="' + (needsAmt ? 'Set the amount' : '') + '" style="width:78px;padding:4px 6px;font-size:12.5px;text-align:right;border:1px solid ' + (needsAmt ? 'var(--red)' : 'var(--border)') + ';border-radius:5px;" /></span>'
       : '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>';
     return '<div style="display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;">' +
-      '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>' +
-      descCell + amtCell + pill + receipt + withdraw + declineLine +
+      dateCell + descCell + amtCell + pill + receipt + withdraw + resubmit + declineLine +
     '</div>';
   }).join('');
 }
@@ -1320,6 +1395,10 @@ async function expEditField(id, field, value) {
     const v = String(value || '').trim();
     if (!v) return;
     patch.description = v;
+  } else if (field === 'expense_date') {
+    const v = String(value || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return;
+    patch.expense_date = v;
   } else { return; }
   const { error } = await db.from('staff_expenses').update(patch)
     .eq('id', id).eq('user_id', currentUser.id).eq('status', 'pending');
@@ -1411,9 +1490,12 @@ async function expSubmitPerFile(btn) {
 }
 
 async function expWithdraw(id) {
-  if (!confirm('Withdraw this expense? You can re-submit it later if needed.')) return;
-  const { error } = await db.from('staff_expenses').delete().eq('id', id).eq('status', 'pending');
-  if (error) { showToast('Withdraw failed: ' + error.message); return; }
+  if (!confirm('Remove this expense? This deletes it for good.')) return;
+  // RLS allows the owner to delete their own pending OR declined rows
+  // (migration 45); the in-filter mirrors that so an approved one can't slip.
+  const { error } = await db.from('staff_expenses').delete()
+    .eq('id', id).eq('user_id', currentUser.id).in('status', ['pending', 'declined']);
+  if (error) { showToast('Remove failed: ' + error.message); return; }
   await expensesLoad();
 }
 

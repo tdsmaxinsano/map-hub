@@ -37,4 +37,24 @@ UPDATE public.staff_expenses
  WHERE receipt_url IS NOT NULL
    AND (receipt_urls IS NULL OR receipt_urls = '[]'::jsonb);
 
+-- ── Let staff fix + re-submit a DECLINED expense ───────────────────
+-- Migration 42 let staff UPDATE/DELETE only their PENDING rows, so a row
+-- the admin declined (e.g. "no receipt") was permanently stuck. Widen
+-- both to also cover the owner's DECLINED rows. The UPDATE WITH CHECK is
+-- tightened so a staff edit must land the row in 'pending' (can't
+-- self-approve, and editing a declined row flips it back to the queue).
+DROP POLICY IF EXISTS "staff_expenses_update" ON public.staff_expenses;
+CREATE POLICY "staff_expenses_update" ON public.staff_expenses
+  FOR UPDATE TO authenticated
+  USING ((user_id = auth.uid() AND status IN ('pending', 'declined'))
+         OR EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'))
+  WITH CHECK ((user_id = auth.uid() AND status = 'pending')
+              OR EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+
+DROP POLICY IF EXISTS "staff_expenses_delete" ON public.staff_expenses;
+CREATE POLICY "staff_expenses_delete" ON public.staff_expenses
+  FOR DELETE TO authenticated
+  USING ((user_id = auth.uid() AND status IN ('pending', 'declined'))
+         OR EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = auth.uid() AND role = 'admin'));
+
 COMMIT;
