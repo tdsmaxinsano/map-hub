@@ -10,6 +10,11 @@
 
 BEGIN;
 
+-- DROP first: adding a column to a RETURNS TABLE function changes its return
+-- type, which CREATE OR REPLACE cannot do ("cannot change return type of
+-- existing function"). The function is only called via RPC (no DB dependents),
+-- so dropping it is safe.
+DROP FUNCTION IF EXISTS public.list_agency_contracts();
 CREATE OR REPLACE FUNCTION public.list_agency_contracts()
 RETURNS TABLE (
   agency_id              TEXT,
