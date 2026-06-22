@@ -117,6 +117,11 @@
   table.ag tr.row-inactive td.name-col { background: #fafafa; }
   .agency-name-link { color: var(--blue); font-weight: 700; cursor: pointer; text-decoration: none; }
   .agency-name-link:hover { color: var(--accent); text-decoration: underline; }
+  .hist-btn { border: 0; background: none; cursor: pointer; font-size: 11px; opacity: 0.55; padding: 0 2px; margin-left: 4px; vertical-align: middle; }
+  .hist-btn:hover { opacity: 1; }
+  .hist-bucket { font-weight: 700; color: var(--text); font-size: 12px; margin: 12px 0 4px; }
+  .hist-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
+  .hist-line.cur { color: var(--text); font-weight: 700; }
   .agency-loc { font-size: 11px; color: var(--muted); margin-top: 2px; }
 
   /* Active toggle pill */
@@ -314,7 +319,8 @@
       <span class="chip" data-contract-filter="missing">Missing contract</span>
     </div>
     <input type="text" class="filter-search" id="search-input" placeholder="Search by name / contact / notes…" />
-    <button class="btn-action primary" id="import-btn">📥 Import XLSX</button>
+    <button class="btn-action primary" id="import-tb-btn" title="Import the official TherapyBoss Price list export (Private Home Health rates)">📥 Import TB Price List</button>
+    <button class="btn-action" id="import-btn" title="Import the legacy hand-made HH RATINGS spreadsheet">📥 HH Ratings</button>
     <button class="btn-action" id="refresh-btn">↻ Refresh</button>
   </div>
 
@@ -352,15 +358,11 @@
 <div class="modal-overlay" id="import-modal">
   <div class="modal-card">
     <div class="modal-head">
-      <h3>📥 Import HH Ratings XLSX</h3>
+      <h3 id="import-modal-title">📥 Import</h3>
       <button class="close-btn" data-close="import-modal">×</button>
     </div>
     <div class="modal-body">
-      <p style="margin:0 0 14px;color:var(--muted);font-size:12.5px;line-height:1.5;">
-        Drop your <code>HH RATINGS.xlsx</code> (sheet "Agencys"). Columns expected:
-        <strong>AGENCY NAME · OTF · OTFA · PTF · PTFA · STE · STEO · Payment · Communication · CONT_Location · ACTIVE · Contract Start Date · Preferred Payment Method · Sent Via · Contact Collections · Notes / Comments</strong>.
-        Agency names are matched against the portal's existing agencies list (case + punctuation insensitive).
-      </p>
+      <p id="import-modal-hint" style="margin:0 0 14px;color:var(--muted);font-size:12.5px;line-height:1.5;"></p>
       <div class="dropzone" id="import-dropzone" tabindex="0" role="button">
         <div class="dropzone-icon">📊</div>
         <div class="dropzone-title">Drop XLSX here or click to browse</div>
@@ -402,6 +404,25 @@
   </div>
 </div>
 
+<!-- Rate-history drawer (from TB price-list imports) -->
+<div class="drawer-overlay" id="history-drawer">
+  <div class="drawer">
+    <div class="drawer-head">
+      <div>
+        <h3>🕘 Rate history</h3>
+        <div class="agency-sub" id="history-agency-name">—</div>
+      </div>
+      <button class="close-btn" data-close="history-drawer">×</button>
+    </div>
+    <div class="drawer-body" id="history-body">
+      <div style="color:var(--muted);font-size:12px;">Loading…</div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn-action" data-close="history-drawer">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -427,9 +448,11 @@ let filterState = {
   q: ""                                    // free-text search
 };
 let sortState = { key: null, dir: 1, type: "str" };  // dir: 1 asc, -1 desc; key null = natural order
-let importedRows = [];                     // staged xlsx rows
+let importedRows = [];                     // staged xlsx rows (HH Ratings importer)
 let importResolutions = {};                // unmatchedName → agency_id selected by user
 let notesDrawerAgencyId = null;
+let importMode = 'hh';                      // 'hh' (HH Ratings) | 'tb' (TherapyBoss Price list)
+let tbImportedAgencies = [];               // [{agency_name, lines:[{bucket,...}]}] for TB import
 
 // ══════════════════════════════════════════════════════════════════
 // AUTH
@@ -639,6 +662,7 @@ function renderRow(r) {
     <tr class="${rowClass}" data-agency-id="${aid}">
       <td class="name-col">
         <a class="agency-name-link" data-agency-link="${aid}">${escapeHtml(r.agency_name || '(unnamed)')}</a>
+        <button type="button" class="hist-btn" data-history="${aid}" data-name="${escapeAttr(r.agency_name || '')}" title="Rate history (from TB price-list imports)">🕘</button>
         <div class="agency-loc">${escapeHtml([r.agency_city, r.agency_state].filter(Boolean).join(", ") || "—")}</div>
       </td>
       <td>${renderActivePill(r)}</td>
@@ -979,14 +1003,31 @@ document.getElementById("refresh-btn").addEventListener("click", () => loadContr
 // ══════════════════════════════════════════════════════════════════
 // IMPORT MODAL
 // ══════════════════════════════════════════════════════════════════
-document.getElementById("import-btn").addEventListener("click", () => {
+const IMPORT_COPY = {
+  hh: {
+    title: "📥 Import HH Ratings XLSX",
+    hint: 'Drop your <code>HH RATINGS.xlsx</code> (sheet "Agencys"). Columns: <strong>AGENCY NAME · OTF · OTFA · PTF · PTFA · STE · STEO · Payment · Communication · CONT_Location · ACTIVE · Contract Start Date · Preferred Payment Method · Sent Via · Contact Collections · Notes / Comments</strong>. Agency names are matched to the portal\'s agencies (case + punctuation insensitive).'
+  },
+  tb: {
+    title: "📥 Import TherapyBoss Price List",
+    hint: 'Drop the official TB <code>Price list.xlsx</code> (sheet "Referral sources"). Loads <strong>Private Home Health</strong> bill rates into the 6 front-facing columns (OTF→OT Eval · OTFA→OTA · PTF→PT Eval · PTFA→PTA · STE→ST Eval · STEO→ST Other), keeping every effective-dated rate as history (🕘). Only listed rates (&gt; $0) import; names matched to the portal\'s agencies.'
+  }
+};
+function openImportModal(mode) {
+  importMode = mode;
   importedRows = [];
+  tbImportedAgencies = [];
   importResolutions = {};
+  document.getElementById("import-modal-title").textContent = IMPORT_COPY[mode].title;
+  document.getElementById("import-modal-hint").innerHTML = IMPORT_COPY[mode].hint;
   document.getElementById("import-preview").style.display = "none";
   document.getElementById("import-confirm-btn").disabled = true;
+  document.getElementById("import-confirm-btn").textContent = "Import";
   document.getElementById("import-file-input").value = "";
   document.getElementById("import-modal").classList.add("open");
-});
+}
+document.getElementById("import-btn").addEventListener("click", () => openImportModal("hh"));
+document.getElementById("import-tb-btn").addEventListener("click", () => openImportModal("tb"));
 
 document.querySelectorAll("[data-close]").forEach(btn => {
   btn.addEventListener("click", () => {
@@ -1031,6 +1072,8 @@ async function handleImportFile(file) {
   try {
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf, { type: "array" });
+    if (importMode === "tb") { await parseTbPriceList(wb); return; }
+    // ── HH Ratings mode (existing) ──
     // Prefer the "Agencys" sheet; fall back to first sheet.
     let sheetName = wb.SheetNames.find(n => n.toLowerCase() === "agencys")
                  || wb.SheetNames.find(n => n.toLowerCase().includes("agenc"))
@@ -1047,6 +1090,66 @@ async function handleImportFile(file) {
   } catch (e) {
     showToast("Parse error: " + e.message, "err");
   }
+}
+
+// TherapyBoss "Price list" → per-agency front-facing rate lines.
+// Long-format: Name · Episode type · Service · Type · Effective date · Bill rate · Per hour.
+// Keep: Private Home Health episodes, Bill rate > 0, and the 6 front-facing codes.
+const TB_TYPE_TO_BUCKET = {
+  OTF: "ot_eval", OTFA: "ot_assistant",
+  PTF: "pt_eval", PTFA: "pt_assistant",
+  STE: "st_eval", STEO: "st_other"
+};
+function tbExcelDateToISO(v) {
+  if (v === null || v === undefined || v === "") return null;
+  if (typeof v === "number") {
+    const d = XLSX.SSF.parse_date_code(v);
+    if (!d || !d.y) return null;
+    return `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}`;
+  }
+  const s = String(v).trim();
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) return `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  m = s.match(/^\d{4}-\d{2}-\d{2}/);
+  if (m) return m[0];
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+async function parseTbPriceList(wb) {
+  const sheetName = wb.SheetNames.find(n => n.toLowerCase().includes("referral source")) || wb.SheetNames[0];
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: "", raw: true });
+  // Per agency, dedup by (bucket, effective_date) keeping the highest rate (the
+  // two "Private Home Health" episode variants carry the same rate).
+  const byAgency = new Map();
+  rows.forEach(raw => {
+    const name = String(raw["Name"] || "").trim();
+    if (!name) return;
+    const episode = String(raw["Episode type"] || "").trim();
+    if (!/^private home health/i.test(episode)) return;
+    const rate = parseFloat(raw["Bill rate"]);
+    if (!(rate > 0)) return;
+    const code = String(raw["Type"] || "").trim().toUpperCase();
+    const bucket = TB_TYPE_TO_BUCKET[code];
+    if (!bucket) return;
+    const eff = tbExcelDateToISO(raw["Effective date"]);
+    if (!eff) return;
+    const perHour = /^y/i.test(String(raw["Per hour"] || ""));
+    if (!byAgency.has(name)) byAgency.set(name, new Map());
+    const lm = byAgency.get(name);
+    const key = bucket + "|" + eff;
+    const prev = lm.get(key);
+    if (!prev || rate > prev.bill_rate) {
+      lm.set(key, { bucket, tb_type_code: code, episode_type: episode, bill_rate: rate, effective_date: eff, per_hour: perHour });
+    }
+  });
+  tbImportedAgencies = Array.from(byAgency.entries()).map(([agency_name, lm]) => ({
+    agency_name, lines: Array.from(lm.values())
+  }));
+  if (!tbImportedAgencies.length) {
+    showToast('No Private Home Health rates found (need Episode type "Private Home Health" + a Bill rate).', "err");
+    return;
+  }
+  await runImportPreview();
 }
 
 // Map a raw XLSX row → the shape upsert_agency_contracts expects.
@@ -1112,7 +1215,54 @@ function parseImportRow(raw) {
   };
 }
 
+// Shared agency-name normalizer (mirrors the SQL normalize_agency_name).
+function importNormalizeName(s) {
+  return (s || "").toString().toLowerCase()
+    .replace(/[.,'"]/g, "")
+    .replace(/\b(inc|incorporated|llc|ltd|corp|corporation|co|company|pc|services|service)\b/g, "")
+    .replace(/\s+/g, " ").trim();
+}
+
+function runTbPreview() {
+  const portalByNorm = new Map();
+  allRows.forEach(r => portalByNorm.set(importNormalizeName(r.agency_name), r));
+  const matched = [], unmatched = [];
+  let lineCount = 0;
+  tbImportedAgencies.forEach(a => {
+    lineCount += a.lines.length;
+    const hit = portalByNorm.get(importNormalizeName(a.agency_name));
+    if (hit) matched.push({ ...a, agency_id: hit.agency_id });
+    else unmatched.push(a);
+  });
+
+  document.getElementById("preview-strip").innerHTML = `
+    <div class="preview-stat ok">✓ ${matched.length} agencies matched</div>
+    ${unmatched.length ? `<div class="preview-stat warn">⚠ ${unmatched.length} unmatched</div>` : ''}
+    <div class="preview-stat">${lineCount} rate lines</div>
+  `;
+
+  const unmatchedWrap = document.getElementById("unmatched-wrap");
+  if (unmatched.length) {
+    unmatchedWrap.style.display = "block";
+    const opts = allRows.map(r => `<option value="${escapeAttr(r.agency_id)}">${escapeHtml(r.agency_name)}</option>`).join("");
+    document.getElementById("unmatched-list").innerHTML = unmatched.map(a => `
+      <div class="item">
+        <div class="nm">${escapeHtml(a.agency_name)} <span style="color:var(--muted);font-weight:400;">(${a.lines.length} rates)</span></div>
+        <select data-unmatched="${escapeAttr(a.agency_name)}">
+          <option value="">— skip —</option>${opts}
+        </select>
+      </div>`).join("");
+  } else {
+    unmatchedWrap.style.display = "none";
+  }
+
+  document.getElementById("import-preview")._staged = { mode: "tb", matched, unmatched };
+  document.getElementById("import-preview").style.display = "block";
+  document.getElementById("import-confirm-btn").disabled = matched.length === 0;
+}
+
 async function runImportPreview() {
+  if (importMode === "tb") { runTbPreview(); return; }
   // Dry-run normalization client-side: for every imported name, see if
   // we have an agency_id match in allRows (case + punctuation insensitive).
   // Server will do the authoritative match — but a preview lets the user
@@ -1171,27 +1321,39 @@ document.getElementById("import-confirm-btn").addEventListener("click", async ()
   if (!staged) return;
   const btn = document.getElementById("import-confirm-btn");
   btn.disabled = true; btn.textContent = "Importing…";
+  const reset = () => { btn.disabled = false; btn.textContent = "Import"; };
 
-  // Apply user-picked resolutions to unmatched rows
+  // Apply user-picked resolutions to unmatched agencies/rows.
   const resolved = staged.unmatched.map(row => {
     const sel = document.querySelector(`[data-unmatched="${escapeAttr(row.agency_name).replace(/"/g, '\\"')}"]`);
     const aid = sel && sel.value ? sel.value : null;
     return aid ? { ...row, agency_id: aid } : null;
   }).filter(Boolean);
 
-  const payload = [...staged.matched, ...resolved];
-  if (!payload.length) {
-    showToast("Nothing to import (all rows skipped).", "err");
-    btn.disabled = false; btn.textContent = "Import";
+  if (staged.mode === "tb") {
+    // Flatten per-agency lines → flat line payload for import_agency_price_list.
+    const lines = [];
+    [...staged.matched, ...resolved].forEach(a =>
+      a.lines.forEach(l => lines.push({ agency_name: a.agency_name, agency_id: a.agency_id, ...l }))
+    );
+    if (!lines.length) { showToast("Nothing to import (all agencies skipped).", "err"); reset(); return; }
+    const { data, error } = await db.rpc("import_agency_price_list", { p_rows: lines });
+    if (error) { showToast("Import failed: " + error.message, "err"); reset(); return; }
+    const m = (data && data.matched) || 0;
+    const li = (data && data.lines_imported) || 0;
+    const un = (data && data.unmatched && data.unmatched.length) || 0;
+    showToast(`Imported ${m} agencies · ${li} rate lines${un ? ` · ${un} unresolved` : ''}.`, "ok");
+    document.getElementById("import-modal").classList.remove("open");
+    btn.textContent = "Import";
+    await loadContracts();
     return;
   }
 
+  // ── HH Ratings mode (existing) ──
+  const payload = [...staged.matched, ...resolved];
+  if (!payload.length) { showToast("Nothing to import (all rows skipped).", "err"); reset(); return; }
   const { data, error } = await db.rpc("upsert_agency_contracts", { rows: payload });
-  if (error) {
-    showToast("Import failed: " + error.message, "err");
-    btn.disabled = false; btn.textContent = "Import";
-    return;
-  }
+  if (error) { showToast("Import failed: " + error.message, "err"); reset(); return; }
   const matched = (data && data.matched) || 0;
   const stillUnmatched = (data && data.unmatched && data.unmatched.length) || 0;
   showToast(`Imported ${matched} agencies${stillUnmatched ? ` · ${stillUnmatched} unresolved` : ''}.`, "ok");
@@ -1199,6 +1361,64 @@ document.getElementById("import-confirm-btn").addEventListener("click", async ()
   btn.textContent = "Import";
   await loadContracts();
 });
+
+// ══════════════════════════════════════════════════════════════════
+// RATE HISTORY DRAWER (from TB price-list imports)
+// ══════════════════════════════════════════════════════════════════
+const HIST_BUCKET_LABEL = {
+  pt_eval: "PT Eval (PTF)", pt_assistant: "PTA (PTFA)",
+  ot_eval: "OT Eval (OTF)", ot_assistant: "OTA (OTFA)",
+  st_eval: "ST Eval (STE)", st_other: "ST Other (STEO)"
+};
+const HIST_BUCKET_ORDER = ["pt_eval", "pt_assistant", "ot_eval", "ot_assistant", "st_eval", "st_other"];
+
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-history]");
+  if (!btn) return;
+  openHistoryDrawer(btn.dataset.history, btn.dataset.name);
+});
+
+async function openHistoryDrawer(agencyId, name) {
+  document.getElementById("history-agency-name").textContent = name || "—";
+  document.getElementById("history-body").innerHTML = '<div style="color:var(--muted);font-size:12px;">Loading…</div>';
+  document.getElementById("history-drawer").classList.add("open");
+  const { data, error } = await db.rpc("list_agency_rate_history", { p_agency_id: agencyId });
+  if (error) {
+    document.getElementById("history-body").innerHTML =
+      '<div style="color:var(--red);font-size:12px;">' + escapeHtml(error.message) + ' — has migration 46 been run?</div>';
+    return;
+  }
+  renderRateHistory(data || []);
+}
+
+function fmtHistDate(d) {
+  if (!d) return "—";
+  const x = new Date(String(d) + "T00:00:00");
+  return isNaN(x.getTime()) ? String(d) : x.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function renderRateHistory(rows) {
+  const body = document.getElementById("history-body");
+  if (!rows.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:12px;">No imported rate history yet. Use <strong>📥 Import TB Price List</strong> to populate it.</div>';
+    return;
+  }
+  const byBucket = {};
+  rows.forEach(r => { (byBucket[r.bucket] = byBucket[r.bucket] || []).push(r); });
+  let html = "";
+  HIST_BUCKET_ORDER.forEach(b => {
+    const list = byBucket[b];
+    if (!list) return;
+    html += `<div class="hist-bucket">${HIST_BUCKET_LABEL[b] || b}</div>`;
+    // rows arrive effective_date DESC, so index 0 is the current rate
+    list.forEach((r, i) => {
+      html += `<div class="hist-line ${i === 0 ? "cur" : ""}">` +
+        `<span>${fmtHistDate(r.effective_date)}${i === 0 ? " · current" : ""}</span>` +
+        `<span>$${Number(r.bill_rate).toFixed(2)}${r.per_hour ? "/hr" : ""}</span></div>`;
+    });
+  });
+  body.innerHTML = html;
+}
 
 // ══════════════════════════════════════════════════════════════════
 // HELPERS
