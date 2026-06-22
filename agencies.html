@@ -117,8 +117,8 @@
   table.ag tr.row-inactive td.name-col { background: #fafafa; }
   .agency-name-link { color: var(--blue); font-weight: 700; cursor: pointer; text-decoration: none; }
   .agency-name-link:hover { color: var(--accent); text-decoration: underline; }
-  .hist-btn { border: 0; background: none; cursor: pointer; font-size: 11px; opacity: 0.55; padding: 0 2px; margin-left: 4px; vertical-align: middle; }
-  .hist-btn:hover { opacity: 1; }
+  .rate-date-link { border: 0; background: none; cursor: pointer; font-size: 10.5px; color: var(--muted); padding: 1px 0 0; margin-top: 1px; display: block; text-align: left; }
+  .rate-date-link:hover { color: var(--accent); text-decoration: underline; }
   .hist-bucket { font-weight: 700; color: var(--text); font-size: 12px; margin: 12px 0 4px; }
   .hist-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 3px 0; border-bottom: 1px solid var(--border); color: var(--muted); }
   .hist-line.cur { color: var(--text); font-weight: 700; }
@@ -662,8 +662,10 @@ function renderRow(r) {
     <tr class="${rowClass}" data-agency-id="${aid}">
       <td class="name-col">
         <a class="agency-name-link" data-agency-link="${aid}">${escapeHtml(r.agency_name || '(unnamed)')}</a>
-        <button type="button" class="hist-btn" data-history="${aid}" data-name="${escapeAttr(r.agency_name || '')}" title="Rate history (from TB price-list imports)">🕘</button>
         <div class="agency-loc">${escapeHtml([r.agency_city, r.agency_state].filter(Boolean).join(", ") || "—")}</div>
+        ${r.rates_effective_date
+          ? `<button type="button" class="rate-date-link" data-history="${aid}" data-name="${escapeAttr(r.agency_name || '')}" title="Last rate update (effective date) — click for full history">🗓 ${escapeHtml(fmtHistDate(r.rates_effective_date))}</button>`
+          : ''}
       </td>
       <td>${renderActivePill(r)}</td>
       <td>${renderRateInput(r, "rate_ot_eval")}</td>
