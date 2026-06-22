@@ -152,6 +152,8 @@
 
   .year-input { width: 60px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; text-align: center; background: #fff; outline: none; }
   .year-input:focus { border-color: var(--accent); }
+  .start-hint { display: block; margin-top: 3px; border: 0; background: none; cursor: pointer; font-size: 10px; color: #cbd5e1; padding: 0; text-align: center; width: 60px; }
+  .start-hint:hover { color: var(--accent); }
 
   /* Single-select dropdowns (Pay Method / Sent Via) */
   .select-input { width: 100%; min-width: 110px; max-width: 180px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; background: #fff; outline: none; color: var(--text); cursor: pointer; }
@@ -736,17 +738,18 @@ function renderYearInput(r) {
 // Start = the FIRST effective contract date (earliest imported rate). If the
 // agency has no imported rates, fall back to the manual start-year input so it
 // can still be set by hand ("whatever the file loads").
-// Start = the original contract start (the editable start year — preserved;
-// a TB price-list import never overwrites it). Only when it's blank do we fall
-// back to "whatever the file loads" — the earliest imported effective date.
+// Start = the contract start year, ALWAYS the editable input (the import never
+// overwrites it). When no year is set, show the imported first-effective date as
+// a muted, clickable hint — it's usually just when current rates were set, NOT
+// the real start, so it must be correctable, not a forced read-only value.
+// Clicking the hint fills the input with that year (a starting point to edit).
 function renderStartCell(r) {
-  if (r.contract_start_year) {
-    return renderYearInput(r);
+  const input = renderYearInput(r);
+  if (!r.contract_start_year && r.rates_effective_date_first) {
+    const yr = String(r.rates_effective_date_first).slice(0, 4);
+    return `${input}<button type="button" class="start-hint" data-set-start="${escapeAttr(r.agency_id)}" data-year="${escapeAttr(yr)}" title="From the price-list import — click to use ${escapeHtml(yr)}, or type the real start year">📥 ${escapeHtml(yr)}</button>`;
   }
-  if (r.rates_effective_date_first) {
-    return `<span class="eff-date" title="First effective date from the price-list import (no manual start year set)">${escapeHtml(fmtHistDate(r.rates_effective_date_first))}</span>`;
-  }
-  return renderYearInput(r);   // blank → editable so a start year can be set
+  return input;
 }
 
 // Latest Eff. = the most recent effective rate date (tracks the last rate
@@ -841,6 +844,20 @@ async function doSave(agencyId, field, value) {
     if (!row.contract_id) row.contract_id = "pending"; // mark as having a contract
   }
 }
+
+// Start hint → adopt the imported first-effective year as the start year (a
+// starting point the user can still edit/clear).
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-set-start]");
+  if (!btn) return;
+  const aid = btn.dataset.setStart;
+  const yr  = parseInt(btn.dataset.year, 10);
+  if (!yr) return;
+  const row = allRows.find(r => r.agency_id === aid);
+  if (row) { row.contract_start_year = yr; row._start_sort = `${yr}-01-01`; }
+  doSave(aid, "contract_start_year", yr);
+  renderTable();
+});
 
 // Rate input → debounced save
 document.addEventListener("change", (e) => {
