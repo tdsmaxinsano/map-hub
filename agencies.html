@@ -513,11 +513,12 @@ async function loadContracts() {
   const { data, error } = await db.rpc("list_agency_contracts");
   if (error) { showToast("Failed to load: " + error.message, "err"); return; }
   allRows = data || [];
-  // Unified sort key for the Start column: first effective date, else the
-  // manual start year (as a date) so the column sorts coherently.
+  // Unified sort key for the Start column: the original start year, else the
+  // imported first effective date (mirrors renderStartCell's priority).
   allRows.forEach(r => {
-    r._start_sort = r.rates_effective_date_first
-      || (r.contract_start_year ? `${r.contract_start_year}-01-01` : "");
+    r._start_sort = r.contract_start_year
+      ? `${r.contract_start_year}-01-01`
+      : (r.rates_effective_date_first || "");
   });
   renderAll();
 }
@@ -735,11 +736,17 @@ function renderYearInput(r) {
 // Start = the FIRST effective contract date (earliest imported rate). If the
 // agency has no imported rates, fall back to the manual start-year input so it
 // can still be set by hand ("whatever the file loads").
+// Start = the original contract start (the editable start year — preserved;
+// a TB price-list import never overwrites it). Only when it's blank do we fall
+// back to "whatever the file loads" — the earliest imported effective date.
 function renderStartCell(r) {
-  if (r.rates_effective_date_first) {
-    return `<span class="eff-date" title="First effective contract date">${escapeHtml(fmtHistDate(r.rates_effective_date_first))}</span>`;
+  if (r.contract_start_year) {
+    return renderYearInput(r);
   }
-  return renderYearInput(r);
+  if (r.rates_effective_date_first) {
+    return `<span class="eff-date" title="First effective date from the price-list import (no manual start year set)">${escapeHtml(fmtHistDate(r.rates_effective_date_first))}</span>`;
+  }
+  return renderYearInput(r);   // blank → editable so a start year can be set
 }
 
 // Latest Eff. = the most recent effective rate date (tracks the last rate
