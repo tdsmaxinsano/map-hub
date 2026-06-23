@@ -152,8 +152,8 @@
 
   .year-input { width: 60px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; text-align: center; background: #fff; outline: none; }
   .year-input:focus { border-color: var(--accent); }
-  .start-hint { display: block; margin-top: 3px; border: 0; background: none; cursor: pointer; font-size: 10px; color: #cbd5e1; padding: 0; text-align: center; width: 60px; }
-  .start-hint:hover { color: var(--accent); }
+  .start-hint { display: block; margin-top: 3px; border: 0; background: none; cursor: pointer; font-size: 10px; color: #94a3b8; padding: 0; text-align: left; white-space: nowrap; }
+  .start-hint:hover { color: var(--accent); text-decoration: underline; }
 
   /* Single-select dropdowns (Pay Method / Sent Via) */
   .select-input { width: 100%; min-width: 110px; max-width: 180px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; background: #fff; outline: none; color: var(--text); cursor: pointer; }
@@ -516,11 +516,11 @@ async function loadContracts() {
   if (error) { showToast("Failed to load: " + error.message, "err"); return; }
   allRows = data || [];
   // Unified sort key for the Start column: the original start year, else the
-  // imported first effective date (mirrors renderStartCell's priority).
+  // earliest referral, else the imported first effective date.
   allRows.forEach(r => {
     r._start_sort = r.contract_start_year
       ? `${r.contract_start_year}-01-01`
-      : (r.rates_effective_date_first || "");
+      : (r.first_referral_date || r.rates_effective_date_first || "");
   });
   renderAll();
 }
@@ -745,9 +745,19 @@ function renderYearInput(r) {
 // Clicking the hint fills the input with that year (a starting point to edit).
 function renderStartCell(r) {
   const input = renderYearInput(r);
-  if (!r.contract_start_year && r.rates_effective_date_first) {
-    const yr = String(r.rates_effective_date_first).slice(0, 4);
-    return `${input}<button type="button" class="start-hint" data-set-start="${escapeAttr(r.agency_id)}" data-year="${escapeAttr(yr)}" title="From the price-list import — click to use ${escapeHtml(yr)}, or type the real start year">📥 ${escapeHtml(yr)}</button>`;
+  // Recommendation source, best first: the earliest referral on record (a real
+  // signal of when the relationship started), else the price-list first
+  // effective date (weaker — just when current rates were set).
+  let recDate = null, recLabel = "";
+  if (r.first_referral_date)            { recDate = r.first_referral_date;        recLabel = "1st referral"; }
+  else if (r.rates_effective_date_first) { recDate = r.rates_effective_date_first; recLabel = "price list"; }
+  if (recDate) {
+    const recYear = parseInt(String(recDate).slice(0, 4), 10);
+    const cur = r.contract_start_year ? parseInt(r.contract_start_year, 10) : null;
+    // Only recommend if the Start is blank OR we found a SOONER (earlier) date.
+    if (recYear && (cur == null || recYear < cur)) {
+      return `${input}<button type="button" class="start-hint" data-set-start="${escapeAttr(r.agency_id)}" data-year="${recYear}" title="Earliest ${recLabel} on record: ${escapeHtml(fmtHistDate(recDate))} — click to use ${recYear}">📥 ${recYear} · ${escapeHtml(recLabel)}</button>`;
+    }
   }
   return input;
 }
