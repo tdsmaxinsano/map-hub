@@ -3313,12 +3313,20 @@ async function cprParseStrataPdf(arrayBuffer) {
   //      (Total Billed comes right after Visits Billed + percentage).
   // Hitting another staff name short-circuits to false.
   function validateVisitsAt(j) {
-    // (1) Look at the closest preceding non-empty line for a CPT tail.
-    for (let k = j - 1; k >= Math.max(j - 3, 0); k--) {
+    // (1) Look at the closest preceding REAL (non-empty, non-boilerplate) line
+    // for a CPT tail. Skip Strata's page-break footer/header lines ("Page 1 of
+    // 2 …", report title, etc.) — otherwise a page break landing between a CPT
+    // code and its Unit Breakdown count (…"97116 x" / "Page 1 of 2 DCS Therapy"
+    // / "2 (9.5%)"…) hides the CPT from this guard, so the breakdown count
+    // sneaks through as a phantom data row and breaks the ordered-bijection
+    // gates. Window widened to j-5 so a 1–2 line footer can be skipped before
+    // the real predecessor is reached.
+    for (let k = j - 1; k >= Math.max(j - 5, 0); k--) {
       const prev = lines[k];
       if (!prev) continue;
-      if (CPT_TAIL_RE.test(prev)) return false;   // unit-breakdown count
-      break;   // checked the closest one, that's enough
+      if (isBoilerplate(prev)) continue;          // page-break footer/header — look past it
+      if (CPT_TAIL_RE.test(prev)) return false;   // closest real line is a CPT → breakdown count
+      break;   // closest real content line isn't a CPT → that's enough
     }
     const ownLine = lines[j] || "";
     // (2a) Same-line $ — row-merge case ("8 (18.6%) $2,100.00 ...")
