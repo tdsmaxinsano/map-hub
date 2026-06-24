@@ -1964,67 +1964,81 @@ function tsChangePeriod(dir) {
 async function tsSubmit() {
   const btn = document.getElementById('ts-submit-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
-  let saved = 0, cleared = 0, errors = 0;
 
-  for (let i = 0; i < tsRows.length; i++) {
-    const day    = tsRows[i].date;
-    const dayEnd = new Date(day.getTime() + 86400000);
-    try {
-      // Delete only THIS day's Timesheet-tagged row for THIS user — admin
-      // aggregates (manual_note != 'Timesheet|...') stay untouched.
-      await db.from('time_entries').delete()
-        .eq('user_id', currentUser.id).eq('is_manual', true)
-        .like('manual_note', 'Timesheet|%')
-        .gte('clock_in', day.toISOString())
-        .lt('clock_in',  dayEnd.toISOString());
+  // BATCHED submit. The previous version ran one DELETE + one INSERT *per day*
+  // (up to ~28 sequential round trips), which over a high-latency connection
+  // (e.g. PH staff) could take 15-30s and look "stuck on Submitting…". This
+  // does it in 3 calls: one DELETE for the whole period, one bulk INSERT of the
+  // override rows, one submit stamp. A try/finally guarantees the button is
+  // always freed, and any DB error is surfaced in a toast instead of silently
+  // leaving the button stuck.
+  if (!tsRows.length) {                                                   // nothing loaded — bail cleanly
+    if (btn) { btn.disabled = false; btn.textContent = 'Submit Timesheet'; }
+    return;
+  }
+  const period    = getPayPeriod(tsPeriodOffset);
+  const firstDay  = tsRows[0].date;                                       // period start (grid day 0)
+  const afterLast = new Date(tsRows[tsRows.length - 1].date.getTime() + 86400000);
+  let saved = 0, cleared = 0;
 
-      const hrsNum  = parseFloat(tsRows[i].hrs);
-      const hrs     = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
-      const auto    = Number(tsRows[i].autoHrs) || 0;
-      const kind    = tsRows[i].absenceKind || null;
-      const note    = (tsRows[i].note || '').trim();
-      // Only persist an override when it differs from the clock-in auto OR
-      // there's an absence/note to capture. Otherwise just let the auto
-      // value stand (and clean up any stale override).
+  try {
+    // 1) Wipe this user's Timesheet| overrides for the WHOLE period in one
+    //    call — admin aggregates (manual_note != 'Timesheet|...') untouched.
+    const { error: delErr } = await db.from('time_entries').delete()
+      .eq('user_id', currentUser.id).eq('is_manual', true)
+      .like('manual_note', 'Timesheet|%')
+      .gte('clock_in', firstDay.toISOString())
+      .lt('clock_in',  afterLast.toISOString());
+    if (delErr) throw delErr;
+
+    // 2) Collect the rows that still need an override and INSERT them at once.
+    //    Only persist when the value differs from the clock-in auto OR there's
+    //    an absence/note; otherwise let the auto value stand (cleared).
+    const inserts = [];
+    for (const r of tsRows) {
+      const hrsNum = parseFloat(r.hrs);
+      const hrs    = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
+      const auto   = Number(r.autoHrs) || 0;
+      const kind   = r.absenceKind || null;
+      const note   = (r.note || '').trim();
       const needsOverride = (Math.abs(hrs - auto) > 0.001) || kind || note;
       if (needsOverride) {
-        const { error } = await db.from('time_entries').insert({
+        inserts.push({
           user_id:      currentUser.id,
-          clock_in:     day.toISOString(),
-          clock_out:    new Date(day.getTime() + hrs * 3600000).toISOString(),
+          clock_in:     r.date.toISOString(),
+          clock_out:    new Date(r.date.getTime() + hrs * 3600000).toISOString(),
           is_manual:    true,
-          manual_note:  'Timesheet|' + (tsRows[i].note || ''),
+          manual_note:  'Timesheet|' + (r.note || ''),
           absence_kind: kind,
           created_by:   currentUser.id
         });
-        if (error) throw error;
-        saved++;
-      } else if (tsRows[i].existingId) {
+      } else if (r.existingId) {
         cleared++;
       }
-    } catch (err) {
-      console.error('Timesheet save failed for day', i, err);
-      errors++;
     }
+    if (inserts.length) {
+      const { error: insErr } = await db.from('time_entries').insert(inserts);
+      if (insErr) throw insErr;
+      saved = inserts.length;
+    }
+
+    // 3) Stamp the per-period submission (status → submitted).
+    const periodDate = period.start.toISOString().slice(0, 10);
+    const { error: subErr } = await db.rpc('submit_pay_period', { p_period_start: periodDate });
+    if (subErr) throw subErr;
+
+    showToast(`Submitted ${saved} day(s)${cleared ? ` · cleared ${cleared}` : ''}`);
+  } catch (err) {
+    console.error('Timesheet submit failed', err);
+    showToast('Submit failed: ' + (err?.message || err) + ' — please try again.');
+  } finally {
+    // Always free the button so it can never get stuck on "Submitting…".
+    if (btn) { btn.disabled = false; btn.textContent = 'Submit Timesheet'; }
   }
 
-  // Stamp the per-period submission (status → submitted). Bypass if all
-  // days were errors so we don't claim a clean submit when nothing landed.
-  if (errors === 0 || saved > 0) {
-    try {
-      const period     = getPayPeriod(tsPeriodOffset);
-      const periodDate = period.start.toISOString().slice(0, 10);
-      await db.rpc('submit_pay_period', { p_period_start: periodDate });
-    } catch (err) {
-      console.error('submit_pay_period failed', err);
-    }
-  }
-
-  if (btn) btn.disabled = false;
-  showToast(errors
-    ? `Submitted with ${errors} error(s)`
-    : `Submitted ${saved} day(s)${cleared ? ` · cleared ${cleared}` : ''}`);
-  await tsLoad();
+  // Refresh (also resets the button label to Re-submit / Submit Fixes). Never
+  // let a refresh hiccup leave the view — or the button — stale.
+  try { await tsLoad(); } catch (e) { console.error('tsLoad after submit failed', e); }
 }
 
 function updateClockUI(tz) {
