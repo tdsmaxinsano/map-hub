@@ -2475,6 +2475,26 @@ document.addEventListener("DOMContentLoaded", function() {
   if (retroCancel) retroCancel.addEventListener("click", cprCloseMedbRetro);
   const retroApply = document.getElementById("cpr-medb-retro-apply");
   if (retroApply) retroApply.addEventListener("click", cprApplyMedbRetro);
+  // 🔄 Reload TB spreadsheet modal — re-import TB onto an open audit, keep Med B.
+  const reloadDz = document.getElementById("cpr-reload-tb-dropzone");
+  if (reloadDz) {
+    reloadDz.addEventListener("dragover",  function(e) { e.preventDefault(); reloadDz.classList.add("is-dragover"); });
+    reloadDz.addEventListener("dragleave", function()  { reloadDz.classList.remove("is-dragover"); });
+    reloadDz.addEventListener("drop", function(e) {
+      e.preventDefault(); reloadDz.classList.remove("is-dragover");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleCprReloadTbFile(f);
+    });
+    const reloadFi = document.getElementById("cpr-reload-tb-file-input");
+    if (reloadFi) reloadFi.addEventListener("change", function(e) {
+      const f = e.target.files && e.target.files[0];
+      if (f) handleCprReloadTbFile(f);
+    });
+  }
+  const reloadCancel = document.getElementById("cpr-reload-tb-cancel");
+  if (reloadCancel) reloadCancel.addEventListener("click", cprCloseReloadTb);
+  const reloadApply = document.getElementById("cpr-reload-tb-apply");
+  if (reloadApply) reloadApply.addEventListener("click", cprApplyReloadTb);
   // Per-clinician 📋 breakdown picker (audit detail column). The input
   // lives outside the re-rendered detail body, so wire once here.
   const bkdnInput = document.getElementById("cpr-bkdn-file-input");
@@ -6834,6 +6854,7 @@ function cprRenderDetail() {
     const medbBtnLabel = existingMedb > 0 ? '🩺 Update Strata Med B' : '🩺 Add Strata Med B';
     html += '<span class="cpr-detail-footer-msg">' + (dirty ? '⚠ Unsaved edits — Save Adjustments to keep, or Finalize to lock' : 'No pending edits') + '</span>' +
       '<button type="button" class="btn-secondary" onclick="cprOpenMedbRetro()" title="Drop a Strata PDF to add or refresh Med B for this period — no TB re-upload needed">' + medbBtnLabel + '</button>' +
+      '<button type="button" class="btn-secondary" onclick="cprOpenReloadTb()" title="Re-import the TherapyBoss Prepare-payroll export — refreshes pay & visits but keeps Strata Med B and adjustments">🔄 Reload TB file</button>' +
       '<button type="button" class="btn-secondary" onclick="cprSaveRun(false)"' + (dirty ? '' : ' disabled') + '>Save Adjustments</button>' +
       '<button type="button" class="btn-secondary" style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;" onclick="cprSaveRun(true)">Finalize Audit</button>';
   }
@@ -8644,6 +8665,149 @@ async function cprStartOver() {
   document.getElementById("cpr-detail-overlay").style.display = "none";
   openCprModal();
   cprExpectedPeriod = { start: periodStart, end: periodEnd };
+}
+
+// ── 🔄 Reload TB spreadsheet ─────────────────────────────────────────
+// Symmetric to "Add/Update Strata Med B": re-import the TherapyBoss payroll
+// onto an already-saved (open) audit, refreshing pay + visits while PRESERVING
+// each clinician's Strata Med B and manual adjustments (matched by lookup key).
+// Per-visit exclusions reset (the visits are re-imported). Independent of the
+// Strata file, so reloading TB never loses Med B progress.
+let cprReloadTbParsed = null;
+
+function cprOpenReloadTb() {
+  const r = cprViewState && cprViewState.run;
+  if (!r || r.status !== "open") return;
+  cprReloadTbParsed = null;
+  const fi = document.getElementById("cpr-reload-tb-file-input"); if (fi) fi.value = "";
+  const err = document.getElementById("cpr-reload-tb-error"); if (err) err.style.display = "none";
+  const pv  = document.getElementById("cpr-reload-tb-preview"); if (pv) { pv.style.display = "none"; pv.innerHTML = ""; }
+  const st  = document.getElementById("cpr-reload-tb-status"); if (st) st.textContent = "● Awaiting TB Prepare-payroll .xlsx…";
+  const ab  = document.getElementById("cpr-reload-tb-apply"); if (ab) ab.disabled = true;
+  document.getElementById("cpr-reload-tb-overlay").style.display = "flex";
+}
+
+function cprCloseReloadTb() {
+  cprReloadTbParsed = null;
+  const ov = document.getElementById("cpr-reload-tb-overlay"); if (ov) ov.style.display = "none";
+}
+
+async function handleCprReloadTbFile(file) {
+  const r = cprViewState && cprViewState.run;
+  if (!r) return;
+  const errEl = document.getElementById("cpr-reload-tb-error");
+  const stEl  = document.getElementById("cpr-reload-tb-status");
+  const pvEl  = document.getElementById("cpr-reload-tb-preview");
+  const applyBtn = document.getElementById("cpr-reload-tb-apply");
+  function fail(msg) {
+    if (errEl) { errEl.innerHTML = msg; errEl.style.display = "block"; }
+    if (pvEl) pvEl.style.display = "none";
+    if (applyBtn) applyBtn.disabled = true;
+    cprReloadTbParsed = null;
+  }
+  if (errEl) errEl.style.display = "none";
+  if (stEl) stEl.textContent = "● Reading " + (file.name || "file") + "…";
+  // Reuse the main TB parser — it populates the global cprPrepared (and renders
+  // the hidden main-modal preview, which is harmless). Null cprPrepared first so
+  // we can detect a parse failure (the parser writes its own error to the hidden
+  // main error box; we just check whether cprPrepared got populated).
+  cprPrepared = null;
+  await handleCprFile(file);
+  const p = cprPrepared;
+  if (!p) { fail("Couldn't read that spreadsheet. Make sure it's the TB <strong>Prepare payroll</strong> export (.xlsx)."); if (stEl) stEl.textContent = "● Couldn't read that file."; return; }
+
+  // Guard: the new file must be for THIS audit's pay period — otherwise we'd be
+  // loading the wrong period's data onto this run.
+  if (p.period_start !== r.period_start) {
+    fail("⚠ This file is for <strong>" + cprFmtDate(p.period_start) + " – " + cprFmtDate(p.period_end) +
+         "</strong>, but this audit is <strong>" + cprFmtDate(r.period_start) + " – " + cprFmtDate(r.period_end) +
+         "</strong>. Re-export the correct period from TherapyBoss.");
+    if (stEl) stEl.textContent = "● Period mismatch — not loaded.";
+    return;
+  }
+
+  cprReloadTbParsed = p;
+  const existing  = r.per_clinician_payload || [];
+  const medbCount = existing.filter(function(c) { return (Number(c.medb_total) || 0) > 0; }).length;
+  const adjCount  = existing.reduce(function(s, c) { return s + (Array.isArray(c.adjustments) ? c.adjustments.length : 0); }, 0);
+  if (stEl) stEl.textContent = "● Loaded — " + cprFmtDate(p.period_start) + " – " + cprFmtDate(p.period_end);
+  if (pvEl) {
+    pvEl.style.display = "block";
+    pvEl.innerHTML =
+      '<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:10px 12px;font-size:13px;line-height:1.6;">' +
+        '<div style="font-weight:700;color:#166534;margin-bottom:4px;">Ready to reload</div>' +
+        '<div><strong>' + p.distinct_clinicians + '</strong> clinicians · <strong>' + p.total_visits + '</strong> visits · pay <strong>' + cprFmtMoney(p.total_pay) + '</strong></div>' +
+        '<div style="margin-top:6px;color:#15803d;">✓ Keeping <strong>' + medbCount + '</strong> clinician(s) with Strata Med B and <strong>' + adjCount + '</strong> manual adjustment(s).</div>' +
+        '<div style="margin-top:2px;color:#92400e;">Per-visit exclusions reset (the visits are re-imported).</div>' +
+      '</div>';
+  }
+  if (applyBtn) applyBtn.disabled = false;
+}
+
+function cprApplyReloadTb() {
+  const r = cprViewState && cprViewState.run;
+  const p = cprReloadTbParsed;
+  if (!r || r.status !== "open" || !p) return;
+  if (p.period_start !== r.period_start) return; // re-guard
+
+  // Snapshot existing entries (Med B + adjustments) keyed by lookup key.
+  const preserve = Object.create(null);
+  (r.per_clinician_payload || []).forEach(function(c) {
+    preserve[cprClinLookupKey(c.clinician)] = c;
+  });
+  // Carry the Med B + adjustments from a prior entry onto a fresh TB entry.
+  function carry(target, src) {
+    target.adjustments    = (src && Array.isArray(src.adjustments)) ? src.adjustments : [];
+    target.medb_total     = (src && Number(src.medb_total)) || 0;
+    target.medb_source    = (src && src.medb_source != null) ? src.medb_source : null;
+    target.medb_visits    = (src && src.medb_visits != null) ? src.medb_visits : null;
+    target.medb_eval      = (src && src.medb_eval != null) ? src.medb_eval : null;
+    target.medb_rate      = (src && src.medb_rate != null) ? src.medb_rate : null;
+    target.medb_eval_rate = (src && src.medb_eval_rate != null) ? src.medb_eval_rate : null;
+  }
+
+  const newPayload = [];
+  const usedKeys = new Set();
+  (p.per_clinician_payload || []).forEach(function(nc) {
+    const k = cprClinLookupKey(nc.clinician);
+    usedKeys.add(k);
+    const entry = {
+      clinician: nc.clinician, discipline: nc.discipline,
+      visits: nc.visits, payable: nc.payable, nonpayable: nc.nonpayable,
+      pay_total: nc.pay_total, expenses_total: nc.expenses_total
+    };
+    carry(entry, preserve[k]);
+    newPayload.push(entry);
+  });
+  // Preserve prior entries absent from the new TB IF they still carry Med B,
+  // an adjustment, or are Med B-only — with their TB pay fields zeroed.
+  (r.per_clinician_payload || []).forEach(function(c) {
+    const k = cprClinLookupKey(c.clinician);
+    if (usedKeys.has(k)) return;
+    const keep = (Number(c.medb_total) || 0) > 0 ||
+                 (Array.isArray(c.adjustments) && c.adjustments.length > 0) || c._medb_only;
+    if (!keep) return;
+    const entry = {
+      clinician: c.clinician, discipline: c.discipline,
+      visits: 0, payable: 0, nonpayable: 0, pay_total: 0, expenses_total: 0,
+      _medb_only: !!c._medb_only
+    };
+    carry(entry, c);
+    newPayload.push(entry);
+  });
+
+  r.per_clinician_payload = newPayload;
+  r.all_visits_payload    = p.all_visits_payload || [];
+  r.source_filename       = p.source_filename;
+  if (p.pay_date) r.pay_date = p.pay_date;
+
+  cprViewState.dirty = true;
+  cprViewState.editingVid = null;
+  cprViewState.editingAdj = null;
+  cprViewState.editingMedb = null;
+  cprRecompute();
+  cprCloseReloadTb();
+  cprRenderDetail();
 }
 
 // Minimal escAttr fallback for the inline onclick handler (escHtml already handles
@@ -12566,6 +12730,35 @@ checkSession();
     <div class="cpr-modal-footer">
       <button type="button" class="btn-secondary" id="cpr-medb-retro-cancel">Cancel</button>
       <button type="button" class="btn-secondary" id="cpr-medb-retro-apply" disabled style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;">Apply to Audit</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── 🔄 Reload TB spreadsheet modal ── opens from inside the audit;
+     re-imports the TB Prepare-payroll Excel while keeping Strata Med B +
+     adjustments (independent of the Strata file). -->
+<div class="cpr-modal-overlay" id="cpr-reload-tb-overlay" style="display:none;">
+  <div class="cpr-modal-box" style="width:620px;max-width:97vw;">
+    <div class="cpr-modal-title">🔄 Reload TherapyBoss payroll</div>
+    <div class="cpr-modal-sub">
+      Drop a fresh <strong>Prepare payroll</strong> export to refresh this
+      period's TB pay &amp; visits. Your <strong>Strata Med B</strong> and
+      <strong>per-clinician adjustments</strong> are kept — only the TB numbers
+      reload. Click <strong>Save Adjustments</strong> on the audit afterward to
+      persist.
+    </div>
+    <label class="cpr-dropzone" id="cpr-reload-tb-dropzone" for="cpr-reload-tb-file-input">
+      <div class="cpr-dz-icon">🔄</div>
+      <div><strong>Drop TB Prepare-payroll .xlsx here</strong></div>
+      <div class="cpr-dz-hint">Same period as this audit · Strata not required</div>
+      <input type="file" id="cpr-reload-tb-file-input" accept=".xlsx,.xls" />
+    </label>
+    <div id="cpr-reload-tb-status" style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45;">● Awaiting TB Prepare-payroll .xlsx…</div>
+    <div id="cpr-reload-tb-error" style="display:none;background:#fff5f5;border:1px solid #ef9a9a;border-radius:8px;padding:8px 12px;font-size:12px;color:#c62828;margin-top:8px;line-height:1.5;"></div>
+    <div id="cpr-reload-tb-preview" style="display:none;margin-top:12px;"></div>
+    <div class="cpr-modal-footer">
+      <button type="button" class="btn-secondary" id="cpr-reload-tb-cancel">Cancel</button>
+      <button type="button" class="btn-secondary" id="cpr-reload-tb-apply" disabled style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;">Apply — keep Med B</button>
     </div>
   </div>
 </div>
