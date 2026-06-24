@@ -6837,6 +6837,9 @@ function cprRenderDetail() {
       '<button type="button" class="btn-secondary" onclick="cprSaveRun(false)"' + (dirty ? '' : ' disabled') + '>Save Adjustments</button>' +
       '<button type="button" class="btn-secondary" style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;" onclick="cprSaveRun(true)">Finalize Audit</button>';
   }
+  // Start over — destructive escape hatch, available in any status: wipes this
+  // period's entire audit and reopens the import window. Hard confirm in handler.
+  html += '<button type="button" class="btn-secondary" style="margin-left:8px;color:#b91c1c;border-color:#fca5a5;" onclick="cprStartOver()" title="Delete this period\'s entire audit and re-import the TherapyBoss file from scratch — cannot be undone">🔄 Start over</button>';
   html += '</div>';
 
   if (r.source_filename) {
@@ -8579,10 +8582,9 @@ async function auditCprRun(runId) {
   }
 }
 
-async function deleteCprRun(runId, periodLabel, totalPay) {
-  // Two-step confirm to prevent accidental loss of an audited run.
-  const niceTotal = cprFmtMoney(totalPay);
-  if (!confirm("⚠ Delete the payroll run for " + periodLabel + " (" + niceTotal + ")?\n\nThis cannot be undone. You can re-import the same period afterwards if needed.")) return;
+// Core delete (no confirm) — shared by the history Delete button and the
+// in-audit "Start over" action. Returns true on success, false on error.
+async function cprDeleteRunCore(runId) {
   // Look up the stored source-PDF path (migration 39) from the history cache
   // BEFORE the row is deleted, so we can clean up the storage object too.
   let pdfPath = null;
@@ -8603,9 +8605,45 @@ async function deleteCprRun(runId, periodLabel, totalPay) {
       catch (e) { console.warn("[cpr] source PDF cleanup failed:", e && e.message); }
     }
     await loadCprHistory();
+    return true;
   } catch (err) {
     alert("Delete failed: " + (err.message || err));
+    return false;
   }
+}
+
+async function deleteCprRun(runId, periodLabel, totalPay) {
+  // Two-step confirm to prevent accidental loss of an audited run.
+  const niceTotal = cprFmtMoney(totalPay);
+  if (!confirm("⚠ Delete the payroll run for " + periodLabel + " (" + niceTotal + ")?\n\nThis cannot be undone. You can re-import the same period afterwards if needed.")) return;
+  await cprDeleteRunCore(runId);
+}
+
+// "Start over" — wipe the currently-open audit entirely and reopen the import
+// window for the same period so the user can drop the TB file again from a
+// clean slate. Hard confirm: this deletes exclusions, adjustments, Med B, and
+// the audit status, and cannot be undone.
+async function cprStartOver() {
+  const r = cprViewState && cprViewState.run;
+  if (!r || !r.id) return;
+  const periodLabel = cprFmtDate(r.period_start) + " – " + cprFmtDate(r.period_end);
+  const msg =
+    "🔄 Start over on the payroll for " + periodLabel + "?\n\n" +
+    "This DELETES the entire saved audit for this period — every excluded visit, " +
+    "manual adjustment, Med B entry, and the audit/finalized status — then reopens " +
+    "the import window so you can drop the TherapyBoss file again.\n\n" +
+    "⚠ This action CANNOT be undone.";
+  if (!confirm(msg)) return;
+
+  const periodStart = r.period_start, periodEnd = r.period_end;
+  const ok = await cprDeleteRunCore(r.id);
+  if (!ok) return;   // error already surfaced
+
+  // Close the detail modal and reopen the import modal pre-set to this period
+  // (mirrors clinPayCalRowClicked's no-run-yet path).
+  document.getElementById("cpr-detail-overlay").style.display = "none";
+  openCprModal();
+  cprExpectedPeriod = { start: periodStart, end: periodEnd };
 }
 
 // Minimal escAttr fallback for the inline onclick handler (escHtml already handles
