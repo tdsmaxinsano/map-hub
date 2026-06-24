@@ -212,6 +212,8 @@
     .pay-table tr.adj-subrow:hover td { background: #F4F8FF; }
     .pay-table .adj-name { font-weight: 600; color: var(--gray); font-size: 12px; padding-left: 22px; }
     .add-adj-btn { padding: 3px 10px; border: 1px dashed var(--border); border-radius: 12px; background: var(--white); font-size: 11px; font-weight: 700; color: var(--blue); cursor: pointer; }
+    .ts-view-btn { padding: 2px 7px; border: 1px solid var(--border); border-radius: 10px; background: var(--white); font-size: 12px; line-height: 1; cursor: pointer; vertical-align: middle; }
+    .ts-view-btn:hover { background: #EEF4FB; border-color: var(--blue); }
     .add-adj-btn:hover { border-color: var(--blue); background: var(--blue-light); }
     .receipt-link { text-decoration: none; font-size: 12px; }
     .adj-row-controls { float: right; display: inline-flex; gap: 4px; opacity: 0.55; transition: opacity 0.15s; }
@@ -885,6 +887,35 @@
       <button class="btn-confirm" style="width:auto;padding:8px 18px;" id="shifts-approve-btn" onclick="shiftsApprove()">✓ Approve</button>
       <button class="btn-cancel"  style="width:auto;padding:8px 14px;" id="shifts-reject-btn"  onclick="shiftsReject()">↩ Send Back</button>
     </div>
+  </div>
+</div>
+
+<!-- Admin: read-only view of a staff member's day-by-day timesheet -->
+<div class="modal-overlay" id="admin-ts-modal">
+  <div class="shifts-modal">
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+      <h2 id="ats-title" style="font-size:18px; color:var(--blue);">Timesheet</h2>
+      <button class="btn-cancel" style="width:auto; padding:6px 14px;" onclick="closeModal('admin-ts-modal')">Close</button>
+    </div>
+    <div class="ts-nav" style="margin-bottom:6px;">
+      <button class="btn-period" type="button" onclick="atsChangePeriod(-1)">◀ Prev</button>
+      <span class="ts-period-label" id="ats-period-label">Loading…</span>
+      <button class="btn-period" type="button" onclick="atsChangePeriod(1)">Next ▶</button>
+    </div>
+    <div id="ats-status" style="margin-bottom:8px;"></div>
+    <div style="font-size:11px; color:var(--gray); margin-bottom:8px;">⏰ Dates in <strong>US Central Time (CT)</strong> · read-only view of what the employee entered (hours, time off, notes)</div>
+    <table class="ts-table">
+      <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Time Off</th><th>Notes</th></tr></thead>
+      <tbody id="ats-body"></tbody>
+      <tfoot>
+        <tr class="ts-total-row">
+          <td colspan="2" style="text-align:right;">Period Total</td>
+          <td id="ats-total">0.00 h</td>
+          <td colspan="2"></td>
+        </tr>
+      </tfoot>
+    </table>
+    <div id="ats-approve-footer" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);"></div>
   </div>
 </div>
 
@@ -2334,6 +2365,7 @@ async function renderDashboard() {
           <button class="btn-clockout-admin" onclick="adminClockOut('${openEntry.id}', '${s.display_name}', this)">⏹ Clock Out ${s.display_name}</button>
           <button class="btn-delete-entry"   onclick="adminDeleteEntry('${openEntry.id}', '${s.display_name}', this)">🗑 Delete — Mistake Clock-In</button>
         ` : ''}
+        <button class="btn-view-shifts" onclick="openStaffTimesheet('${s.user_id}')">🗓 Timesheet</button>
         <button class="btn-view-shifts" onclick="openShiftsModal('${s.user_id}', '${s.display_name}', '${s.timezone||'Asia/Manila'}')">📋 View / Edit Shifts</button>
       </div>`;
   }).join('');
@@ -2616,6 +2648,146 @@ async function shiftsReject() {
   if (typeof renderPayPeriod === 'function') renderPayPeriod();
 }
 
+// ══════════════════════════════════════════════════════════════
+//  ADMIN: read-only view of a staff member's day-by-day timesheet
+//  (the same 14-day grid the staff fills in — what they entered per
+//  day, not just the aggregate hours the Pay Period list shows).
+//  Mirrors tsLoad()/tsRender() but for a chosen user + period, read-only.
+// ══════════════════════════════════════════════════════════════
+let atsUserId = null, atsName = '', atsOffset = 0, atsRows = [], atsSubmission = null;
+
+function openStaffTimesheet(userId) {
+  const s = (staffConfig || []).find(x => x.user_id === userId);
+  atsUserId = userId;
+  atsName   = (s && s.display_name) || 'Staff';
+  atsOffset = periodOffset;   // start on the period the admin is reviewing
+  document.getElementById('admin-ts-modal').classList.add('open');
+  atsLoad();
+}
+
+async function atsLoad() {
+  const period = getPayPeriod(atsOffset);
+  const tz = ADMIN_TZ;
+  document.getElementById('ats-title').textContent = `${atsName} — Timesheet`;
+  document.getElementById('ats-period-label').textContent = fmtPeriod(period, tz);
+
+  atsRows = [];
+  for (let i = 0; i < 14; i++) {
+    const day = new Date(period.start.getTime() + i * 86400000);
+    const dayLabel = day.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
+    atsRows.push({
+      dayKey:      day.toLocaleDateString('en-US', { timeZone: tz }),
+      dayLabel,
+      dateLabel:   day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
+      weekend:     dayLabel === 'Sat' || dayLabel === 'Sun',
+      hrs: '', autoHrs: 0, note: '', absenceKind: '', hasOverride: false
+    });
+  }
+
+  const bufStart   = new Date(period.start.getTime() - 86400000).toISOString();
+  const bufEnd     = new Date(period.end.getTime()   + 86400000).toISOString();
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const [{ data: entries }, { data: subs }] = await Promise.all([
+    db.from('time_entries').select('*').eq('user_id', atsUserId).gte('clock_in', bufStart).lte('clock_in', bufEnd),
+    db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+  ]);
+  atsSubmission = (subs || []).find(s => s.user_id === atsUserId) || null;
+
+  const byKey = new Map(atsRows.map(r => [r.dayKey, r]));
+  (entries || []).forEach(e => {
+    const dayKey = new Date(e.clock_in).toLocaleDateString('en-US', { timeZone: tz });
+    const row = byKey.get(dayKey);
+    if (!row) return;
+    if (isTimesheetOverride(e)) {
+      const oh = (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
+      row.hrs         = oh > 0 ? Number(oh.toFixed(2)) : '';
+      row.note        = String(e.manual_note || '').slice('Timesheet|'.length);
+      row.absenceKind = e.absence_kind || '';
+      row.hasOverride = true;
+    } else {
+      const ah = (e.clock_out ? new Date(e.clock_out) - new Date(e.clock_in) : 0) / 3600000;
+      row.autoHrs += Math.max(0, ah);
+    }
+  });
+  atsRows.forEach(r => { if (!r.hasOverride && r.autoHrs > 0) r.hrs = Number(r.autoHrs.toFixed(2)); });
+
+  atsRender(period);
+}
+
+function atsRender(period) {
+  const tbody = document.getElementById('ats-body');
+  if (!tbody) return;
+  tbody.innerHTML = atsRows.map(r => {
+    const offTint    = r.absenceKind ? ' ts-row-off' : '';
+    const hrsTxt     = (r.hrs === '' || r.hrs == null) ? '<span style="color:#cbd5e1;">—</span>' : `${r.hrs}`;
+    const isOverride = r.autoHrs > 0 && r.hrs !== '' && Math.abs(parseFloat(r.hrs) - r.autoHrs) > 0.001;
+    const autoHint   = r.autoHrs > 0 ? `<div class="ts-auto-hint ${isOverride ? 'struck' : ''}">Auto: ${r.autoHrs.toFixed(2)}h</div>` : '';
+    const abs        = absenceLabel(r.absenceKind);
+    const absCell    = abs
+      ? `<span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;">${escAttr(abs)}</span>`
+      : '<span style="color:#cbd5e1;">—</span>';
+    const noteCell   = r.note ? escAttr(r.note) : '<span style="color:#cbd5e1;">—</span>';
+    return `<tr class="ts-row ${r.weekend ? 'weekend' : ''}${offTint}">
+      <td class="ts-day">${r.dayLabel}</td>
+      <td class="ts-date">${r.dateLabel}</td>
+      <td class="ts-hours">${hrsTxt}${autoHint}</td>
+      <td class="ts-absence">${absCell}</td>
+      <td>${noteCell}</td>
+    </tr>`;
+  }).join('');
+
+  const total = atsRows.reduce((s, r) => { const h = parseFloat(r.hrs); return s + (isNaN(h) ? 0 : h); }, 0);
+  document.getElementById('ats-total').textContent = total.toFixed(2) + ' h';
+
+  // Status badge (mirrors the staff timesheet's 4-state machine).
+  const sub = atsSubmission;
+  let badge = '<span class="ts-badge ts-badge-draft">Draft — not yet submitted</span>';
+  if (sub) {
+    const fmt = ts => ts ? new Date(ts).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: ADMIN_TZ }) : '';
+    if (sub.status === 'submitted')      badge = `<span class="ts-badge ts-badge-submitted">🟢 Submitted ${fmt(sub.submitted_at)} — awaiting approval</span>`;
+    else if (sub.status === 'approved')  badge = `<span class="ts-badge ts-badge-approved">✓ Approved ${fmt(sub.approved_at)} — final</span>`;
+    else if (sub.status === 'rejected')  { const n = sub.admin_notes ? ` — “${escAttr(sub.admin_notes)}”` : ''; badge = `<span class="ts-badge ts-badge-rejected">⚠ Sent back${n}</span>`; }
+  }
+  document.getElementById('ats-status').innerHTML = badge;
+
+  // Review → approve / send-back, available when submitted.
+  const footer = document.getElementById('ats-approve-footer');
+  if (sub && sub.status === 'submitted') {
+    footer.style.display = 'flex';
+    footer.innerHTML =
+      `<span style="flex:1;font-size:12px;color:var(--gray);">Reviewed the days above?</span>` +
+      `<button class="btn-confirm" style="width:auto;padding:8px 18px;" onclick="atsApprove()">✓ Approve period</button>` +
+      `<button class="btn-cancel"  style="width:auto;padding:8px 14px;" onclick="atsReject()">↩ Send back</button>`;
+  } else {
+    footer.style.display = 'none';
+    footer.innerHTML = '';
+  }
+}
+
+function atsChangePeriod(dir) { atsOffset += dir; atsLoad(); }
+
+async function atsApprove() {
+  const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
+  const { error } = await db.rpc('approve_pay_period', { p_user_id: atsUserId, p_period_start: periodDate });
+  if (error) { showToast('Approve failed: ' + error.message); return; }
+  showToast('Approved.');
+  await atsLoad();
+  if (typeof renderPayPeriod === 'function') renderPayPeriod();
+  if (typeof renderDashboard === 'function') renderDashboard();
+}
+
+async function atsReject() {
+  const note = prompt('Send this period back to the employee. Add a note explaining what needs to be fixed:');
+  if (!note || !note.trim()) return;
+  const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
+  const { error } = await db.rpc('reject_pay_period', { p_user_id: atsUserId, p_period_start: periodDate, p_note: note.trim() });
+  if (error) { showToast('Send-back failed: ' + error.message); return; }
+  showToast('Sent back.');
+  await atsLoad();
+  if (typeof renderPayPeriod === 'function') renderPayPeriod();
+  if (typeof renderDashboard === 'function') renderDashboard();
+}
+
 function startEditShift(id, clockIn, clockOut) {
   // Close any other open edit rows first
   document.querySelectorAll('.edit-row-form').forEach(r => r.remove());
@@ -2874,7 +3046,7 @@ async function renderPayPeriod() {
       const memo    = buildWiseMemo(period, hrs, s.hourly_rate);
       html = `
         <tr>
-          <td class="name-cell">${s.display_name} ${ppsPill}${ppsApprove}<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${s.wise_name || '<em>No Wise name set</em>'}</span></td>
+          <td class="name-cell">${s.display_name} <button type="button" class="ts-view-btn" onclick="openStaffTimesheet('${s.user_id}')" title="View this person's day-by-day timesheet">🗓</button> ${ppsPill}${ppsApprove}<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${s.wise_name || '<em>No Wise name set</em>'}</span></td>
           <td>${payBadge}</td>
           ${hoursCell}
           <td>$${parseFloat(s.hourly_rate).toFixed(2)}</td>
@@ -2896,7 +3068,7 @@ async function renderPayPeriod() {
         : 'Hours → QB Bill (accounting calculates)';
       html = `
         <tr>
-          <td class="name-cell">${s.display_name} ${ppsPill}${ppsApprove}</td>
+          <td class="name-cell">${s.display_name} <button type="button" class="ts-view-btn" onclick="openStaffTimesheet('${s.user_id}')" title="View this person's day-by-day timesheet">🗓</button> ${ppsPill}${ppsApprove}</td>
           <td>${payBadge}</td>
           ${hoursCell}
           ${rateCell}
