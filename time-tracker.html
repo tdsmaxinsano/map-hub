@@ -255,6 +255,9 @@
     .ts-note-input:focus { border-color: var(--blue); outline: none; }
     .ts-auto-hint { font-size: 10px; color: var(--gray); margin-top: 2px; letter-spacing: 0.2px; }
     .ts-auto-hint.struck { text-decoration: line-through; color: #B45309; font-weight: 700; }
+    /* Forgotten clock-out: a shift over the 10h cap. Counted at the cap; flagged so an admin fixes it. */
+    .ts-cap-warn { font-size: 10px; color: #b91c1c; font-weight: 800; margin-top: 2px; cursor: help; }
+    .shift-cap-warn { color: #b91c1c; font-weight: 800; cursor: help; }
     .ts-absence { width: 140px; }
     .ts-absence-select { width: 130px; padding: 4px 6px; border: 1.5px solid var(--border); border-radius: 5px; font-size: 12px; font-weight: 600; background: var(--white); color: var(--text); }
     .ts-absence-select:focus { border-color: var(--blue); outline: none; }
@@ -1196,6 +1199,18 @@ function fmtPeriod(p, tz = ADMIN_TZ) {
 function isTimesheetOverride(e) {
   return String(e && e.manual_note || '').startsWith('Timesheet|');
 }
+// A single shift longer than the 10h daily policy cap is a forgotten clock-out:
+// the client-side auto-stop (startHardStopMonitor) only fires while the staff's
+// browser tab is open, so closing the tab leaves the shift running for hours or
+// days. Count only up to the cap so payroll can't be silently inflated; `flagged`
+// lets the views mark it so an admin fixes the real clock-out. (MAX_SHIFT_HOURS is
+// module-level; this is only ever called at event time, after the script loads.)
+function shiftDuration(clockIn, clockOut) {
+  const ci  = new Date(clockIn);
+  const co  = clockOut ? new Date(clockOut) : new Date();
+  const raw = Math.max(0, (co - ci) / 3600000);
+  return { raw, capped: Math.min(raw, MAX_SHIFT_HOURS), flagged: raw > MAX_SHIFT_HOURS + 0.001 };
+}
 function hoursInPeriod(entries, period, tz = ADMIN_TZ) {
   // Bucket by ADMIN_TZ calendar day (matches how Timesheet| rows are anchored).
   const byDay = new Map();
@@ -1211,9 +1226,9 @@ function hoursInPeriod(entries, period, tz = ADMIN_TZ) {
     const overrides = dayEntries.filter(isTimesheetOverride);
     const source    = overrides.length ? overrides : dayEntries;
     for (const e of source) {
-      const ci = new Date(e.clock_in);
-      const co = e.clock_out ? new Date(e.clock_out) : new Date();
-      total += Math.max(0, (co - ci) / 3600000);
+      // Cap each shift at the daily policy limit so a forgotten clock-out
+      // (a multi-hour/day open shift) can't silently inflate the payroll total.
+      total += shiftDuration(e.clock_in, e.clock_out).capped;
     }
   }
   return total;
@@ -1227,8 +1242,7 @@ function hoursToday(entries, tz) {
     const ci   = new Date(e.clock_in);
     const ciDay = ci.toLocaleDateString('en-US', { timeZone: tz });
     if (ciDay === today) {
-      const co = e.clock_out ? new Date(e.clock_out) : now;
-      hrs += Math.max(0, (co - ci) / 3600000);
+      hrs += shiftDuration(e.clock_in, e.clock_out).capped;
     }
   }
   return hrs;
@@ -1698,6 +1712,7 @@ async function loadStaffView() {
     const ci      = new Date(e.clock_in);
     const co      = new Date(e.clock_out);
     const hrs     = (co - ci) / 3600000;
+    const overCap = hrs > MAX_SHIFT_HOURS + 0.001;   // likely a forgotten clock-out
     const dateStr = ci.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: myTZ });
     const inStr   = ci.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: myTZ });
     const outStr  = co.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: myTZ });
@@ -1714,7 +1729,7 @@ async function loadStaffView() {
             <div class="entry-times">${inStr} → ${outStr}</div>
             ${e.is_manual ? '<div class="entry-manual">Manual Entry</div>' : ''}
           </div>
-          <div class="entry-hours">${fmtHrs(hrs)}h</div>
+          <div class="entry-hours">${fmtHrs(hrs)}h${overCap ? ` <span class="shift-cap-warn" title="Over the ${MAX_SHIFT_HOURS}h cap — likely a forgotten clock-out. Only ${MAX_SHIFT_HOURS}h counts toward pay; ask your admin to fix.">⚠</span>` : ''}</div>
         </div>
         <div>${editBtn}</div>
       </div>`;
@@ -1768,10 +1783,12 @@ async function tsLoad() {
       dateLabel:   day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
       weekend:     dayLabel === 'Sat' || dayLabel === 'Sun',
       hrs:         '',
-      autoHrs:     0,                                                     // sum of clock-ins on this day
+      autoHrs:     0,                                                     // sum of clock-ins on this day (capped per shift)
       note:        '',
       absenceKind: '',
-      existingId:  null                                                   // override entry id, if any
+      existingId:  null,                                                  // override entry id, if any
+      flagged:     false,                                                 // a shift on this day exceeded the 10h cap
+      rawHrs:      0                                                      // raw (uncapped) hours of the over-cap shift
     });
   }
 
@@ -1792,14 +1809,17 @@ async function tsLoad() {
     const row = dayRowByKey.get(dayKey);
     if (!row) return;
     if (isTimesheetOverride(e)) {
-      const oh = (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
-      row.hrs         = oh > 0 ? Number(oh.toFixed(2)) : '';
+      const d = shiftDuration(e.clock_in, e.clock_out);
+      row.hrs         = d.capped > 0 ? Number(d.capped.toFixed(2)) : '';
       row.note        = String(e.manual_note || '').slice('Timesheet|'.length);
       row.absenceKind = e.absence_kind || '';
       row.existingId  = e.id;
-    } else {
-      const ah = (e.clock_out ? new Date(e.clock_out) - new Date(e.clock_in) : 0) / 3600000;
-      row.autoHrs += Math.max(0, ah);
+      if (d.flagged) { row.flagged = true; row.rawHrs = Math.max(row.rawHrs || 0, d.raw); }
+    } else if (e.clock_out) {
+      // Only closed shifts pre-fill the auto value (an open shift stays 0 here).
+      const d = shiftDuration(e.clock_in, e.clock_out);
+      row.autoHrs += d.capped;
+      if (d.flagged) { row.flagged = true; row.rawHrs = Math.max(row.rawHrs || 0, d.raw); }
     }
   });
   // For days WITHOUT an override, pre-fill the input with the auto value.
@@ -1835,13 +1855,16 @@ function tsRender(period) {
     const hintHtml   = hasAuto
       ? `<div class="ts-auto-hint ${isOverride ? 'struck' : ''}" data-auto="${r.autoHrs.toFixed(2)}">Auto: ${r.autoHrs.toFixed(2)}h</div>`
       : '';
+    const warnHtml   = r.flagged
+      ? `<div class="ts-cap-warn" title="Looks like a forgotten clock-out: ${(r.rawHrs||0).toFixed(2)}h recorded — capped to ${MAX_SHIFT_HOURS}h. Ask your admin to fix the clock-out.">⚠ capped · ${(r.rawHrs||0).toFixed(1)}h raw</div>`
+      : '';
     return `
     <tr class="ts-row ${r.weekend ? 'weekend' : ''}${offTint}">
       <td class="ts-day">${r.dayLabel}</td>
       <td class="ts-date">${r.dateLabel}</td>
       <td class="ts-hours">
         <input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0" />
-        ${hintHtml}
+        ${hintHtml}${warnHtml}
       </td>
       <td class="ts-absence"><select class="ts-absence-select" data-idx="${i}" data-field="absenceKind">${absenceOptions}</select></td>
       <td><input type="text" class="ts-note-input" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${r.weekend ? '(weekend, optional)' : 'optional note'}" /></td>
@@ -2522,10 +2545,23 @@ async function loadShifts() {
         ? co.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: DISP_TZ })
         : '<span style="color:#bbb;">—</span>';
 
-      // OPEN shifts: live-tick the running hours cell.
-      const hrsCell = open
-        ? `<span data-running-since="${ci.getTime()}">${((Date.now() - ci.getTime()) / 3600000).toFixed(2)}h</span>`
-        : ((co - ci) / 3600000).toFixed(2) + 'h';
+      // OPEN shifts live-tick. CLOSED shifts show the recorded (raw) duration so
+      // the admin sees reality; a shift over the 10h cap is a likely forgotten
+      // clock-out — flag it (only 10h counts toward pay via hoursInPeriod).
+      let hrsCell;
+      if (open) {
+        const elapsed = (Date.now() - ci.getTime()) / 3600000;
+        const warn = elapsed > MAX_SHIFT_HOURS + 0.001
+          ? ` <span class="shift-cap-warn" title="Still clocked in for over ${MAX_SHIFT_HOURS}h — likely a forgotten clock-out. Only ${MAX_SHIFT_HOURS}h counts toward pay.">⚠</span>`
+          : '';
+        hrsCell = `<span data-running-since="${ci.getTime()}">${elapsed.toFixed(2)}h</span>${warn}`;
+      } else {
+        const d = shiftDuration(e.clock_in, e.clock_out);
+        const warn = d.flagged
+          ? ` <span class="shift-cap-warn" title="Exceeds the ${MAX_SHIFT_HOURS}h cap — only ${MAX_SHIFT_HOURS}h counts toward pay (likely forgotten clock-out). Edit the clock-out to fix.">⚠</span>`
+          : '';
+        hrsCell = `${d.raw.toFixed(2)}h${warn}`;
+      }
 
       // Three badge variants make it easier to tell which row drove the
       // payroll number: System = clock-in shift, Timesheet = staff
@@ -2680,7 +2716,8 @@ async function atsLoad() {
       dayLabel,
       dateLabel:   day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
       weekend:     dayLabel === 'Sat' || dayLabel === 'Sun',
-      hrs: '', autoHrs: 0, note: '', absenceKind: '', hasOverride: false
+      hrs: '', autoHrs: 0, note: '', absenceKind: '', hasOverride: false,
+      flagged: false, rawHrs: 0
     });
   }
 
@@ -2699,14 +2736,16 @@ async function atsLoad() {
     const row = byKey.get(dayKey);
     if (!row) return;
     if (isTimesheetOverride(e)) {
-      const oh = (new Date(e.clock_out) - new Date(e.clock_in)) / 3600000;
-      row.hrs         = oh > 0 ? Number(oh.toFixed(2)) : '';
+      const d = shiftDuration(e.clock_in, e.clock_out);
+      row.hrs         = d.capped > 0 ? Number(d.capped.toFixed(2)) : '';
       row.note        = String(e.manual_note || '').slice('Timesheet|'.length);
       row.absenceKind = e.absence_kind || '';
       row.hasOverride = true;
-    } else {
-      const ah = (e.clock_out ? new Date(e.clock_out) - new Date(e.clock_in) : 0) / 3600000;
-      row.autoHrs += Math.max(0, ah);
+      if (d.flagged) { row.flagged = true; row.rawHrs = Math.max(row.rawHrs || 0, d.raw); }
+    } else if (e.clock_out) {
+      const d = shiftDuration(e.clock_in, e.clock_out);
+      row.autoHrs += d.capped;
+      if (d.flagged) { row.flagged = true; row.rawHrs = Math.max(row.rawHrs || 0, d.raw); }
     }
   });
   atsRows.forEach(r => { if (!r.hasOverride && r.autoHrs > 0) r.hrs = Number(r.autoHrs.toFixed(2)); });
@@ -2722,6 +2761,9 @@ function atsRender(period) {
     const hrsTxt     = (r.hrs === '' || r.hrs == null) ? '<span style="color:#cbd5e1;">—</span>' : `${r.hrs}`;
     const isOverride = r.autoHrs > 0 && r.hrs !== '' && Math.abs(parseFloat(r.hrs) - r.autoHrs) > 0.001;
     const autoHint   = r.autoHrs > 0 ? `<div class="ts-auto-hint ${isOverride ? 'struck' : ''}">Auto: ${r.autoHrs.toFixed(2)}h</div>` : '';
+    const warnHtml   = r.flagged
+      ? `<div class="ts-cap-warn" title="Likely forgotten clock-out: ${(r.rawHrs||0).toFixed(2)}h recorded — capped to ${MAX_SHIFT_HOURS}h for pay. Fix the clock-out in View / Edit Shifts.">⚠ capped · ${(r.rawHrs||0).toFixed(1)}h raw</div>`
+      : '';
     const abs        = absenceLabel(r.absenceKind);
     const absCell    = abs
       ? `<span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;">${escAttr(abs)}</span>`
@@ -2730,7 +2772,7 @@ function atsRender(period) {
     return `<tr class="ts-row ${r.weekend ? 'weekend' : ''}${offTint}">
       <td class="ts-day">${r.dayLabel}</td>
       <td class="ts-date">${r.dateLabel}</td>
-      <td class="ts-hours">${hrsTxt}${autoHint}</td>
+      <td class="ts-hours">${hrsTxt}${autoHint}${warnHtml}</td>
       <td class="ts-absence">${absCell}</td>
       <td>${noteCell}</td>
     </tr>`;
@@ -2974,7 +3016,13 @@ async function renderPayPeriod() {
     const adjTotal  = myAdjs.reduce((sum, a) => sum + parseFloat(a.amount), 0);
     const netPay    = earned + adjTotal;
     const isPH      = cat === 'wise_hourly';
-    return { hrs, earned, myAdjs, netPay, isPH, cat };
+    // Flag if any in-period shift exceeded the 10h cap (likely forgotten
+    // clock-out) — the hours total is already capped; this surfaces it.
+    const capped    = myEntries.some(e => {
+      const ci = new Date(e.clock_in);
+      return ci >= period.start && ci <= period.end && shiftDuration(e.clock_in, e.clock_out).flagged;
+    });
+    return { hrs, earned, myAdjs, netPay, isPH, cat, capped };
   }
 
   const allActive = staffConfig.filter(s => s.is_active);
@@ -2998,7 +3046,7 @@ async function renderPayPeriod() {
   }).sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || '')));
 
   const rows = visible.map(s => {
-    const { hrs, earned, myAdjs, isPH, cat } = computeStaff(s);
+    const { hrs, earned, myAdjs, isPH, cat, capped } = computeStaff(s);
 
     // Split adjustments: positive ones become their own sendable rows;
     // negative ones (deductions) fold into the main row's base.
@@ -3019,7 +3067,7 @@ async function renderPayPeriod() {
     // instead of the input so nobody "enters hours to make pay come out".
     const hoursCell = cat === 'salary_dd'
       ? `<td style="color:#999;font-size:11px;" title="Salary — hours not used for pay">— salary</td>`
-      : `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h</td>`;
+      : `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h${capped ? ` <span class="shift-cap-warn" title="A shift this period exceeded the ${MAX_SHIFT_HOURS}h cap (likely forgotten clock-out) — counted at the cap. Open 🗓 Timesheet or Shifts to fix.">⚠</span>` : ''}</td>`;
     const addAdjCell = `<td><button type="button" class="add-adj-btn" data-uid="${s.user_id}">+ adj</button></td>`;
 
     // Pay-period submission pill — lives next to the staff name.
