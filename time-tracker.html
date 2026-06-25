@@ -301,6 +301,14 @@
     .ts-submit-btn { display: block; margin: 14px 0 0 auto; padding: 10px 26px; background: linear-gradient(135deg, var(--blue) 0%, #1B3F75 100%); color: var(--white); border: none; border-radius: 7px; font-size: 13px; font-weight: 800; cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
     .ts-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(11,46,99,0.25); }
     .ts-submit-btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+    /* Save (draft) + unsaved-changes affordances on the timesheet */
+    .ts-actions { display: flex; align-items: center; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+    .ts-actions .ts-submit-btn { margin: 0; }
+    .ts-unsaved { margin-right: auto; font-size: 12px; font-weight: 800; color: #B45309; display: inline-flex; align-items: center; gap: 5px; }
+    .ts-unsaved[hidden] { display: none; }
+    .ts-save-btn { padding: 10px 22px; background: var(--white); color: var(--blue); border: 1.5px solid var(--blue); border-radius: 7px; font-size: 13px; font-weight: 800; cursor: pointer; transition: background 0.15s; }
+    .ts-save-btn:not(:disabled):hover { background: #EEF4FB; }
+    .ts-save-btn:disabled { opacity: 0.45; cursor: not-allowed; }
     /* Pay Period sort/filter toolbar */
     .pp-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
     .pp-toolbar-label { font-size: 11px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-left: 4px; }
@@ -601,7 +609,11 @@
             </tr>
           </tfoot>
         </table>
-        <button class="ts-submit-btn" type="button" id="ts-submit-btn" onclick="tsSubmit()">Submit Timesheet</button>
+        <div class="ts-actions">
+          <span class="ts-unsaved" id="ts-unsaved" hidden>● Unsaved changes</span>
+          <button class="ts-save-btn"   type="button" id="ts-save-btn"   onclick="tsSave()" disabled>Save</button>
+          <button class="ts-submit-btn" type="button" id="ts-submit-btn" onclick="tsSubmit()">Submit Timesheet</button>
+        </div>
       </div>
 
       <!-- 💸 My Expenses — staff-submitted office purchases (coffee runs,
@@ -1040,6 +1052,7 @@ let editingAdj = null;
 let tsPeriodOffset = 0;
 let tsRows = [];
 let tsSubmission = null;            // current pay_period_submissions row (or null = draft)
+let tsDirty = false;               // unsaved edits in the grid since last load/save?
 
 // ══════════════════════════════════════════════════════════════
 //  INIT
@@ -1907,6 +1920,7 @@ async function tsLoad(useCache) {
   tsSubmission = (subs && subs.length) ? subs[0] : null;
 
   tsRender(period);
+  tsSetDirty(false);   // fresh from DB — no unsaved edits
 }
 
 function tsRender(period) {
@@ -1955,6 +1969,7 @@ function tsRender(period) {
       const field = inp.dataset.field;
       if (!(i >= 0 && i < tsRows.length)) return;
       tsRows[i][field] = inp.value;
+      tsSetDirty(true);   // grid edited — enable Save + show the unsaved hint
       if (field === 'hrs') {
         tsUpdateTotal();
         // Live strikethrough on the Auto: hint when value diverges from auto.
@@ -2077,87 +2092,111 @@ function tsUpdateStatus() {
 }
 
 function tsChangePeriod(dir) {
+  // Guard against silently erasing in-progress edits when switching periods.
+  if (tsDirty && !confirm('You have unsaved changes on this timesheet.\n\nSwitch periods anyway? Your changes will be lost.\n\nTip: Cancel, then click Save to keep them.')) {
+    showToast('Stayed on this period — click Save to keep your changes.');
+    return;
+  }
   tsPeriodOffset += dir;
   tsLoad(true);   // navigation — use the cache for instant Prev/Next
 }
 
+// Mark / clear the unsaved-edits state — drives the Save button + the hint.
+function tsSetDirty(v) {
+  tsDirty = !!v;
+  const ind  = document.getElementById('ts-unsaved');
+  const save = document.getElementById('ts-save-btn');
+  if (ind)  ind.hidden    = !tsDirty;
+  if (save) save.disabled = !tsDirty;
+}
+
+// Persist this period's per-day overrides — one DELETE for the whole period +
+// one bulk INSERT (batched so it's fast over high-latency links). Returns
+// {saved, cleared}; throws on DB error. Does NOT stamp the submission, so it's
+// shared by Save (draft) and Submit. Only persists a day when its value differs
+// from the clock-in auto OR it has an absence/note; otherwise the auto stands.
+async function tsPersistDays() {
+  const firstDay  = tsRows[0].date;
+  const afterLast = new Date(tsRows[tsRows.length - 1].date.getTime() + 86400000);
+
+  const { error: delErr } = await db.from('time_entries').delete()
+    .eq('user_id', currentUser.id).eq('is_manual', true)
+    .like('manual_note', 'Timesheet|%')
+    .gte('clock_in', firstDay.toISOString())
+    .lt('clock_in',  afterLast.toISOString());
+  if (delErr) throw delErr;
+
+  const inserts = [];
+  let cleared = 0;
+  for (const r of tsRows) {
+    const hrsNum = parseFloat(r.hrs);
+    const hrs    = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
+    const auto   = Number(r.autoHrs) || 0;
+    const kind   = r.absenceKind || null;
+    const note   = (r.note || '').trim();
+    const needsOverride = (Math.abs(hrs - auto) > 0.001) || kind || note;
+    if (needsOverride) {
+      inserts.push({
+        user_id:      currentUser.id,
+        clock_in:     r.date.toISOString(),
+        clock_out:    new Date(r.date.getTime() + hrs * 3600000).toISOString(),
+        is_manual:    true,
+        manual_note:  'Timesheet|' + (r.note || ''),
+        absence_kind: kind,
+        created_by:   currentUser.id
+      });
+    } else if (r.existingId) {
+      cleared++;
+    }
+  }
+  let saved = 0;
+  if (inserts.length) {
+    const { error: insErr } = await db.from('time_entries').insert(inserts);
+    if (insErr) throw insErr;
+    saved = inserts.length;
+  }
+  return { saved, cleared };
+}
+
+// Save a DRAFT — persist the day data so it survives navigation, WITHOUT
+// changing the submission status (no "submitted" stamp).
+async function tsSave() {
+  if (!tsRows.length) return;
+  const btn = document.getElementById('ts-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const { saved, cleared } = await tsPersistDays();
+    tsSetDirty(false);
+    showToast(`Saved ${saved} day(s)${cleared ? ` · cleared ${cleared}` : ''} — you can switch periods safely now.`);
+  } catch (err) {
+    console.error('Timesheet save failed', err);
+    showToast('Save failed: ' + (err?.message || err) + ' — please try again.');
+  } finally {
+    if (btn) { btn.textContent = 'Save'; btn.disabled = !tsDirty; }   // stays enabled if the save failed
+  }
+  try { await tsLoad(); } catch (e) { console.error('tsLoad after save failed', e); }
+}
+
 async function tsSubmit() {
+  if (!tsRows.length) return;
   const btn = document.getElementById('ts-submit-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
-
-  // BATCHED submit. The previous version ran one DELETE + one INSERT *per day*
-  // (up to ~28 sequential round trips), which over a high-latency connection
-  // (e.g. PH staff) could take 15-30s and look "stuck on Submitting…". This
-  // does it in 3 calls: one DELETE for the whole period, one bulk INSERT of the
-  // override rows, one submit stamp. A try/finally guarantees the button is
-  // always freed, and any DB error is surfaced in a toast instead of silently
-  // leaving the button stuck.
-  if (!tsRows.length) {                                                   // nothing loaded — bail cleanly
-    if (btn) { btn.disabled = false; btn.textContent = 'Submit Timesheet'; }
-    return;
-  }
-  const period    = getPayPeriod(tsPeriodOffset);
-  const firstDay  = tsRows[0].date;                                       // period start (grid day 0)
-  const afterLast = new Date(tsRows[tsRows.length - 1].date.getTime() + 86400000);
-  let saved = 0, cleared = 0;
-
   try {
-    // 1) Wipe this user's Timesheet| overrides for the WHOLE period in one
-    //    call — admin aggregates (manual_note != 'Timesheet|...') untouched.
-    const { error: delErr } = await db.from('time_entries').delete()
-      .eq('user_id', currentUser.id).eq('is_manual', true)
-      .like('manual_note', 'Timesheet|%')
-      .gte('clock_in', firstDay.toISOString())
-      .lt('clock_in',  afterLast.toISOString());
-    if (delErr) throw delErr;
-
-    // 2) Collect the rows that still need an override and INSERT them at once.
-    //    Only persist when the value differs from the clock-in auto OR there's
-    //    an absence/note; otherwise let the auto value stand (cleared).
-    const inserts = [];
-    for (const r of tsRows) {
-      const hrsNum = parseFloat(r.hrs);
-      const hrs    = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
-      const auto   = Number(r.autoHrs) || 0;
-      const kind   = r.absenceKind || null;
-      const note   = (r.note || '').trim();
-      const needsOverride = (Math.abs(hrs - auto) > 0.001) || kind || note;
-      if (needsOverride) {
-        inserts.push({
-          user_id:      currentUser.id,
-          clock_in:     r.date.toISOString(),
-          clock_out:    new Date(r.date.getTime() + hrs * 3600000).toISOString(),
-          is_manual:    true,
-          manual_note:  'Timesheet|' + (r.note || ''),
-          absence_kind: kind,
-          created_by:   currentUser.id
-        });
-      } else if (r.existingId) {
-        cleared++;
-      }
-    }
-    if (inserts.length) {
-      const { error: insErr } = await db.from('time_entries').insert(inserts);
-      if (insErr) throw insErr;
-      saved = inserts.length;
-    }
-
-    // 3) Stamp the per-period submission (status → submitted).
+    const { saved, cleared } = await tsPersistDays();
+    const period     = getPayPeriod(tsPeriodOffset);
     const periodDate = period.start.toISOString().slice(0, 10);
     const { error: subErr } = await db.rpc('submit_pay_period', { p_period_start: periodDate });
     if (subErr) throw subErr;
-
+    tsSetDirty(false);
     showToast(`Submitted ${saved} day(s)${cleared ? ` · cleared ${cleared}` : ''}`);
   } catch (err) {
     console.error('Timesheet submit failed', err);
     showToast('Submit failed: ' + (err?.message || err) + ' — please try again.');
   } finally {
-    // Always free the button so it can never get stuck on "Submitting…".
+    // Always free the button — it can never get stuck on "Submitting…".
     if (btn) { btn.disabled = false; btn.textContent = 'Submit Timesheet'; }
   }
-
-  // Refresh (also resets the button label to Re-submit / Submit Fixes). Never
-  // let a refresh hiccup leave the view — or the button — stale.
+  // Refresh (also resets the submit label to Re-submit / Submit Fixes).
   try { await tsLoad(); } catch (e) { console.error('tsLoad after submit failed', e); }
 }
 
