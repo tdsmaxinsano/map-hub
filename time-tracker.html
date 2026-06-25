@@ -869,6 +869,10 @@
       <select id="adj-staff"></select>
     </div>
     <div class="form-group">
+      <label>Pay Period <span style="font-weight:400;color:var(--gray);font-size:11px;">— change this to move the adjustment to another period</span></label>
+      <select id="adj-period"></select>
+    </div>
+    <div class="form-group">
       <label>Type</label>
       <select id="adj-type" onchange="syncAdjTypeUi()">
         <option value="bonus">Bonus (positive)</option>
@@ -3642,7 +3646,7 @@ function renderAdjSubRow(a, isPH, period, feePct, phpRate) {
     : '';
   const controls = `
     <span class="adj-row-controls">
-      <button type="button" class="adj-edit-btn" data-id="${a.id}" title="Edit adjustment">✎</button>
+      <button type="button" class="adj-edit-btn" data-id="${a.id}" title="Edit / move to another pay period">✎</button>
       <button type="button" class="adj-del-btn"  data-id="${a.id}" data-receipt="${a.receipt_url || ''}" title="Delete adjustment">🗑</button>
     </span>`;
   const nameCell = `<td class="name-cell adj-name">↳ ${label}${ref ? `<br/><span style="font-size:10px;color:var(--gray);font-weight:400;">${ref}${receiptLink}</span>` : receiptLink}${controls}</td>`;
@@ -4208,6 +4212,33 @@ function getTZOffset(tz, date) {
 // ══════════════════════════════════════════════════════════════
 //  ADJUSTMENT MODAL
 // ══════════════════════════════════════════════════════════════
+// Build <option>s for the adjustment Pay Period selector (newest first).
+// Lists a window of bi-weekly periods and guarantees `selectedIso` is present,
+// so an adjustment sitting on an older/future period is always selectable —
+// this is what lets an approved reimbursement be moved to another period.
+function adjPeriodOptionsHtml(selectedIso) {
+  const opts = [];
+  const seen = new Set();
+  for (let off = 4; off >= -14; off--) {
+    const p   = getPayPeriod(off);
+    const iso = p.start.toISOString().slice(0, 10);
+    seen.add(iso);
+    opts.push({ iso, label: fmtPeriod(p) + (off === 0 ? ' · current' : '') });
+  }
+  if (selectedIso && !seen.has(selectedIso)) {
+    // Out of the default window — derive a correct label via the grid offset.
+    const dayMs  = 24 * 60 * 60 * 1000;
+    const curIso = getPayPeriod(0).start.toISOString().slice(0, 10);
+    const off    = Math.round((Date.parse(selectedIso) - Date.parse(curIso)) / (14 * dayMs));
+    const p      = getPayPeriod(off);
+    const label  = p.start.toISOString().slice(0, 10) === selectedIso ? fmtPeriod(p) : selectedIso;
+    opts.unshift({ iso: selectedIso, label });
+  }
+  return opts.map(o =>
+    `<option value="${o.iso}"${o.iso === selectedIso ? ' selected' : ''}>${o.label}</option>`
+  ).join('');
+}
+
 function openAdjModal(preUid, editAdj) {
   editingAdj = editAdj || null;
   populateStaffDropdown('adj-staff');
@@ -4233,6 +4264,15 @@ function openAdjModal(preUid, editAdj) {
     document.getElementById('adj-currency').value = 'PHP';
   }
   document.getElementById('adj-receipt').value = '';
+
+  // Pay Period selector — edit: the adjustment's own period (so it can be moved);
+  // add: the period currently shown on the Pay Period tab.
+  const adjPeriodSel = document.getElementById('adj-period');
+  if (adjPeriodSel) {
+    const curIso = getPayPeriod(periodOffset).start.toISOString().slice(0, 10);
+    const selIso = (editAdj && editAdj.period_start) ? String(editAdj.period_start).slice(0, 10) : curIso;
+    adjPeriodSel.innerHTML = adjPeriodOptionsHtml(selIso);
+  }
 
   // Show existing-receipt link inside the receipt group (edit mode only).
   const oldLink = document.getElementById('adj-existing-receipt');
@@ -4309,11 +4349,14 @@ async function saveAdjustment() {
   const type    = document.getElementById('adj-type').value;
   const amount  = parseFloat(document.getElementById('adj-amount').value);
   const note    = document.getElementById('adj-note').value.trim();
+  const adjPeriodSel = document.getElementById('adj-period');
 
   if (!uid || isNaN(amount) || amount <= 0) { showToast('Please enter a valid amount.'); return; }
 
   const period     = getPayPeriod(periodOffset);
-  const periodDate = period.start.toISOString().slice(0, 10);
+  // The period the adjustment lands on = the modal's selector (defaults to the
+  // shown period for adds / its own period for edits). Changing it MOVES the row.
+  const periodDate = (adjPeriodSel && adjPeriodSel.value) || period.start.toISOString().slice(0, 10);
 
   // Resolve USD amount + reimbursement extras.
   let finalAmt = type === 'deduction' ? -amount : amount;
@@ -4359,17 +4402,19 @@ async function saveAdjustment() {
     receipt_url:      receiptUrl,
     original_amount:  origAmount,
     original_currency: origCurrency,
-    fx_rate:          fxRate
+    fx_rate:          fxRate,
+    period_start:     periodDate          // chosen period — editing this MOVES the row
   };
+
+  const movedToOtherPeriod = editing && String(editing.period_start || '').slice(0, 10) !== periodDate;
 
   let dbErr;
   if (editing) {
     ({ error: dbErr } = await db.from('pay_period_adjustments')
       .update(payload).eq('id', editing.id));
   } else {
-    payload.user_id      = uid;
-    payload.period_start = periodDate;
-    payload.created_by   = currentUser.id;
+    payload.user_id    = uid;
+    payload.created_by = currentUser.id;
     ({ error: dbErr } = await db.from('pay_period_adjustments').insert(payload));
   }
   if (dbErr) { showToast('Error: ' + dbErr.message); return; }
@@ -4382,7 +4427,10 @@ async function saveAdjustment() {
     } catch (_) { /* non-fatal */ }
   }
 
-  showToast(editing ? 'Adjustment updated.' : 'Adjustment saved!');
+  const movedLabel = (movedToOtherPeriod && adjPeriodSel && adjPeriodSel.selectedOptions[0])
+    ? adjPeriodSel.selectedOptions[0].textContent.replace(' · current', '')
+    : '';
+  showToast(movedToOtherPeriod ? ('Moved to ' + movedLabel + '.') : (editing ? 'Adjustment updated.' : 'Adjustment saved!'));
   editingAdj = null;
   closeModal('adj-modal');
   renderPayPeriod();
