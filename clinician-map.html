@@ -2869,6 +2869,10 @@
       cursor: pointer; transition: all .15s; user-select: none;
     }
     .qaref-disc-btn.selected { color: #fff; border-color: transparent; }
+    .qaref-solo-row { display: flex; align-items: center; gap: 7px; margin-top: 10px; font-size: 12px; color: #526480; cursor: pointer; }
+    .qaref-solo-row input { cursor: pointer; }
+    .ref-solo-toggle { display: flex; align-items: center; gap: 6px; margin: 7px 0 2px; font-size: 11px; color: #526480; cursor: pointer; }
+    .ref-solo-toggle input { cursor: pointer; margin: 0; }
     /* Submit */
     .qaref-footer { display: flex; gap: 8px; margin-top: 2px; }
     #qaref-submit {
@@ -7251,6 +7255,10 @@
           <div class="qaref-disc-btn" data-disc="OTA" onclick="toggleQarefDisc(this)" style="--dc:#ef7d23">OTA</div>
           <div class="qaref-disc-btn" data-disc="ST"  onclick="toggleQarefDisc(this)" style="--dc:#6b7280">ST</div>
         </div>
+        <label class="qaref-solo-row">
+          <input type="checkbox" id="qaref-solo" onchange="toggleQarefSolo()">
+          <span>Solo request — no assistant (skip auto-adding PTA / OTA)</span>
+        </label>
       </div>
 
       <div class="qaref-footer">
@@ -25364,6 +25372,19 @@
       return "<span class='ref-overlay-disc'>" + escHtml(d) + "</span>";
     }).join("");
 
+    // Solo toggle — PT/OT referrals carry their assistant (PTA/OTA) by default;
+    // flip to therapist-only. Hidden when no PT/OT (e.g. ST is always solo).
+    var _discArr = r.disciplines || [];
+    var _hasSup  = _discArr.indexOf("PT") !== -1 || _discArr.indexOf("OT") !== -1;
+    var _isSolo  = (_discArr.indexOf("PT") !== -1 && _discArr.indexOf("PTA") === -1) ||
+                   (_discArr.indexOf("OT") !== -1 && _discArr.indexOf("OTA") === -1);
+    var soloToggleHtml = _hasSup
+      ? "<label class='ref-solo-toggle' title='Solo = therapist only (no PTA / OTA)'>" +
+          "<input type='checkbox' " + (_isSolo ? "checked" : "") + " onchange='refToggleSolo(\"" + rid + "\")'>" +
+          "<span>Solo — no assistant</span>" +
+        "</label>"
+      : "";
+
     var discOptions = (r.disciplines || []).flatMap(function(d) {
       if (d === "PT/PTA") return ["PT","PTA"];
       if (d === "OT/OTA") return ["OT","OTA"];
@@ -25389,6 +25410,7 @@
       "</div>" +
       "<div class='ref-panel-body'>" +
         (discsHtml ? "<div class='ref-overlay-discs'>" + discsHtml + "</div>" : "") +
+        soloToggleHtml +
 
         "<div class='ref-overlay-meta'>" +
           (r.agency
@@ -25670,6 +25692,38 @@
   var _qarefAddressTimer   = null;
   var _qarefEditId         = null; // non-null when modal is in edit mode
 
+  // Flip a referral between combo (PT+PTA / OT+OTA) and solo (supervisor only),
+  // straight from its detail popup. Uses the existing disciplines list.
+  async function refToggleSolo(refId) {
+    var r = (appState.referralOverlayData || []).find(function(x) { return String(x.id) === String(refId); });
+    if (!r) return;
+    var discs = (r.disciplines || []).slice();
+    var hasPT = discs.indexOf("PT") !== -1, hasOT = discs.indexOf("OT") !== -1;
+    if (!hasPT && !hasOT) return;   // ST-only — no assistant to toggle
+    var isSolo = (hasPT && discs.indexOf("PTA") === -1) || (hasOT && discs.indexOf("OTA") === -1);
+    if (isSolo) {                   // → combo: add the assistant(s)
+      if (hasPT && discs.indexOf("PTA") === -1) discs.push("PTA");
+      if (hasOT && discs.indexOf("OTA") === -1) discs.push("OTA");
+    } else {                        // → solo: drop the assistant(s)
+      discs = discs.filter(function(d) { return d !== "PTA" && d !== "OTA"; });
+    }
+    var prev = r.disciplines;
+    r.disciplines = discs.length ? discs : null;   // optimistic
+    try {
+      var resp = await supabaseClient.from("referrals")
+        .update({ disciplines: discs.length ? discs : null }).eq("id", refId);
+      if (resp.error) throw resp.error;
+    } catch (e) {
+      r.disciplines = prev;
+      showToast("Could not update referral: " + (e.message || e), "error");
+      return;
+    }
+    rebuildReferralGeoJSON();
+    populateReferralDropdown();
+    if (appState.refPanelOpenId === String(refId)) { closeRefPanel(); openRefPanel(String(refId)); }
+    showToast(isSolo ? "Marked as combo — assistant added." : "Marked as solo — no assistant.");
+  }
+
   function openQuickAddReferral() {
     ensureAgenciesLoaded();
     // Reset edit mode
@@ -25691,6 +25745,9 @@
       b.style.color = "#526480";
       b.style.borderColor = "#e2e8f0";
     });
+    _qarefSolo = false;
+    var __soloCb = document.getElementById("qaref-solo");
+    if (__soloCb) __soloCb.checked = false;
     _qarefSelectedAgency = "";
     _qarefAgencyListIndex = -1;
     _qarefAddressCoords  = null;
@@ -25726,13 +25783,16 @@
       _qarefAddressCoords = { lng: r.lng, lat: r.lat, place_name: r.address };
     }
 
-    // Disciplines — select matching buttons
+    // Disciplines — restore EXACTLY what was saved (no auto-pair on load).
     var savedDiscs = r.disciplines || [];
     document.querySelectorAll(".qaref-disc-btn").forEach(function(btn) {
-      if (savedDiscs.includes(btn.dataset.disc)) {
-        if (!btn.classList.contains("selected")) toggleQarefDisc(btn);
-      }
+      setQarefDiscState(btn, savedDiscs.includes(btn.dataset.disc));
     });
+    // Solo = a supervisor (PT/OT) saved without its assistant.
+    _qarefSolo = (savedDiscs.includes("PT") && !savedDiscs.includes("PTA")) ||
+                 (savedDiscs.includes("OT") && !savedDiscs.includes("OTA"));
+    var __editSoloCb = document.getElementById("qaref-solo");
+    if (__editSoloCb) __editSoloCb.checked = _qarefSolo;
 
     // Switch modal to edit mode
     _qarefEditId = String(refId);
@@ -25837,20 +25897,40 @@
     }
   }
 
-  function toggleQarefDisc(btn) {
-    var disc = btn.dataset.disc;
-    var colors = { PT: "#dc2626", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23", ST: "#6b7280" };
-    var col = colors[disc] || "#6b7280";
-    if (btn.classList.contains("selected")) {
-      btn.classList.remove("selected");
-      btn.style.background = "#f8fafd";
-      btn.style.color = "#526480";
-      btn.style.borderColor = "#e2e8f0";
-    } else {
+  // Discipline picker state. PT/OT require their assistant (PTA/OTA) by default;
+  // ST is the exception (no STA). "Solo" skips the auto-pairing.
+  var _qarefSolo = false;
+  var QAREF_DISC_COLORS = { PT: "#dc2626", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23", ST: "#6b7280" };
+  var QAREF_ASSISTANT   = { PT: "PTA", OT: "OTA" };
+  function qarefDiscBtn(disc) { return document.querySelector(".qaref-disc-btn[data-disc='" + disc + "']"); }
+  function setQarefDiscState(btn, on) {
+    if (!btn) return;
+    if (on) {
       btn.classList.add("selected");
-      btn.style.background = col;
-      btn.style.color = "#fff";
-      btn.style.borderColor = "transparent";
+      btn.style.background = QAREF_DISC_COLORS[btn.dataset.disc] || "#6b7280";
+      btn.style.color = "#fff"; btn.style.borderColor = "transparent";
+    } else {
+      btn.classList.remove("selected");
+      btn.style.background = "#f8fafd"; btn.style.color = "#526480"; btn.style.borderColor = "#e2e8f0";
+    }
+  }
+  function toggleQarefDisc(btn) {
+    var on = !btn.classList.contains("selected");
+    setQarefDiscState(btn, on);
+    // Auto-pair the assistant for PT/OT unless this is a solo request.
+    var assistant = QAREF_ASSISTANT[btn.dataset.disc];
+    if (assistant && !_qarefSolo) setQarefDiscState(qarefDiscBtn(assistant), on);
+  }
+  function toggleQarefSolo() {
+    var cb = document.getElementById("qaref-solo");
+    _qarefSolo = !!(cb && cb.checked);
+    if (_qarefSolo) {
+      setQarefDiscState(qarefDiscBtn("PTA"), false);   // therapist only
+      setQarefDiscState(qarefDiscBtn("OTA"), false);
+    } else {
+      var pt = qarefDiscBtn("PT"), ot = qarefDiscBtn("OT");
+      if (pt && pt.classList.contains("selected")) setQarefDiscState(qarefDiscBtn("PTA"), true);
+      if (ot && ot.classList.contains("selected")) setQarefDiscState(qarefDiscBtn("OTA"), true);
     }
   }
 
