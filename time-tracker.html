@@ -1764,12 +1764,25 @@ function tsGetMyTZ() {
   return mc?.timezone || 'Asia/Manila';
 }
 
-async function tsLoad() {
+// Staff My Timesheet data cache — keyed by period_start ISO (the user is always
+// the logged-in staff). Prev/Next passes useCache=true → instant (no DB hit);
+// the first load and tsSubmit fetch fresh and refresh the cache so submits/edits
+// never show stale. TTL bounds staleness; a token drops stale async renders.
+const tsCache = new Map();
+const TS_CACHE_TTL = 60000;   // 60s
+let   tsLoadToken = 0;
+
+async function tsLoad(useCache) {
   const period = getPayPeriod(tsPeriodOffset);
   // Pay periods are anchored in US Central — use ADMIN_TZ for day-of-week
   // and date labels so the staff view shows the same dates the admin sees,
   // regardless of the staff member's local timezone.
   const tz     = ADMIN_TZ;
+
+  // Instant frame: update the period label synchronously so Prev/Next feels
+  // responsive even before data lands.
+  const tsLbl = document.getElementById('ts-period-label');
+  if (tsLbl) tsLbl.textContent = fmtPeriod(period, ADMIN_TZ);
 
   // Build 14 day rows (matches the portal pay period).
   tsRows = [];
@@ -1792,19 +1805,31 @@ async function tsLoad() {
     });
   }
 
-  // Fetch ALL of this user's entries for the period so we can auto-populate
-  // hours from clock-ins AND surface the Timesheet| override entries.
-  const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
-  const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
-  const { data } = await db.from('time_entries').select('*')
-    .eq('user_id', currentUser.id)
-    .gte('clock_in', bufStart).lte('clock_in', bufEnd);
+  // Fetch (or reuse a fresh-enough cached) copy of this user's entries +
+  // submission for the period. One Promise.all keeps it to a single round trip.
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const token = ++tsLoadToken;
+  let data, subs;
+  const cached = tsCache.get(periodDate);
+  if (useCache && cached && (Date.now() - cached.t) < TS_CACHE_TTL) {
+    data = cached.data; subs = cached.subs;
+  } else {
+    const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
+    const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
+    const [r1, r2] = await Promise.all([
+      db.from('time_entries').select('*').eq('user_id', currentUser.id).gte('clock_in', bufStart).lte('clock_in', bufEnd),
+      db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+    ]);
+    data = r1.data || []; subs = r2.data || [];
+    tsCache.set(periodDate, { data, subs, t: Date.now() });
+  }
+  if (token !== tsLoadToken) return;   // a newer Prev/Next superseded this render
 
   // Bucket fetched entries by ADMIN_TZ day, then per row compute auto +
   // override. Auto = sum of non-Timesheet entries (clock-ins). Override =
   // the single Timesheet| entry (if any).
   const dayRowByKey = new Map(tsRows.map(r => [r.dayKey, r]));
-  (data || []).forEach(e => {
+  data.forEach(e => {
     const dayKey = new Date(e.clock_in).toLocaleDateString('en-US', { timeZone: tz });
     const row = dayRowByKey.get(dayKey);
     if (!row) return;
@@ -1827,9 +1852,6 @@ async function tsLoad() {
     if (!r.existingId && r.autoHrs > 0) r.hrs = Number(r.autoHrs.toFixed(2));
   });
 
-  // Fetch this user's submission status for the period (if any).
-  const periodDate = period.start.toISOString().slice(0, 10);
-  const { data: subs } = await db.rpc('list_pay_period_submissions', { p_period_start: periodDate });
   tsSubmission = (subs && subs.length) ? subs[0] : null;
 
   tsRender(period);
@@ -1958,7 +1980,7 @@ function tsUpdateStatus() {
 
 function tsChangePeriod(dir) {
   tsPeriodOffset += dir;
-  tsLoad();
+  tsLoad(true);   // navigation — use the cache for instant Prev/Next
 }
 
 async function tsSubmit() {
@@ -2715,7 +2737,15 @@ function openStaffTimesheet(userId) {
   atsLoad();
 }
 
-async function atsLoad() {
+// Admin Staff-Timesheet cache — keyed by user_id|period_start (the viewed
+// employee varies). Prev/Next passes useCache=true → instant (no DB hit);
+// opening an employee + the approve/send-back actions fetch fresh and refresh
+// the cache. The title + period label already update synchronously below.
+const atsCache = new Map();
+const ATS_CACHE_TTL = 60000;   // 60s
+let   atsLoadToken = 0;
+
+async function atsLoad(useCache) {
   const period = getPayPeriod(atsOffset);
   const tz = ADMIN_TZ;
   document.getElementById('ats-title').textContent = `${atsName} — Timesheet`;
@@ -2735,17 +2765,28 @@ async function atsLoad() {
     });
   }
 
-  const bufStart   = new Date(period.start.getTime() - 86400000).toISOString();
-  const bufEnd     = new Date(period.end.getTime()   + 86400000).toISOString();
   const periodDate = period.start.toISOString().slice(0, 10);
-  const [{ data: entries }, { data: subs }] = await Promise.all([
-    db.from('time_entries').select('*').eq('user_id', atsUserId).gte('clock_in', bufStart).lte('clock_in', bufEnd),
-    db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
-  ]);
+  const cacheKey   = atsUserId + '|' + periodDate;
+  const token      = ++atsLoadToken;
+  let entries, subs;
+  const cached = atsCache.get(cacheKey);
+  if (useCache && cached && (Date.now() - cached.t) < ATS_CACHE_TTL) {
+    entries = cached.entries; subs = cached.subs;
+  } else {
+    const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
+    const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
+    const [r1, r2] = await Promise.all([
+      db.from('time_entries').select('*').eq('user_id', atsUserId).gte('clock_in', bufStart).lte('clock_in', bufEnd),
+      db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+    ]);
+    entries = r1.data || []; subs = r2.data || [];
+    atsCache.set(cacheKey, { entries, subs, t: Date.now() });
+  }
+  if (token !== atsLoadToken) return;   // superseded by a newer nav / a different employee
   atsSubmission = (subs || []).find(s => s.user_id === atsUserId) || null;
 
   const byKey = new Map(atsRows.map(r => [r.dayKey, r]));
-  (entries || []).forEach(e => {
+  entries.forEach(e => {
     const dayKey = new Date(e.clock_in).toLocaleDateString('en-US', { timeZone: tz });
     const row = byKey.get(dayKey);
     if (!row) return;
@@ -2820,7 +2861,7 @@ function atsRender(period) {
   }
 }
 
-function atsChangePeriod(dir) { atsOffset += dir; atsLoad(); }
+function atsChangePeriod(dir) { atsOffset += dir; atsLoad(true); }   // navigation — use the cache
 
 async function atsApprove() {
   const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
