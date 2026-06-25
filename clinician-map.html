@@ -6347,19 +6347,16 @@
 
           <!-- ── Referral overlay toggle ── -->
           <div class="toolbar-cell" style="flex-shrink:0">
-            <button id="referral-overlay-btn" type="button" title="Show open referrals on map" onclick="toggleReferralOverlay()">
+            <button id="referral-overlay-btn" type="button" title="Open the referrals board + show referral pins on the map" onclick="toggleReferralOverlay()">
               📋 Referrals <span class="ref-count" id="referral-overlay-count" style="display:none">0</span>
             </button>
           </div>
 
 
-          <!-- ── Referral jump dropdown ── -->
-          <div class="toolbar-cell" style="flex-shrink:0" id="ref-jump-cell">
-            <button id="ref-jump-btn" type="button" onclick="toggleRefJumpDropdown()">
-              OPRB <span style="font-size:10px;opacity:.7">▾</span>
-            </button>
-            <div id="ref-jump-panel"></div>
-          </div>
+          <!-- ── Referral board panel — opened by the 📋 Referrals toggle.
+               (OPRB button removed; the panel is position:fixed, so its spot in
+               the DOM is cosmetic and it floats centered when shown.) ── -->
+          <div id="ref-jump-panel"></div>
 
           <div class="toolbar-sep"></div>
 
@@ -24694,9 +24691,14 @@
 
   function toggleReferralOverlay() {
     if (appState.referralOverlayActive) {
-      clearReferralOverlay();
+      clearReferralOverlay();        // hide the map pins
+      closeRefJumpDropdown();        // …and the board, together — single on/off
     } else {
-      loadReferralOverlay();
+      // One button: open the board AND show the pins.
+      if (!_refJumpOpen) toggleRefJumpDropdown();   // opens the board (loads data + pins when not cached)
+      if (appState.referralOverlayData && !appState.referralOverlayActive) {
+        loadReferralOverlay();       // data already cached but pins were off → re-show them
+      }
     }
   }
 
@@ -24950,7 +24952,7 @@
     } else {
       panel.style.display = "none";
     }
-    btn.classList.toggle("open", _refJumpOpen);
+    if (btn) btn.classList.toggle("open", _refJumpOpen);   // OPRB button removed — guard
   }
 
   function closeRefJumpDropdown() {
