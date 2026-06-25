@@ -98,10 +98,17 @@
     .card-title { font-size: 13px; font-weight: 700; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
 
     /* ── STAFF VIEW ── */
-    #staff-view { max-width: 720px; margin: 0 auto; }
-    /* The clock + stats stay visually compact even with the wider container. */
-    #staff-view .clock-card { max-width: 480px; margin-left: auto; margin-right: auto; }
-    #staff-view .stats-grid { max-width: 480px; margin-left: auto; margin-right: auto; }
+    #staff-view { max-width: 1040px; margin: 0 auto; }
+    /* Two-column dashboard: clock + stats in a left rail, the work on the right. */
+    .staff-layout { display: grid; grid-template-columns: 340px 1fr; gap: 20px; align-items: start; }
+    .staff-rail   { display: flex; flex-direction: column; gap: 16px; position: sticky; top: 20px; }
+    .staff-main   { min-width: 0; }   /* let the timesheet table shrink instead of blowing out the grid */
+    .staff-rail .clock-card { padding: 26px 16px; }
+    .staff-rail .clock-time-big { font-size: 38px; }
+    @media (max-width: 860px) {
+      .staff-layout { grid-template-columns: 1fr; }
+      .staff-rail   { position: static; }
+    }
 
     .clock-card { text-align: center; padding: 36px 24px; }
     .clock-status { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
@@ -503,6 +510,8 @@
 
     <!-- ── STAFF VIEW ── -->
     <div id="staff-view" style="display:none;">
+      <div class="staff-layout">
+      <aside class="staff-rail">
       <div class="card clock-card" id="clock-card">
         <div class="clock-status out" id="clock-status-label">Clocked Out</div>
         <div class="clock-since" id="clock-since-label"></div>
@@ -539,7 +548,9 @@
       </div>
 
       <div class="hrs-warning" id="hrs-warning">⚠️ You have been clocked in for 9.5 hours. You will be automatically clocked out in 30 minutes.</div>
+      </aside>
 
+      <div class="staff-main">
       <!-- My Timesheet (portal-native replacement for the emailed Excel) -->
       <div class="card timesheet-card" id="timesheet-card">
         <div class="ts-header">
@@ -598,6 +609,8 @@
 
       <div class="recent-title">Recent Shifts</div>
       <div id="recent-list"></div>
+      </div><!-- /.staff-main -->
+      </div><!-- /.staff-layout -->
     </div>
 
     <!-- ── ADMIN VIEW ── -->
