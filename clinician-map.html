@@ -2514,6 +2514,9 @@
     .mbs-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #16a34a); border-radius: 4px; transition: width 0.4s ease; }
     .mbs-now { font-size: 11.5px; color: #94a3b8; min-height: 16px; margin-bottom: 14px; }
     .mbs-feed { font-size: 12.5px; color: #475569; min-height: 36px; line-height: 1.5; border-top: 1px solid #eef2f7; padding-top: 12px; transition: opacity 0.4s; }
+    .mbs-dismiss { margin-top: 16px; padding: 10px 24px; border: none; border-radius: 9px; background: linear-gradient(135deg, #22c55e, #16a34a); color: #fff; font-size: 14px; font-weight: 800; cursor: pointer; box-shadow: 0 6px 16px rgba(22,163,74,0.3); transition: transform 0.12s; }
+    .mbs-dismiss:hover { transform: translateY(-1px); }
+    .mbs-dismiss[hidden] { display: none; }
     @media (prefers-reduced-motion: reduce) { .mbs-step.mbs-active .mbs-dot { animation: none; } .mbs-feed { transition: none; } }
 
     /* ── Tier 1 (≤1450px): reduce cell padding, tighten buttons ── */
@@ -6431,6 +6434,7 @@
           <div class="mbs-bar"><div class="mbs-bar-fill" id="mbs-bar-fill"></div></div>
           <div class="mbs-now" id="mbs-now">Starting…</div>
           <div class="mbs-feed" id="mbs-feed"></div>
+          <button type="button" class="mbs-dismiss" id="mbs-dismiss" hidden>Enter map →</button>
         </div>
       </div>
       <div id="map">
@@ -7665,17 +7669,25 @@
         if (session && session.user) {
           try {
             if (typeof map !== "undefined" && map && typeof map.isStyleLoaded === "function" && map.isStyleLoaded()) {
-              appState.hasLoadedClinicians = false;
-              // Fire-and-forget — do NOT await. Awaiting here serializes
-              // every concurrent user action (e.g. clicking Referrals)
-              // behind the clinician load and was the cause of the
-              // "Referrals hangs after navigating back to map" bug.
-              loadClinicians().catch(function(e) {
-                console.warn("post-login loadClinicians failed:", e);
-              });
+              // Fire-and-forget — do NOT await. Awaiting here serializes every
+              // concurrent user action (e.g. clicking Referrals) behind the load
+              // and was the cause of the "Referrals hangs after navigating back
+              // to map" bug.
+              if (typeof runBootLoad === "function" && !bootSplashShown) {
+                // First boot of this page-load (map became ready / user signed in
+                // while the map was already up) → run the staged splash + auto-load
+                // here so it runs AUTHED. The guard makes it a no-op if style.load
+                // already started it.
+                appState.hasLoadedClinicians = false;
+                runBootLoad().catch(function(e) { console.warn("post-login boot load failed:", e); });
+              } else {
+                // Re-auth refresh (boot already ran) → just reload clinicians, as before.
+                appState.hasLoadedClinicians = false;
+                loadClinicians().catch(function(e) { console.warn("post-login loadClinicians failed:", e); });
+              }
             }
           } catch(e) {
-            console.warn("post-login loadClinicians scheduling failed:", e);
+            console.warn("post-login load scheduling failed:", e);
           }
         }
         // Launch tour on first login only
@@ -24196,7 +24208,7 @@
     // pins off) on first map entry, behind a staged splash with rotating tips +
     // live News & Alerts. Sequential to dodge the Supabase auth-lock concurrency
     // the referral loader guards against; always closes (even on error).
-    var bootSplashRotateTimer = null, bootSplashProgressTimer = null, bootSplashFeed = [], bootSplashIdx = 0;
+    var bootSplashRotateTimer = null, bootSplashProgressTimer = null, bootSplashFeed = [], bootSplashIdx = 0, bootSplashShown = false;
     var SPLASH_TIPS = [
       "💡 Toggle the 📋 Referrals overlay to see open referrals near a clinician.",
       "💡 Use the radius tool to size a coverage circle around any point.",
@@ -24258,6 +24270,10 @@
       bootSplashSetBar(0); bootSplashSetNow("Starting…");
       var feedEl = document.getElementById("mbs-feed");
       if (feedEl) feedEl.innerHTML = bootSplashFeed[0] || "";
+      var sub = document.querySelector("#map-boot-splash .mbs-sub");
+      if (sub) sub.textContent = "Getting everything ready…";
+      var dismissBtn = document.getElementById("mbs-dismiss");
+      if (dismissBtn) { dismissBtn.hidden = true; dismissBtn.onclick = hideBootSplash; }
       el.hidden = false;
       clearInterval(bootSplashRotateTimer); bootSplashRotateTimer = setInterval(bootSplashRotate, 4500);
       // Mirror the completed-services load progress (40→100% of the splash bar).
@@ -24276,36 +24292,48 @@
       var el = document.getElementById("map-boot-splash");
       if (el) el.hidden = true;
     }
+    // Finish state — the splash STAYS until the user dismisses it (no auto-hide).
+    function bootSplashFinish(anyFailed) {
+      clearInterval(bootSplashProgressTimer); bootSplashProgressTimer = null;   // stop mirroring the services %
+      bootSplashSetBar(100);
+      bootSplashSetNow(anyFailed ? "Finished — some data didn't load." : "✓ All loaded");
+      var sub = document.querySelector("#map-boot-splash .mbs-sub");
+      if (sub) sub.textContent = anyFailed ? "You can continue into the map." : "Everything's ready — continue when you're set.";
+      var btn = document.getElementById("mbs-dismiss");
+      if (btn) { btn.hidden = false; try { btn.focus(); } catch (e) {} }
+      // Tips/news keep rotating while it waits for the manual dismiss.
+    }
     async function runBootLoad() {
+      if (bootSplashShown) return;   // run ONCE per page-load — covers both the style.load and the auth boot paths
+      bootSplashShown = true;
       showBootSplash();
       loadSplashNews();   // fire-and-forget → merges live news into the rotator
+      var anyFailed = false;
+
+      // 1) Referrals — auto-shows on success
+      bootStep("referrals", "active"); bootSplashSetNow("Loading referrals…"); bootSplashSetBar(8);
+      try { await loadReferralOverlay(); bootStep("referrals", "done"); }
+      catch (e) { console.warn("[boot] referrals failed", e); anyFailed = true; bootStep("referrals", "failed"); }
+
+      // 2) Clinicians — load + auto-SHOW
+      bootStep("clinicians", "active"); bootSplashSetNow("Loading clinicians…"); bootSplashSetBar(22);
       try {
-        // 1) Referrals — auto-shows on success
-        bootStep("referrals", "active"); bootSplashSetNow("Loading referrals…"); bootSplashSetBar(8);
-        try { await loadReferralOverlay(); bootStep("referrals", "done"); }
-        catch (e) { console.warn("[boot] referrals failed", e); bootStep("referrals", "failed"); }
+        await loadClinicians();
+        appState.showClinicians = true;
+        if (elements.showCliniciansToggle) elements.showCliniciansToggle.checked = true;
+        syncClinicianVisibilityToggle();
+        syncAllMarkerVisuals();
+        updateSummary();
+        bootStep("clinicians", "done");
+      } catch (e) { console.warn("[boot] clinicians failed", e); anyFailed = true; bootStep("clinicians", "failed"); }
+      bootSplashSetBar(40);
 
-        // 2) Clinicians — load + auto-SHOW
-        bootStep("clinicians", "active"); bootSplashSetNow("Loading clinicians…"); bootSplashSetBar(22);
-        try {
-          await loadClinicians();
-          appState.showClinicians = true;
-          if (elements.showCliniciansToggle) elements.showCliniciansToggle.checked = true;
-          syncClinicianVisibilityToggle();
-          syncAllMarkerVisuals();
-          updateSummary();
-          bootStep("clinicians", "done");
-        } catch (e) { console.warn("[boot] clinicians failed", e); bootStep("clinicians", "failed"); }
-        bootSplashSetBar(40);
+      // 3) Completed services — PRE-LOAD only (pins stay off → instant toggle later)
+      bootStep("services", "active"); bootSplashSetNow("Loading completed services…");
+      try { await loadCompletedServiceSites(); bootStep("services", "done"); }
+      catch (e) { console.warn("[boot] completed services failed", e); anyFailed = true; bootStep("services", "failed"); }
 
-        // 3) Completed services — PRE-LOAD only (pins stay off → instant toggle later)
-        bootStep("services", "active"); bootSplashSetNow("Loading completed services…");
-        try { await loadCompletedServiceSites(); bootStep("services", "done"); }
-        catch (e) { console.warn("[boot] completed services failed", e); bootStep("services", "failed"); }
-        bootSplashSetBar(100); bootSplashSetNow("Ready");
-      } finally {
-        setTimeout(hideBootSplash, 500);   // brief beat so 100% + ✓ register
-      }
+      bootSplashFinish(anyFailed);   // → "All loaded" + Dismiss button; stays until clicked
     }
 
     map.on("style.load", async function() {
@@ -24318,7 +24346,14 @@
       bindEvents();
 
       if (!appState.hasLoadedClinicians) {
-        await runBootLoad();   // splash + auto-load referrals + clinicians + (pre-load) completed services
+        // Only auto-boot if we already have a session (cached login). If not signed
+        // in yet, handleAuthSession() triggers runBootLoad() right after auth — so the
+        // splash + loads always run AUTHED, never as an empty anon load.
+        var __sess = null;
+        try { __sess = (await supabaseClient.auth.getSession()).data.session; } catch (e) {}
+        if (__sess && __sess.user) {
+          await runBootLoad();   // splash + auto-load referrals + clinicians + (pre-load) completed services
+        }
         return;
       }
 
