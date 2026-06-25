@@ -2722,6 +2722,15 @@
       font-size: 16px; cursor: pointer; padding: 0 2px; line-height: 1;
     }
     .ref-jump-close-btn:hover { color: #fff; }
+    .ref-jump-collapse-btn {
+      background: none; border: none; color: rgba(255,255,255,0.78);
+      font-size: 13px; cursor: pointer; padding: 0 4px; line-height: 1;
+    }
+    .ref-jump-collapse-btn:hover { color: #fff; }
+    /* Collapsed Referral Board — keep only the header bar (title + actions) */
+    #ref-jump-panel.collapsed > *:not(.ref-jump-header) { display: none !important; }
+    #ref-jump-panel.collapsed { max-height: none; }
+    #ref-jump-panel.collapsed .ref-jump-header { border-radius: 12px; }
     .ref-jump-body { overflow-y: auto; flex: 1; }
     .ref-jump-body::-webkit-scrollbar { width: 5px; }
     .ref-jump-body::-webkit-scrollbar-thumb { background: rgba(30,77,140,0.2); border-radius: 4px; }
@@ -24333,6 +24342,8 @@
       bootStep("referrals", "active"); bootSplashSetNow("Loading referrals…"); bootSplashSetBar(8);
       try { await loadReferralOverlay(); bootStep("referrals", "done"); }
       catch (e) { console.warn("[boot] referrals failed", e); anyFailed = true; bootStep("referrals", "failed"); }
+      // Open the always-up Referral Board (even if the load failed → empty state).
+      try { showRefBoard(); } catch (e) { console.warn("[boot] showRefBoard", e); }
 
       // 2) Clinicians — load + auto-SHOW
       bootStep("clinicians", "active"); bootSplashSetNow("Loading clinicians…"); bootSplashSetBar(22);
@@ -24690,16 +24701,61 @@
   }
 
   function toggleReferralOverlay() {
-    if (appState.referralOverlayActive) {
-      clearReferralOverlay();        // hide the map pins
-      closeRefJumpDropdown();        // …and the board, together — single on/off
-    } else {
-      // One button: open the board AND show the pins.
-      if (!_refJumpOpen) toggleRefJumpDropdown();   // opens the board (loads data + pins when not cached)
-      if (appState.referralOverlayData && !appState.referralOverlayActive) {
-        loadReferralOverlay();       // data already cached but pins were off → re-show them
-      }
+    // The board carries the data and stays up; this button just toggles the map PINS.
+    if (!appState.referralOverlayData || !appState.referralOverlayData.length) {
+      // Nothing loaded yet (boot hasn't populated) → full load brings data + board + pins.
+      loadReferralOverlay().then(function() { showRefBoard(); });
+      return;
     }
+    if (appState.referralOverlayActive) hideReferralPins();
+    else showReferralPins();
+  }
+
+  // Show the map referral pins WITHOUT touching the board's data (so toggling
+  // pins off no longer empties the always-up board).
+  function showReferralPins() {
+    if (!appState.referralOverlayData || !appState.referralOverlayData.length) return;
+    appState.referralOverlayActive = true;     // set before the sonar tick so it doesn't self-terminate
+    rebuildReferralGeoJSON();
+    startReferralSonarTick();
+    updateReferralOverlayBtn();
+  }
+  function hideReferralPins() {
+    appState.referralOverlayActive = false;    // sonar tick self-terminates next frame
+    var src = map.getSource("referral-pins");
+    if (src) src.setData({ type: "FeatureCollection", features: [] });
+    updateReferralOverlayBtn();
+  }
+
+  // Collapse/expand the always-up Referral Board (the header bar stays visible).
+  var _refBoardCollapsed = false;
+  function toggleRefBoardCollapse() {
+    _refBoardCollapsed = !_refBoardCollapsed;
+    var panel = document.getElementById("ref-jump-panel");
+    if (!panel) return;
+    panel.classList.toggle("collapsed", _refBoardCollapsed);
+    var chev = panel.querySelector(".ref-jump-collapse-btn");
+    if (chev) chev.textContent = _refBoardCollapsed ? "▸" : "▾";
+  }
+
+  // Mount the always-up board: position it, populate it, and display it.
+  // Idempotent — safe to call on boot and again later.
+  function showRefBoard() {
+    var panel = document.getElementById("ref-jump-panel");
+    if (!panel) return;
+    _refJumpOpen = true;
+    populateReferralDropdown();
+    panel.classList.toggle("collapsed", _refBoardCollapsed);
+    var x, y;
+    if (_refFloatLeft !== null) { x = _refFloatLeft; y = _refFloatTop; }
+    else {
+      var tbBar = document.querySelector(".top-toolbar");
+      var tbBottom = tbBar ? tbBar.getBoundingClientRect().bottom + 10 : 70;
+      x = Math.round((window.innerWidth - 520) / 2);
+      y = Math.round(tbBottom);
+    }
+    panel.style.transform = "translate(" + x + "px," + y + "px)";
+    panel.style.display = "flex";
   }
 
   async function loadReferralOverlay() {
@@ -24979,10 +25035,10 @@
     var hdrEmpty = document.createElement("div");
     hdrEmpty.className = "ref-jump-header";
     hdrEmpty.onmousedown = startRefPanelDrag;
-    hdrEmpty.innerHTML = "<span class='ref-jump-header-title'>📋 OPRB</span>" +
+    hdrEmpty.innerHTML = "<span class='ref-jump-header-title'>📋 Referral Board</span>" +
       "<button onclick='openQuickAddReferral()' style='background:#e2b44b;color:#1e2d4a;border:none;border-radius:5px;font-size:11px;font-weight:700;padding:3px 9px;cursor:pointer;white-space:nowrap;'>+ Referral</button>" +
       "<button onclick='openTbImport()' style='background:#6366f1;color:#fff;border:none;border-radius:5px;font-size:11px;font-weight:700;padding:3px 9px;cursor:pointer;white-space:nowrap;margin-left:4px;'>📷 Import</button>" +
-      "<button class='ref-jump-close-btn' onclick='closeRefJumpDropdown()' title='Close'>&#x2715;</button>";
+      "<button class='ref-jump-collapse-btn' onmousedown='event.stopPropagation()' onclick='toggleRefBoardCollapse()' title='Collapse / expand'>" + (_refBoardCollapsed ? "&#x25B8;" : "&#x25BE;") + "</button>";
     panel.appendChild(hdrEmpty);
 
     if (!allRefs.length) {
@@ -25879,6 +25935,7 @@
         } else {
           await loadReferralOverlay();
         }
+        showRefBoard();   // keep the always-up board visible after the reload
       }
 
     } catch (err) {
@@ -26317,6 +26374,7 @@
       } else {
         await loadReferralOverlay();
       }
+      showRefBoard();   // keep the always-up board visible after the import reload
 
     } catch (err) {
       console.error("TB import error:", err);
