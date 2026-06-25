@@ -111,6 +111,23 @@
     }
 
     .clock-card { text-align: center; padding: 36px 24px; }
+    /* Mini live-status board (team presence) — dark mini-HUD in the staff rail */
+    .mini-hud { background: #14233f; border-radius: 12px; padding: 14px 14px 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.12); }
+    .mini-hud-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    .mini-hud-title { font-size: 12px; font-weight: 800; letter-spacing: 0.8px; text-transform: uppercase; color: #fff; }
+    .mini-hud-count { font-size: 11px; font-weight: 800; color: #81C784; }
+    .mini-hud-list { max-height: 300px; overflow-y: auto; }
+    .mh-row { display: flex; align-items: center; gap: 9px; padding: 6px 0; border-top: 1px solid rgba(255,255,255,0.07); }
+    .mh-row:first-child { border-top: none; }
+    .mh-av { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 800; flex-shrink: 0; }
+    .mh-row.in  .mh-av { background: #1d3a29; color: #81C784; box-shadow: 0 0 0 2px #4CAF50; }
+    .mh-row.out .mh-av { background: #2a3a57; color: rgba(255,255,255,0.45); }
+    .mh-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,0.92); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .mh-row.out .mh-name { color: rgba(255,255,255,0.42); font-weight: 500; }
+    .mh-dur { font-size: 12.5px; font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+    .mh-out-lbl { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; color: rgba(255,255,255,0.28); text-transform: uppercase; flex-shrink: 0; }
+    .mini-hud-foot { font-size: 10px; color: rgba(255,255,255,0.3); margin-top: 8px; text-align: center; }
+    .mini-hud-empty { font-size: 12px; color: rgba(255,255,255,0.4); padding: 12px 0; text-align: center; }
     .clock-status { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; }
     .clock-status.in  { color: var(--green); }
     .clock-status.out { color: var(--gray); }
@@ -532,6 +549,16 @@
           <span class="clock-icon" id="clock-icon">▶</span>
           <span id="clock-btn-text">Clock In</span>
         </button>
+      </div>
+
+      <!-- Mini live-status board — team presence, refreshes every 30s -->
+      <div class="mini-hud" id="mini-hud">
+        <div class="mini-hud-head">
+          <span class="mini-hud-title">DCS · Live Status</span>
+          <span class="mini-hud-count" id="mini-hud-count">—</span>
+        </div>
+        <div class="mini-hud-list" id="mini-hud-list"><div class="mini-hud-empty">Loading…</div></div>
+        <div class="mini-hud-foot" id="mini-hud-foot"></div>
       </div>
 
       <div class="stats-grid">
@@ -1065,6 +1092,7 @@ async function doLogout() {
 }
 
 function showLogin() {
+  stopMiniHud();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
 }
@@ -1093,6 +1121,7 @@ async function showApp() {
     document.getElementById('admin-view').style.display = 'none';
     await loadStaffView();
     await tsLoad();
+    startMiniHud();
   }
 
   // Enter key on login
@@ -4329,6 +4358,78 @@ function fmtDuration(ms) {
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
   return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  MINI HUD — compact team-presence board in the staff rail.
+//  A condensed version of the admin HUD: who's clocked in right now,
+//  with a live timer, refreshed every 30s. Read-only; staff-side.
+// ══════════════════════════════════════════════════════════════
+let miniHudTimer = null, miniHudTick = null;
+
+async function renderMiniHud() {
+  const list = document.getElementById('mini-hud-list');
+  if (!list) return;
+  const activeStaff = (staffConfig || []).filter(s => s.is_active);
+
+  let open = [];
+  try {
+    const { data } = await db.from('time_entries').select('user_id, clock_in').is('clock_out', null);
+    open = data || [];
+  } catch (e) { console.warn('[miniHud] open-entries fetch failed', e); }
+
+  const rows = activeStaff.map(s => {
+    const oe = open.find(e => e.user_id === s.user_id);
+    return { s, isIn: !!oe, ci: oe ? oe.clock_in : null };
+  }).sort((a, b) => (b.isIn - a.isIn) ||
+        String(a.s.display_name || '').localeCompare(String(b.s.display_name || '')));
+
+  const inCount = rows.filter(r => r.isIn).length;
+  const cnt = document.getElementById('mini-hud-count');
+  if (cnt) cnt.textContent = inCount + ' clocked in';
+
+  if (!rows.length) {
+    list.innerHTML = '<div class="mini-hud-empty">No staff configured.</div>';
+  } else {
+    const now = Date.now();
+    list.innerHTML = rows.map(r => {
+      const s = r.s;
+      const initial = String(s.display_name || '?').charAt(0).toUpperCase();
+      const right = r.isIn
+        ? `<span class="mh-dur" id="mh-dur-${s.user_id}">${fmtDuration(now - new Date(r.ci).getTime())}</span>`
+        : `<span class="mh-out-lbl">out</span>`;
+      return `<div class="mh-row ${r.isIn ? 'in' : 'out'}" ${r.isIn ? `data-clockin="${r.ci}"` : ''}>
+        <div class="mh-av">${initial}</div>
+        <span class="mh-name">${escAttr(s.display_name || '')}</span>
+        ${right}
+      </div>`;
+    }).join('');
+  }
+
+  const foot = document.getElementById('mini-hud-foot');
+  if (foot) foot.textContent = 'updated ' +
+    new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: ADMIN_TZ }) + ' CT · every 30s';
+}
+
+function miniHudTickFn() {
+  const now = Date.now();
+  document.querySelectorAll('#mini-hud-list .mh-row.in[data-clockin]').forEach(row => {
+    const ci  = new Date(row.dataset.clockin).getTime();
+    const dur = row.querySelector('.mh-dur');
+    if (dur) dur.textContent = fmtDuration(now - ci);
+  });
+}
+
+function startMiniHud() {
+  if (!document.getElementById('mini-hud-list')) return;
+  renderMiniHud();
+  clearInterval(miniHudTimer); miniHudTimer = setInterval(renderMiniHud, 30000);
+  clearInterval(miniHudTick);  miniHudTick  = setInterval(miniHudTickFn, 1000);
+}
+
+function stopMiniHud() {
+  clearInterval(miniHudTimer); clearInterval(miniHudTick);
+  miniHudTimer = miniHudTick = null;
 }
 
 // ══════════════════════════════════════════════════════════════
