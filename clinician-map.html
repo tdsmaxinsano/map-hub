@@ -8573,6 +8573,13 @@
       fadeDuration: 0
     });
 
+    // Cover the map from the very first frame for a returning user — Mapbox is
+    // zoomable from creation, so show the boot splash now (sync) rather than
+    // waiting for style.load. Idempotent; hidden again if it turns out anon.
+    if (!appState.hasLoadedClinicians && !bootSplashShown && typeof hasLikelySession === "function" && hasLikelySession()) {
+      try { showBootSplash(); } catch (e) {}
+    }
+
     // ── Custom compass rose ──
     (function() {
       var rose = document.createElement("div");
@@ -24261,6 +24268,21 @@
       var news = res[0].concat(res[1], res[2], res[3]).map(splashAlertText).filter(Boolean).map(function(s){ return "📰 " + s; });
       if (news.length) bootSplashFeed = news.concat(bootSplashFeed);   // news first, then tips
     }
+    // Sync heuristic: is a Supabase session cached in localStorage? Lets us show
+    // the splash IMMEDIATELY for returning users (before the async getSession),
+    // without flashing it over the login screen for signed-out visitors.
+    function hasLikelySession() {
+      try {
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf("sb-") === 0 && k.indexOf("-auth-token") >= 0) {
+            var v = localStorage.getItem(k);
+            if (v && v.length > 20) return true;
+          }
+        }
+      } catch (e) {}
+      return false;
+    }
     function showBootSplash() {
       var el = document.getElementById("map-boot-splash");
       if (!el) return;
@@ -24337,6 +24359,12 @@
     }
 
     map.on("style.load", async function() {
+      // Cover the map the INSTANT it's interactive — show the splash synchronously
+      // for a returning (cached-session) user, before the async session check below
+      // (otherwise the map is zoomable for a beat before the splash appears).
+      if (!appState.hasLoadedClinicians && !bootSplashShown && hasLikelySession()) {
+        showBootSplash();
+      }
       ensureSelectionCircleLayer();
       ensureRulerLayer();
       ensureTerritoryLayer();
@@ -24353,6 +24381,8 @@
         try { __sess = (await supabaseClient.auth.getSession()).data.session; } catch (e) {}
         if (__sess && __sess.user) {
           await runBootLoad();   // splash + auto-load referrals + clinicians + (pre-load) completed services
+        } else {
+          hideBootSplash();      // signed out → let the login/auth flow take over
         }
         return;
       }
