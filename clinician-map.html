@@ -2491,6 +2491,31 @@
     .layer-load-bar.loading { opacity: 1; }
     @keyframes layerBarSlide { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
+    /* ── Boot splash (staged auto-load with tips + news) ── */
+    .map-boot-splash { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; background: rgba(15,23,42,0.55); backdrop-filter: blur(3px); }
+    .map-boot-splash[hidden] { display: none; }
+    .mbs-card { background: #fff; border-radius: 16px; box-shadow: 0 24px 60px rgba(0,0,0,0.35); padding: 28px 30px; width: 420px; max-width: 92vw; text-align: center; }
+    .mbs-brand { font-size: 22px; font-weight: 900; color: #1E3A5F; letter-spacing: 0.3px; }
+    .mbs-brand span { color: #22c55e; }
+    .mbs-sub { font-size: 13px; color: #64748b; margin: 4px 0 18px; }
+    .mbs-steps { display: flex; flex-direction: column; gap: 9px; text-align: left; margin: 0 auto 16px; max-width: 240px; }
+    .mbs-step { display: flex; align-items: center; gap: 11px; font-size: 14px; font-weight: 700; color: #94a3b8; }
+    .mbs-step.mbs-active { color: #1E3A5F; }
+    .mbs-step.mbs-done { color: #16a34a; }
+    .mbs-step.mbs-failed { color: #ef4444; }
+    .mbs-dot { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #cbd5e1; flex-shrink: 0; position: relative; box-sizing: border-box; }
+    .mbs-step.mbs-active .mbs-dot { border-color: #1E3A5F; border-top-color: transparent; animation: mbs-spin 0.8s linear infinite; }
+    .mbs-step.mbs-done .mbs-dot { border-color: #16a34a; background: #16a34a; }
+    .mbs-step.mbs-done .mbs-dot::after { content: "✓"; color: #fff; font-size: 11px; font-weight: 900; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    .mbs-step.mbs-failed .mbs-dot { border-color: #ef4444; background: #ef4444; }
+    .mbs-step.mbs-failed .mbs-dot::after { content: "!"; color: #fff; font-size: 12px; font-weight: 900; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+    @keyframes mbs-spin { to { transform: rotate(360deg); } }
+    .mbs-bar { height: 6px; border-radius: 4px; background: #e2e8f0; overflow: hidden; margin-bottom: 8px; }
+    .mbs-bar-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #22c55e, #16a34a); border-radius: 4px; transition: width 0.4s ease; }
+    .mbs-now { font-size: 11.5px; color: #94a3b8; min-height: 16px; margin-bottom: 14px; }
+    .mbs-feed { font-size: 12.5px; color: #475569; min-height: 36px; line-height: 1.5; border-top: 1px solid #eef2f7; padding-top: 12px; transition: opacity 0.4s; }
+    @media (prefers-reduced-motion: reduce) { .mbs-step.mbs-active .mbs-dot { animation: none; } .mbs-feed { transition: none; } }
+
     /* ── Tier 1 (≤1450px): reduce cell padding, tighten buttons ── */
     @media (max-width: 1450px) {
       .toolbar-cell { padding: 0 10px; gap: 6px; }
@@ -6393,6 +6418,21 @@
       </div>
 
       <div class="map-stage">
+      <!-- Boot splash — staged auto-load (referrals → clinicians → completed services) with tips + news -->
+      <div class="map-boot-splash" id="map-boot-splash" hidden>
+        <div class="mbs-card">
+          <div class="mbs-brand">DependableCare <span>Map</span></div>
+          <div class="mbs-sub">Getting everything ready…</div>
+          <div class="mbs-steps">
+            <div class="mbs-step mbs-pending" id="mbs-step-referrals"><span class="mbs-dot"></span><span class="mbs-step-label">Referrals</span></div>
+            <div class="mbs-step mbs-pending" id="mbs-step-clinicians"><span class="mbs-dot"></span><span class="mbs-step-label">Clinicians</span></div>
+            <div class="mbs-step mbs-pending" id="mbs-step-services"><span class="mbs-dot"></span><span class="mbs-step-label">Completed services</span></div>
+          </div>
+          <div class="mbs-bar"><div class="mbs-bar-fill" id="mbs-bar-fill"></div></div>
+          <div class="mbs-now" id="mbs-now">Starting…</div>
+          <div class="mbs-feed" id="mbs-feed"></div>
+        </div>
+      </div>
       <div id="map">
         <!-- ── Lens / ZIP alignment pill — bottom-left of map canvas ── -->
         <div id="align-bar" style="display:none; position:absolute; top:12px; right:12px; z-index:10; background:#1E3A5F; color:#fff; border-radius:12px; box-shadow:0 4px 16px rgba(0,0,0,0.28); padding:8px 12px; min-width:0; max-width:280px;">
@@ -24151,6 +24191,123 @@
       if (appState.selectionCenter)     updateLensTextOverlay();
     });
 
+    // ── Boot splash + auto-load orchestration ─────────────────────────
+    // Auto-loads referrals + clinicians (shown) + completed services (pre-loaded,
+    // pins off) on first map entry, behind a staged splash with rotating tips +
+    // live News & Alerts. Sequential to dodge the Supabase auth-lock concurrency
+    // the referral loader guards against; always closes (even on error).
+    var bootSplashRotateTimer = null, bootSplashProgressTimer = null, bootSplashFeed = [], bootSplashIdx = 0;
+    var SPLASH_TIPS = [
+      "💡 Toggle the 📋 Referrals overlay to see open referrals near a clinician.",
+      "💡 Use the radius tool to size a coverage circle around any point.",
+      "💡 Filter by discipline or language in the left sidebar.",
+      "💡 Click a clinician to open their profile, ZIP coverage, and EMR chips.",
+      "💡 The 🟣 Completed Services layer shows where visits actually happened.",
+      "💡 Quick Add a referral pin to find the nearest available clinicians.",
+      "💡 Territory tools let you draw + save a coverage area for a clinician."
+    ];
+    function bootStep(key, state) {
+      var el = document.getElementById("mbs-step-" + key);
+      if (!el) return;
+      el.classList.remove("mbs-pending", "mbs-active", "mbs-done", "mbs-failed");
+      el.classList.add("mbs-" + state);
+    }
+    function bootSplashSetNow(txt) { var el = document.getElementById("mbs-now"); if (el) el.textContent = txt || ""; }
+    function bootSplashSetBar(pct) { var el = document.getElementById("mbs-bar-fill"); if (el) el.style.width = Math.max(0, Math.min(100, pct)) + "%"; }
+    function bootSplashRotate() {
+      if (bootSplashFeed.length < 2) return;
+      var el = document.getElementById("mbs-feed");
+      if (!el) return;
+      el.style.opacity = "0";
+      setTimeout(function() {
+        bootSplashIdx = (bootSplashIdx + 1) % bootSplashFeed.length;
+        el.innerHTML = bootSplashFeed[bootSplashIdx];
+        el.style.opacity = "1";
+      }, 250);
+    }
+    function splashAlertText(a) {
+      var isStaff = a.alert_type && a.alert_type.indexOf("staff_") === 0;
+      var name = isStaff ? (a.staff_name || "") : (a.clinician_name || "");
+      var disc = isStaff ? (a.staff_role || "") : (a.discipline || "");
+      if (!name) return "";
+      var t = a.alert_type || "";
+      var o = (a.days_offset != null) ? a.days_offset : a.days_until;
+      var when = "";
+      if (t.indexOf("birthday") >= 0)            when = (o === 0) ? "birthday today 🎂" : "birthday tomorrow 🎂";
+      else if (t.indexOf("vacation") >= 0 || t === "pause_active") when = (o == null || o <= 0) ? "on vacation" : "back in " + o + (o === 1 ? " day" : " days");
+      else if (t.indexOf("starting") >= 0)       when = (o === 0) ? "pause starts today" : "pause starts in " + o + (o === 1 ? " day" : " days");
+      else if (t.indexOf("ending") >= 0)         when = (o === 0) ? "returns today" : (o === 1 ? "returns tomorrow" : "returns in " + o + " days");
+      else if (t === "just_returned")            when = "just returned";
+      return escapeHtml(name) + (disc ? " (" + escapeHtml(disc) + ")" : "") + (when ? " — " + escapeHtml(when) : "");
+    }
+    async function loadSplashNews() {
+      var safe = async function(fn) { try { var r = await supabaseClient.rpc(fn); return r.data || []; } catch (e) { return []; } };
+      var res = await Promise.all([
+        safe("list_pause_alerts"), safe("list_birthday_alerts"),
+        safe("list_staff_birthday_alerts"), safe("list_staff_vacation_alerts")
+      ]);
+      var news = res[0].concat(res[1], res[2], res[3]).map(splashAlertText).filter(Boolean).map(function(s){ return "📰 " + s; });
+      if (news.length) bootSplashFeed = news.concat(bootSplashFeed);   // news first, then tips
+    }
+    function showBootSplash() {
+      var el = document.getElementById("map-boot-splash");
+      if (!el) return;
+      bootSplashFeed = SPLASH_TIPS.slice();
+      bootSplashIdx = 0;
+      bootStep("referrals", "pending"); bootStep("clinicians", "pending"); bootStep("services", "pending");
+      bootSplashSetBar(0); bootSplashSetNow("Starting…");
+      var feedEl = document.getElementById("mbs-feed");
+      if (feedEl) feedEl.innerHTML = bootSplashFeed[0] || "";
+      el.hidden = false;
+      clearInterval(bootSplashRotateTimer); bootSplashRotateTimer = setInterval(bootSplashRotate, 4500);
+      // Mirror the completed-services load progress (40→100% of the splash bar).
+      clearInterval(bootSplashProgressTimer);
+      bootSplashProgressTimer = setInterval(function() {
+        var p = Number(appState.completedServiceLoadPercent || 0);
+        if (p > 0) {
+          bootSplashSetBar(40 + p * 0.6);
+          if (appState.completedServiceLoadDetail) bootSplashSetNow(appState.completedServiceLoadDetail);
+        }
+      }, 400);
+    }
+    function hideBootSplash() {
+      clearInterval(bootSplashRotateTimer); bootSplashRotateTimer = null;
+      clearInterval(bootSplashProgressTimer); bootSplashProgressTimer = null;
+      var el = document.getElementById("map-boot-splash");
+      if (el) el.hidden = true;
+    }
+    async function runBootLoad() {
+      showBootSplash();
+      loadSplashNews();   // fire-and-forget → merges live news into the rotator
+      try {
+        // 1) Referrals — auto-shows on success
+        bootStep("referrals", "active"); bootSplashSetNow("Loading referrals…"); bootSplashSetBar(8);
+        try { await loadReferralOverlay(); bootStep("referrals", "done"); }
+        catch (e) { console.warn("[boot] referrals failed", e); bootStep("referrals", "failed"); }
+
+        // 2) Clinicians — load + auto-SHOW
+        bootStep("clinicians", "active"); bootSplashSetNow("Loading clinicians…"); bootSplashSetBar(22);
+        try {
+          await loadClinicians();
+          appState.showClinicians = true;
+          if (elements.showCliniciansToggle) elements.showCliniciansToggle.checked = true;
+          syncClinicianVisibilityToggle();
+          syncAllMarkerVisuals();
+          updateSummary();
+          bootStep("clinicians", "done");
+        } catch (e) { console.warn("[boot] clinicians failed", e); bootStep("clinicians", "failed"); }
+        bootSplashSetBar(40);
+
+        // 3) Completed services — PRE-LOAD only (pins stay off → instant toggle later)
+        bootStep("services", "active"); bootSplashSetNow("Loading completed services…");
+        try { await loadCompletedServiceSites(); bootStep("services", "done"); }
+        catch (e) { console.warn("[boot] completed services failed", e); bootStep("services", "failed"); }
+        bootSplashSetBar(100); bootSplashSetNow("Ready");
+      } finally {
+        setTimeout(hideBootSplash, 500);   // brief beat so 100% + ✓ register
+      }
+    }
+
     map.on("style.load", async function() {
       ensureSelectionCircleLayer();
       ensureRulerLayer();
@@ -24161,7 +24318,7 @@
       bindEvents();
 
       if (!appState.hasLoadedClinicians) {
-        await loadClinicians();
+        await runBootLoad();   // splash + auto-load referrals + clinicians + (pre-load) completed services
         return;
       }
 
