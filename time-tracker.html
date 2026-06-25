@@ -84,6 +84,29 @@
     .btn-logout:hover { background: rgba(255,255,255,0.25); }
 
     .main-content { flex: 1; padding: 28px 24px; max-width: 1100px; margin: 0 auto; width: 100%; }
+    /* News & Alerts ticker — scrolling strip mirroring the Home board */
+    .alerts-ticker { display: flex; align-items: center; gap: 0; background: var(--white); border: 1px solid var(--border); border-radius: 10px; padding: 0 6px 0 12px; height: 38px; margin-bottom: 18px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); overflow: hidden; }
+    .alerts-ticker[hidden] { display: none; }
+    .ticker-label { flex: 0 0 auto; font-size: 11px; font-weight: 800; color: var(--blue); text-transform: uppercase; letter-spacing: 0.5px; padding-right: 12px; margin-right: 4px; border-right: 1px solid var(--border); }
+    .ticker-viewport { flex: 1; min-width: 0; overflow: hidden; }
+    .ticker-track { display: inline-flex; align-items: center; width: max-content; animation: tk-scroll 60s linear infinite; will-change: transform; }
+    .alerts-ticker:hover .ticker-track { animation-play-state: paused; }
+    @keyframes tk-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
+    .tk-item { display: inline-flex; align-items: center; gap: 7px; padding: 0 4px; font-size: 12.5px; white-space: nowrap; }
+    .tk-icon { font-size: 13px; }
+    .tk-name { font-weight: 800; color: #1e2d4a; }
+    .tk-disc { font-size: 9px; font-weight: 800; color: #fff; padding: 1px 6px; border-radius: 8px; letter-spacing: 0.3px; }
+    .tk-msg  { color: var(--gray); }
+    .tk-when { font-size: 11px; font-weight: 800; padding: 1px 8px; border-radius: 9px; }
+    .tk-when.tk-red   { background: #fee2e2; color: #b91c1c; }
+    .tk-when.tk-amber { background: #fef3c7; color: #92400e; }
+    .tk-when.tk-green { background: #d1fae5; color: #065f46; }
+    .tk-when.tk-blue  { background: #dbeafe; color: #1e40af; }
+    .tk-sep  { color: var(--border); padding: 0 14px; font-weight: 800; }
+    @media (prefers-reduced-motion: reduce) {
+      .ticker-track { animation: none; }
+      .ticker-viewport { overflow-x: auto; }
+    }
 
     /* ── TABS (admin) ── */
     .tab-bar { display: flex; gap: 4px; margin-bottom: 24px; border-bottom: 2px solid var(--border); }
@@ -532,6 +555,12 @@
   </div>
 
   <div class="main-content">
+
+    <!-- ── News & Alerts ticker — same alerts as the Home board, scrolling ── -->
+    <div class="alerts-ticker" id="alerts-ticker" hidden>
+      <span class="ticker-label">📰 News</span>
+      <div class="ticker-viewport"><div class="ticker-track" id="ticker-track"></div></div>
+    </div>
 
     <!-- ── STAFF VIEW ── -->
     <div id="staff-view" style="display:none;">
@@ -1106,9 +1135,124 @@ async function doLogout() {
 
 function showLogin() {
   stopMiniHud();
+  stopTimeTicker();
   document.getElementById('login-screen').style.display = 'flex';
   document.getElementById('app').style.display = 'none';
 }
+
+// ══════════════════════════════════════════════════════════════
+//  NEWS & ALERTS TICKER — mirrors the Home board's alerts in a
+//  scrolling strip. All 4 RPCs are SECURITY DEFINER + authenticated,
+//  so staff/readonly users on the Time page can call them.
+// ══════════════════════════════════════════════════════════════
+const TK_DISC_COLOR = { PT: "#2463eb", PTA: "#7c3aed", OT: "#22c55e", OTA: "#16a34a", ST: "#f97316" };
+const TK_ALERT_META = {
+  pause_starting_today: { icon: "🔴", tint: "red",   verb: "starts" },
+  pause_starting_soon:  { icon: "🟡", tint: "amber", verb: "starts" },
+  pause_active:         { icon: "🏖", tint: "blue",  verb: "on" },
+  pause_ending_today:   { icon: "🟢", tint: "green", verb: "returns" },
+  pause_ending_soon:    { icon: "🟢", tint: "green", verb: "returns" },
+  just_returned:        { icon: "🔵", tint: "blue",  verb: "returned" },
+  birthday_today:       { icon: "🎂", tint: "amber", verb: "birthday" },
+  birthday_tomorrow:    { icon: "🎂", tint: "blue",  verb: "birthday" },
+  staff_birthday_today:    { icon: "🎂", tint: "amber", verb: "birthday" },
+  staff_birthday_tomorrow: { icon: "🎂", tint: "blue",  verb: "birthday" },
+  staff_vacation_today:    { icon: "🏖", tint: "amber", verb: "vacation" },
+  staff_vacation_active:   { icon: "🏖", tint: "blue",  verb: "vacation" },
+  staff_vacation_soon:     { icon: "🏖", tint: "amber", verb: "vacation" }
+};
+function tkDateShort(d) {
+  if (!d) return "";
+  const x = (d instanceof Date) ? d : new Date(d + "T00:00:00");
+  if (isNaN(x.getTime())) return String(d);
+  return x.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function tkReason(r) { const v = String(r || "").trim(); return v ? v.toLowerCase() : "pause"; }
+function tkWhenLabel(a) {
+  const o = Number(a.days_offset != null ? a.days_offset : a.days_until);
+  switch (a.alert_type) {
+    case "pause_starting_today":  return "TODAY";
+    case "pause_starting_soon":   return "in " + o + (o === 1 ? " day" : " days");
+    case "pause_active":          return (a.days_offset == null) ? "on vacation" : ("back in " + o + (o === 1 ? " day" : " days"));
+    case "pause_ending_today":    return "today";
+    case "pause_ending_soon":     return o === 1 ? "tomorrow" : "in " + o + " days";
+    case "just_returned":         return Math.abs(o) + (Math.abs(o) === 1 ? " day ago" : " days ago");
+    case "birthday_today":        return "TODAY";
+    case "birthday_tomorrow":     return "tomorrow";
+    case "staff_birthday_today":  return "TODAY";
+    case "staff_birthday_tomorrow": return "tomorrow";
+    case "staff_vacation_today":  return "TODAY";
+    case "staff_vacation_active": return "on vacation";
+    case "staff_vacation_soon":   return o === 1 ? "tomorrow" : "in " + o + " days";
+    default: return "";
+  }
+}
+function tkMessage(a) {
+  const meta = TK_ALERT_META[a.alert_type] || TK_ALERT_META.pause_ending_soon;
+  const reason = tkReason(a.pause_reason);
+  const range = (a.pause_start_date || a.pause_end_date)
+    ? " (" + tkDateShort(a.pause_start_date) + (a.pause_end_date ? " – " + tkDateShort(a.pause_end_date) : "") + ")"
+    : "";
+  const vacRange = (a.vacation_start || a.vacation_end)
+    ? " (" + tkDateShort(a.vacation_start) + (a.vacation_end && a.vacation_end !== a.vacation_start ? " – " + tkDateShort(a.vacation_end) : "") + ")"
+    : "";
+  switch (a.alert_type) {
+    case "pause_starting_today":  return `${meta.verb} ${reason} today${range} — assign coverage?`;
+    case "pause_starting_soon":   return `${meta.verb} ${reason}${range}`;
+    case "pause_active":          return a.pause_end_date ? `${meta.verb} ${reason}${range}` : `${meta.verb} ${reason} — no return date set${range}`;
+    case "pause_ending_today":    return `${meta.verb} from ${reason}${range}`;
+    case "pause_ending_soon":     return `${meta.verb} from ${reason}${range}`;
+    case "just_returned":         return `${meta.verb} to Active (was ${reason})`;
+    case "birthday_today":        return `turns ${a.age_turning} today — ${tkDateShort(a.birthday_iso)}`;
+    case "birthday_tomorrow":     return `turns ${a.age_turning} tomorrow — ${tkDateShort(a.birthday_iso)}`;
+    case "staff_birthday_today":  return `turns ${a.age_turning} today — ${tkDateShort(a.birthday_iso)}`;
+    case "staff_birthday_tomorrow": return `turns ${a.age_turning} tomorrow — ${tkDateShort(a.birthday_iso)}`;
+    case "staff_vacation_today":  return `on vacation today${vacRange}`;
+    case "staff_vacation_active": return `on vacation now${vacRange}`;
+    case "staff_vacation_soon":   return `vacation${vacRange}`;
+    default: return reason;
+  }
+}
+
+let timeTickerTimer = null;
+async function loadTimeTicker() {
+  const track = document.getElementById('ticker-track');
+  const wrap  = document.getElementById('alerts-ticker');
+  if (!track || !wrap) return;
+  const safe = async (fn) => { try { const { data } = await db.rpc(fn); return data || []; } catch (e) { return []; } };
+  const [pause, bday, sbday, svac] = await Promise.all([
+    safe('list_pause_alerts'), safe('list_birthday_alerts'),
+    safe('list_staff_birthday_alerts'), safe('list_staff_vacation_alerts')
+  ]);
+  // Same urgency sort as the Home board: TODAY first, then |offset| asc, open-ended last.
+  const sortKey = a => { const o = a.days_offset != null ? a.days_offset : (a.days_until != null ? a.days_until : 99); return o === 0 ? -1 : Math.abs(o); };
+  const rows = pause.concat(bday, sbday, svac).sort((a, b) => sortKey(a) - sortKey(b));
+  if (!rows.length) { wrap.hidden = true; track.innerHTML = ''; return; }
+
+  const items = rows.map(a => {
+    const meta = TK_ALERT_META[a.alert_type] || TK_ALERT_META.pause_ending_soon;
+    const isStaff = a.alert_type && a.alert_type.indexOf('staff_') === 0;
+    const name = isStaff ? (a.staff_name || '—') : (a.clinician_name || '—');
+    const disc = isStaff ? (a.staff_role || '') : (a.discipline || '');
+    const discColor = isStaff ? '#64748b' : (TK_DISC_COLOR[disc] || '#94a3b8');
+    const discPill = disc ? `<span class="tk-disc" style="background:${discColor};">${escAttr(disc)}</span>` : '';
+    return `<span class="tk-item"><span class="tk-icon">${meta.icon}</span>` +
+      `<span class="tk-name">${escAttr(name)}</span>${discPill}` +
+      `<span class="tk-msg">${escAttr(tkMessage(a))}</span>` +
+      `<span class="tk-when tk-${meta.tint}">${escAttr(tkWhenLabel(a))}</span></span>`;
+  });
+  const sep   = '<span class="tk-sep">•</span>';
+  const block = items.join(sep) + sep;
+  track.innerHTML = block + block;                               // duplicated → seamless -50% loop
+  track.style.animationDuration = Math.max(30, rows.length * 6) + 's';
+  wrap.hidden = false;
+}
+function startTimeTicker() {
+  loadTimeTicker();
+  clearInterval(timeTickerTimer);
+  timeTickerTimer = setInterval(loadTimeTicker, 300000);          // refresh every 5 min
+}
+function stopTimeTicker() { clearInterval(timeTickerTimer); timeTickerTimer = null; }
 
 // ══════════════════════════════════════════════════════════════
 //  SHOW APP
@@ -1136,6 +1280,8 @@ async function showApp() {
     await tsLoad();
     startMiniHud();
   }
+
+  startTimeTicker();   // News & Alerts ticker — both staff + admin
 
   // Enter key on login
   document.getElementById('tt-pass').addEventListener('keydown', e => {
