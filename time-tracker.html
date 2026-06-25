@@ -234,6 +234,15 @@
     .ts-badge-submitted { background: #FEF3C7; color: #92400E; }
     .ts-badge-approved  { background: var(--green-bg); color: var(--green); }
     .ts-badge-rejected  { background: var(--red-bg);   color: var(--red); text-transform: none; letter-spacing: 0; }
+    /* Submission deadline countdown banner (My Timesheet) */
+    .ts-deadline { font-size: 12.5px; font-weight: 700; padding: 8px 12px; border-radius: 8px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid transparent; }
+    .ts-deadline:empty { display: none; }   /* no stray padded box before first render */
+    .ts-deadline .ts-dl-icon { font-size: 14px; line-height: 1; }
+    .ts-dl-info   { background: #EFF6FF; color: #1E40AF; border-color: #BFDBFE; }
+    .ts-dl-soon   { background: #FEFCE8; color: #854D0E; border-color: #FDE68A; }
+    .ts-dl-urgent { background: #FFF7ED; color: #9A3412; border-color: #FDBA74; }
+    .ts-dl-over   { background: #FEF2F2; color: #991B1B; border-color: #FCA5A5; }
+    .ts-dl-ok     { background: #F0FDF4; color: #166534; border-color: #BBF7D0; }
     /* Pay-period submission pill (used on Dashboard cards, Pay Period rows, Shifts modal) */
     .pps-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 11px; font-size: 10px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; }
     .pps-draft     { background: #F1F5F9; color: var(--gray); border: 1px dashed var(--border); }
@@ -541,6 +550,7 @@
             <button class="btn-period" type="button" onclick="tsChangePeriod(1)">Next ▶</button>
           </div>
         </div>
+        <div class="ts-deadline ts-dl-info" id="ts-deadline"></div>
         <div class="ts-status" id="ts-status">Loading…</div>
         <table class="ts-table">
           <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Time Off</th><th>Notes</th></tr></thead>
@@ -1926,6 +1936,52 @@ function tsRender(period) {
 
   tsUpdateTotal();
   tsUpdateStatus();
+  tsRenderDeadline(period);
+}
+
+// Timesheets are due the Friday AFTER the pay period closes. Every period ends
+// on a Saturday, so the deadline is period_end + 6 days. period.end is 23:59 UTC
+// Saturday, so +6 days formatted in ADMIN_TZ lands on the correct Friday in CT.
+function tsTimesheetDeadline(period) {
+  return new Date(period.end.getTime() + 6 * 86400000);
+}
+// Whole-day difference (today → date) in ADMIN_TZ — compares the two dates'
+// Central calendar days (not raw UTC), so it's off-by-one-proof.
+function tsDaysUntil(date) {
+  const dayMs = d => Date.parse(d.toLocaleDateString('en-CA', { timeZone: ADMIN_TZ }) + 'T00:00:00Z');
+  return Math.round((dayMs(date) - dayMs(new Date())) / 86400000);
+}
+function tsRenderDeadline(period) {
+  const el = document.getElementById('ts-deadline');
+  if (!el) return;
+  const deadline = tsTimesheetDeadline(period);
+  const dueStr   = deadline.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: ADMIN_TZ });
+  const daysLeft = tsDaysUntil(deadline);
+  const done     = tsSubmission && (tsSubmission.status === 'submitted' || tsSubmission.status === 'approved');
+
+  let cls, icon, msg;
+  if (done) {
+    cls = 'ts-dl-ok'; icon = '✓';
+    msg = `Submitted — deadline was <strong>${dueStr}</strong>`;
+  } else if (daysLeft < 0) {
+    const n = Math.abs(daysLeft);
+    cls = 'ts-dl-over'; icon = '⚠';
+    msg = `Overdue — was due <strong>${dueStr}</strong> (${n} day${n === 1 ? '' : 's'} ago)`;
+  } else if (daysLeft === 0) {
+    cls = 'ts-dl-urgent'; icon = '⏰';
+    msg = `Due <strong>today</strong> (${dueStr}) — submit before end of day`;
+  } else if (daysLeft === 1) {
+    cls = 'ts-dl-urgent'; icon = '⏰';
+    msg = `Due <strong>tomorrow</strong> (${dueStr})`;
+  } else if (daysLeft <= 3) {
+    cls = 'ts-dl-soon'; icon = '🗓';
+    msg = `Due in <strong>${daysLeft} days</strong> (${dueStr})`;
+  } else {
+    cls = 'ts-dl-info'; icon = '🗓';
+    msg = `Due <strong>${dueStr}</strong> (in ${daysLeft} days)`;
+  }
+  el.className = 'ts-deadline ' + cls;
+  el.innerHTML = `<span class="ts-dl-icon">${icon}</span> ${msg}`;
 }
 
 function tsUpdateTotal() {
