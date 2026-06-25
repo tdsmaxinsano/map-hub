@@ -661,14 +661,14 @@
             <div class="setting-group">
               <label style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;">PHP Rate (1 USD =)</label>
               <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="php-rate" value="59.69" step="0.01" min="1" style="width:110px;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:14px;font-weight:700;" oninput="renderPayPeriod()" />
+                <input type="number" id="php-rate" value="59.69" step="0.01" min="1" style="width:110px;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:14px;font-weight:700;" oninput="renderPayPeriod(true)" />
                 <span style="font-size:13px;color:var(--gray);">PHP</span>
               </div>
             </div>
             <div class="setting-group">
               <label style="font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;">Wise Fee %</label>
               <div style="display:flex;align-items:center;gap:6px;">
-                <input type="number" id="wise-fee-pct" value="1.10" step="0.01" min="0" max="10" style="width:90px;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:14px;font-weight:700;" oninput="renderPayPeriod()" />
+                <input type="number" id="wise-fee-pct" value="1.10" step="0.01" min="0" max="10" style="width:90px;padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:14px;font-weight:700;" oninput="renderPayPeriod(true)" />
                 <span style="font-size:13px;color:var(--gray);">%</span>
               </div>
             </div>
@@ -2956,30 +2956,56 @@ async function adminClockOut(entryId, name, btn) {
 // ══════════════════════════════════════════════════════════════
 //  PAY PERIOD TABLE
 // ══════════════════════════════════════════════════════════════
-async function renderPayPeriod() {
-  const period  = getPayPeriod(periodOffset);
-  const phpRate = parseFloat(document.getElementById('php-rate')?.value || 59.69);
-  const feePct  = parseFloat(document.getElementById('wise-fee-pct')?.value || 1.10) / 100;
+// Pay-period data cache — keyed by period_start ISO. Prev/Next, search and
+// rate tweaks call renderPayPeriod(true) and read from this cache, so they're
+// instant (no DB round trip). Every DATA-MUTATING path calls renderPayPeriod()
+// with no arg → fetches fresh AND refreshes the cache, so edits never show
+// stale. A short TTL bounds staleness for periods revisited after changes made
+// elsewhere; a render token drops stale async renders when clicking quickly.
+const ppCache = new Map();
+const PP_CACHE_TTL = 60000;   // 60s
+let   ppRenderToken = 0;
 
-  // 💸 pending expense approvals (migration 42) — non-blocking refresh.
-  expApprovalsLoad();
+async function renderPayPeriod(useCache) {
+  const period     = getPayPeriod(periodOffset);
+  const phpRate    = parseFloat(document.getElementById('php-rate')?.value || 59.69);
+  const feePct     = parseFloat(document.getElementById('wise-fee-pct')?.value || 1.10) / 100;
+  const periodDate = period.start.toISOString().slice(0, 10);
 
+  // Instant frame update — label + sub change synchronously so a Prev/Next
+  // click registers immediately, even before any data lands.
   document.getElementById('pp-label').textContent = fmtPeriod(period);
   document.getElementById('pp-sub').textContent   = periodOffset === 0 ? 'Current period' : (periodOffset < 0 ? `${Math.abs(periodOffset)} period(s) ago` : `${periodOffset} period(s) ahead`);
 
-  const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
-  const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
+  // 💸 pending expense approvals (migration 42) — non-blocking; keep on every
+  // render so the card's "→ <shown period>" target label stays accurate on nav.
+  expApprovalsLoad();
 
-  const periodDate = period.start.toISOString().slice(0, 10);
-  const [{ data: entries }, { data: adjs }, { data: subs }] = await Promise.all([
-    db.from('time_entries').select('*').gte('clock_in', bufStart).lte('clock_in', bufEnd),
-    db.from('pay_period_adjustments').select('*').eq('period_start', periodDate),
-    db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
-  ]);
+  const token = ++ppRenderToken;
 
-  const allEntries = entries || [];
-  const allAdjs    = adjs    || [];
-  const subByUser  = new Map((subs || []).map(s => [s.user_id, s]));
+  // Data: serve from a fresh-enough cache when navigation allows it; otherwise
+  // fetch and (re)fill the cache.
+  let bundle = null;
+  const cached = ppCache.get(periodDate);
+  if (useCache && cached && (Date.now() - cached.t) < PP_CACHE_TTL) {
+    bundle = cached;
+  } else {
+    const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
+    const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
+    const [{ data: entries }, { data: adjs }, { data: subs }] = await Promise.all([
+      db.from('time_entries').select('*').gte('clock_in', bufStart).lte('clock_in', bufEnd),
+      db.from('pay_period_adjustments').select('*').eq('period_start', periodDate),
+      db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+    ]);
+    bundle = { entries: entries || [], adjs: adjs || [], subs: subs || [], t: Date.now() };
+    ppCache.set(periodDate, bundle);
+  }
+  // Drop this render if a newer Prev/Next superseded it during the fetch.
+  if (token !== ppRenderToken) return;
+
+  const allEntries = bundle.entries;
+  const allAdjs    = bundle.adjs;
+  const subByUser  = new Map((bundle.subs || []).map(s => [s.user_id, s]));
 
   // ── Diagnostic strip — confirms what was queried vs what falls inside
   //    the period after filtering. Helps reproduce period-nav bugs. ──
@@ -3194,13 +3220,13 @@ async function renderPayPeriod() {
 function onPpSearch(v) {
   ppSearch = v;
   clearTimeout(ppSearchTimer);
-  ppSearchTimer = setTimeout(() => renderPayPeriod(), 200);
+  ppSearchTimer = setTimeout(() => renderPayPeriod(true), 200);   // same period — cache
 }
 function setPpFilter(f) {
   ppPayFilter = f;
   document.querySelectorAll('.pp-chip').forEach(c =>
     c.classList.toggle('active', c.dataset.filter === f));
-  renderPayPeriod();
+  renderPayPeriod(true);   // same period, client-side filter — cache
 }
 
 // ── Pay Period: inline manual-hours entry ─────────────────────
@@ -3359,7 +3385,7 @@ function onWiseMemoCopy(e) {
 
 function changePeriod(dir) {
   periodOffset += dir;
-  renderPayPeriod();
+  renderPayPeriod(true);   // navigation — use the cache for instant Prev/Next
 }
 
 function exportWiseCSV() {
