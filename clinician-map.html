@@ -26221,6 +26221,16 @@
     return "";
   }
 
+  // PT/OT referrals carry their assistant by default (PT→PTA, OT→OTA); ST is the
+  // exception (no STA). Applied wherever referrals are created — including the TB
+  // import — so every PT/OT referral assumes the combo unless made solo later.
+  function applyAssistantCombo(discs) {
+    var out = (discs || []).slice();
+    if (out.indexOf("PT") !== -1 && out.indexOf("PTA") === -1) out.push("PTA");
+    if (out.indexOf("OT") !== -1 && out.indexOf("OTA") === -1) out.push("OTA");
+    return out;
+  }
+
   async function openTbImport() {
     // Reset drop zone
     document.getElementById("tb-drop-zone").className = "";
@@ -26319,6 +26329,8 @@
       var rows = JSON.parse(raw);
       if (!Array.isArray(rows)) throw new Error("Response was not an array");
 
+      // Assume the assistant combo for every PT/OT referral (PT+PTA, OT+OTA); ST solo.
+      rows.forEach(function(r) { if (r && r.disciplines) r.disciplines = applyAssistantCombo(r.disciplines); });
       _tbParsedRows = rows;
       _tbGeoResults = {};
       renderTbPreview(rows);
