@@ -10,6 +10,12 @@ An internal web portal for **DependableCare**, a home health staffing agency. Tw
 
 ---
 
+## Recent changes (June 2026)
+
+- **Boot splash + auto-load (#173/#174/#175).** Opening the map auto-loads referrals + clinicians + (pre-loads) completed services behind a full-screen `#map-boot-splash` (3-step checklist + progress bar + rotating tips/news from the 4 Home alert RPCs). `runBootLoad()` is the single guarded boot path (`bootSplashShown`), fired authed from whichever of `map.on("style.load")` / `handleAuthSession()` wins. Manual **"Enter map →"** dismiss (`bootSplashFinish()`, no auto-hide). Shows synchronously — gated by `hasLikelySession()` (a quick localStorage token check) — right after the Mapbox constructor + at `style.load` top, so there's no zoomable-then-popup gap. Key fns: `showBootSplash`/`hideBootSplash`/`bootSplashFinish`/`runBootLoad`/`loadSplashNews`/`hasLikelySession`.
+- **Referral Board: one toggle → always-up + collapsible; OPRB renamed (#176/#178).** The old separate **OPRB ▾** button is gone (`#ref-jump-btn` deleted; the fixed `#ref-jump-panel` kept). The board now **auto-opens on map load and stays up** — `showRefBoard()` mounts it (idempotent; called at the end of the boot referrals step + after the quick-add / TB-import reloads). The header ✕ is a **collapse chevron** (▾/▸) → `toggleRefBoardCollapse()` toggles `.collapsed` (CSS `#ref-jump-panel.collapsed > *:not(.ref-jump-header)` keeps only the header bar). Title renamed **OPRB → "Referral Board"** in `populateReferralDropdown`. The toolbar **📋 Referrals** button now toggles ONLY the map pins: `showReferralPins()`/`hideReferralPins()` rebuild/clear the WebGL `referral-pins` source (+ sonar) WITHOUT nulling `referralOverlayData` or closing the board (so the board keeps its data with pins off). `toggleRefJumpDropdown` is now dead code.
+- **Referrals assume the assistant combo (#179/#180).** PT needs PTA, OT needs OTA; ST is solo (no STA). Stored in the existing `referrals.disciplines` array (combo PT = `["PT","PTA"]`, solo = `["PT"]`) — **no DB column**; solo is derived as "supervisor present without its assistant." Form (`toggleQarefDisc` + `QAREF_ASSISTANT`, `setQarefDiscState`, `toggleQarefSolo`, `#qaref-solo`) auto-pairs unless "Solo — no assistant" is ticked; edit-load restores discs exactly + derives the box. Popup has a `refToggleSolo()` toggle (shown only when PT/OT present). The Referral Board's **📷 Import** runs `applyAssistantCombo(discs)` on each AI-scanned row at parse time. See `referral-assistant-combo-rule` in memory.
+
 ## Files
 
 ### `clinician-map.html` (~21,000 lines)
@@ -262,7 +268,7 @@ body (flex column)
 - **Markers need `flex:1` on `.map-stage`** — if map has 0 height, check this first
 - **`#map-instructions` is hidden** — `.map-overlay` has `display:none`; the element still exists in the DOM so JS references don't break, but the tooltip bar is not visible
 - **`_qarefAddressCoords`** — must be set (by selecting from typeahead) before save; submit blocks if null
-- **Referral jump dropdown** — `#ref-jump-cell` hidden until overlay loads; button label shows count e.g. "2 open referrals ▾"; `_refJumpOpen` tracks open state; click-outside closes via document listener
+- **Referral Board (was "OPRB jump dropdown")** — now a **persistent, always-up** floating panel `#ref-jump-panel` (fixed-positioned, draggable by its header). The old `#ref-jump-cell` / `#ref-jump-btn` toolbar button is **gone**. It auto-opens on boot via `showRefBoard()`, collapses to its header bar via `toggleRefBoardCollapse()` (`.collapsed` class), and the toolbar **📋 Referrals** button now only toggles the map pins. `_refJumpOpen`/`_refBoardCollapsed` track state. See "Recent changes (June 2026)" above.
 - **Quick add referral** — fields: patient_name (NOT NULL in DB), agency (typeahead from appState.agencies), address (Mapbox geocoding typeahead, debounced 300ms), disciplines (colored toggle pills). On save: inserts to Supabase, reloads overlay
 - **Discipline colors** — `{ PT: "#2463eb", PTA: "#1e9b58", OT: "#7c3aed", OTA: "#ef7d23" }` (ST falls back to #6b7280)
 - **`_zipClearedByUser` flag** — set `true` when user clicks the ZIP clear button; suppresses `snapZipToLensLocation` on subsequent lens moves so ZIP doesn't silently re-populate after being cleared

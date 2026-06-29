@@ -107,6 +107,12 @@ This document gives Claude full context to continue development on `time-tracker
 
 ---
 
+## Recent changes (June 2026)
+
+- **Move an adjustment / reimbursement to a different pay period (#177).** Approving a staff expense stamps the reimbursement `pay_period_adjustments` row onto the period that's showing; there was no way to move it afterward. The adjustment edit modal (✎, used by reimbursements) now has a **Pay Period** selector `#adj-period`, populated by `adjPeriodOptionsHtml(selectedIso)` (bi-weekly periods newest-first, "· current" tag, and always includes the adjustment's own period via the grid offset; option values are the exact `getPayPeriod(off).start.toISOString().slice(0,10)` that the table queries on). `saveAdjustment` now includes `period_start` in the payload for **both** insert and update (the update path previously omitted it — that was why editing couldn't move the row). Add-mode defaults to the shown period; `openEditReferral`-style edit-load pre-selects the saved period. Move-aware toast ("Moved to …"). The `staff_expenses.adjustment_id` link is by id, so a move only changes the period — the expense stays approved + linked. No SQL.
+
+---
+
 ## Pending Features (as of last session)
 
 ### Task #4 — Time Edit Approval System + 10hr Hard Stop
