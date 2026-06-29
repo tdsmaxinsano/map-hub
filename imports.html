@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Imports — DependableCare</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<style>
+  :root {
+    --blue: #0b1f44; --blue-mid: #163172; --gold: #c79a26; --accent: #2463eb;
+    --green: #22c55e; --amber: #eab308; --red: #ef4444;
+    --bg: #f4f6fa; --card: #ffffff; --border: #e2e8f0; --text: #1f2937; --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* Login overlay */
+  #login-screen { display: none; position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); }
+  .login-card { background: #fff; border-radius: 16px; padding: 36px 32px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .login-card h1 { margin: 0 0 4px; color: var(--blue); font-size: 22px; font-weight: 800; text-align: center; }
+  .login-card p  { margin: 0 0 22px; color: var(--gold); font-size: 13px; font-weight: 600; text-align: center; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .login-card button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  .login-err { color: #b91c1c; font-size: 12px; margin-top: 8px; min-height: 14px; text-align: center; }
+
+  /* Admin-only gate */
+  #admin-gate { display: none; position: fixed; inset: 0; z-index: 99; align-items: center; justify-content: center; background: rgba(11, 31, 68, 0.92); color: #fff; text-align: center; padding: 32px; }
+  #admin-gate .gate-card { background: #fff; color: var(--text); border-radius: 14px; padding: 36px 40px; max-width: 420px; box-shadow: 0 30px 80px rgba(0,0,0,0.4); }
+  #admin-gate h2 { margin: 0 0 8px; color: var(--blue); font-size: 22px; }
+  #admin-gate p { margin: 0 0 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  #admin-gate a { color: var(--accent); text-decoration: none; font-weight: 700; font-size: 13px; }
+
+  /* Header (hidden inside iframe shell) */
+  .header { background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); color: #fff; padding: 12px 22px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .header-brand h1 { margin: 0; font-size: 18px; font-weight: 800; }
+  .header-brand p  { margin: 0; font-size: 11px; color: var(--gold); font-weight: 600; }
+  .header-nav { display: flex; gap: 4px; flex: 1; }
+  .header-nav a { color: rgba(255,255,255,0.7); text-decoration: none; padding: 7px 11px; border-radius: 6px; font-size: 12px; font-weight: 600; transition: background .15s, color .15s; white-space: nowrap; }
+  .header-nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .header-nav a.active { color: #fff; background: rgba(255,255,255,0.15); }
+  .header-user { font-size: 11px; color: rgba(255,255,255,0.85); }
+  .header-signout { background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .header-signout:hover { background: rgba(255,255,255,0.22); }
+  html.in-iframe-shell .header { display: none !important; }
+
+  /* Content */
+  .container { max-width: 1280px; margin: 0 auto; padding: 18px 22px 80px; }
+  .hero-row { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin-bottom: 6px; flex-wrap: wrap; }
+  .hero-row h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--blue); }
+  .hero-sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+  .btn-action { padding: 7px 13px; font-size: 12px; font-weight: 700; background: #fff; border: 1.5px solid var(--border); border-radius: 7px; color: var(--text); cursor: pointer; }
+  .btn-action:hover { background: #f1f5f9; }
+
+  /* Stats strip */
+  .stats-strip { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; min-width: 130px; }
+  .stat-card .lbl { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .4px; }
+  .stat-card .val { font-size: 22px; font-weight: 800; color: var(--blue); margin-top: 2px; }
+
+  /* Area section + cards */
+  .area { margin-bottom: 22px; }
+  .area-head { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 800; color: var(--blue); margin: 0 0 10px; }
+  .area-head .area-count { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .import-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .import-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; transition: box-shadow .15s, border-color .15s; }
+  .import-card:hover { box-shadow: 0 6px 18px rgba(12,22,50,0.08); border-color: #cdd9ec; }
+  .ic-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+  .ic-title { font-size: 14px; font-weight: 800; color: var(--text); }
+  .ic-file { font-size: 10px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; color: #1e3a8a; background: #e0ecff; border: 1px solid #c3d9ff; border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+  .ic-blurb { font-size: 12px; color: var(--muted); line-height: 1.4; min-height: 32px; }
+  .ic-lastrun { font-size: 12px; color: var(--text); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .ic-lastrun .when { font-weight: 700; }
+  .ic-lastrun .meta { color: var(--muted); }
+  .ic-lastrun .rel { color: var(--muted); }
+  .ic-never { font-size: 12px; color: #94a3b8; font-style: italic; }
+  .ic-foot { display: flex; justify-content: flex-end; margin-top: 2px; }
+  .go-btn { background: var(--accent); color: #fff; border: none; border-radius: 7px; padding: 7px 13px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .go-btn:hover { background: #1d4fc4; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 11px 22px; border-radius: 8px; font-size: 13px; font-weight: 700; z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+  .toast.show { opacity: 1; }
+  .toast.err { background: #b91c1c; }
+  .toast.ok  { background: #047857; }
+</style>
+<script>
+  if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+</script>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>DependableCare</h1>
+    <p>Imports</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-err" class="login-err"></div>
+  </div>
+</div>
+
+<!-- Admin-only gate -->
+<div id="admin-gate">
+  <div class="gate-card">
+    <h2>🔒 Admin only</h2>
+    <p>The Imports hub centralizes every data import in the portal — restricted to admin users. Ask an admin to upgrade your role from the 👥 Users panel on the Map page.</p>
+    <a href="index.html">← Back to portal home</a>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="header" id="app-header" style="display:none;">
+  <div class="header-brand">
+    <h1>DependableCare</h1>
+    <p>Imports</p>
+  </div>
+  <nav class="header-nav">
+    <a href="index.html">🏠 Home</a>
+    <a href="clinician-map.html">🗺️ Map</a>
+    <a href="referrals.html">📋 Referrals</a>
+    <a href="time-tracker.html">⏱️ Time</a>
+    <a href="compliance.html">✅ Compliance</a>
+    <a href="kanban.html">🗂️ Kanban</a>
+    <a href="roster-review.html">📋 Roster</a>
+    <a href="agencies.html">🏢 Agencies</a>
+    <a href="finance.html">💰 Finance</a>
+    <a href="imports.html" class="active">📥 Imports</a>
+  </nav>
+  <span class="header-user" id="header-user"></span>
+  <button class="header-signout" id="signout-btn">Sign out</button>
+</header>
+
+<!-- Main content -->
+<div class="container" id="app-container" style="display:none;">
+  <div class="hero-row">
+    <h2>📥 Imports</h2>
+    <button class="btn-action" id="refresh-btn" type="button">🔄 Refresh</button>
+  </div>
+  <p class="hero-sub">Every import in the portal, in one place. See when each was last run and jump straight to it. Files are still dropped in each tool — this is your shared log + launcher.</p>
+
+  <div class="stats-strip" id="stats-strip"></div>
+
+  <div id="areas"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// CATALOG — the hub's single source of truth. `key` doubles as the
+// `?import=<key>` param each tool's deep-link reader honors.
+// ══════════════════════════════════════════════════════════════════
+const TAB_FILE = {
+  map: "clinician-map.html", compliance: "compliance.html",
+  finance: "finance.html", roster: "roster-review.html", agencies: "agencies.html"
+};
+const AREA_ORDER = ["Map", "Compliance", "Finance", "Roster", "Agencies"];
+const AREA_ICON  = { Map: "🗺️", Compliance: "✅", Finance: "💰", Roster: "📋", Agencies: "🏢" };
+
+const IMPORTS = [
+  // 🗺️ Map
+  { key: "map_clinicians",     area: "Map",        tab: "map",       label: "Clinicians (master)",      file: "CSV / XLSX", blurb: "TherapyBoss clinician roster — names, disciplines, addresses, status, DOB." },
+  { key: "map_zip",            area: "Map",        tab: "map",       label: "ZIP coverage",             file: "CSV / XLSX", blurb: "Which ZIP codes each clinician covers (drives the coverage tool)." },
+  { key: "map_agencies",       area: "Map",        tab: "map",       label: "HH agencies",              file: "CSV / XLSX", blurb: "Home-health agency directory — name, address, contacts." },
+  { key: "map_services",       area: "Map",        tab: "map",       label: "Completed services",       file: "CSV / XLSX", blurb: "Visit history from TherapyBoss (the slow one). Feeds start dates + metrics." },
+  { key: "map_referrals",      area: "Map",        tab: "map",       label: "Referrals (TB staging)",   file: "CSV / XLSX", blurb: "Open referrals export → the referral overlay staging table." },
+  { key: "map_referral_scan",  area: "Map",        tab: "map",       label: "Referral 📷 scan",         file: "Image",      blurb: "AI scan of a TherapyBoss referral screenshot → new referral rows." },
+  // ✅ Compliance
+  { key: "comp_frequency",     area: "Compliance", tab: "compliance", label: "Frequency (Create bills)", file: "HTML",      blurb: "TB visit-frequency export → the Frequency Compliance queue." },
+  { key: "comp_evaluation",    area: "Compliance", tab: "compliance", label: "Evaluation (2-file)",      file: "CSV + XLSX", blurb: "TB Active Services CSV + Patient List XLSX → the Evaluation queue." },
+  { key: "comp_scheduled",     area: "Compliance", tab: "compliance", label: "Scheduled appointments",   file: "CSV",        blurb: "TB Scheduled Appointments → enriches eval rows with next-eval dates." },
+  { key: "comp_visits",        area: "Compliance", tab: "compliance", label: "Patient visits",           file: "CSV",        blurb: "TB Patient Visits → eval visit actuals + sync status." },
+  // 💰 Finance
+  { key: "fin_vdr",            area: "Finance",    tab: "finance",   label: "VDR Runner (Create bills)", file: "XLSX",      blurb: "TB Create-bills → visit-discrepancy report + saved run history." },
+  { key: "fin_payroll",        area: "Finance",    tab: "finance",   label: "Clinician Payroll Audit",  file: "XLSX + PDF", blurb: "TB Prepare-payroll (+ optional Strata Med B PDF) → the payroll audit." },
+  { key: "fin_payrates",       area: "Finance",    tab: "finance",   label: "Pay Rates",                file: "XLSX",       blurb: "Strata pay-rates sheet → per-clinician Med B follow-up / eval rates." },
+  // 📋 Roster
+  { key: "roster_visits",      area: "Roster",     tab: "roster",    label: "Bulk visits",              file: "CSV",        blurb: "Historical Patient Visits backfill → per-clinician period metrics." },
+  // 🏢 Agencies
+  { key: "agency_hh",          area: "Agencies",   tab: "agencies",  label: "HH Ratings",               file: "XLSX",       blurb: "Your HH RATINGS sheet → agency contract rates + ratings." },
+  { key: "agency_tb",          area: "Agencies",   tab: "agencies",  label: "TB Price List",            file: "XLSX",       blurb: "Official TherapyBoss price list → agency rate history + current rates." }
+];
+
+// ══════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════
+let currentUser = null;
+let currentRole = "readonly";
+let logByKey = {};   // import_key → { last_imported_at, last_email, last_row_count, run_count }
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH
+// ══════════════════════════════════════════════════════════════════
+async function checkSession() {
+  const { data } = await db.auth.getSession();
+  if (data?.session?.user) await launchApp(data.session.user);
+  else document.getElementById("login-screen").style.display = "flex";
+}
+async function doSignIn() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) { err.textContent = error.message || "Incorrect credentials."; return; }
+  await launchApp(data.session.user);
+}
+async function doSignOut() { await db.auth.signOut(); location.reload(); }
+
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+  try {
+    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    currentRole = (roleRow && roleRow.role) || "readonly";
+  } catch (e) { currentRole = "readonly"; }
+
+  if (currentRole !== "admin") {
+    document.getElementById("admin-gate").style.display = "flex";
+    return;
+  }
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("app-container").style.display = "block";
+  document.getElementById("header-user").textContent = user.email || "";
+  await loadLog();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DATA + RENDER
+// ══════════════════════════════════════════════════════════════════
+async function loadLog() {
+  logByKey = {};
+  try {
+    const { data, error } = await db.rpc("list_import_log");
+    if (error) throw error;
+    (data || []).forEach(r => { logByKey[r.import_key] = r; });
+  } catch (e) {
+    // Non-fatal — the catalog still renders (everything shows "never run").
+    console.warn("[imports] list_import_log failed:", e && e.message);
+    showToast("Couldn't load run history — showing catalog only.", "err");
+  }
+  renderStats();
+  renderAreas();
+}
+
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtDate(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  } catch (e) { return iso; }
+}
+function relDays(iso) {
+  try {
+    const then = new Date(iso); const now = new Date();
+    const days = Math.floor((now.setHours(0,0,0,0) - new Date(then).setHours(0,0,0,0)) / 86400000);
+    if (days <= 0) return "today";
+    if (days === 1) return "yesterday";
+    if (days < 30) return days + " days ago";
+    if (days < 60) return "last month";
+    return Math.floor(days / 30) + " months ago";
+  } catch (e) { return ""; }
+}
+
+function renderStats() {
+  const total = IMPORTS.length;
+  let never = 0, recent = 0;
+  IMPORTS.forEach(e => {
+    const row = logByKey[e.key];
+    if (!row || !row.last_imported_at) { never++; return; }
+    const days = Math.floor((Date.now() - new Date(row.last_imported_at).getTime()) / 86400000);
+    if (days <= 7) recent++;
+  });
+  document.getElementById("stats-strip").innerHTML =
+    `<div class="stat-card"><div class="lbl">Imports tracked</div><div class="val">${total}</div></div>` +
+    `<div class="stat-card"><div class="lbl">Run in last 7 days</div><div class="val">${recent}</div></div>` +
+    `<div class="stat-card"><div class="lbl">Never run</div><div class="val">${never}</div></div>`;
+}
+
+function renderAreas() {
+  const host = document.getElementById("areas");
+  let html = "";
+  AREA_ORDER.forEach(area => {
+    const entries = IMPORTS.filter(e => e.area === area);
+    if (!entries.length) return;
+    html += `<div class="area"><div class="area-head">${AREA_ICON[area] || ""} ${escHtml(area)} <span class="area-count">· ${entries.length}</span></div><div class="import-grid">`;
+    entries.forEach(e => {
+      const row = logByKey[e.key];
+      let lastRun;
+      if (row && row.last_imported_at) {
+        const who  = row.last_email ? `<span class="meta">· ${escHtml(row.last_email)}</span>` : "";
+        const rows = (row.last_row_count != null) ? `<span class="meta">· ${row.last_row_count} rows</span>` : "";
+        lastRun = `<div class="ic-lastrun"><span class="when">${escHtml(fmtDate(row.last_imported_at))}</span> <span class="rel">(${escHtml(relDays(row.last_imported_at))})</span> ${who} ${rows}</div>`;
+      } else {
+        lastRun = `<div class="ic-never">Never run</div>`;
+      }
+      html +=
+        `<div class="import-card">` +
+          `<div class="ic-top"><div class="ic-title">${escHtml(e.label)}</div><div class="ic-file">${escHtml(e.file)}</div></div>` +
+          `<div class="ic-blurb">${escHtml(e.blurb)}</div>` +
+          lastRun +
+          `<div class="ic-foot"><button class="go-btn" type="button" data-key="${escHtml(e.key)}">Go to import →</button></div>` +
+        `</div>`;
+    });
+    html += `</div></div>`;
+  });
+  host.innerHTML = html;
+}
+
+function goToImport(key) {
+  const e = IMPORTS.find(x => x.key === key);
+  if (!e) return;
+  const qs = "import=" + encodeURIComponent(e.key);
+  if (window.parent && window.parent !== window && typeof window.parent.shellSwitchTab === "function") {
+    window.parent.shellSwitchTab(e.tab, qs);
+  } else {
+    window.open((TAB_FILE[e.tab] || "index.html") + "?" + qs, "_blank", "noopener");
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TOAST + WIRING
+// ══════════════════════════════════════════════════════════════════
+let toastTimer = null;
+function showToast(msg, kind) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (kind === "err" ? " err" : kind === "ok" ? " ok" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, 2600);
+}
+
+document.getElementById("login-btn").addEventListener("click", doSignIn);
+document.getElementById("login-password").addEventListener("keydown", e => { if (e.key === "Enter") doSignIn(); });
+document.getElementById("signout-btn").addEventListener("click", doSignOut);
+document.getElementById("refresh-btn").addEventListener("click", () => { showToast("Refreshing…"); loadLog(); });
+document.getElementById("areas").addEventListener("click", e => {
+  const btn = e.target.closest(".go-btn[data-key]");
+  if (btn) goToImport(btn.dataset.key);
+});
+
+checkSession();
+</script>
+</body>
+</html>
