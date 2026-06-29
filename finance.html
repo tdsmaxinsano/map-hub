@@ -10324,6 +10324,9 @@ const ATTACH = (() => {
     unmatchedInv = [];
     unmatchedPdf = [];
     if (!invoiceNumbers.length || !pdfFiles.length) {
+      // IIF loaded but no PDFs yet → every invoice is "pending" so the preview
+      // (and the Sent-in-QB checklist) shows immediately, before any PDF drop.
+      unmatchedInv = invoiceNumbers.slice();
       updateUI();
       return;
     }
@@ -10409,18 +10412,28 @@ const ATTACH = (() => {
     const rowStyle = (inv, base) => sentChecks[inv] ? base + "background:#dcfce7;" : base;
     const numStyle = (inv) => sentChecks[inv] ? ' style="text-decoration:line-through;color:#16a34a;"' : "";
     const sentCell = (inv) => `<td style="text-align:center;"><input type="checkbox" data-inv="${escHtml(inv)}" ${sentChecks[inv] ? "checked" : ""} title="Check when you've sent this invoice in QuickBooks"></td>`;
-    const rowsHtml = matched.map(m =>
-      `<tr style="${rowStyle(m.invoiceNo, "")}"><td${numStyle(m.invoiceNo)}>${escHtml(m.invoiceNo)}</td><td>${agencyOf(m.invoiceNo)}</td><td>${svChip(customerByInvoice.get(m.invoiceNo))}</td><td>${escHtml(m.fileName)}</td><td>✓</td>${sentCell(m.invoiceNo)}</tr>`
-    ).join("");
-    const unmatchedInvHtml = unmatchedInv.map(n =>
-      `<tr style="${rowStyle(n, "background:#fff8e1;")}"><td${numStyle(n)}>${escHtml(n)}</td><td>${agencyOf(n)}</td><td>${svChip(customerByInvoice.get(n))}</td><td colspan="2" style="color:#92400e;font-style:italic;">no PDF found</td>${sentCell(n)}</tr>`
-    ).join("");
+    const renderInvRow = (inv, fileName, isMatched) => isMatched
+      ? `<tr style="${rowStyle(inv, "")}"><td${numStyle(inv)}>${escHtml(inv)}</td><td>${agencyOf(inv)}</td><td>${svChip(customerByInvoice.get(inv))}</td><td>${escHtml(fileName)}</td><td>✓</td>${sentCell(inv)}</tr>`
+      : `<tr style="${rowStyle(inv, "background:#fff8e1;")}"><td${numStyle(inv)}>${escHtml(inv)}</td><td>${agencyOf(inv)}</td><td>${svChip(customerByInvoice.get(inv))}</td><td colspan="2" style="color:#92400e;font-style:italic;">no PDF found</td>${sentCell(inv)}</tr>`;
+    // Unified invoice rows (matched + no-PDF), sorted so Sent Via "QB" floats to
+    // the top (then other known methods, then unknown); matched-first + numeric
+    // invoice # within each group.
+    const svRank = (inv) => { const s = (sentViaForCustomer(customerByInvoice.get(inv)) || "").toUpperCase(); return s === "QB" ? 0 : s ? 1 : 2; };
+    const invoiceRows = matched.map(m => ({ inv: m.invoiceNo, fileName: m.fileName, matched: true }))
+      .concat(unmatchedInv.map(n => ({ inv: n, fileName: null, matched: false })));
+    invoiceRows.sort((a, b) => {
+      const ra = svRank(a.inv), rb = svRank(b.inv);
+      if (ra !== rb) return ra - rb;
+      if (a.matched !== b.matched) return a.matched ? -1 : 1;
+      return String(a.inv).localeCompare(String(b.inv), undefined, { numeric: true });
+    });
+    const invoiceRowsHtml = invoiceRows.map(r => renderInvRow(r.inv, r.fileName, r.matched)).join("");
     const unmatchedPdfHtml = unmatchedPdf.map(f =>
       `<tr style="background:#fef2f2"><td colspan="5">${escHtml(f)}</td><td style="color:#991b1b;font-style:italic;text-align:center;">unmatched PDF</td></tr>`
     ).join("");
     tbl.innerHTML =
       `<thead><tr><th>Invoice #</th><th>Agency</th><th>Sent Via</th><th>File Name</th><th>Status</th><th>Sent in QB</th></tr></thead>` +
-      `<tbody>${rowsHtml}${unmatchedInvHtml}${unmatchedPdfHtml}</tbody>`;
+      `<tbody>${invoiceRowsHtml}${unmatchedPdfHtml}</tbody>`;
 
     // Check-off progress over every invoice in the IIF.
     const prog = document.getElementById("attach-sent-progress");
