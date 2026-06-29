@@ -1698,7 +1698,10 @@
       <div id="attach-preview-card" style="display:none;margin-top:14px;">
         <div class="stat-strip" id="attach-stats"></div>
         <div id="attach-sentvia-hud" style="display:none;margin:10px 0 4px;padding:8px 12px;border:1px solid var(--border);border-radius:8px;background:#f8fafc;font-size:12px;color:var(--text);"></div>
-        <p style="font-size:11.5px;color:var(--muted);margin:4px 0 8px;">Match preview (first 20 rows):</p>
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin:4px 0 8px;flex-wrap:wrap;">
+          <p style="font-size:11.5px;color:var(--muted);margin:0;">Match preview — check off each invoice as you send it in QuickBooks. Stays until you hit Reset.</p>
+          <span id="attach-sent-progress" style="font-size:12px;font-weight:700;color:#15803d;white-space:nowrap;"></span>
+        </div>
         <div class="discrep-table-wrap" style="max-height:320px;">
           <table class="discrep" id="attach-preview-table"></table>
         </div>
@@ -10154,6 +10157,10 @@ const ATTACH = (() => {
   let initialized    = false;
   let customerByInvoice = new Map();  // invoice# → HH agency (Customer) name from the IIF
   let agencySentViaByNorm = null;     // normalized agency name → sent_via (from Agencies tool); null = not loaded
+  let agencySentViaByLoose = null;    // looser key (HH stopwords stripped) → sent_via; fallback match
+  let sentChecks = {};                // invoice# → true once the user has sent it in QB (manual checkoff)
+  let restoredPdfCount = 0;           // PDF count from a restored session (the File objects aren't kept)
+  const LS_KEY = "dcs_finance_attach_state_v1";
 
   function escHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -10204,25 +10211,92 @@ const ATTACH = (() => {
     v = v.replace(/\b(inc|llc|ltd|corp|co|pc|services|service)\b/g, " "); // strip entity suffixes
     return v.replace(/\s+/g, " ").trim();
   }
+  // Looser key — also drops generic home-health words, so the IIF's "Serenity
+  // Home Care" and the contract's "Serenity Home Health" still resolve to the
+  // same agency. FALLBACK only, and only when the loose key is unambiguous
+  // (loose-key collisions across different sent_via values are dropped).
+  function looseAgencyName(s) {
+    return normAgencyName(s)
+      .replace(/\b(home|health|healthcare|care|agency|agencies|hospice|rehab|rehabilitation|staffing|nursing|group|the|of|and)\b/g, " ")
+      .replace(/\s+/g, " ").trim();
+  }
   // Load agency contracts once and index sent_via by normalized name. Non-fatal:
   // a failure just leaves Sent Via blank (agency names still show).
   async function ensureAgencyContracts() {
     if (agencySentViaByNorm) return;
-    agencySentViaByNorm = new Map();
+    agencySentViaByNorm  = new Map();
+    agencySentViaByLoose = new Map();
+    const looseCollide = new Set();
     try {
       const { data, error } = await db.rpc("list_agency_contracts");
       if (error) throw error;
       (data || []).forEach(row => {
+        const sv  = (row.sent_via || "").trim();
         const key = normAgencyName(row.agency_name);
-        if (key) agencySentViaByNorm.set(key, (row.sent_via || "").trim());
+        if (key) agencySentViaByNorm.set(key, sv);
+        if (sv) {                                       // only index agencies that HAVE a sent_via
+          const lkey = looseAgencyName(row.agency_name);
+          if (lkey) {
+            if (agencySentViaByLoose.has(lkey) && agencySentViaByLoose.get(lkey) !== sv) looseCollide.add(lkey);
+            agencySentViaByLoose.set(lkey, sv);
+          }
+        }
       });
+      looseCollide.forEach(k => agencySentViaByLoose.delete(k));   // ambiguous → don't guess
     } catch (e) {
       console.warn("[ATTACH] agency contracts load failed (Sent Via will be blank):", e && e.message);
     }
   }
   function sentViaForCustomer(customer) {
-    if (!agencySentViaByNorm || !customer) return "";
-    return agencySentViaByNorm.get(normAgencyName(customer)) || "";
+    if (!customer) return "";
+    if (agencySentViaByNorm) {
+      const exact = agencySentViaByNorm.get(normAgencyName(customer));
+      if (exact) return exact;
+    }
+    if (agencySentViaByLoose) {
+      const loose = agencySentViaByLoose.get(looseAgencyName(customer));   // Serenity-style fallback
+      if (loose) return loose;
+    }
+    return "";
+  }
+
+  // ── Persist the preview + check-offs so they survive a reload / tab close,
+  //    until Reset. The PDF File objects can't be serialized, so a restored
+  //    session shows the full preview + check-offs but must re-drop the PDFs
+  //    to rebuild the zip. ──
+  function persistState() {
+    try {
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        iifFilename, invoiceNumbers,
+        matched:      matched.map(m => ({ invoiceNo: m.invoiceNo, fileName: m.fileName })),
+        unmatchedInv, unmatchedPdf,
+        pdfCount:     pdfFiles.length || restoredPdfCount,
+        customer:     Array.from(customerByInvoice.entries()),
+        sentChecks
+      }));
+    } catch (e) { /* quota / storage disabled — non-fatal */ }
+  }
+  function restoreState() {
+    let snap;
+    try { snap = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) { snap = null; }
+    if (!snap) return false;
+    iifFilename      = snap.iifFilename || "";
+    invoiceNumbers   = snap.invoiceNumbers || [];
+    matched          = (snap.matched || []).map(m => ({ invoiceNo: m.invoiceNo, fileName: m.fileName, file: null }));
+    unmatchedInv     = snap.unmatchedInv || [];
+    unmatchedPdf     = snap.unmatchedPdf || [];
+    restoredPdfCount = snap.pdfCount || 0;
+    customerByInvoice = new Map(snap.customer || []);
+    sentChecks       = snap.sentChecks || {};
+    if (iifFilename) {
+      const t = document.getElementById("attach-iif-title"); if (t) t.textContent = "🧾 " + iifFilename;
+      const s = document.getElementById("attach-iif-sub");   if (s) s.textContent = `${invoiceNumbers.length} invoice numbers extracted`;
+    }
+    if (restoredPdfCount) {
+      const t = document.getElementById("attach-pdf-title"); if (t) t.textContent = "📎 " + restoredPdfCount + " file(s) — re-drop to rebuild the zip";
+      const s = document.getElementById("attach-pdf-sub");   if (s) s.textContent = "Preview + check-offs restored; PDFs aren't kept across reloads";
+    }
+    return (matched.length > 0 || invoiceNumbers.length > 0);
   }
 
   // ── Filename → candidate invoice numbers (case-insensitive). Tries
@@ -10287,8 +10361,8 @@ const ATTACH = (() => {
     const tbl     = document.getElementById("attach-preview-table");
     if (!actions || !preview || !stats || !tbl) return;
 
-    const hasInputs = invoiceNumbers.length > 0 || pdfFiles.length > 0;
-    actions.style.display = matched.length > 0 ? "flex" : "none";
+    const hasInputs = invoiceNumbers.length > 0 || pdfFiles.length > 0 || matched.length > 0;
+    actions.style.display = hasInputs ? "flex" : "none";
     preview.style.display = hasInputs ? "block" : "none";
     if (!hasInputs) return;
 
@@ -10296,7 +10370,7 @@ const ATTACH = (() => {
     // .stat-pill / .lbl / .val structure VDR + IIF use).
     stats.innerHTML =
       `<div class="stat-pill"><div class="lbl">Invoices in IIF</div><div class="val">${invoiceNumbers.length}</div></div>` +
-      `<div class="stat-pill"><div class="lbl">PDFs dropped</div><div class="val">${pdfFiles.length}</div></div>` +
+      `<div class="stat-pill"><div class="lbl">PDFs dropped</div><div class="val">${pdfFiles.length || restoredPdfCount}</div></div>` +
       `<div class="stat-pill ${matched.length ? 'ok' : ''}"><div class="lbl">Matched</div><div class="val">${matched.length}</div></div>` +
       (unmatchedInv.length ? `<div class="stat-pill flag"><div class="lbl">No PDF for invoice</div><div class="val">${unmatchedInv.length}</div></div>` : "") +
       (unmatchedPdf.length ? `<div class="stat-pill flag"><div class="lbl">PDF unmatched</div><div class="val">${unmatchedPdf.length}</div></div>` : "");
@@ -10322,7 +10396,9 @@ const ATTACH = (() => {
       }
     }
 
-    // Preview table — Invoice # · Agency · Sent Via · File Name · Status
+    // Preview table — Invoice # · Agency · Sent Via · File Name · Status · Sent in QB.
+    // Shows ALL invoices (matched + no-PDF) so each can be checked off as it's sent
+    // in QuickBooks; unmatched-PDF rows are informational (no checkbox).
     const svChip = (cust) => {
       const sv = sentViaForCustomer(cust);
       return sv
@@ -10330,21 +10406,30 @@ const ATTACH = (() => {
         : `<span style="color:#94a3b8;">—</span>`;
     };
     const agencyOf = (inv) => escHtml(customerByInvoice.get(inv) || "—");
-    const rowsHtml = matched.slice(0, 20).map(m =>
-      `<tr><td>${escHtml(m.invoiceNo)}</td><td>${agencyOf(m.invoiceNo)}</td><td>${svChip(customerByInvoice.get(m.invoiceNo))}</td><td>${escHtml(m.fileName)}</td><td>✓</td></tr>`
+    const rowStyle = (inv, base) => sentChecks[inv] ? base + "background:#dcfce7;" : base;
+    const numStyle = (inv) => sentChecks[inv] ? ' style="text-decoration:line-through;color:#16a34a;"' : "";
+    const sentCell = (inv) => `<td style="text-align:center;"><input type="checkbox" data-inv="${escHtml(inv)}" ${sentChecks[inv] ? "checked" : ""} title="Check when you've sent this invoice in QuickBooks"></td>`;
+    const rowsHtml = matched.map(m =>
+      `<tr style="${rowStyle(m.invoiceNo, "")}"><td${numStyle(m.invoiceNo)}>${escHtml(m.invoiceNo)}</td><td>${agencyOf(m.invoiceNo)}</td><td>${svChip(customerByInvoice.get(m.invoiceNo))}</td><td>${escHtml(m.fileName)}</td><td>✓</td>${sentCell(m.invoiceNo)}</tr>`
     ).join("");
-    const more = matched.length > 20
-      ? `<tr><td colspan="5" style="text-align:center;padding:10px;color:var(--muted);">… ${matched.length - 20} more matches in the zip.</td></tr>`
-      : "";
-    const unmatchedInvHtml = unmatchedInv.slice(0, 10).map(n =>
-      `<tr style="background:#fff8e1"><td>${escHtml(n)}</td><td>${agencyOf(n)}</td><td>${svChip(customerByInvoice.get(n))}</td><td colspan="2" style="color:#92400e;font-style:italic;">no PDF found</td></tr>`
+    const unmatchedInvHtml = unmatchedInv.map(n =>
+      `<tr style="${rowStyle(n, "background:#fff8e1;")}"><td${numStyle(n)}>${escHtml(n)}</td><td>${agencyOf(n)}</td><td>${svChip(customerByInvoice.get(n))}</td><td colspan="2" style="color:#92400e;font-style:italic;">no PDF found</td>${sentCell(n)}</tr>`
     ).join("");
-    const unmatchedPdfHtml = unmatchedPdf.slice(0, 10).map(f =>
-      `<tr style="background:#fef2f2"><td colspan="4">${escHtml(f)}</td><td style="color:#991b1b;font-style:italic;">unmatched PDF</td></tr>`
+    const unmatchedPdfHtml = unmatchedPdf.map(f =>
+      `<tr style="background:#fef2f2"><td colspan="5">${escHtml(f)}</td><td style="color:#991b1b;font-style:italic;text-align:center;">unmatched PDF</td></tr>`
     ).join("");
     tbl.innerHTML =
-      `<thead><tr><th>Invoice #</th><th>Agency</th><th>Sent Via</th><th>File Name</th><th>Status</th></tr></thead>` +
-      `<tbody>${rowsHtml}${more}${unmatchedInvHtml}${unmatchedPdfHtml}</tbody>`;
+      `<thead><tr><th>Invoice #</th><th>Agency</th><th>Sent Via</th><th>File Name</th><th>Status</th><th>Sent in QB</th></tr></thead>` +
+      `<tbody>${rowsHtml}${unmatchedInvHtml}${unmatchedPdfHtml}</tbody>`;
+
+    // Check-off progress over every invoice in the IIF.
+    const prog = document.getElementById("attach-sent-progress");
+    if (prog) {
+      const sentCount = invoiceNumbers.filter(n => sentChecks[n]).length;
+      prog.textContent = invoiceNumbers.length ? `✅ Sent in QB: ${sentCount} of ${invoiceNumbers.length}` : "";
+    }
+
+    persistState();
   }
 
   async function handleIifFile(file) {
@@ -10382,6 +10467,10 @@ const ATTACH = (() => {
 
   async function buildSaasantZip() {
     if (!matched.length) { setStatus("Nothing to bundle yet.", "error"); return; }
+    if (matched.some(m => !m.file)) {
+      setStatus("Re-drop the PDFs to rebuild the zip — files aren't kept across reloads. Your preview + check-offs are saved.", "error");
+      return;
+    }
     if (typeof JSZip === "undefined")   { setStatus("JSZip didn't load — refresh and try again.", "error"); return; }
     if (typeof ExcelJS === "undefined") { setStatus("ExcelJS didn't load — refresh and try again.", "error"); return; }
     setStatus(`Building zip with ${matched.length} attachment(s)…`);
@@ -10426,8 +10515,12 @@ const ATTACH = (() => {
     invoiceNumbers = []; pdfFiles = []; matched = [];
     unmatchedInv = []; unmatchedPdf = []; iifFilename = "";
     customerByInvoice = new Map();
+    sentChecks = {}; restoredPdfCount = 0;
+    try { localStorage.removeItem(LS_KEY); } catch (e) {}
     const hud = document.getElementById("attach-sentvia-hud");
     if (hud) { hud.style.display = "none"; hud.innerHTML = ""; }
+    const prog = document.getElementById("attach-sent-progress");
+    if (prog) prog.textContent = "";
     document.getElementById("attach-actions").style.display = "none";
     document.getElementById("attach-preview-card").style.display = "none";
     document.getElementById("attach-iif-title").textContent = "Drop the .iif (raw or cleaned)";
@@ -10466,6 +10559,29 @@ const ATTACH = (() => {
 
     document.getElementById("attach-download-btn").addEventListener("click", buildSaasantZip);
     document.getElementById("attach-reset-btn").addEventListener("click", resetUI);
+
+    // Delegated check-off — the <table> element persists across innerHTML
+    // re-renders, so one listener covers every (re)rendered row.
+    const tbl = document.getElementById("attach-preview-table");
+    if (tbl) tbl.addEventListener("change", (e) => {
+      const cb = e.target.closest('input[type="checkbox"][data-inv]');
+      if (!cb) return;
+      const inv = cb.getAttribute("data-inv");
+      if (cb.checked) sentChecks[inv] = true; else delete sentChecks[inv];
+      const tr = cb.closest("tr");
+      if (tr) {
+        const isNoPdf = unmatchedInv.indexOf(inv) !== -1;
+        tr.style.background = cb.checked ? "#dcfce7" : (isNoPdf ? "#fff8e1" : "");
+        const c0 = tr.querySelector("td");
+        if (c0) { c0.style.textDecoration = cb.checked ? "line-through" : ""; c0.style.color = cb.checked ? "#16a34a" : ""; }
+      }
+      const prog = document.getElementById("attach-sent-progress");
+      if (prog) { const sc = invoiceNumbers.filter(n => sentChecks[n]).length; prog.textContent = invoiceNumbers.length ? `✅ Sent in QB: ${sc} of ${invoiceNumbers.length}` : ""; }
+      persistState();
+    });
+
+    // Restore a saved preview + check-offs (survives reload / tab close until Reset).
+    if (restoreState()) { ensureAgencyContracts().then(updateUI); updateUI(); }
   }
 
   return { init };
