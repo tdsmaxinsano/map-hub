@@ -506,6 +506,13 @@ async function launchApp(user) {
   document.getElementById("header-user").textContent = user.email || "";
 
   await loadContracts();
+
+  // Imports Hub deep-link: ?import=<key> auto-opens the matching import modal.
+  try {
+    var _imp = new URLSearchParams(location.search).get("import");
+    if (_imp === "agency_hh") openImportModal("hh");
+    else if (_imp === "agency_tb") openImportModal("tb");
+  } catch (e) { /* non-fatal */ }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1394,6 +1401,15 @@ document.getElementById("import-confirm-btn").addEventListener("click", async ()
     const li = (data && data.lines_imported) || 0;
     const un = (data && data.unmatched && data.unmatched.length) || 0;
     showToast(`Imported ${m} agencies · ${li} rate lines${un ? ` · ${un} unresolved` : ''}.`, "ok");
+    // Fire-and-forget: record this run for the Imports Hub "last run" tile.
+    try {
+      await db.rpc("log_import", {
+        p_key: importMode === 'tb' ? "agency_tb" : "agency_hh",
+        p_label: importMode === 'tb' ? "TB Price List" : "HH Ratings",
+        p_area: "Agencies",
+        p_row_count: li
+      });
+    } catch (e) { console.warn("[log_import]", e && e.message); }
     document.getElementById("import-modal").classList.remove("open");
     btn.textContent = "Import";
     await loadContracts();
@@ -1408,6 +1424,15 @@ document.getElementById("import-confirm-btn").addEventListener("click", async ()
   const matched = (data && data.matched) || 0;
   const stillUnmatched = (data && data.unmatched && data.unmatched.length) || 0;
   showToast(`Imported ${matched} agencies${stillUnmatched ? ` · ${stillUnmatched} unresolved` : ''}.`, "ok");
+  // Fire-and-forget: record this run for the Imports Hub "last run" tile.
+  try {
+    await db.rpc("log_import", {
+      p_key: importMode === 'tb' ? "agency_tb" : "agency_hh",
+      p_label: importMode === 'tb' ? "TB Price List" : "HH Ratings",
+      p_area: "Agencies",
+      p_row_count: matched
+    });
+  } catch (e) { console.warn("[log_import]", e && e.message); }
   document.getElementById("import-modal").classList.remove("open");
   btn.textContent = "Import";
   await loadContracts();

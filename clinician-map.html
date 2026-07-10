@@ -19758,6 +19758,7 @@
         "Home health agency import complete. " + createdCount + " created, " + updatedCount + " updated.",
         "success"
       );
+      try { await supabaseClient.rpc("log_import", { p_key: "map_agencies", p_label: "HH agencies", p_area: "Map", p_row_count: createdCount + updatedCount }); } catch (e) { console.warn("[log_import]", e && e.message); }
       await loadAgencies();
     }
 
@@ -19883,6 +19884,7 @@
             + incompleteRowCount + " incomplete rows ignored.",
           "success"
         );
+        try { await supabaseClient.rpc("log_import", { p_key: "map_zip", p_label: "ZIP coverage", p_area: "Map", p_row_count: matchedRows.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
         await loadClinicians();
       } catch (error) {
         console.error("Clinician ZIP coverage import failed:", error);
@@ -20065,6 +20067,7 @@
           + ".",
         "success"
       );
+      try { await supabaseClient.rpc("log_import", { p_key: "map_clinicians", p_label: "Clinicians (master)", p_area: "Map", p_row_count: createdCount + updatedCount }); } catch (e) { console.warn("[log_import]", e && e.message); }
       await loadClinicians();
     }
 
@@ -20109,6 +20112,7 @@
         }
 
         setImportStatus("Uploaded " + stagedRows.length + " TherapyBoss referral rows to Supabase staging.", "success");
+        try { await supabaseClient.rpc("log_import", { p_key: "map_referrals", p_label: "Referrals (TB staging)", p_area: "Map", p_row_count: stagedRows.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
       } catch (error) {
         console.error("TherapyBoss referral import upload failed:", error);
 
@@ -20330,6 +20334,7 @@
             + ". Last load completed " + formatAcceptedDateTime(batchResponse.data.imported_at) + ".",
           "success"
         );
+        try { await supabaseClient.rpc("log_import", { p_key: "map_services", p_label: "Completed services", p_area: "Map", p_row_count: rowPayloads.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
         appState.hasLoadedCompletedServices = false;
         await loadCompletedServiceSites();
         if (
@@ -24340,6 +24345,42 @@
       if (btn) { btn.hidden = false; try { btn.focus(); } catch (e) {} }
       // Tips/news keep rotating while it waits for the manual dismiss.
     }
+    // ── Imports Hub deep-link reader ──
+    // imports.html links here via ?import=<key> ("Go to import →"). Once the map
+    // boot has finished (so we don't fight the boot splash), open the matching
+    // importer: the Referral Board 📷 scan modal for map_referral_scan, or the
+    // Bulk Import modal pre-selected to the right kind for the five bulk kinds.
+    // Guarded to fire at most once per page-load.
+    var _importDeepLinkHandled = false;
+    function handleImportDeepLink() {
+      if (_importDeepLinkHandled) return;
+      _importDeepLinkHandled = true;
+      var importKey = "";
+      try {
+        importKey = new URLSearchParams(PAGE_INITIAL_SEARCH || window.location.search).get("import") || "";
+      } catch (e) { return; }
+      if (!importKey) return;
+
+      if (importKey === "map_referral_scan") {
+        try { openTbImport(); } catch (e) { console.warn("[import-deeplink]", e && e.message); }
+        return;
+      }
+
+      var kindByImportKey = {
+        map_clinicians:  "clinician_master",
+        map_zip:         "zip_coverage",
+        map_agencies:    "home_health_agencies",
+        map_services:    "completed_services",
+        map_referrals:   "referral"
+      };
+      var kind = kindByImportKey[importKey];
+      if (!kind) return;
+      try {
+        setImportModalOpen(true);
+        setImportKind(kind);
+      } catch (e) { console.warn("[import-deeplink]", e && e.message); }
+    }
+
     async function runBootLoad() {
       if (bootSplashShown) return;   // run ONCE per page-load — covers both the style.load and the auth boot paths
       bootSplashShown = true;
@@ -24373,6 +24414,9 @@
       catch (e) { console.warn("[boot] completed services failed", e); anyFailed = true; bootStep("services", "failed"); }
 
       bootSplashFinish(anyFailed);   // → "All loaded" + Dismiss button; stays until clicked
+
+      // Map is booted + ready — now honor any Imports Hub ?import=<key> deep link.
+      handleImportDeepLink();
     }
 
     map.on("style.load", async function() {
@@ -26460,6 +26504,7 @@
 
       closeTbImport();
       showToast("Imported " + toInsert.length + " referral" + (toInsert.length !== 1 ? "s" : "") + "!", "success");
+      try { await supabaseClient.rpc("log_import", { p_key: "map_referral_scan", p_label: "Referral scan", p_area: "Map", p_row_count: toInsert.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
 
       if (appState.referralOverlayActive) {
         clearReferralOverlay();
