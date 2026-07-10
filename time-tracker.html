@@ -642,6 +642,7 @@
             </tr>
           </tfoot>
         </table>
+        <div id="ts-paidleave-line" style="display:none;font-size:12px;font-weight:700;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:7px 11px;margin:2px 0 8px;"></div>
         <div class="ts-actions">
           <span class="ts-unsaved" id="ts-unsaved" hidden>● Unsaved changes</span>
           <button class="ts-save-btn"   type="button" id="ts-save-btn"   onclick="tsSave()" disabled>Save</button>
@@ -1993,11 +1994,31 @@ const ABSENCE_OPTIONS = [
   { value: 'sick',          label: '🤒 Sick',         chip: 'Sick' },
   { value: 'personal',      label: '👤 Personal',     chip: 'Personal' },
   { value: 'power_outage',  label: '⚡ Power Outage', chip: 'Power' },
-  { value: 'internet',      label: '📶 Internet',     chip: 'Internet' }
+  { value: 'internet',      label: '📶 Internet',     chip: 'Internet' },
+  { value: 'paid_leave',    label: '🌴 Paid Leave',   chip: 'Paid Leave' }
 ];
 function absenceLabel(kind) {
   const o = ABSENCE_OPTIONS.find(x => x.value === kind);
   return o ? o.chip : '';
+}
+
+// Whether the logged-in staff has the paid-leave benefit (gates the 🌴 option).
+function tsHasPaidLeave() {
+  const mc = staffConfig.find(s => s.user_id === currentUser.id);
+  return !!(mc && mc.has_paid_leave);
+}
+// Sum ONLY the paid-leave hours in a period (capped per shift) — for tracking.
+// Paid-leave days are logged WITH hours, so they already count toward pay; this
+// just surfaces the paid-leave portion separately.
+function paidLeaveHoursInPeriod(entries, period) {
+  let total = 0;
+  for (const e of entries) {
+    if (e.absence_kind !== 'paid_leave') continue;
+    const ci = new Date(e.clock_in);
+    if (!(ci >= period.start && ci <= period.end)) continue;
+    total += shiftDuration(e.clock_in, e.clock_out).capped;
+  }
+  return total;
 }
 
 function tsGetMyTZ() {
@@ -2105,10 +2126,15 @@ function tsRender(period) {
 
   const tbody = document.getElementById('ts-body');
   if (!tbody) return;
+  // 🌴 Paid Leave is a per-employee benefit — only show it to enabled staff
+  // (but keep it visible on a row that already has it, so old data still renders).
+  const showPaidLeave = tsHasPaidLeave();
   tbody.innerHTML = tsRows.map((r, i) => {
-    const absenceOptions = ABSENCE_OPTIONS.map(o =>
-      `<option value="${o.value}" ${r.absenceKind === o.value ? 'selected' : ''}>${o.label}</option>`
-    ).join('');
+    const absenceOptions = ABSENCE_OPTIONS
+      .filter(o => o.value !== 'paid_leave' || showPaidLeave || r.absenceKind === 'paid_leave')
+      .map(o =>
+        `<option value="${o.value}" ${r.absenceKind === o.value ? 'selected' : ''}>${o.label}</option>`
+      ).join('');
     const offTint = r.absenceKind ? ' ts-row-off' : '';
     // Auto-hint: shows "Auto: X.XXh" below the input when the day has any
     // clock-in hours. Strikethrough class applied when the input value
@@ -2179,6 +2205,7 @@ function tsRender(period) {
   tsUpdateTotal();
   tsUpdateStatus();
   tsRenderDeadline(period);
+  tsRenderPaidLeave(period);
 }
 
 // Timesheets are due the Friday AFTER the pay period closes. Every period ends
@@ -2234,6 +2261,37 @@ function tsUpdateTotal() {
     return sum + (isNaN(h) ? 0 : h);
   }, 0);
   el.textContent = total.toFixed(2) + ' h';
+}
+
+// 🌴 Paid-leave summary under the timesheet — period total (from the grid) +
+// a year-to-date figure (a small extra query). Shown for enabled staff, or for
+// anyone who already has paid-leave days logged in the shown period.
+async function tsRenderPaidLeave(period) {
+  const el = document.getElementById('ts-paidleave-line');
+  if (!el) return;
+  const enabled = tsHasPaidLeave();
+  const periodHrs = tsRows.reduce((s, r) => {
+    if (r.absenceKind !== 'paid_leave') return s;
+    const h = parseFloat(r.hrs);
+    return s + (isNaN(h) ? 0 : Math.min(h, MAX_SHIFT_HOURS));
+  }, 0);
+  if (!enabled && periodHrs === 0) { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const hint = enabled
+    ? ' <span style="font-weight:400;color:#0d9488;">— pick 🌴 Paid Leave on a day and enter the hours; they\'re paid + tracked.</span>'
+    : '';
+  el.innerHTML = `🌴 Paid leave: ${periodHrs.toFixed(2)}h this period${hint}`;
+  // Year-to-date (non-blocking; keeps the period line if it fails).
+  try {
+    const yr = period.start.getUTCFullYear();
+    const { data } = await db.from('time_entries')
+      .select('clock_in, clock_out')
+      .eq('user_id', currentUser.id).eq('absence_kind', 'paid_leave')
+      .gte('clock_in', yr + '-01-01T00:00:00.000Z')
+      .lt('clock_in', (yr + 1) + '-01-01T00:00:00.000Z');
+    const ytd = (data || []).reduce((s, e) => s + shiftDuration(e.clock_in, e.clock_out).capped, 0);
+    el.innerHTML = `🌴 Paid leave: ${periodHrs.toFixed(2)}h this period · ${ytd.toFixed(2)}h in ${yr}${hint}`;
+  } catch (e) { /* non-fatal */ }
 }
 
 function tsUpdateStatus() {
@@ -3178,7 +3236,13 @@ function atsRender(period) {
   }).join('');
 
   const total = atsRows.reduce((s, r) => { const h = parseFloat(r.hrs); return s + (isNaN(h) ? 0 : h); }, 0);
-  document.getElementById('ats-total').textContent = total.toFixed(2) + ' h';
+  const atsPl = atsRows.reduce((s, r) => {
+    if (r.absenceKind !== 'paid_leave') return s;
+    const h = parseFloat(r.hrs);
+    return s + (isNaN(h) ? 0 : Math.min(h, MAX_SHIFT_HOURS));
+  }, 0);
+  document.getElementById('ats-total').innerHTML = total.toFixed(2) + ' h'
+    + (atsPl > 0 ? ` <span style="font-size:10px;font-weight:800;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;padding:1px 6px;border-radius:8px;" title="Paid-leave hours included in the total.">🌴 ${atsPl.toFixed(2)}h PL</span>` : '');
 
   // Status badge (mirrors the staff timesheet's 4-state machine).
   const sub = atsSubmission;
@@ -3447,7 +3511,8 @@ async function renderPayPeriod(useCache) {
       const ci = new Date(e.clock_in);
       return ci >= period.start && ci <= period.end && shiftDuration(e.clock_in, e.clock_out).flagged;
     });
-    return { hrs, earned, myAdjs, netPay, isPH, cat, capped };
+    const paidLeave = paidLeaveHoursInPeriod(myEntries, period);   // paid-leave portion of the total
+    return { hrs, earned, myAdjs, netPay, isPH, cat, capped, paidLeave };
   }
 
   const allActive = staffConfig.filter(s => s.is_active);
@@ -3471,7 +3536,7 @@ async function renderPayPeriod(useCache) {
   }).sort((a, b) => String(a.display_name || '').localeCompare(String(b.display_name || '')));
 
   const rows = visible.map(s => {
-    const { hrs, earned, myAdjs, isPH, cat, capped } = computeStaff(s);
+    const { hrs, earned, myAdjs, isPH, cat, capped, paidLeave } = computeStaff(s);
 
     // Split adjustments: positive ones become their own sendable rows;
     // negative ones (deductions) fold into the main row's base.
@@ -3490,9 +3555,12 @@ async function renderPayPeriod(useCache) {
     // inside #admin-view — so no extra role gate is needed here.)
     // Salaried staff don't need hours for pay — show a muted marker
     // instead of the input so nobody "enters hours to make pay come out".
+    const plChip = paidLeave > 0
+      ? ` <span style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;" title="Paid-leave hours included in this period's total (also tracked separately).">🌴 ${fmtHrs(paidLeave)}h PL</span>`
+      : '';
     const hoursCell = cat === 'salary_dd'
-      ? `<td style="color:#999;font-size:11px;" title="Salary — hours not used for pay">— salary</td>`
-      : `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h${capped ? ` <span class="shift-cap-warn" title="A shift this period exceeded the ${MAX_SHIFT_HOURS}h cap (likely forgotten clock-out) — counted at the cap. Open 🗓 Timesheet or Shifts to fix.">⚠</span>` : ''}</td>`;
+      ? `<td style="color:#999;font-size:11px;" title="Salary — hours not used for pay">— salary${plChip}</td>`
+      : `<td><input type="number" class="inline-hours" data-uid="${s.user_id}" value="${fmtHrs(hrs)}" min="0" step="0.5" />h${capped ? ` <span class="shift-cap-warn" title="A shift this period exceeded the ${MAX_SHIFT_HOURS}h cap (likely forgotten clock-out) — counted at the cap. Open 🗓 Timesheet or Shifts to fix.">⚠</span>` : ''}${plChip}</td>`;
     const addAdjCell = `<td><button type="button" class="add-adj-btn" data-uid="${s.user_id}">+ adj</button></td>`;
 
     // Pay-period submission pill — lives next to the staff name.
@@ -3891,6 +3959,13 @@ async function renderSettings() {
         <label>🎂 Birthday</label>
         <input type="date" class="s-dob" value="${s.dob || ''}" style="width:150px;" />
       </div>
+      <div class="setting-group">
+        <label>🌴 Paid Leave</label>
+        <select class="s-paidleave" title="On → this employee sees the 🌴 Paid Leave time-off type on My Timesheet (paid + tracked).">
+          <option value="false" ${!s.has_paid_leave?'selected':''}>No</option>
+          <option value="true"  ${s.has_paid_leave?'selected':''}>Yes</option>
+        </select>
+      </div>
       <div class="setting-group wise-fields" style="${payCat!=='wise_hourly'?'display:none':''}">
         <label>Wise Recipient ID</label>
         <input type="text" class="s-wise-id" value="${s.wise_recipient_id||''}" placeholder="UUID from Wise" style="width:220px;font-size:11px;" />
@@ -3947,6 +4022,7 @@ async function saveStaffConfig(uid, btn) {
   const wiseName= row.querySelector('.s-wise-name')?.value.trim() || null;
   const wiseEmail=row.querySelector('.s-wise-email')?.value.trim() || null;
   const dob     = row.querySelector('.s-dob')?.value || null;
+  const paidLeave = row.querySelector('.s-paidleave')?.value === 'true';
 
   btn.textContent = '...';
 
@@ -3968,6 +4044,7 @@ async function saveStaffConfig(uid, btn) {
     wise_recipient_id: wiseId,
     wise_name: wiseName, wise_email: wiseEmail,
     dob: dob,
+    has_paid_leave: paidLeave,
     updated_at: new Date().toISOString()
   }).eq('user_id', uid);
   if (error) { showToast('Error: ' + error.message); btn.textContent = 'Save'; return; }
