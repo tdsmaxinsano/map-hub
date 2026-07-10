@@ -1470,6 +1470,13 @@ async function launchApp(user) {
   checkDeadlineBanner();
   await loadClinicians();
   loadImports();
+
+  // Imports Hub deep-link: ?import=<key> opens the matching importer directly.
+  try {
+    var _imp = new URLSearchParams(location.search).get("import");
+    if (_imp === "comp_frequency") openImportPicker();
+    else if (_imp === "comp_evaluation" || _imp === "comp_scheduled" || _imp === "comp_visits") openEvalImportModal();
+  } catch (e) { /* non-fatal */ }
 }
 
 /* ══════════════════════════════════════════════════
@@ -2113,6 +2120,9 @@ async function confirmImport() {
     if (newRows.length)        parts.push(newRows.length + " new item"+(newRows.length!==1?"s":"")+" imported");
     if (acceptedUpdates.length) parts.push(acceptedUpdates.length + " row"+(acceptedUpdates.length!==1?"s":"")+" updated");
     showToast((parts.join(", ") || "Nothing changed") + ".", "success");
+
+    // Imports Hub: fire-and-forget "last run" log
+    try { await db.rpc("log_import", { p_key: "comp_frequency", p_label: "Frequency (Create bills)", p_area: "Compliance", p_row_count: newRows.length + acceptedUpdates.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
 
     closeModal("import-modal");
     await loadImports(); // reloads all items via selectBatch(null)
@@ -3814,6 +3824,8 @@ async function confirmEvalScheduleImport() {
     }
     closeModal("eval-sched-modal");
     showToast("Schedule applied — updated " + total + " evaluation items.", "success");
+    // Imports Hub: fire-and-forget "last run" log (only after RPC succeeds)
+    try { await db.rpc("log_import", { p_key: "comp_scheduled", p_label: "Scheduled appointments", p_area: "Compliance", p_row_count: total }); } catch (e) { console.warn("[log_import]", e && e.message); }
     await loadEvaluationCompliance();
   } catch (err) {
     showToast("Schedule import failed: " + (err.message || err), "error");
@@ -4057,6 +4069,8 @@ async function confirmEvalVisitsImport() {
     if (totalRoster) msg += " · " + totalRoster + " clinician/period rows for Roster";
     msg += ". Sync status auto-derived.";
     showToast(msg, "success");
+    // Imports Hub: fire-and-forget "last run" log (only after RPC succeeds)
+    try { await db.rpc("log_import", { p_key: "comp_visits", p_label: "Patient visits", p_area: "Compliance", p_row_count: totalEval }); } catch (e) { console.warn("[log_import]", e && e.message); }
     await loadEvaluationCompliance();
   } catch (err) {
     showToast("Visits import failed: " + (err.message || err), "error");
@@ -4092,6 +4106,8 @@ async function confirmEvalImport() {
       msg += " ⚠ " + autoHeldCount + " new rows auto-promoted to Hold/Hospital (TB hold flag set).";
     }
     showToast(msg, "success");
+    // Imports Hub: fire-and-forget "last run" log
+    try { await db.rpc("log_import", { p_key: "comp_evaluation", p_label: "Evaluation (2-file)", p_area: "Compliance", p_row_count: total }); } catch (e) { console.warn("[log_import]", e && e.message); }
     await loadEvaluationCompliance();
   } catch (err) {
     showToast("Import failed: " + (err.message || err), "error");

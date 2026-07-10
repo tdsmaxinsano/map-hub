@@ -1043,6 +1043,11 @@ async function launchApp(user) {
   await loadRoster();
   setupRealtime();
   parseUrlFilters();
+
+  // Deep-link from the Imports Hub: ?import=roster_visits opens the importer directly
+  try {
+    if (currentRole === "admin" && new URLSearchParams(location.search).get("import") === "roster_visits") openBulkVisModal();
+  } catch (e) { /* non-fatal */ }
 }
 
 async function loadStaffDirectory() {
@@ -2891,6 +2896,10 @@ async function confirmBulkVisitsImport() {
       if (resp.error) throw new Error(resp.error.message);
       total += (resp.data || 0);
     }
+    // Fire-and-forget: log this import so the Imports Hub shows a real "last run"
+    try {
+      await db.rpc("log_import", { p_key: "roster_visits", p_label: "Bulk visits", p_area: "Roster", p_row_count: total });
+    } catch (e) { console.warn("[log_import]", e && e.message); }
     closeBulkVisModal();
     alert("✓ Imported " + total + " clinician/period rows. Refreshing roster…");
     await loadVdrSummary();

@@ -2212,6 +2212,15 @@ async function launchApp(user) {
   switchView(initialView, true);
 
   loadPayrollSummary();
+
+  // Imports Hub deep-link: ?import=<key> lands on the exact importer and
+  // opens its modal where one exists. Non-fatal — never blocks launch.
+  try {
+    var _imp = new URLSearchParams(location.search).get("import");
+    if (_imp === "fin_payrates") { switchView("payroll"); cprPayRatesImportOpen(); }
+    else if (_imp === "fin_payroll") { switchView("payroll"); openCprModal(); }
+    else if (_imp === "fin_vdr") { switchView("billing"); }
+  } catch (e) { /* non-fatal */ }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -4918,6 +4927,8 @@ async function cprPayRatesImportApply() {
   try {
     const res = await db.rpc("upsert_clinician_medb_rates", { p_rows: rpcRows });
     if (res.error) throw new Error(res.error.message);
+    // Imports Hub: record last-run (fire-and-forget; migration 49)
+    try { await db.rpc("log_import", { p_key: "fin_payrates", p_label: "Pay Rates", p_area: "Finance", p_row_count: writable.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
     cprPayRatesImportClose();
     cprPayRatesLoaded = false;   // force reload
     await cprPayRatesLoad(true);
@@ -5642,6 +5653,8 @@ async function saveCprRun() {
       p_medb_pdf_path:         medbPdfPath
     });
     if (error) throw new Error(error.message);
+    // Imports Hub: record last-run (fire-and-forget; migration 49)
+    try { await db.rpc("log_import", { p_key: "fin_payroll", p_label: "Clinician Payroll Audit", p_area: "Finance", p_row_count: p.distinct_clinicians }); } catch (e) { console.warn("[log_import]", e && e.message); }
     // Persist per-clinician rates to memory (migration 35) AFTER the
     // audit save succeeds, so next period gets a memory hit. Fire-and-
     // forget — non-blocking, failures logged only.
@@ -9644,6 +9657,8 @@ const VDR = (function() {
       }
 
       showToast("Saved to history (" + (clinRows.length) + " clinicians, " + (payRows.length) + " payers)");
+      // Imports Hub: record last-run (fire-and-forget; migration 49)
+      try { await db.rpc("log_import", { p_key: "fin_vdr", p_label: "VDR Runner (Create bills)", p_area: "Finance", p_row_count: rawRows.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
       await loadHistory();
     } catch (e) {
       console.error("[VDR] save failed:", e);
