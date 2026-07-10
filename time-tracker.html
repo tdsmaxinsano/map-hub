@@ -1406,6 +1406,28 @@ function fmtPeriod(p, tz = ADMIN_TZ) {
   return `${p.start.toLocaleDateString('en-US', o)} – ${p.end.toLocaleDateString('en-US', o)}`;
 }
 
+// Fetch EVERY time_entry whose clock_in is in [bufStart, bufEnd], paginated.
+// The admin all-staff views query a ~16-day window across all staff; a plain
+// .select() is capped at Supabase's default 1000-row limit (in an unspecified
+// order), so once the org has enough activity a period silently returns an
+// arbitrary 1000 rows → wrong / inconsistent per-period totals. Paging in 1000s
+// (ordered) guarantees the full set regardless of the server max-rows setting.
+async function fetchTimeEntriesInRange(bufStart, bufEnd) {
+  const PAGE = 1000;
+  let all = [], from = 0;
+  for (;;) {
+    const { data, error } = await db.from('time_entries').select('*')
+      .gte('clock_in', bufStart).lte('clock_in', bufEnd)
+      .order('clock_in', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) { console.warn('[fetchTimeEntriesInRange]', error.message); break; }
+    all = all.concat(data || []);
+    if (!data || data.length < PAGE) break;   // last (short) page → done
+    from += PAGE;
+  }
+  return all;
+}
+
 // Per-day override semantics: if a day has any Timesheet| manual entry
 // (an explicit staff override from "My Timesheet"), ONLY those Timesheet
 // entries count for that day — clock-in shifts are visually preserved
@@ -2663,10 +2685,10 @@ async function renderDashboard() {
   const bufEnd     = new Date(period.end.getTime()   + 86400000).toISOString();
   const periodDate = period.start.toISOString().slice(0, 10);
   const [
-    { data: entries },
+    entries,
     { data: subs }
   ] = await Promise.all([
-    db.from('time_entries').select('*').gte('clock_in', bufStart).lte('clock_in', bufEnd),
+    fetchTimeEntriesInRange(bufStart, bufEnd),   // paginated — no 1000-row cap
     db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
   ]);
   const allEntries = entries || [];
@@ -3321,8 +3343,8 @@ async function renderPayPeriod(useCache) {
   } else {
     const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
     const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
-    const [{ data: entries }, { data: adjs }, { data: subs }] = await Promise.all([
-      db.from('time_entries').select('*').gte('clock_in', bufStart).lte('clock_in', bufEnd),
+    const [entries, { data: adjs }, { data: subs }] = await Promise.all([
+      fetchTimeEntriesInRange(bufStart, bufEnd),   // paginated — no 1000-row cap
       db.from('pay_period_adjustments').select('*').eq('period_start', periodDate),
       db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
     ]);
