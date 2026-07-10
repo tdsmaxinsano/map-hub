@@ -2116,6 +2116,16 @@ async function tsLoad(useCache) {
     if (!r.existingId && r.autoHrs > 0) r.hrs = Number(r.autoHrs.toFixed(2));
   });
 
+  // Weekends are almost always off — pre-fill a "Day off" note (overwritable) on
+  // empty weekend days so staff stop re-typing it. Skips weekends they actually
+  // worked (any hours) or already annotated (a note / a Time Off type).
+  tsRows.forEach(r => {
+    const worked = r.autoHrs > 0 || (parseFloat(r.hrs) || 0) > 0;
+    if (r.weekend && !String(r.note || '').trim() && !r.absenceKind && !worked) {
+      r.note = 'Day off';
+    }
+  });
+
   tsSubmission = (subs && subs.length) ? subs[0] : null;
 
   tsRender(period);
