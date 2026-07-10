@@ -793,6 +793,8 @@
           <span class="pp-toolbar-hint">Sorted A–Z by name</span>
         </div>
 
+        <div id="pp-paidleave-summary" style="display:none;"></div>
+
         <div class="card" style="padding:0; overflow:hidden;">
           <table class="pay-table" id="pay-table">
             <thead>
@@ -3241,8 +3243,25 @@ function atsRender(period) {
     const h = parseFloat(r.hrs);
     return s + (isNaN(h) ? 0 : Math.min(h, MAX_SHIFT_HOURS));
   }, 0);
-  document.getElementById('ats-total').innerHTML = total.toFixed(2) + ' h'
-    + (atsPl > 0 ? ` <span style="font-size:10px;font-weight:800;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;padding:1px 6px;border-radius:8px;" title="Paid-leave hours included in the total.">🌴 ${atsPl.toFixed(2)}h PL</span>` : '');
+  const atsYr = period.start.getUTCFullYear();
+  const atsUid = atsUserId;
+  const atsPlChip = (plYtd) => (atsPl > 0 || plYtd > 0)
+    ? ` <span style="font-size:10px;font-weight:800;color:#0f766e;background:#f0fdfa;border:1px solid #99f6e4;padding:1px 6px;border-radius:8px;" title="Paid leave — this period (included in the total), and total used in ${atsYr}.">🌴 ${atsPl.toFixed(2)}h PL${plYtd > 0 ? ` · ${plYtd.toFixed(2)}h in ${atsYr}` : ''}</span>`
+    : '';
+  const atsTotalEl = document.getElementById('ats-total');
+  atsTotalEl.innerHTML = total.toFixed(2) + ' h' + atsPlChip(0);
+  // Year-to-date paid leave for this one staffer (async; keeps the period chip if it fails).
+  (async () => {
+    try {
+      const { data } = await db.from('time_entries').select('clock_in, clock_out')
+        .eq('user_id', atsUid).eq('absence_kind', 'paid_leave')
+        .gte('clock_in', atsYr + '-01-01T00:00:00.000Z')
+        .lt('clock_in', (atsYr + 1) + '-01-01T00:00:00.000Z');
+      if (atsUid !== atsUserId) return;   // modal switched staffers mid-fetch
+      const ytd = (data || []).reduce((s, e) => s + shiftDuration(e.clock_in, e.clock_out).capped, 0);
+      atsTotalEl.innerHTML = total.toFixed(2) + ' h' + atsPlChip(ytd);
+    } catch (e) { /* non-fatal */ }
+  })();
 
   // Status badge (mirrors the staff timesheet's 4-state machine).
   const sub = atsSubmission;
@@ -3441,12 +3460,19 @@ async function renderPayPeriod(useCache) {
   } else {
     const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
     const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
-    const [entries, { data: adjs }, { data: subs }] = await Promise.all([
+    const plYear   = period.start.getUTCFullYear();   // calendar year of the shown period
+    const [entries, { data: adjs }, { data: subs }, { data: plYtd }] = await Promise.all([
       fetchTimeEntriesInRange(bufStart, bufEnd),   // paginated — no 1000-row cap
       db.from('pay_period_adjustments').select('*').eq('period_start', periodDate),
-      db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+      db.rpc('list_pay_period_submissions', { p_period_start: periodDate }),
+      // Paid-leave hours for the whole calendar year (all staff) → per-employee YTD.
+      // Paid-leave rows are sparse, so no pagination is needed here.
+      db.from('time_entries').select('user_id, clock_in, clock_out')
+        .eq('absence_kind', 'paid_leave')
+        .gte('clock_in', plYear + '-01-01T00:00:00.000Z')
+        .lt('clock_in', (plYear + 1) + '-01-01T00:00:00.000Z')
     ]);
-    bundle = { entries: entries || [], adjs: adjs || [], subs: subs || [], t: Date.now() };
+    bundle = { entries: entries || [], adjs: adjs || [], subs: subs || [], plYtd: plYtd || [], plYear, t: Date.now() };
     ppCache.set(periodDate, bundle);
   }
   // Drop this render if a newer Prev/Next superseded it during the fetch.
@@ -3455,6 +3481,35 @@ async function renderPayPeriod(useCache) {
   const allEntries = bundle.entries;
   const allAdjs    = bundle.adjs;
   const subByUser  = new Map((bundle.subs || []).map(s => [s.user_id, s]));
+  // Paid-leave hours used this calendar year, summed per employee (capped per shift).
+  const plYear = bundle.plYear;
+  const paidLeaveYtdByUser = new Map();
+  (bundle.plYtd || []).forEach(e => {
+    const h = shiftDuration(e.clock_in, e.clock_out).capped;
+    paidLeaveYtdByUser.set(e.user_id, (paidLeaveYtdByUser.get(e.user_id) || 0) + h);
+  });
+  // 🌴 Paid Leave — <year> summary card: each enabled employee OR anyone with
+  // year usage, sorted by hours used this calendar year.
+  (function () {
+    const el = document.getElementById('pp-paidleave-summary');
+    if (!el) return;
+    const plRows = staffConfig
+      .filter(s => s.has_paid_leave || (paidLeaveYtdByUser.get(s.user_id) || 0) > 0)
+      .map(s => ({ name: s.display_name || s.user_id, hrs: paidLeaveYtdByUser.get(s.user_id) || 0, enabled: !!s.has_paid_leave }))
+      .sort((a, b) => b.hrs - a.hrs || String(a.name).localeCompare(String(b.name)));
+    if (!plRows.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    const plTotal = plRows.reduce((s, r) => s + r.hrs, 0);
+    el.style.display = '';
+    el.innerHTML =
+      `<div class="card" style="padding:12px 14px;margin-bottom:12px;border:1px solid #99f6e4;background:#f0fdfa;">` +
+        `<div style="font-size:13px;font-weight:800;color:#0f766e;margin-bottom:8px;">🌴 Paid Leave — ${plYear} <span style="font-weight:600;color:#0d9488;">· ${fmtHrs(plTotal)}h total used</span></div>` +
+        `<div style="display:flex;flex-wrap:wrap;gap:8px;">` +
+          plRows.map(r =>
+            `<span style="font-size:12px;font-weight:700;color:#0f766e;background:#fff;border:1px solid #99f6e4;border-radius:8px;padding:4px 10px;">${escAttr(r.name)}: ${fmtHrs(r.hrs)}h${r.enabled ? '' : ' <span style="font-weight:400;color:#0d9488;font-size:10px;">(not enabled)</span>'}</span>`
+          ).join('') +
+        `</div>` +
+      `</div>`;
+  })();
 
   // ── Diagnostic strip — confirms what was queried vs what falls inside
   //    the period after filtering. Helps reproduce period-nav bugs. ──
@@ -3555,8 +3610,9 @@ async function renderPayPeriod(useCache) {
     // inside #admin-view — so no extra role gate is needed here.)
     // Salaried staff don't need hours for pay — show a muted marker
     // instead of the input so nobody "enters hours to make pay come out".
-    const plChip = paidLeave > 0
-      ? ` <span style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;" title="Paid-leave hours included in this period's total (also tracked separately).">🌴 ${fmtHrs(paidLeave)}h PL</span>`
+    const plYtdHrs = paidLeaveYtdByUser.get(s.user_id) || 0;
+    const plChip = (paidLeave > 0 || plYtdHrs > 0)
+      ? ` <span style="background:#f0fdfa;color:#0f766e;border:1px solid #99f6e4;font-size:10px;font-weight:800;padding:1px 6px;border-radius:8px;" title="Paid leave — this period (included in the total), and total used in ${plYear}.">🌴 ${fmtHrs(paidLeave)}h PL${plYtdHrs > 0 ? ` · ${fmtHrs(plYtdHrs)}h in ${plYear}` : ''}</span>`
       : '';
     const hoursCell = cat === 'salary_dd'
       ? `<td style="color:#999;font-size:11px;" title="Salary — hours not used for pay">— salary${plChip}</td>`
