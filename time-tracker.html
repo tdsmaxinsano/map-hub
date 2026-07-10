@@ -317,6 +317,9 @@
     .ts-absence { width: 140px; }
     .ts-absence-select { width: 130px; padding: 4px 6px; border: 1.5px solid var(--border); border-radius: 5px; font-size: 12px; font-weight: 600; background: var(--white); color: var(--text); }
     .ts-absence-select:focus { border-color: var(--blue); outline: none; }
+    /* A time-off day needs a reason — the Notes field turns required until filled. */
+    .ts-note-required { border-color: #dc2626 !important; background: #fef2f2; }
+    .ts-note-required::placeholder { color: #dc2626; font-weight: 700; opacity: 1; }
     .ts-row.ts-row-off td { background: #FFF7ED; }                    /* amber tint for days off  */
     .ts-row.weekend.ts-row-off td { background: #FFF1DF; }             /* slightly stronger if weekend + off */
     .ts-row.ts-row-off .ts-day { color: #B45309; }                     /* amber-700 */
@@ -2128,7 +2131,7 @@ function tsRender(period) {
         ${hintHtml}${warnHtml}
       </td>
       <td class="ts-absence"><select class="ts-absence-select" data-idx="${i}" data-field="absenceKind">${absenceOptions}</select></td>
-      <td><input type="text" class="ts-note-input" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${r.weekend ? '(weekend, optional)' : 'optional note'}" /></td>
+      <td><input type="text" class="ts-note-input${(r.absenceKind && !String(r.note||'').trim()) ? ' ts-note-required' : ''}" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${(r.absenceKind && !String(r.note||'').trim()) ? 'Reason required' : (r.weekend ? '(weekend, optional)' : 'optional note')}" /></td>
     </tr>`;
   }).join('');
 
@@ -2155,9 +2158,18 @@ function tsRender(period) {
           hint.classList.toggle('struck', struck);
         }
       }
-      if (field === 'absenceKind') {
+      if (field === 'absenceKind' || field === 'note') {
         const tr = inp.closest('tr');
-        if (tr) tr.classList.toggle('ts-row-off', !!inp.value);
+        if (tr) {
+          if (field === 'absenceKind') tr.classList.toggle('ts-row-off', !!inp.value);
+          // A time-off day requires a reason (the Notes field) — live cue.
+          const noteInp = tr.querySelector('.ts-note-input');
+          const req = !!tsRows[i].absenceKind && !String(tsRows[i].note || '').trim();
+          if (noteInp) {
+            noteInp.classList.toggle('ts-note-required', req);
+            noteInp.placeholder = req ? 'Reason required' : (tsRows[i].weekend ? '(weekend, optional)' : 'optional note');
+          }
+        }
       }
     };
     tbody.addEventListener('input',  handleEdit);
@@ -2331,10 +2343,31 @@ async function tsPersistDays() {
   return { saved, cleared };
 }
 
+// A time-off day must carry a reason (the Notes field). Returns true if every
+// time-off day has a note; otherwise flags the offending note fields, focuses
+// the first, warns, and returns false — gates both Save and Submit.
+function tsReasonGuard() {
+  const missing = [];
+  tsRows.forEach((r, i) => { if (r.absenceKind && !String(r.note || '').trim()) missing.push(i); });
+  if (!missing.length) return true;
+  const tbody = document.getElementById('ts-body');
+  if (tbody) {
+    missing.forEach(i => {
+      const inp = tbody.querySelector('.ts-note-input[data-idx="' + i + '"]');
+      if (inp) { inp.classList.add('ts-note-required'); inp.placeholder = 'Reason required'; }
+    });
+    const first = tbody.querySelector('.ts-note-input[data-idx="' + missing[0] + '"]');
+    if (first) first.focus();
+  }
+  showToast('Add a reason for your ' + missing.length + ' time-off day' + (missing.length > 1 ? 's' : '') + ' first.');
+  return false;
+}
+
 // Save a DRAFT — persist the day data so it survives navigation, WITHOUT
 // changing the submission status (no "submitted" stamp).
 async function tsSave() {
   if (!tsRows.length) return;
+  if (!tsReasonGuard()) return;   // time-off days need a reason
   const btn = document.getElementById('ts-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
   try {
@@ -2352,6 +2385,7 @@ async function tsSave() {
 
 async function tsSubmit() {
   if (!tsRows.length) return;
+  if (!tsReasonGuard()) return;   // time-off days need a reason
   const btn = document.getElementById('ts-submit-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
   try {
