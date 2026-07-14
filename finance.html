@@ -1728,7 +1728,7 @@
     <div class="card">
       <h3>① Bank Match — Chase deposits → QB Bank Deposit</h3>
       <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
-        Drop your Chase bank CSV (the export with <strong>Date / Bank description / Spent / Received</strong> columns). Each Received row becomes one QB Bank Deposit, categorized to a GL + Customer of your choice. After download, upload the XLSX via <strong>SaaSant → Bulk Upload → Bank Deposit</strong>. SaaSant creates the deposits in QB; the bank-feed "For Review" then auto-suggests Match against them.
+        Drop your Chase bank CSV — either the <strong>Spent / Received</strong> export or Chase's <strong>Activity</strong> export (Details / Posting Date / Description / Amount); the tool auto-detects the layout. Each incoming credit becomes one QB Bank Deposit, categorized to a GL + Customer of your choice. After download, upload the XLSX via <strong>SaaSant → Bulk Upload → Bank Deposit</strong>. SaaSant creates the deposits in QB; the bank-feed "For Review" then auto-suggests Match against them.
       </p>
 
       <!-- Settings -->
@@ -1780,7 +1780,7 @@
       <div class="dropzone bank-dropzone" id="bank-dropzone" tabindex="0" role="button" aria-label="Drop Chase bank CSV">
         <div class="bank-dz-icon">🏦</div>
         <div class="bank-dz-title">Drop Chase CSV here or click to browse</div>
-        <div class="bank-dz-sub">Accepts .csv exports from Chase Online (Date, Bank description, Spent, Received columns).</div>
+        <div class="bank-dz-sub">Accepts either Chase Online export — "Spent / Received" columns, or the "Activity" export (Details / Posting Date / Description / Amount).</div>
       </div>
       <input type="file" id="bank-file-input" accept=".csv,.xlsx,.xls" style="display:none;" />
 
@@ -10760,7 +10760,7 @@ const BANK = (() => {
         .map((r, i) => buildRow(r, i, defaults))
         .filter(Boolean);
       if (!rows.length) {
-        showToast(`No received-amount rows found in ${file.name}. Make sure the CSV has Date + Received columns.`, "error");
+        showToast(`No deposit rows found in ${file.name}. Accepts either Chase export — "Spent / Received" columns, or the "Activity" export (Details / Posting Date / Description / Amount).`, "error");
         return;
       }
       filterText = "";
@@ -10909,9 +10909,21 @@ const BANK = (() => {
     const desc    = String(get("Bank description", "Description", "Memo") || "").trim();
     const recv    = toNumber(get("Received", "Credit", "Deposits", "Amount In"));
     const spent   = toNumber(get("Spent", "Debit", "Withdrawals", "Amount Out"));
-    // We only handle incoming credits in v1.
-    const amount  = recv > 0 ? recv : (spent < 0 ? -spent : 0);
-    if (amount <= 0) return null;       // skip zero/blank/outgoing rows
+    // We only handle incoming credits. Two Chase export layouts are auto-detected:
+    //  • "Spent / Received"  — two money columns (recv>0, or a legacy negative spent).
+    //  • "Activity / Amount" — one signed Amount + a Details CREDIT/DEBIT flag; a
+    //    CREDIT (or positive Amount) is the deposit, DEBIT/negative is dropped so a
+    //    genuine outgoing debit never becomes a Bank Deposit.
+    let amount;
+    if (recv > 0 || spent < 0) {
+      amount = recv > 0 ? recv : -spent;                 // Spent/Received layout
+    } else {
+      const amtSigned = toNumber(get("Amount"));         // Activity/Amount layout
+      const details   = String(get("Details", "Detail") || "").trim().toUpperCase();
+      const isCredit  = details === "CREDIT" || (!details && amtSigned > 0);
+      amount = isCredit ? Math.abs(amtSigned) : 0;
+    }
+    if (amount <= 0) return null;       // skip zero/blank/outgoing (debit) rows
 
     const parsed = parseDescription(desc);
     const pattern = classifyPattern(parsed, desc.toLowerCase());
