@@ -3081,6 +3081,54 @@
       cursor: pointer; white-space: nowrap;
     }
     .ref-lens-btn:hover { background: #d4dff0; }
+    .ref-suggest-btn {
+      background: #eef7f0; border: 1px solid #bfe3c9; border-radius: 4px;
+      padding: 2px 6px; font-size: 10px; font-weight: 700; color: #1c7a44;
+      cursor: pointer; white-space: nowrap;
+    }
+    .ref-suggest-btn:hover { background: #d6efdd; }
+    /* Referral → Suggest clinicians panel */
+    .ref-suggest-panel {
+      position: fixed; top: 84px; right: 16px; width: 360px; max-height: calc(100vh - 120px);
+      background: #fff; border: 1px solid #d3ddec; border-radius: 12px;
+      box-shadow: 0 12px 40px rgba(15,32,63,0.22); z-index: 1400;
+      display: flex; flex-direction: column; overflow: hidden; font-family: Arial, sans-serif;
+    }
+    .ref-suggest-panel.hidden { display: none; }
+    .rsg-head { display: flex; align-items: center; justify-content: space-between;
+      padding: 11px 14px; background: linear-gradient(135deg,#1e4d8c,#2463eb); color: #fff; }
+    .rsg-title { font-size: 14px; font-weight: 800; }
+    .rsg-close { background: rgba(255,255,255,0.18); border: none; color: #fff;
+      width: 24px; height: 24px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; }
+    .rsg-close:hover { background: rgba(255,255,255,0.32); }
+    .rsg-sub { padding: 8px 14px 2px; font-size: 12px; color: #2d3c58; font-weight: 600; }
+    .rsg-counts { padding: 2px 14px 10px; font-size: 11px; color: #64748b; border-bottom: 1px solid #eef2f7; }
+    .rsg-list { overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 7px; }
+    .rsg-empty { padding: 22px 16px; text-align: center; color: #64748b; font-size: 12px; line-height: 1.5; }
+    .rsg-card { display: flex; gap: 9px; padding: 8px 9px; border: 1px solid #e6ecf5; border-radius: 9px; background: #fbfcfe; }
+    .rsg-rank { flex-shrink: 0; width: 22px; height: 22px; border-radius: 50%;
+      background: #1e4d8c; color: #fff; font-size: 11px; font-weight: 800;
+      display: flex; align-items: center; justify-content: center; }
+    .rsg-main { flex: 1; min-width: 0; }
+    .rsg-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .rsg-namebtn { background: none; border: none; padding: 0; font-size: 13px; font-weight: 800;
+      color: #1a3d73; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .rsg-namebtn:hover { color: #2463eb; }
+    .rsg-disc { color: #fff; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 8px; letter-spacing: .3px; }
+    .rsg-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 4px; font-size: 11px; color: #475569; }
+    .rsg-dist { font-weight: 700; color: #1e2d4a; }
+    .rsg-chip { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 7px; }
+    .rsg-zip { background: #e4f0ff; color: #1a5fb4; }
+    .rsg-rad { background: #eaf7ee; color: #1c7a44; }
+    .rsg-perf { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 7px; background: #eef2f7; color: #475569; }
+    .rsg-perf.rsg-good { background: #e6f6ec; color: #1c7a44; }
+    .rsg-perf.rsg-warn { background: #fef4e3; color: #a5741b; }
+    .rsg-perf.rsg-bad { background: #fdeaea; color: #b3261e; }
+    .rsg-restr { margin-top: 5px; font-size: 10.5px; color: #7a5a1a; background: #fdf6e6; border-radius: 6px; padding: 3px 7px; }
+    .rsg-restr.rsg-conflict { color: #b3261e; background: #fdeaea; font-weight: 700; }
+    .rsg-foot { padding: 9px 12px; border-top: 1px solid #eef2f7; display: flex; justify-content: flex-end; gap: 8px; background: #f8fafc; }
+    .rsg-report { padding: 6px 14px; background: #1e4d8c; color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .rsg-report:hover { background: #163a6e; }
     /* Quick log row */
     .ref-quick-log { margin: 8px 0; padding-top: 8px; border-top: 1px solid #e2e8f0; }
     .ref-quick-log-label { font-size: 10px; font-weight: 700; color: #718096; text-transform: uppercase; letter-spacing: .4px; margin-bottom: 5px; }
@@ -6273,6 +6321,7 @@
 
       <!-- ── Persistent referral panel — stays open through all map interactions ── -->
       <div id="ref-fixed-panel" class="hidden" role="dialog" aria-label="Referral detail"></div>
+      <div id="ref-suggest-panel" class="ref-suggest-panel hidden" role="dialog" aria-label="Suggested clinicians"></div>
 
       <div class="top-toolbar">
         <div class="toolbar-row">
@@ -25396,6 +25445,287 @@
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Referral → "Suggest clinicians" staffing tool
+  // For a referral: rank the best clinicians to staff it, combining who
+  // COVERS the referral's ZIP (TB zip_coverages) + who has COMPLETED a
+  // visit within 2.5 mi of it. Enriched with distance, ★ rating, and
+  // restrictions (agency conflict FLAGGED, not excluded). Closest-first,
+  // rating breaks ties. Output: an in-map panel + a printable report.
+  // Filter-independent — mutates NO shared lens/filter state.
+  // ═══════════════════════════════════════════════════════════════════
+  var REF_SUGGEST_RADIUS_MI = 2.5;
+  var _refSuggestData = null;
+
+  function refDeriveZip(address) {
+    var m = String(address || "").match(/,.*?\b(\d{5})\b/);
+    return m ? m[1] : "";
+  }
+
+  // Referral disciplines can arrive as ["PT/PTA"] or ["PT","PTA"] → normalized set.
+  function refDisciplineSet(disciplines) {
+    var set = new Set();
+    (Array.isArray(disciplines) ? disciplines : []).forEach(function(d) {
+      String(d || "").split("/").forEach(function(part) {
+        var n = getNormalizedDiscipline(part);
+        if (n) set.add(n);
+      });
+    });
+    return set;
+  }
+
+  // Nearest completed-service site distance for a clinician (∞ if none/no coords).
+  function refNearestServedMiles(clinicianId, lat, lng) {
+    var keys = appState.completedServiceSiteKeysByClinicianId.get(clinicianId) || [];
+    var nearest = Infinity;
+    for (var i = 0; i < keys.length; i++) {
+      var site = appState.completedServiceSitesByKey.get(keys[i]);
+      if (!site || !hasCompletedServiceCoordinates(site)) continue;
+      var d = haversineMiles(lat, lng, site.lat, site.lng);
+      if (d < nearest) nearest = d;
+    }
+    return nearest;
+  }
+
+  // Pure builder — no side effects, no shared-state mutation.
+  function buildReferralSuggestions(referral) {
+    var zip = refDeriveZip(referral.address);
+    var discSet = refDisciplineSet(referral.disciplines);
+    var wantDisc = discSet.size > 0;
+    var refAgency = referral.agency || referral.agency_name || "";
+    var refAgencyNorm = normalizeRestrictionName(refAgency).toLowerCase();
+    var candidates = [];
+
+    (appState.clinicians || []).forEach(function(clinician) {
+      if (!clinician || !clinician.id) return;
+      var clinDisc = getNormalizedDiscipline(clinician.discipline);
+      if (wantDisc && !discSet.has(clinDisc)) return;
+
+      // Source A — TB ZIP coverage.
+      var coversZip = false;
+      if (zip) {
+        var entries = getClinicianZipCoverageEntries(clinician) || [];
+        coversZip = entries.some(function(e) { return e && e.zip_code === zip; });
+      }
+      // Source B — completed a visit within 2.5 mi.
+      var nearestServed = refNearestServedMiles(clinician.id, referral.lat, referral.lng);
+      var servedNearby = nearestServed <= REF_SUGGEST_RADIUS_MI;
+
+      if (!coversZip && !servedNearby) return; // must be in at least one source
+
+      // Distance: served distance if nearby, else home/work pin distance.
+      var distance;
+      if (servedNearby) {
+        distance = nearestServed;
+      } else {
+        var pin = getClinicianMapCoordinates(clinician);
+        distance = pin ? haversineMiles(referral.lat, referral.lng, pin.lat, pin.lng) : Infinity;
+      }
+
+      var draft = getProfileDraftForClinician(clinician);
+      var rating = normalizeProfileRatingValue(draft.rating);
+      var restrAgencies = normalizeProfileRestrictionList(draft.restrictedAgencies);
+      var restrClinicians = normalizeProfileRestrictionList(draft.restrictedClinicians);
+      var agencyConflict = !!refAgencyNorm && restrAgencies.some(function(a) {
+        return normalizeRestrictionName(a).toLowerCase() === refAgencyNorm;
+      });
+      var perf = getVdrMetricsForClinician(clinician);
+
+      candidates.push({
+        id: clinician.id,
+        name: clinician.name || "",
+        discipline: clinDisc || clinician.discipline || "",
+        distance: distance,
+        rating: rating,
+        coversZip: coversZip,
+        servedNearby: servedNearby,
+        restrAgencies: restrAgencies,
+        restrClinicians: restrClinicians,
+        agencyConflict: agencyConflict,
+        avgSyncDays: perf && perf.avg_sync_days != null ? Number(perf.avg_sync_days) : null,
+        avgVisitsPerRun: perf && perf.avg_visits_per_run != null ? Number(perf.avg_visits_per_run) : null
+      });
+    });
+
+    // Rank: distance band (0.5 mi) asc → rating desc → exact distance asc → name.
+    candidates.sort(function(a, b) {
+      var ba = Math.round((isFinite(a.distance) ? a.distance : 9999) * 2) / 2;
+      var bb = Math.round((isFinite(b.distance) ? b.distance : 9999) * 2) / 2;
+      if (ba !== bb) return ba - bb;
+      var ra = a.rating || 0, rb = b.rating || 0;
+      if (ra !== rb) return rb - ra;
+      var da = isFinite(a.distance) ? a.distance : 9999, dbb = isFinite(b.distance) ? b.distance : 9999;
+      if (da !== dbb) return da - dbb;
+      return String(a.name).localeCompare(String(b.name));
+    });
+
+    return {
+      referral: referral,
+      zip: zip,
+      agency: refAgency,
+      discLabel: Array.from(discSet).join(" / "),
+      counts: {
+        total: candidates.length,
+        zip: candidates.filter(function(c) { return c.coversZip; }).length,
+        radius: candidates.filter(function(c) { return c.servedNearby; }).length
+      },
+      candidates: candidates
+    };
+  }
+
+  async function refSuggestClinicians(rid) {
+    var referral = (appState.referralOverlayData || []).find(function(x) { return String(x.id) === String(rid); });
+    if (!referral) { showToast("Referral not found", "error"); return; }
+    renderReferralSuggestPanel(null, { loading: true });
+    try {
+      if (!appState.hasLoadedCompletedServices) await loadCompletedServiceSites();
+      if (!appState.visitsLookup && !appState.vdrLookup) {
+        try { await loadVdrSummaryForMap(); } catch (e) { /* perf columns are optional */ }
+      }
+    } catch (e) {
+      console.warn("[refSuggest] load failed", e);
+    }
+    renderReferralSuggestPanel(buildReferralSuggestions(referral));
+  }
+
+  function closeReferralSuggestPanel() {
+    var panel = document.getElementById("ref-suggest-panel");
+    if (panel) { panel.classList.add("hidden"); panel.innerHTML = ""; }
+    _refSuggestData = null;
+  }
+
+  function renderReferralSuggestPanel(data, opts) {
+    opts = opts || {};
+    var panel = document.getElementById("ref-suggest-panel");
+    if (!panel) return;
+    panel.classList.remove("hidden");
+
+    if (opts.loading) {
+      panel.innerHTML =
+        "<div class='rsg-head'><div class='rsg-title'>🔎 Suggesting…</div>" +
+        "<button class='rsg-close' onclick='closeReferralSuggestPanel()' title='Close'>✕</button></div>" +
+        "<div class='rsg-empty'>Loading completed-service data…</div>";
+      return;
+    }
+
+    _refSuggestData = data;
+    var ref = data.referral;
+    var head =
+      "<div class='rsg-head'>" +
+        "<div class='rsg-title'>🔎 Suggested clinicians</div>" +
+        "<button class='rsg-close' onclick='closeReferralSuggestPanel()' title='Close'>✕</button>" +
+      "</div>" +
+      "<div class='rsg-sub'>" + escHtml(ref.patient_name || "Referral") +
+        (data.agency ? " · " + escHtml(data.agency) : "") +
+        (data.discLabel ? " · " + escHtml(data.discLabel) : "") +
+      "</div>" +
+      "<div class='rsg-counts'>" + data.counts.total + (data.counts.total === 1 ? " match" : " matches") +
+        " · " + data.counts.zip + " cover ZIP" + (data.zip ? " " + escHtml(data.zip) : "") +
+        " · " + data.counts.radius + " within " + REF_SUGGEST_RADIUS_MI + " mi</div>";
+
+    var body;
+    if (!data.candidates.length) {
+      body = "<div class='rsg-empty'>No matching clinicians for this referral's discipline" +
+        (data.zip ? " / ZIP " + escHtml(data.zip) : "") +
+        ".<br>Widen the search or check ZIP coverage.</div>";
+    } else {
+      body = "<div class='rsg-list'>" + data.candidates.map(function(c, i) {
+        var distTxt = isFinite(c.distance) ? c.distance.toFixed(1) + " mi" : "—";
+        var chips =
+          (c.coversZip ? "<span class='rsg-chip rsg-zip'>✓ ZIP</span>" : "") +
+          (c.servedNearby ? "<span class='rsg-chip rsg-rad'>📍 " + c.distance.toFixed(1) + " mi</span>" : "");
+        var perf = "";
+        if (c.avgSyncDays != null) {
+          var tone = c.avgSyncDays <= 3 ? "rsg-good" : c.avgSyncDays <= 7 ? "rsg-warn" : "rsg-bad";
+          perf += "<span class='rsg-perf " + tone + "' title='Avg sync days'>⏱ " + c.avgSyncDays.toFixed(1) + "d</span>";
+        }
+        if (c.avgVisitsPerRun != null) {
+          perf += "<span class='rsg-perf' title='Avg visits per run'>📈 " + c.avgVisitsPerRun.toFixed(1) + "</span>";
+        }
+        var restr = "";
+        if (c.agencyConflict) {
+          restr += "<div class='rsg-restr rsg-conflict'>⛔ Restricted from " + escHtml(data.agency || "this agency") + "</div>";
+        }
+        var otherAgencies = c.restrAgencies.filter(function(a) {
+          return !(c.agencyConflict && normalizeRestrictionName(a).toLowerCase() === normalizeRestrictionName(data.agency || "").toLowerCase());
+        });
+        if (otherAgencies.length || c.restrClinicians.length) {
+          var parts = [];
+          if (otherAgencies.length) parts.push("agencies: " + otherAgencies.join(", "));
+          if (c.restrClinicians.length) parts.push("clinicians: " + c.restrClinicians.join(", "));
+          restr += "<div class='rsg-restr'>🚫 " + escHtml(parts.join(" · ")) + "</div>";
+        }
+        return "<div class='rsg-card'>" +
+          "<div class='rsg-rank'>" + (i + 1) + "</div>" +
+          "<div class='rsg-main'>" +
+            "<div class='rsg-name'>" +
+              "<button class='rsg-namebtn' onclick='focusClinician(\"" + c.id + "\", true)'>" + escHtml(c.name) + "</button>" +
+              "<span class='rsg-disc' style='background:" + getDisciplineColor(c.discipline) + "'>" + escHtml(c.discipline || "?") + "</span>" +
+            "</div>" +
+            "<div class='rsg-meta'>" +
+              "<span class='rsg-dist'>📏 " + distTxt + "</span>" +
+              buildRadiusClinicianStarsHtml(c.rating) +
+              chips + perf +
+            "</div>" +
+            restr +
+          "</div>" +
+        "</div>";
+      }).join("") + "</div>";
+    }
+
+    var foot = "<div class='rsg-foot'>" +
+      (data.candidates.length ? "<button class='rsg-report' onclick='openReferralSuggestReport()'>🖨 Report</button>" : "") +
+      "</div>";
+    panel.innerHTML = head + body + foot;
+  }
+
+  function openReferralSuggestReport() {
+    var data = _refSuggestData;
+    if (!data) return;
+    var ref = data.referral;
+    var rows = data.candidates.map(function(c, i) {
+      var restr = [];
+      if (c.agencyConflict) restr.push("⛔ RESTRICTED from " + (data.agency || "agency"));
+      if (c.restrAgencies.length) restr.push("agencies: " + c.restrAgencies.join(", "));
+      if (c.restrClinicians.length) restr.push("clinicians: " + c.restrClinicians.join(", "));
+      var stars = c.rating ? ("★".repeat(c.rating) + "☆".repeat(5 - c.rating)) : "—";
+      return "<tr" + (c.agencyConflict ? " class='conflict'" : "") + ">" +
+        "<td>" + (i + 1) + "</td>" +
+        "<td>" + escapeHtml(c.name) + "</td>" +
+        "<td>" + escapeHtml(c.discipline) + "</td>" +
+        "<td>" + (isFinite(c.distance) ? c.distance.toFixed(1) + " mi" : "—") + "</td>" +
+        "<td>" + stars + "</td>" +
+        "<td>" + (c.coversZip ? "Yes" : "—") + "</td>" +
+        "<td>" + (c.servedNearby ? "Yes (" + c.distance.toFixed(1) + " mi)" : "—") + "</td>" +
+        "<td>" + escapeHtml(restr.join(" · ")) + "</td>" +
+      "</tr>";
+    }).join("");
+    var generated = new Date().toLocaleString();
+    var html = "<!doctype html><html><head><meta charset='utf-8'><title>Referral Staffing Report</title>" +
+      "<style>body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#1e2d4a;padding:26px;}" +
+      "h1{font-size:19px;margin:0 0 4px;}.meta{font-size:12px;color:#475569;line-height:1.55;margin-bottom:16px;}" +
+      "table{border-collapse:collapse;width:100%;font-size:12px;}th,td{border:1px solid #cbd5e1;padding:6px 8px;text-align:left;vertical-align:top;}" +
+      "th{background:#f1f5f9;}tr.conflict td{background:#fef2f2;}.gen{margin-top:14px;font-size:10px;color:#94a3b8;}" +
+      "@media print{button{display:none;}}</style></head><body>" +
+      "<h1>Referral Staffing Report</h1>" +
+      "<div class='meta'><strong>" + escapeHtml(ref.patient_name || "Referral") + "</strong>" +
+        (data.agency ? " — " + escapeHtml(data.agency) : "") + "<br>" +
+        escapeHtml(ref.address || "") + "<br>" +
+        "Discipline: " + escapeHtml(data.discLabel || "—") + " · ZIP: " + escapeHtml(data.zip || "—") + "<br>" +
+        data.counts.total + " suggested — " + data.counts.zip + " cover ZIP, " +
+        data.counts.radius + " within " + REF_SUGGEST_RADIUS_MI + " mi. Ranked closest-first, ★ rating breaks ties." +
+      "</div>" +
+      "<table><thead><tr><th>#</th><th>Clinician</th><th>Disc</th><th>Distance</th><th>Rating</th>" +
+        "<th>Covers ZIP</th><th>Served ≤" + REF_SUGGEST_RADIUS_MI + " mi</th><th>Restrictions</th></tr></thead>" +
+        "<tbody>" + rows + "</tbody></table>" +
+      "<div class='gen'>Generated " + escapeHtml(generated) + " · DependableCare portal</div>" +
+      "<script>window.onload=function(){window.print();};<\/script></body></html>";
+    var w = window.open("", "_blank");
+    if (!w) { showToast("Allow pop-ups to print the report", "error"); return; }
+    w.document.write(html);
+    w.document.close();
+  }
+
   function openRefPanel(rid, r) {
     // If this referral is already showing, do nothing
     if (appState.refPanelOpenId === rid) return;
@@ -25464,6 +25794,7 @@
           "<div class='ref-meta-right'>" +
             "<span style='" + ageCss + ";font-size:11px'>" + ageStr + "</span>" +
             "<button class='ref-lens-btn' onclick='refOpenLens(" + r.lng + "," + r.lat + ",\"" + addrSafe + "\")'>📍 Lens</button>" +
+            "<button class='ref-suggest-btn' onclick='refSuggestClinicians(\"" + rid + "\")' title='Suggest clinicians for this referral'>🔎 Suggest</button>" +
           "</div>" +
         "</div>" +
 
