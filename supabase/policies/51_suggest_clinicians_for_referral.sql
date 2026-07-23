@@ -20,7 +20,7 @@
 -- would under-count.
 --
 -- Respects the per-clinician "Ignore History Before" date (map profile,
--- stored in clinician_profiles.profile_tags): visits anchored before the
+-- stored in clinician_profiles.tags): visits anchored before the
 -- cutoff are excluded from the radius signal — a clinician who moved
 -- shouldn't keep matching their old neighborhoods.
 --
@@ -127,7 +127,8 @@ visit_dist AS (
     ON c.matched_clinician_id IS NULL
    AND normalize_clinician_name(COALESCE(NULLIF(c.parsed_clinician_name, ''), c.clinician_name_raw))
        = normalize_clinician_name(cvf.name)
-  -- "Ignore History Before" (map profile → profile_tags JSONB): when a
+  -- "Ignore History Before" (map profile → clinician_profiles.tags JSONB;
+  -- the map's JS calls this column profile_tags in memory): when a
   -- clinician moved, visits anchored before their cutoff must not count
   -- toward proximity. Anchor mirrors the map's
   -- getCompletedServiceCoverageAnchorDate (start_of_episode → referral_date
@@ -138,11 +139,11 @@ visit_dist AS (
   CROSS JOIN params pr
   CROSS JOIN LATERAL (
     SELECT
-      CASE WHEN COALESCE(cpf.profile_tags ->> 'ignoreHistoryBefore',
-                         cpf.profile_tags ->> 'ignore_history_before')
+      CASE WHEN COALESCE(cpf.tags ->> 'ignoreHistoryBefore',
+                         cpf.tags ->> 'ignore_history_before')
                 ~ '^\d{4}-\d{2}-\d{2}'
-           THEN LEFT(COALESCE(cpf.profile_tags ->> 'ignoreHistoryBefore',
-                              cpf.profile_tags ->> 'ignore_history_before'), 10)
+           THEN LEFT(COALESCE(cpf.tags ->> 'ignoreHistoryBefore',
+                              cpf.tags ->> 'ignore_history_before'), 10)
       END AS cutoff,
       LEFT(COALESCE(r.start_of_episode::text, r.referral_date::text,
                     r.last_visit_date::text, r.ended_date::text), 10) AS anchor
