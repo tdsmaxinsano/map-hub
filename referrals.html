@@ -420,6 +420,47 @@
        brand/nav/user-chip/sign-out — keeping these duplicates would clutter
        the top of the iframe). */
     html.in-iframe-shell .header { display: none !important; }
+
+    /* ── Suggested clinicians tray (subtractive dispatch) ── */
+    .suggest-tray { margin: 2px 0 14px; border: 1px solid #bfdbfe; border-radius: 8px; background: #f5f9ff; overflow: hidden; }
+    .suggest-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #e8f1ff; border-bottom: 1px solid #d5e5ff; }
+    .suggest-title { font-size: 12px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: .04em; }
+    .suggest-refresh { background: none; border: none; cursor: pointer; font-size: 13px; color: #2563eb; }
+    .suggest-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .suggest-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .suggest-card { display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
+    .suggest-rank { flex-shrink: 0; width: 20px; height: 20px; border-radius: 50%; background: #1e4d8c; color: #fff; font-size: 10px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+    .suggest-main { flex: 1; min-width: 0; }
+    .suggest-name-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .suggest-name { font-size: 13px; font-weight: 700; color: #1e293b; }
+    .suggest-disc { color: #fff; font-size: 9px; font-weight: 800; padding: 1px 6px; border-radius: 8px; letter-spacing: .3px; }
+    .suggest-disc.pt { background: #2563eb; } .suggest-disc.ot { background: #7c3aed; } .suggest-disc.st { background: #db2777; } .suggest-disc.gen { background: #64748b; }
+    .suggest-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 3px; font-size: 11px; color: var(--muted); }
+    .suggest-dist { font-weight: 700; color: #1e2d4a; }
+    .suggest-stars { color: #f5a623; font-size: 12px; letter-spacing: 1px; }
+    .suggest-chip { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 7px; }
+    .suggest-chip.zip { background: #e4f0ff; color: #1a5fb4; } .suggest-chip.rad { background: #eaf7ee; color: #1c7a44; }
+    .suggest-flag { margin-top: 4px; font-size: 10.5px; border-radius: 6px; padding: 2px 7px; display: inline-block; }
+    .suggest-flag.danger { color: #b3261e; background: #fdeaea; font-weight: 700; } .suggest-flag.warn { color: #7a5a1a; background: #fdf6e6; }
+    .suggest-x { flex-shrink: 0; background: none; border: 1px solid var(--border); border-radius: 6px; width: 24px; height: 24px; cursor: pointer; color: var(--muted); font-size: 12px; }
+    .suggest-x:hover { background: #fdeaea; color: #b3261e; border-color: #f3c0c0; }
+    .suggest-foot { padding: 8px 12px; border-top: 1px solid #d5e5ff; background: #eef5ff; display: flex; justify-content: flex-end; }
+    .suggest-add-btn { padding: 6px 14px; background: #1e4d8c; color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .suggest-add-btn:hover { background: #163a6e; }
+
+    /* ── TB scan modal ── */
+    .btn-scan { background: #0ea5e9; color: #fff; border: none; border-radius: 8px; padding: 0 16px; height: 38px; font-size: 14px; font-weight: 600; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-scan:hover { background: #0284c7; }
+    .scan-drop { border: 2px dashed var(--border); border-radius: 10px; padding: 24px; text-align: center; color: var(--muted); font-size: 13px; cursor: pointer; background: var(--bg); }
+    .scan-drop.dragover { border-color: var(--accent2); background: #eff6ff; }
+    .scan-preview-img { max-width: 100%; max-height: 220px; border-radius: 8px; margin-top: 12px; display: none; }
+    .scan-busy { display: none; text-align: center; padding: 14px; color: var(--muted); font-size: 13px; }
+    .scan-results { display: none; margin-top: 14px; }
+    .scan-results-head { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+    .scan-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .scan-table th, .scan-table td { border: 1px solid var(--border); padding: 5px 7px; text-align: left; }
+    .scan-table th { background: var(--bg); }
+    .scan-import-row { margin-top: 12px; display: flex; justify-content: flex-end; }
   </style>
   <script>
     if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
@@ -474,6 +515,9 @@
 <div class="toolbar">
   <button class="btn-primary" onclick="openNewReferral()">
     <span>+</span> New Referral
+  </button>
+  <button class="btn-scan" onclick="openScanModal()" title="Scan a TherapyBoss referral screenshot">
+    <span>📷</span> Scan (TB)
   </button>
   <div class="view-toggle">
     <button id="btn-table-view" class="view-btn active" onclick="switchView('table')">☰ Table</button>
@@ -616,6 +660,32 @@
     <div class="modal-footer">
       <button class="btn-secondary" onclick="closeNewReferral()">Cancel</button>
       <button class="btn-primary" onclick="saveNewReferral()">Save Referral</button>
+    </div>
+  </div>
+</div>
+
+<!-- TB Scan Modal -->
+<div class="modal-overlay" id="tb-scan-modal" style="display:none" onclick="closeScanModalOnBackdrop(event)">
+  <div class="modal" style="width:620px">
+    <h3>📷 Scan TherapyBoss Referral</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:12px">
+      Drop, choose, or paste (Ctrl/⌘V) a screenshot of a TherapyBoss referral or referral list.
+      One referral prefills the New Referral form; multiple lets you pick which to bulk-import.
+    </p>
+    <div class="scan-drop" id="scan-drop" onclick="document.getElementById('scan-file').click()"
+         ondragover="event.preventDefault();this.classList.add('dragover')"
+         ondragleave="this.classList.remove('dragover')"
+         ondrop="onScanDrop(event)">
+      <div>🖼 Click to choose · drag-drop · or paste an image</div>
+      <input type="file" id="scan-file" accept="image/*" style="display:none" onchange="onScanFile(this)">
+      <img id="scan-preview-img" class="scan-preview-img" alt="">
+    </div>
+    <div class="scan-busy" id="scan-busy">⏳ Scanning… reading the referral</div>
+    <div class="scan-results" id="scan-results"></div>
+    <div class="modal-error" id="scan-error"></div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeScanModal()">Cancel</button>
+      <button class="btn-primary" id="scan-run-btn" onclick="runScan()" disabled>Scan</button>
     </div>
   </div>
 </div>
@@ -867,6 +937,9 @@
 
         // Wire up add contact form after render
         setTimeout(function() { wireAddContactForm(ref.id); }, 0);
+        // Auto-populate the subtractive suggestion tray for open referrals
+        // (fetch once, cached in suggestState; later re-renders just repaint)
+        if (ref.status === "open") setTimeout(function() { ensureSuggestions(ref); }, 0);
       }
     });
   }
@@ -951,6 +1024,7 @@
         "</div>" +
       "</div>" +
       (contacts.length ? "<div class='contacts-grid'>" + contactCards + "</div>" : "<p style='color:var(--muted);font-size:13px;margin-bottom:14px'>No contacts yet — add a clinician below.</p>") +
+      (ref.status === "open" ? "<div class='suggest-tray' id='suggest-tray-" + ref.id + "'></div>" : "") +
       "<div class='add-contact-form' id='add-form-" + ref.id + "' onclick='event.stopPropagation()'>" +
         "<div class='form-field suggest-wrap'>" +
           "<label>Clinician</label>" +
@@ -1581,6 +1655,375 @@
     expandedId = ref.id;
     applyFilters();
     showToast("Referral added: " + patient);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  TherapyBoss AI scanner → create referral(s)
+  //  Reuses the tb-scan-image Edge Function (its default prompt is already
+  //  a TB referral extractor). One result → prefill the New Referral form;
+  //  multiple → checkbox preview → bulk create. No Edge Function change.
+  // ═══════════════════════════════════════════════════════════════════
+  var _scanImageDataUrl = null;
+  var _scanResults = null;
+
+  function openScanModal() {
+    _scanImageDataUrl = null; _scanResults = null;
+    var img = document.getElementById("scan-preview-img");
+    img.style.display = "none"; img.src = "";
+    document.getElementById("scan-results").style.display = "none";
+    document.getElementById("scan-results").innerHTML = "";
+    document.getElementById("scan-error").textContent = "";
+    document.getElementById("scan-busy").style.display = "none";
+    document.getElementById("scan-run-btn").disabled = true;
+    document.getElementById("scan-file").value = "";
+    document.getElementById("tb-scan-modal").style.display = "flex";
+  }
+  function closeScanModal() { document.getElementById("tb-scan-modal").style.display = "none"; }
+  function closeScanModalOnBackdrop(e) { if (e.target === document.getElementById("tb-scan-modal")) closeScanModal(); }
+
+  function onScanFile(input) { if (input.files && input.files[0]) loadScanImage(input.files[0]); }
+  function onScanDrop(e) {
+    e.preventDefault();
+    document.getElementById("scan-drop").classList.remove("dragover");
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) loadScanImage(f);
+  }
+  function loadScanImage(file) {
+    if (!file.type || file.type.indexOf("image") !== 0) { showToast("Please choose an image file"); return; }
+    var reader = new FileReader();
+    reader.onload = function(ev) {
+      _scanImageDataUrl = ev.target.result;
+      var img = document.getElementById("scan-preview-img");
+      img.src = _scanImageDataUrl; img.style.display = "block";
+      document.getElementById("scan-run-btn").disabled = false;
+      document.getElementById("scan-error").textContent = "";
+    };
+    reader.readAsDataURL(file);
+  }
+  // Paste an image while the scan modal is open
+  document.addEventListener("paste", function(e) {
+    if (document.getElementById("tb-scan-modal").style.display !== "flex") return;
+    var items = (e.clipboardData && e.clipboardData.items) || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].type && items[i].type.indexOf("image") === 0) {
+        var file = items[i].getAsFile();
+        if (file) { loadScanImage(file); e.preventDefault(); break; }
+      }
+    }
+  });
+
+  async function runScan() {
+    if (!_scanImageDataUrl) { showToast("Add an image first"); return; }
+    var btn = document.getElementById("scan-run-btn");
+    var errEl = document.getElementById("scan-error");
+    errEl.textContent = "";
+    btn.disabled = true;
+    document.getElementById("scan-busy").style.display = "block";
+    try {
+      var sess = (await db.auth.getSession()).data.session;
+      var token = sess ? sess.access_token : SUPABASE_KEY;
+      var res = await fetch(SUPABASE_URL + "/functions/v1/tb-scan-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token, "apikey": SUPABASE_KEY },
+        body: JSON.stringify({ imageBase64: _scanImageDataUrl })
+      });
+      var data = await res.json();
+      if (!res.ok || data.error) throw new Error(data.error || res.statusText);
+      var content = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+      var jsonStr = content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+      var parsed = JSON.parse(jsonStr);
+      if (!Array.isArray(parsed)) parsed = [parsed];
+      parsed = parsed.filter(function(r) { return r && (r.patient_name || r.address); });
+      _scanResults = parsed;
+      if (!parsed.length) { errEl.textContent = "No referrals detected in that image."; return; }
+      if (parsed.length === 1) { closeScanModal(); prefillNewReferralFromScan(parsed[0]); showToast("Scanned — review & save"); return; }
+      renderScanPreview(parsed);
+    } catch (e) {
+      console.warn("[scan] failed", e);
+      errEl.textContent = "Scan failed: " + (e.message || e);
+    } finally {
+      document.getElementById("scan-busy").style.display = "none";
+      btn.disabled = false;
+    }
+  }
+
+  // Scan returns individual codes (["PT","OT"]); referrals store paired.
+  function individualToPaired(list) {
+    var out = [];
+    (list || []).forEach(function(d) {
+      var u = String(d || "").toUpperCase().replace(/[^A-Z]/g, "");
+      var p = (u === "PT" || u === "PTA") ? "PT/PTA"
+            : (u === "OT" || u === "OTA") ? "OT/OTA"
+            : (u === "ST" || u === "STA" || u === "SLP") ? "ST" : null;
+      if (p && out.indexOf(p) === -1) out.push(p);
+    });
+    return out;
+  }
+
+  function prefillNewReferralFromScan(rec) {
+    openNewReferral(); // clears fields + shows the modal (synchronous reset)
+    document.getElementById("nr-patient").value = rec.patient_name || "";
+    document.getElementById("nr-address").value = rec.address || "";
+    document.getElementById("nr-agency-input").value = rec.agency || "";
+    if (rec.referral_date) document.getElementById("nr-date").value = rec.referral_date;
+    document.getElementById("nr-source").value = "TherapyBoss";
+    var paired = individualToPaired(rec.disciplines || []);
+    document.getElementById("disc-pt").checked = paired.indexOf("PT/PTA") !== -1;
+    document.getElementById("disc-ot").checked = paired.indexOf("OT/OTA") !== -1;
+    document.getElementById("disc-st").checked = paired.indexOf("ST") !== -1;
+    if (rec.insurance) document.getElementById("nr-notes").value = "Insurance: " + rec.insurance;
+  }
+
+  function renderScanPreview(list) {
+    var box = document.getElementById("scan-results");
+    box.innerHTML =
+      "<div class='scan-results-head'>Found " + list.length + " referrals — choose which to import:</div>" +
+      "<table class='scan-table'><thead><tr>" +
+        "<th><input type='checkbox' id='scan-all' checked onchange='toggleScanAll(this.checked)'></th>" +
+        "<th>Patient</th><th>Address</th><th>Agency</th><th>Disc</th><th>Date</th>" +
+      "</tr></thead><tbody>" +
+      list.map(function(r, i) {
+        return "<tr>" +
+          "<td><input type='checkbox' class='scan-row-cb' data-idx='" + i + "' checked></td>" +
+          "<td>" + esc(r.patient_name || "—") + "</td>" +
+          "<td>" + esc(r.address || "—") + "</td>" +
+          "<td>" + esc(r.agency || "—") + "</td>" +
+          "<td>" + esc((r.disciplines || []).join(", ")) + "</td>" +
+          "<td>" + esc(r.referral_date || "—") + "</td>" +
+        "</tr>";
+      }).join("") +
+      "</tbody></table>" +
+      "<div class='scan-import-row'><button class='btn-primary' id='scan-import-btn' onclick='importScanSelected()'>Import selected</button></div>";
+    box.style.display = "block";
+  }
+  function toggleScanAll(on) {
+    Array.prototype.forEach.call(document.querySelectorAll(".scan-row-cb"), function(cb) { cb.checked = on; });
+  }
+
+  async function geocode(address) {
+    try {
+      var url = "https://api.mapbox.com/geocoding/v5/mapbox.places/" +
+        encodeURIComponent(address) + ".json?access_token=" + MAPBOX_TOKEN + "&country=us&limit=1";
+      var resp = await fetch(url);
+      var json = await resp.json();
+      if (json.features && json.features[0]) return { lat: json.features[0].center[1], lng: json.features[0].center[0] };
+    } catch (e) { console.warn("geocode failed", e); }
+    return { lat: null, lng: null };
+  }
+
+  async function importScanSelected() {
+    var cbs = Array.prototype.slice.call(document.querySelectorAll(".scan-row-cb")).filter(function(cb) { return cb.checked; });
+    if (!cbs.length) { showToast("Select at least one referral"); return; }
+    var picked = cbs.map(function(cb) { return _scanResults[Number(cb.dataset.idx)]; });
+    var btn = document.getElementById("scan-import-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Importing…"; }
+    var added = 0;
+    for (var i = 0; i < picked.length; i++) {
+      var rec = picked[i];
+      if (!rec || !rec.patient_name || !rec.address) continue;
+      var coords = await geocode(rec.address);
+      var ins = await db.from("referrals").insert({
+        patient_name: rec.patient_name,
+        address: rec.address,
+        lat: coords.lat, lng: coords.lng,
+        agency: rec.agency || null,
+        source: "TherapyBoss",
+        disciplines: individualToPaired(rec.disciplines || []),
+        notes: rec.insurance ? "Insurance: " + rec.insurance : null,
+        flags: null,
+        referral_date: rec.referral_date || new Date().toISOString().slice(0, 10)
+      }).select().single();
+      if (!ins.error && ins.data) { allReferrals.unshift(ins.data); added++; }
+      else if (ins.error) console.warn("[scan import]", ins.error.message);
+    }
+    closeScanModal();
+    populateAgencyFilter();
+    applyFilters();
+    showToast("Imported " + added + " referral" + (added === 1 ? "" : "s"));
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  //  Subtractive "Suggested clinicians" tray in the dispatch panel.
+  //  Ranking INPUTS come from suggest_clinicians_for_referral (migration
+  //  51 — ZIP coverage + 2.5-mi completed-service + rating + restrictions);
+  //  ranked client-side to match the map's tool. Prune with ✕, then commit
+  //  the survivors as Waiting contacts (nothing written until commit).
+  // ═══════════════════════════════════════════════════════════════════
+  var suggestState = {}; // refId -> { status, candidates, dismissed:Set, error }
+
+  function zipFromAddress(addr) { var m = String(addr || "").match(/,.*?\b(\d{5})\b/); return m ? m[1] : ""; }
+  function splitPairsToIndividual(disc) {
+    return (disc || []).reduce(function(acc, d) {
+      if (d === "PT/PTA") acc.push("PT", "PTA");
+      else if (d === "OT/OTA") acc.push("OT", "OTA");
+      else if (d === "ST") acc.push("ST");
+      else acc.push(d);
+      return acc;
+    }, []);
+  }
+  function suggestNameKey(s) {
+    return String(s || "").toLowerCase()
+      .replace(/\s+(pt|pta|ot|ota|st|sta|slp|slpa|cota|otr|otrl|rn|lpn|cna|hha|md|do|dpt|np|pa|mspt)\.?\s*$/, "")
+      .replace(/[.,'"]/g, "").replace(/\s+/g, " ").trim();
+  }
+  function suggestDiscCss(d) {
+    var u = String(d || "").toUpperCase();
+    if (u.indexOf("PT") === 0) return "pt";
+    if (u.indexOf("OT") === 0) return "ot";
+    if (u.indexOf("ST") === 0 || u.indexOf("SLP") === 0) return "st";
+    return "gen";
+  }
+  function suggestStars(rating) {
+    var n = Number(rating);
+    if (!n || isNaN(n) || n < 1) return "";
+    n = Math.min(5, Math.round(n));
+    return "<span class='suggest-stars'>" + Array(n + 1).join("★") +
+      "<span style='opacity:.28'>" + Array(5 - n + 1).join("★") + "</span></span>";
+  }
+  function rankSuggestions(rows) {
+    return (rows || []).map(function(c) {
+      c._distance = (c.served_nearby && c.nearest_miles != null) ? Number(c.nearest_miles)
+                  : (c.home_miles != null ? Number(c.home_miles) : Infinity);
+      c._rating = (c.internal_rating != null) ? Number(c.internal_rating) : 0;
+      return c;
+    }).sort(function(a, b) {
+      var ba = Math.round((isFinite(a._distance) ? a._distance : 9999) * 2) / 2;
+      var bb = Math.round((isFinite(b._distance) ? b._distance : 9999) * 2) / 2;
+      if (ba !== bb) return ba - bb;
+      if (a._rating !== b._rating) return b._rating - a._rating;
+      var da = isFinite(a._distance) ? a._distance : 9999, db2 = isFinite(b._distance) ? b._distance : 9999;
+      if (da !== db2) return da - db2;
+      return String(a.name).localeCompare(String(b.name));
+    });
+  }
+
+  // Called from the render loop for open referrals: fetch once (cached in
+  // suggestState); on later re-renders just repaint from cache.
+  function ensureSuggestions(ref) {
+    if (suggestState[ref.id]) { renderSuggestTray(ref.id); return; }
+    loadSuggestions(ref);
+  }
+
+  async function loadSuggestions(ref) {
+    var zip = zipFromAddress(ref.address);
+    var prevDismissed = (suggestState[ref.id] && suggestState[ref.id].dismissed) || new Set();
+    if (ref.lat == null && !zip) {
+      suggestState[ref.id] = { status: "empty", candidates: [], dismissed: prevDismissed };
+      renderSuggestTray(ref.id); return;
+    }
+    suggestState[ref.id] = { status: "loading", candidates: [], dismissed: prevDismissed };
+    renderSuggestTray(ref.id);
+    try {
+      var out = await db.rpc("suggest_clinicians_for_referral", {
+        p_lat: ref.lat != null ? Number(ref.lat) : null,
+        p_lng: ref.lng != null ? Number(ref.lng) : null,
+        p_zip: zip || null,
+        p_disciplines: (ref.disciplines && ref.disciplines.length) ? splitPairsToIndividual(ref.disciplines) : null,
+        p_agency: ref.agency || null
+      });
+      if (out.error) throw out.error;
+      suggestState[ref.id] = { status: "done", candidates: rankSuggestions(out.data || []), dismissed: prevDismissed };
+    } catch (e) {
+      console.warn("[suggest] rpc failed", e);
+      suggestState[ref.id] = { status: "error", error: e.message || String(e), candidates: [], dismissed: prevDismissed };
+    }
+    renderSuggestTray(ref.id);
+  }
+
+  function refreshSuggestions(refId) {
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    if (!ref) return;
+    delete suggestState[refId];
+    loadSuggestions(ref);
+  }
+  function dismissSuggestion(refId, clinicianId) {
+    var st = suggestState[refId];
+    if (!st) return;
+    st.dismissed.add(clinicianId);
+    renderSuggestTray(refId);
+  }
+  function refAgencyName(refId) {
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    return (ref && ref.agency) || "this agency";
+  }
+
+  function renderSuggestTray(refId) {
+    var el = document.getElementById("suggest-tray-" + refId);
+    if (!el) return;
+    var st = suggestState[refId];
+    if (!st) { el.innerHTML = ""; return; }
+    var shell = function(body, foot) {
+      return "<div class='suggest-head'><span class='suggest-title'>🔎 Suggested clinicians</span>" +
+        "<button class='suggest-refresh' title='Refresh' onclick='event.stopPropagation();refreshSuggestions(\"" + refId + "\")'>🔄</button></div>" +
+        "<div class='suggest-body'>" + body + "</div>" + (foot || "");
+    };
+    if (st.status === "loading") { el.innerHTML = shell("<div class='suggest-empty'>Finding best matches…</div>"); return; }
+    if (st.status === "empty")   { el.innerHTML = shell("<div class='suggest-empty'>Add an address or ZIP to get clinician suggestions.</div>"); return; }
+    if (st.status === "error")   { el.innerHTML = shell("<div class='suggest-empty'>Couldn't load suggestions.<br>" + esc(st.error) + "</div>"); return; }
+
+    var already = {};
+    allContacts.filter(function(c) { return c.referral_id === refId; })
+      .forEach(function(c) { already[suggestNameKey(c.clinician_name)] = true; });
+    var visible = st.candidates.filter(function(c) {
+      return !st.dismissed.has(c.clinician_id) && !already[suggestNameKey(c.name)];
+    });
+    if (!visible.length) {
+      el.innerHTML = shell("<div class='suggest-empty'>No new matches — everyone suggested is already on the dispatch, or none cover this area / ZIP.</div>");
+      return;
+    }
+    var cards = visible.map(function(c, i) {
+      var dist = isFinite(c._distance) ? c._distance.toFixed(1) + " mi" : "—";
+      var chips = (c.covers_zip ? "<span class='suggest-chip zip'>✓ ZIP</span>" : "") +
+                  (c.served_nearby && c.nearest_miles != null ? "<span class='suggest-chip rad'>📍 " + Number(c.nearest_miles).toFixed(1) + " mi</span>" : "");
+      var flags = "";
+      if (c.do_not_rehire)   flags += "<div class='suggest-flag danger'>🚫 Do-not-rehire</div>";
+      if (c.agency_conflict) flags += "<div class='suggest-flag danger'>⛔ Restricted: " + esc(refAgencyName(refId)) + "</div>";
+      var otherAg = (Array.isArray(c.restricted_agencies) ? c.restricted_agencies : []).filter(Boolean);
+      var otherCl = (Array.isArray(c.restricted_clinicians) ? c.restricted_clinicians : []).filter(Boolean);
+      if ((otherAg.length && !c.agency_conflict) || otherCl.length) {
+        var parts = [];
+        if (otherAg.length) parts.push("agencies: " + otherAg.join(", "));
+        if (otherCl.length) parts.push("clinicians: " + otherCl.join(", "));
+        flags += "<div class='suggest-flag warn'>🚫 " + esc(parts.join(" · ")) + "</div>";
+      }
+      return "<div class='suggest-card'>" +
+        "<div class='suggest-rank'>" + (i + 1) + "</div>" +
+        "<div class='suggest-main'>" +
+          "<div class='suggest-name-row'>" +
+            "<span class='suggest-name'>" + esc(c.name) + "</span>" +
+            "<span class='suggest-disc " + suggestDiscCss(c.discipline) + "'>" + esc(c.discipline || "?") + "</span>" +
+          "</div>" +
+          "<div class='suggest-meta'>" +
+            "<span class='suggest-dist'>📏 " + dist + "</span>" +
+            suggestStars(c.internal_rating) + chips +
+          "</div>" + flags +
+        "</div>" +
+        "<button class='suggest-x' title='Not this one' onclick='event.stopPropagation();dismissSuggestion(\"" + refId + "\",\"" + c.clinician_id + "\")'>✕</button>" +
+      "</div>";
+    }).join("");
+    var foot = "<div class='suggest-foot'><button class='suggest-add-btn' onclick='event.stopPropagation();commitSuggestions(\"" + refId + "\")'>＋ Add kept (" + visible.length + ") to dispatch</button></div>";
+    el.innerHTML = shell(cards, foot);
+  }
+
+  async function commitSuggestions(refId) {
+    var st = suggestState[refId];
+    if (!st || st.status !== "done") return;
+    var already = {};
+    allContacts.filter(function(c) { return c.referral_id === refId; })
+      .forEach(function(c) { already[suggestNameKey(c.clinician_name)] = true; });
+    var toAdd = st.candidates.filter(function(c) {
+      return !st.dismissed.has(c.clinician_id) && !already[suggestNameKey(c.name)];
+    });
+    if (!toAdd.length) { showToast("No suggestions to add"); return; }
+    var rows = toAdd.map(function(c) {
+      return { referral_id: refId, clinician_name: c.name, discipline: c.discipline || "PT", response: "waiting", notes: null };
+    });
+    var out = await db.from("referral_contacts").insert(rows).select();
+    if (out.error) { showToast("Error adding: " + out.error.message); return; }
+    (out.data || []).forEach(function(d) { allContacts.push(d); });
+    showToast("Added " + (out.data || []).length + " to dispatch");
+    expandedId = refId;
+    applyFilters();
   }
 
   // ── Realtime ──
