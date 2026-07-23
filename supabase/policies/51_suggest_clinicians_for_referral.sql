@@ -19,6 +19,11 @@
 -- with a normalize_clinician_name() fallback join or the radius half
 -- would under-count.
 --
+-- Respects the per-clinician "Ignore History Before" date (map profile,
+-- stored in clinician_profiles.profile_tags): visits anchored before the
+-- cutoff are excluded from the radius signal — a clinician who moved
+-- shouldn't keep matching their old neighborhoods.
+--
 -- RLS: authenticated-accessible (the referral board is coordinator-facing,
 -- not admin-only; all source tables already carry phase1_authenticated_all).
 -- Depends on normalize_agency_name() from migration 30 (in production).
@@ -122,11 +127,31 @@ visit_dist AS (
     ON c.matched_clinician_id IS NULL
    AND normalize_clinician_name(COALESCE(NULLIF(c.parsed_clinician_name, ''), c.clinician_name_raw))
        = normalize_clinician_name(cvf.name)
+  -- "Ignore History Before" (map profile → profile_tags JSONB): when a
+  -- clinician moved, visits anchored before their cutoff must not count
+  -- toward proximity. Anchor mirrors the map's
+  -- getCompletedServiceCoverageAnchorDate (start_of_episode → referral_date
+  -- → last_visit_date → ended_date); rows with no anchor stay eligible,
+  -- matching the JS coverage tools. ISO text compare = chronological.
+  LEFT JOIN public.clinician_profiles cpf
+    ON cpf.clinician_id = COALESCE(c.matched_clinician_id, cvf.id)
   CROSS JOIN params pr
+  CROSS JOIN LATERAL (
+    SELECT
+      CASE WHEN COALESCE(cpf.profile_tags ->> 'ignoreHistoryBefore',
+                         cpf.profile_tags ->> 'ignore_history_before')
+                ~ '^\d{4}-\d{2}-\d{2}'
+           THEN LEFT(COALESCE(cpf.profile_tags ->> 'ignoreHistoryBefore',
+                              cpf.profile_tags ->> 'ignore_history_before'), 10)
+      END AS cutoff,
+      LEFT(COALESCE(r.start_of_episode::text, r.referral_date::text,
+                    r.last_visit_date::text, r.ended_date::text), 10) AS anchor
+  ) hx
   WHERE r.patient_lat IS NOT NULL AND r.patient_lng IS NOT NULL
     AND r.patient_lat::float8 BETWEEN pr.lat - 0.04 AND pr.lat + 0.04
     AND r.patient_lng::float8 BETWEEN pr.lng - 0.05 AND pr.lng + 0.05
     AND COALESCE(c.matched_clinician_id, cvf.id) IS NOT NULL
+    AND (hx.cutoff IS NULL OR hx.anchor IS NULL OR hx.anchor >= hx.cutoff)
 ),
 radius AS (
   SELECT
