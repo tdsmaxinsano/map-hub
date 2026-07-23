@@ -161,7 +161,11 @@ SELECT
   ROUND(rad.nearest_miles::numeric, 2)                           AS nearest_miles,
   rad.nearby_visits,
   rad.last_served,
-  CASE WHEN cv.lat IS NOT NULL AND cv.lng IS NOT NULL THEN
+  -- Guard BOTH endpoints: with a NULL referral lat/lng (ZIP-only match on an
+  -- un-geocoded referral) the inner expression is NULL, and Postgres's
+  -- GREATEST(-1, NULL) IGNORES the NULL → acos(-1) → a bogus ~12,437 mi.
+  CASE WHEN pr.lat IS NOT NULL AND pr.lng IS NOT NULL
+        AND cv.lat IS NOT NULL AND cv.lng IS NOT NULL THEN
     ROUND((3959 * acos(LEAST(1, GREATEST(-1,
       cos(radians(pr.lat)) * cos(radians(cv.lat::float8)) *
       cos(radians(cv.lng::float8) - radians(pr.lng)) +
@@ -174,9 +178,12 @@ SELECT
   COALESCE(cp.do_not_rehire, false)                              AS do_not_rehire,
   (
     pr.agency_norm IS NOT NULL
+    -- jsonb_typeof guard: a malformed restrictions.agencies (scalar instead
+    -- of array) would otherwise error the WHOLE query for every caller.
+    AND jsonb_typeof(COALESCE(cp.restrictions -> 'agencies', '[]'::jsonb)) = 'array'
     AND EXISTS (
       SELECT 1
-      FROM jsonb_array_elements_text(COALESCE(cp.restrictions -> 'agencies', '[]'::jsonb)) ra
+      FROM jsonb_array_elements_text(cp.restrictions -> 'agencies') ra
       WHERE normalize_agency_name(ra) = pr.agency_norm
     )
   )                                                               AS agency_conflict
