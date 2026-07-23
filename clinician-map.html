@@ -25475,12 +25475,30 @@
   }
 
   // Nearest completed-service site distance for a clinician (∞ if none/no coords).
-  function refNearestServedMiles(clinicianId, lat, lng) {
-    var keys = appState.completedServiceSiteKeysByClinicianId.get(clinicianId) || [];
+  // cutoffDate (optional): the profile's "Ignore History Before" — a site
+  // counts only if this clinician has at least one visit row there anchored
+  // on/after the cutoff (rows with no anchor date stay eligible). Mirrors the
+  // eligibility rule in getClinicianReferralZips / computeClinicianHistoryWorkCenter,
+  // so a clinician who moved doesn't keep matching their old neighborhoods.
+  function refNearestServedMiles(clinicianId, lat, lng, cutoffDate) {
+    var cid = String(clinicianId || "").trim();
+    var keys = appState.completedServiceSiteKeysByClinicianId.get(cid) || [];
     var nearest = Infinity;
     for (var i = 0; i < keys.length; i++) {
       var site = appState.completedServiceSitesByKey.get(keys[i]);
       if (!site || !hasCompletedServiceCoordinates(site)) continue;
+      if (cutoffDate) {
+        var rowIds = new Set((site.assignments || []).filter(function(a) {
+          return String(a.matched_clinician_id || "").trim() === cid;
+        }).map(function(a) { return a.service_row_id; }));
+        var hasEligibleRow = (site.rows || []).some(function(row) {
+          if (!rowIds.has(row.id)) return false;
+          var anchor = getCompletedServiceCoverageAnchorDate(row);
+          if (!anchor) return true;
+          return new Date(anchor) >= cutoffDate;
+        });
+        if (!hasEligibleRow) continue;
+      }
       var d = haversineMiles(lat, lng, site.lat, site.lng);
       if (d < nearest) nearest = d;
     }
@@ -25507,8 +25525,15 @@
         var entries = getClinicianZipCoverageEntries(clinician) || [];
         coversZip = entries.some(function(e) { return e && e.zip_code === zip; });
       }
+      var draft = getProfileDraftForClinician(clinician);
+      // Respect "Ignore History Before" (clinician moved): visits anchored
+      // before the cutoff don't count toward the 2.5-mi served signal.
+      var historyCutoff = parseProfileDateValue(
+        getClinicianEffectiveIgnoreHistoryBeforeValue(draft, clinician)
+      );
+
       // Source B — completed a visit within 2.5 mi.
-      var nearestServed = refNearestServedMiles(clinician.id, referral.lat, referral.lng);
+      var nearestServed = refNearestServedMiles(clinician.id, referral.lat, referral.lng, historyCutoff);
       var servedNearby = nearestServed <= REF_SUGGEST_RADIUS_MI;
 
       if (!coversZip && !servedNearby) return; // must be in at least one source
@@ -25522,7 +25547,6 @@
         distance = pin ? haversineMiles(referral.lat, referral.lng, pin.lat, pin.lng) : Infinity;
       }
 
-      var draft = getProfileDraftForClinician(clinician);
       var rating = normalizeProfileRatingValue(draft.rating);
       var restrAgencies = normalizeProfileRestrictionList(draft.restrictedAgencies);
       var restrClinicians = normalizeProfileRestrictionList(draft.restrictedClinicians);
