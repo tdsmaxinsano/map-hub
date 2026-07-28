@@ -442,8 +442,22 @@
     .suggest-chip.zip { background: #e4f0ff; color: #1a5fb4; } .suggest-chip.rad { background: #eaf7ee; color: #1c7a44; }
     .suggest-flag { margin-top: 4px; font-size: 10.5px; border-radius: 6px; padding: 2px 7px; display: inline-block; }
     .suggest-flag.danger { color: #b3261e; background: #fdeaea; font-weight: 700; } .suggest-flag.warn { color: #7a5a1a; background: #fdf6e6; }
-    .suggest-x { flex-shrink: 0; background: none; border: 1px solid var(--border); border-radius: 6px; width: 24px; height: 24px; cursor: pointer; color: var(--muted); font-size: 12px; }
-    .suggest-x:hover { background: #fdeaea; color: #b3261e; border-color: #f3c0c0; }
+    .suggest-tiers { flex-shrink: 0; display: flex; gap: 4px; }
+    .suggest-tier-btn { background: none; border: 1px solid var(--border); border-radius: 6px; width: 24px; height: 24px; cursor: pointer; color: var(--muted); font-size: 12px; padding: 0; line-height: 1; }
+    .suggest-tier-btn.accept:hover, .suggest-tier-btn.accept.active { background: #eaf7ee; color: #1c7a44; border-color: #9fd4b0; }
+    .suggest-tier-btn.maybe:hover,  .suggest-tier-btn.maybe.active  { background: #fdf6e6; color: #7a5a1a; border-color: #e3cd8e; }
+    .suggest-tier-btn.reject:hover, .suggest-tier-btn.reject.active { background: #fdeaea; color: #b3261e; border-color: #f3c0c0; }
+    .suggest-tier-btn.active { font-weight: 800; box-shadow: inset 0 0 0 1px currentColor; }
+    .suggest-section-head { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 4px 2px 0; }
+    .suggest-section-head.accept { color: #1c7a44; }
+    .suggest-section-head.maybe  { color: #7a5a1a; }
+    .suggest-section-head.reject { color: #b3261e; }
+    .suggest-section-head.toggle { cursor: pointer; user-select: none; }
+    .suggest-card.accepted { background: #f4fbf6; border-color: #cde9d6; }
+    .suggest-card.maybe    { background: #fdfaf1; border-color: #eee0b8; }
+    .suggest-card.rejected { background: #fdf7f7; border-color: #f0d4d4; opacity: .75; }
+    .suggest-card.rejected .suggest-name { text-decoration: line-through; color: #8a8f98; }
+    .suggest-foot-hint { font-size: 11px; color: var(--muted); }
     .suggest-foot { padding: 8px 12px; border-top: 1px solid #d5e5ff; background: #eef5ff; display: flex; justify-content: flex-end; }
     .suggest-add-btn { padding: 6px 14px; background: #1e4d8c; color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
     .suggest-add-btn:hover { background: #163a6e; }
@@ -1843,13 +1857,17 @@
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  //  Subtractive "Suggested clinicians" tray in the dispatch panel.
+  //  "Suggested clinicians" triage tray in the dispatch panel.
   //  Ranking INPUTS come from suggest_clinicians_for_referral (migration
   //  51 — ZIP coverage + 2.5-mi completed-service + rating + restrictions);
-  //  ranked client-side to match the map's tool. Prune with ✕, then commit
-  //  the survivors as Waiting contacts (nothing written until commit).
+  //  ranked client-side to match the map's tool. Each card is triaged
+  //  ✓ Accept / 🤔 Potential / ✕ Reject — persisted per-clinician in
+  //  referrals.suggestion_triage via set_referral_suggestion_tier (both
+  //  migration 52) so triage survives reloads and is shared between
+  //  coordinators. "＋ Add accepted" commits the accepted group as
+  //  Waiting contacts (nothing written to the dispatch until commit).
   // ═══════════════════════════════════════════════════════════════════
-  var suggestState = {}; // refId -> { status, candidates, dismissed:Set, error }
+  var suggestState = {}; // refId -> { status, candidates, error, showRejected }
 
   function zipFromAddress(addr) { var m = String(addr || "").match(/,.*?\b(\d{5})\b/); return m ? m[1] : ""; }
   function splitPairsToIndividual(disc) {
@@ -1906,12 +1924,12 @@
 
   async function loadSuggestions(ref) {
     var zip = zipFromAddress(ref.address);
-    var prevDismissed = (suggestState[ref.id] && suggestState[ref.id].dismissed) || new Set();
+    var prevShowRejected = !!(suggestState[ref.id] && suggestState[ref.id].showRejected);
     if (ref.lat == null && !zip) {
-      suggestState[ref.id] = { status: "empty", candidates: [], dismissed: prevDismissed };
+      suggestState[ref.id] = { status: "empty", candidates: [], showRejected: prevShowRejected };
       renderSuggestTray(ref.id); return;
     }
-    suggestState[ref.id] = { status: "loading", candidates: [], dismissed: prevDismissed };
+    suggestState[ref.id] = { status: "loading", candidates: [], showRejected: prevShowRejected };
     renderSuggestTray(ref.id);
     try {
       var out = await db.rpc("suggest_clinicians_for_referral", {
@@ -1922,10 +1940,10 @@
         p_agency: ref.agency || null
       });
       if (out.error) throw out.error;
-      suggestState[ref.id] = { status: "done", candidates: rankSuggestions(out.data || []), dismissed: prevDismissed };
+      suggestState[ref.id] = { status: "done", candidates: rankSuggestions(out.data || []), showRejected: prevShowRejected };
     } catch (e) {
       console.warn("[suggest] rpc failed", e);
-      suggestState[ref.id] = { status: "error", error: e.message || String(e), candidates: [], dismissed: prevDismissed };
+      suggestState[ref.id] = { status: "error", error: e.message || String(e), candidates: [], showRejected: prevShowRejected };
     }
     renderSuggestTray(ref.id);
   }
@@ -1936,10 +1954,42 @@
     delete suggestState[refId];
     loadSuggestions(ref);
   }
-  function dismissSuggestion(refId, clinicianId) {
+  // Safe read of the persisted triage map on a referral row.
+  function getTriage(ref) {
+    return (ref && ref.suggestion_triage && typeof ref.suggestion_triage === "object" && !Array.isArray(ref.suggestion_triage))
+      ? ref.suggestion_triage : {};
+  }
+  // Set (or toggle off) a clinician's tier. Optimistic: patch the local row
+  // + repaint, then persist via the merge RPC; revert + toast on failure.
+  // Clicking the already-active tier un-sets it (back to Undecided).
+  async function setSuggestTier(refId, clinicianId, tier) {
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    if (!ref) return;
+    var triage = Object.assign({}, getTriage(ref));
+    var prev = triage[clinicianId] || null;
+    var next = (prev && prev.t === tier) ? null : tier;
+    if (next === null) delete triage[clinicianId];
+    else triage[clinicianId] = { t: next, at: new Date().toISOString(), by: null };
+    ref.suggestion_triage = triage;
+    renderSuggestTray(refId);
+    var out = await db.rpc("set_referral_suggestion_tier", {
+      p_referral_id: refId, p_clinician_id: clinicianId, p_tier: next
+    });
+    if (out.error) {
+      var reverted = Object.assign({}, getTriage(ref));
+      if (prev) reverted[clinicianId] = prev; else delete reverted[clinicianId];
+      ref.suggestion_triage = reverted;
+      renderSuggestTray(refId);
+      showToast("Couldn't save triage: " + out.error.message);
+    } else if (out.data && typeof out.data === "object") {
+      ref.suggestion_triage = out.data; // server truth (stamped at/by)
+      renderSuggestTray(refId);
+    }
+  }
+  function toggleRejectedSection(refId) {
     var st = suggestState[refId];
     if (!st) return;
-    st.dismissed.add(clinicianId);
+    st.showRejected = !st.showRejected;
     renderSuggestTray(refId);
   }
   function refAgencyName(refId) {
@@ -1961,17 +2011,30 @@
     if (st.status === "empty")   { el.innerHTML = shell("<div class='suggest-empty'>Add an address or ZIP to get clinician suggestions.</div>"); return; }
     if (st.status === "error")   { el.innerHTML = shell("<div class='suggest-empty'>Couldn't load suggestions.<br>" + esc(st.error) + "</div>"); return; }
 
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    var triage = getTriage(ref);
     var already = {};
     allContacts.filter(function(c) { return c.referral_id === refId; })
       .forEach(function(c) { already[suggestNameKey(c.clinician_name)] = true; });
     var visible = st.candidates.filter(function(c) {
-      return !st.dismissed.has(c.clinician_id) && !already[suggestNameKey(c.name)];
+      return !already[suggestNameKey(c.name)];
     });
     if (!visible.length) {
       el.innerHTML = shell("<div class='suggest-empty'>No new matches — everyone suggested is already on the dispatch, or none cover this area / ZIP.</div>");
       return;
     }
-    var cards = visible.map(function(c, i) {
+
+    // Group by persisted tier; rank badge keeps the original ranked
+    // position so a card's number is stable while it moves between groups.
+    var groups = { accept: [], undecided: [], maybe: [], reject: [] };
+    visible.forEach(function(c, i) {
+      c._rank = i + 1;
+      var t = triage[c.clinician_id] ? triage[c.clinician_id].t : null;
+      if (t !== "accept" && t !== "maybe" && t !== "reject") t = "undecided";
+      groups[t].push(c);
+    });
+
+    var cardHtml = function(c, tierKey) {
       var dist = isFinite(c._distance) ? c._distance.toFixed(1) + " mi" : "—";
       var chips = (c.covers_zip ? "<span class='suggest-chip zip'>✓ ZIP</span>" : "") +
                   (c.served_nearby && c.nearest_miles != null ? "<span class='suggest-chip rad'>📍 " + Number(c.nearest_miles).toFixed(1) + " mi</span>" : "");
@@ -1986,8 +2049,13 @@
         if (otherCl.length) parts.push("clinicians: " + otherCl.join(", "));
         flags += "<div class='suggest-flag warn'>🚫 " + esc(parts.join(" · ")) + "</div>";
       }
-      return "<div class='suggest-card'>" +
-        "<div class='suggest-rank'>" + (i + 1) + "</div>" +
+      var tierBtn = function(t, label, title) {
+        return "<button class='suggest-tier-btn " + t + (tierKey === t ? " active" : "") + "' title='" + title + "' " +
+          "onclick='event.stopPropagation();setSuggestTier(\"" + refId + "\",\"" + c.clinician_id + "\",\"" + t + "\")'>" + label + "</button>";
+      };
+      var cardCls = tierKey === "accept" ? " accepted" : tierKey === "maybe" ? " maybe" : tierKey === "reject" ? " rejected" : "";
+      return "<div class='suggest-card" + cardCls + "'>" +
+        "<div class='suggest-rank'>" + c._rank + "</div>" +
         "<div class='suggest-main'>" +
           "<div class='suggest-name-row'>" +
             "<span class='suggest-name'>" + esc(c.name) + "</span>" +
@@ -1998,23 +2066,57 @@
             suggestStars(c.internal_rating) + chips +
           "</div>" + flags +
         "</div>" +
-        "<button class='suggest-x' title='Not this one' onclick='event.stopPropagation();dismissSuggestion(\"" + refId + "\",\"" + c.clinician_id + "\")'>✕</button>" +
+        "<div class='suggest-tiers'>" +
+          tierBtn("accept", "✓", "Accept — queue for dispatch") +
+          tierBtn("maybe", "?", "Potential — keep on the bench") +
+          tierBtn("reject", "✕", "Reject") +
+        "</div>" +
       "</div>";
-    }).join("");
-    var foot = "<div class='suggest-foot'><button class='suggest-add-btn' onclick='event.stopPropagation();commitSuggestions(\"" + refId + "\")'>＋ Add kept (" + visible.length + ") to dispatch</button></div>";
-    el.innerHTML = shell(cards, foot);
+    };
+
+    var anyTriaged = groups.accept.length || groups.maybe.length || groups.reject.length;
+    var body = "";
+    if (groups.accept.length) {
+      body += "<div class='suggest-section-head accept'>✓ Accepted (" + groups.accept.length + ")</div>" +
+        groups.accept.map(function(c) { return cardHtml(c, "accept"); }).join("");
+    }
+    if (groups.undecided.length) {
+      body += (anyTriaged ? "<div class='suggest-section-head'>Undecided (" + groups.undecided.length + ")</div>" : "") +
+        groups.undecided.map(function(c) { return cardHtml(c, "undecided"); }).join("");
+    }
+    if (groups.maybe.length) {
+      body += "<div class='suggest-section-head maybe'>🤔 Potential (" + groups.maybe.length + ")</div>" +
+        groups.maybe.map(function(c) { return cardHtml(c, "maybe"); }).join("");
+    }
+    if (groups.reject.length) {
+      body += "<div class='suggest-section-head reject toggle' onclick='event.stopPropagation();toggleRejectedSection(\"" + refId + "\")'>" +
+        (st.showRejected ? "▾" : "▸") + " Rejected (" + groups.reject.length + ")</div>";
+      if (st.showRejected) {
+        body += groups.reject.map(function(c) { return cardHtml(c, "reject"); }).join("");
+      }
+    }
+
+    var foot = "<div class='suggest-foot'>" +
+      (groups.accept.length
+        ? "<button class='suggest-add-btn' onclick='event.stopPropagation();commitSuggestions(\"" + refId + "\")'>＋ Add accepted (" + groups.accept.length + ") to dispatch</button>"
+        : "<span class='suggest-foot-hint'>✓-mark clinicians to queue them for dispatch</span>") +
+      "</div>";
+    el.innerHTML = shell(body, foot);
   }
 
   async function commitSuggestions(refId) {
     var st = suggestState[refId];
     if (!st || st.status !== "done") return;
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    var triage = getTriage(ref);
     var already = {};
     allContacts.filter(function(c) { return c.referral_id === refId; })
       .forEach(function(c) { already[suggestNameKey(c.clinician_name)] = true; });
     var toAdd = st.candidates.filter(function(c) {
-      return !st.dismissed.has(c.clinician_id) && !already[suggestNameKey(c.name)];
+      var t = triage[c.clinician_id];
+      return t && t.t === "accept" && !already[suggestNameKey(c.name)];
     });
-    if (!toAdd.length) { showToast("No suggestions to add"); return; }
+    if (!toAdd.length) { showToast("No accepted clinicians to add — ✓-mark some first"); return; }
     var rows = toAdd.map(function(c) {
       return { referral_id: refId, clinician_name: c.name, discipline: c.discipline || "PT", response: "waiting", notes: null };
     });
