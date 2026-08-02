@@ -426,6 +426,10 @@
     .suggest-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: #e8f1ff; border-bottom: 1px solid #d5e5ff; }
     .suggest-title { font-size: 12px; font-weight: 700; color: #1e40af; text-transform: uppercase; letter-spacing: .04em; }
     .suggest-refresh { background: none; border: none; cursor: pointer; font-size: 13px; color: #2563eb; }
+    .suggest-disc-chips { display: flex; gap: 4px; align-items: center; }
+    .suggest-disc-chip { background: #fff; border: 1px solid #bfdbfe; border-radius: 10px; padding: 2px 9px; font-size: 10px; font-weight: 800; color: #1e40af; cursor: pointer; letter-spacing: .03em; }
+    .suggest-disc-chip:hover { background: #dbeafe; }
+    .suggest-disc-chip.active { background: #1e40af; border-color: #1e40af; color: #fff; }
     .suggest-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
     .suggest-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
     .suggest-card { display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
@@ -1867,7 +1871,7 @@
   //  coordinators. "＋ Add accepted" commits the accepted group as
   //  Waiting contacts (nothing written to the dispatch until commit).
   // ═══════════════════════════════════════════════════════════════════
-  var suggestState = {}; // refId -> { status, candidates, error, showRejected }
+  var suggestState = {}; // refId -> { status, candidates, error, showRejected, discFilter }
 
   function zipFromAddress(addr) { var m = String(addr || "").match(/,.*?\b(\d{5})\b/); return m ? m[1] : ""; }
   function splitPairsToIndividual(disc) {
@@ -1925,11 +1929,12 @@
   async function loadSuggestions(ref) {
     var zip = zipFromAddress(ref.address);
     var prevShowRejected = !!(suggestState[ref.id] && suggestState[ref.id].showRejected);
+    var prevDiscFilter = (suggestState[ref.id] && suggestState[ref.id].discFilter) || "";
     if (ref.lat == null && !zip) {
-      suggestState[ref.id] = { status: "empty", candidates: [], showRejected: prevShowRejected };
+      suggestState[ref.id] = { status: "empty", candidates: [], showRejected: prevShowRejected, discFilter: prevDiscFilter };
       renderSuggestTray(ref.id); return;
     }
-    suggestState[ref.id] = { status: "loading", candidates: [], showRejected: prevShowRejected };
+    suggestState[ref.id] = { status: "loading", candidates: [], showRejected: prevShowRejected, discFilter: prevDiscFilter };
     renderSuggestTray(ref.id);
     try {
       var out = await db.rpc("suggest_clinicians_for_referral", {
@@ -1940,10 +1945,10 @@
         p_agency: ref.agency || null
       });
       if (out.error) throw out.error;
-      suggestState[ref.id] = { status: "done", candidates: rankSuggestions(out.data || []), showRejected: prevShowRejected };
+      suggestState[ref.id] = { status: "done", candidates: rankSuggestions(out.data || []), showRejected: prevShowRejected, discFilter: prevDiscFilter };
     } catch (e) {
       console.warn("[suggest] rpc failed", e);
-      suggestState[ref.id] = { status: "error", error: e.message || String(e), candidates: [], showRejected: prevShowRejected };
+      suggestState[ref.id] = { status: "error", error: e.message || String(e), candidates: [], showRejected: prevShowRejected, discFilter: prevDiscFilter };
     }
     renderSuggestTray(ref.id);
   }
@@ -1992,6 +1997,15 @@
     st.showRejected = !st.showRejected;
     renderSuggestTray(refId);
   }
+  // Discipline view filter (header chips). "" = All; clicking the active
+  // discipline chip resets to All. View-only — never changes triage data
+  // or what commit writes.
+  function setSuggestDiscFilter(refId, disc) {
+    var st = suggestState[refId];
+    if (!st) return;
+    st.discFilter = (st.discFilter === disc) ? "" : disc;
+    renderSuggestTray(refId);
+  }
   function refAgencyName(refId) {
     var ref = allReferrals.find(function(r) { return r.id === refId; });
     return (ref && ref.agency) || "this agency";
@@ -2002,8 +2016,9 @@
     if (!el) return;
     var st = suggestState[refId];
     if (!st) { el.innerHTML = ""; return; }
-    var shell = function(body, foot) {
+    var shell = function(body, foot, chips) {
       return "<div class='suggest-head'><span class='suggest-title'>🔎 Suggested clinicians</span>" +
+        (chips || "") +
         "<button class='suggest-refresh' title='Refresh' onclick='event.stopPropagation();refreshSuggestions(\"" + refId + "\")'>🔄</button></div>" +
         "<div class='suggest-body'>" + body + "</div>" + (foot || "");
     };
@@ -2024,11 +2039,42 @@
       return;
     }
 
+    // Rank over the FULL visible list first so badges keep their All-view
+    // numbers while the discipline chips filter the view (①⑤⑥ when PT-only).
+    visible.forEach(function(c, i) { c._rank = i + 1; });
+
+    // Discipline view chips — derived from the candidates present; only
+    // rendered when there's actually a mix to separate (PT vs PTA etc.).
+    var DISC_ORDER = ["PT", "PTA", "OT", "OTA", "ST"];
+    var discs = [];
+    visible.forEach(function(c) {
+      var d = String(c.discipline || "").toUpperCase().trim();
+      if (d && discs.indexOf(d) === -1) discs.push(d);
+    });
+    discs.sort(function(a, b) {
+      var ia = DISC_ORDER.indexOf(a), ib = DISC_ORDER.indexOf(b);
+      ia = ia === -1 ? 99 : ia; ib = ib === -1 ? 99 : ib;
+      return ia !== ib ? ia - ib : a.localeCompare(b);
+    });
+    // A stale filter (discipline no longer among candidates) falls back to All.
+    var activeFilter = (st.discFilter && discs.indexOf(st.discFilter) !== -1) ? st.discFilter : "";
+    var discChips = "";
+    if (discs.length > 1) {
+      var chipBtn = function(d, label) {
+        return "<button class='suggest-disc-chip" + (activeFilter === d ? " active" : "") + "' " +
+          "onclick='event.stopPropagation();setSuggestDiscFilter(\"" + refId + "\",\"" + d + "\")'>" + label + "</button>";
+      };
+      discChips = "<span class='suggest-disc-chips'>" + chipBtn("", "All") +
+        discs.map(function(d) { return chipBtn(d, d); }).join("") + "</span>";
+    }
+    var shown = activeFilter
+      ? visible.filter(function(c) { return String(c.discipline || "").toUpperCase().trim() === activeFilter; })
+      : visible;
+
     // Group by persisted tier; rank badge keeps the original ranked
     // position so a card's number is stable while it moves between groups.
     var groups = { accept: [], undecided: [], maybe: [], reject: [] };
-    visible.forEach(function(c, i) {
-      c._rank = i + 1;
+    shown.forEach(function(c) {
       var t = triage[c.clinician_id] ? triage[c.clinician_id].t : null;
       if (t !== "accept" && t !== "maybe" && t !== "reject") t = "undecided";
       groups[t].push(c);
@@ -2096,12 +2142,19 @@
       }
     }
 
+    // Footer counts ALL accepted candidates (data-level, not the filtered
+    // view) — commit always writes every accepted clinician, so an active
+    // discipline chip never silently drops a hidden accept.
+    var acceptTotal = visible.filter(function(c) {
+      var t = triage[c.clinician_id];
+      return t && t.t === "accept";
+    }).length;
     var foot = "<div class='suggest-foot'>" +
-      (groups.accept.length
-        ? "<button class='suggest-add-btn' onclick='event.stopPropagation();commitSuggestions(\"" + refId + "\")'>＋ Add accepted (" + groups.accept.length + ") to dispatch</button>"
+      (acceptTotal
+        ? "<button class='suggest-add-btn' onclick='event.stopPropagation();commitSuggestions(\"" + refId + "\")'>＋ Add accepted (" + acceptTotal + ") to dispatch</button>"
         : "<span class='suggest-foot-hint'>✓-mark clinicians to queue them for dispatch</span>") +
       "</div>";
-    el.innerHTML = shell(body, foot);
+    el.innerHTML = shell(body, foot, discChips);
   }
 
   async function commitSuggestions(refId) {
