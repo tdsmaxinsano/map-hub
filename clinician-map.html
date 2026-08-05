@@ -3126,6 +3126,9 @@
     .rsg-perf.rsg-bad { background: #fdeaea; color: #b3261e; }
     .rsg-restr { margin-top: 5px; font-size: 10.5px; color: #7a5a1a; background: #fdf6e6; border-radius: 6px; padding: 3px 7px; }
     .rsg-restr.rsg-conflict { color: #b3261e; background: #fdeaea; font-weight: 700; }
+    .rsg-restr.rsg-inact { color: #475569; background: #eef2f7; font-weight: 700; }
+    .rsg-inact-toggle { margin-left: 8px; font-size: 10.5px; color: #64748b; cursor: pointer; user-select: none; white-space: nowrap; }
+    .rsg-inact-toggle input { vertical-align: -1px; margin: 0 3px 0 0; cursor: pointer; }
     .rsg-foot { padding: 9px 12px; border-top: 1px solid #eef2f7; display: flex; justify-content: flex-end; gap: 8px; background: #f8fafc; }
     .rsg-report { padding: 6px 14px; background: #1e4d8c; color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
     .rsg-report:hover { background: #163a6e; }
@@ -25559,6 +25562,7 @@
         id: clinician.id,
         name: clinician.name || "",
         discipline: clinDisc || clinician.discipline || "",
+        active: clinician.active !== false,
         distance: distance,
         rating: rating,
         coversZip: coversZip,
@@ -25582,6 +25586,9 @@
       if (da !== dbb) return da - dbb;
       return String(a.name).localeCompare(String(b.name));
     });
+    // Stable rank over the FULL ranked list — numbers don't shift when the
+    // "Show inactive" toggle filters the view.
+    candidates.forEach(function(c, i) { c.rank = i + 1; });
 
     return {
       referral: referral,
@@ -25618,6 +25625,14 @@
     _refSuggestData = null;
   }
 
+  // Inactive clinicians are hidden by default; the ⛔ toggle in the counts
+  // row reveals them (they read as reactivation candidates, not staffable).
+  var refSuggestShowInactive = false;
+  function refSuggestToggleInactive() {
+    refSuggestShowInactive = !refSuggestShowInactive;
+    if (_refSuggestData) renderReferralSuggestPanel(_refSuggestData);
+  }
+
   function renderReferralSuggestPanel(data, opts) {
     opts = opts || {};
     var panel = document.getElementById("ref-suggest-panel");
@@ -25634,6 +25649,17 @@
 
     _refSuggestData = data;
     var ref = data.referral;
+    // Inactive hidden by default — toggle in the counts row reveals them.
+    var inactiveCount = data.candidates.filter(function(c) { return c.active === false; }).length;
+    var list = refSuggestShowInactive
+      ? data.candidates
+      : data.candidates.filter(function(c) { return c.active !== false; });
+    var zipCount = list.filter(function(c) { return c.coversZip; }).length;
+    var radCount = list.filter(function(c) { return c.servedNearby; }).length;
+    var inactToggle = inactiveCount
+      ? " <label class='rsg-inact-toggle'><input type='checkbox' " + (refSuggestShowInactive ? "checked " : "") +
+        "onchange='refSuggestToggleInactive()'>⛔ " + inactiveCount + " inactive</label>"
+      : "";
     var head =
       "<div class='rsg-head'>" +
         "<div class='rsg-title'>🔎 Suggested clinicians</div>" +
@@ -25643,17 +25669,21 @@
         (data.agency ? " · " + escHtml(data.agency) : "") +
         (data.discLabel ? " · " + escHtml(data.discLabel) : "") +
       "</div>" +
-      "<div class='rsg-counts'>" + data.counts.total + (data.counts.total === 1 ? " match" : " matches") +
-        " · " + data.counts.zip + " cover ZIP" + (data.zip ? " " + escHtml(data.zip) : "") +
-        " · " + data.counts.radius + " within " + REF_SUGGEST_RADIUS_MI + " mi</div>";
+      "<div class='rsg-counts'>" + list.length + (list.length === 1 ? " match" : " matches") +
+        " · " + zipCount + " cover ZIP" + (data.zip ? " " + escHtml(data.zip) : "") +
+        " · " + radCount + " within " + REF_SUGGEST_RADIUS_MI + " mi" + inactToggle + "</div>";
 
     var body;
-    if (!data.candidates.length) {
-      body = "<div class='rsg-empty'>No matching clinicians for this referral's discipline" +
-        (data.zip ? " / ZIP " + escHtml(data.zip) : "") +
-        ".<br>Widen the search or check ZIP coverage.</div>";
+    if (!list.length) {
+      body = "<div class='rsg-empty'>" +
+        (inactiveCount
+          ? "All " + inactiveCount + " match" + (inactiveCount === 1 ? " is" : "es are") + " inactive — tick the ⛔ toggle above to show them."
+          : "No matching clinicians for this referral's discipline" +
+            (data.zip ? " / ZIP " + escHtml(data.zip) : "") +
+            ".<br>Widen the search or check ZIP coverage.") +
+        "</div>";
     } else {
-      body = "<div class='rsg-list'>" + data.candidates.map(function(c, i) {
+      body = "<div class='rsg-list'>" + list.map(function(c, i) {
         var distTxt = isFinite(c.distance) ? c.distance.toFixed(1) + " mi" : "—";
         var chips =
           (c.coversZip ? "<span class='rsg-chip rsg-zip'>✓ ZIP</span>" : "") +
@@ -25667,6 +25697,9 @@
           perf += "<span class='rsg-perf' title='Avg visits per run'>📈 " + c.avgVisitsPerRun.toFixed(1) + "</span>";
         }
         var restr = "";
+        if (c.active === false) {
+          restr += "<div class='rsg-restr rsg-inact'>⛔ Inactive — needs reactivation</div>";
+        }
         if (c.agencyConflict) {
           restr += "<div class='rsg-restr rsg-conflict'>⛔ Restricted from " + escHtml(data.agency || "this agency") + "</div>";
         }
@@ -25680,7 +25713,7 @@
           restr += "<div class='rsg-restr'>🚫 " + escHtml(parts.join(" · ")) + "</div>";
         }
         return "<div class='rsg-card'>" +
-          "<div class='rsg-rank'>" + (i + 1) + "</div>" +
+          "<div class='rsg-rank'>" + (c.rank || (i + 1)) + "</div>" +
           "<div class='rsg-main'>" +
             "<div class='rsg-name'>" +
               "<button class='rsg-namebtn' onclick='focusClinician(\"" + c.id + "\", true)'>" + escHtml(c.name) + "</button>" +
@@ -25698,7 +25731,7 @@
     }
 
     var foot = "<div class='rsg-foot'>" +
-      (data.candidates.length ? "<button class='rsg-report' onclick='openReferralSuggestReport()'>🖨 Report</button>" : "") +
+      (list.length ? "<button class='rsg-report' onclick='openReferralSuggestReport()'>🖨 Report</button>" : "") +
       "</div>";
     panel.innerHTML = head + body + foot;
   }
@@ -25707,15 +25740,22 @@
     var data = _refSuggestData;
     if (!data) return;
     var ref = data.referral;
-    var rows = data.candidates.map(function(c, i) {
+    // Report mirrors the panel view: inactive included only when toggled on.
+    var list = refSuggestShowInactive
+      ? data.candidates
+      : data.candidates.filter(function(c) { return c.active !== false; });
+    var zipCount = list.filter(function(c) { return c.coversZip; }).length;
+    var radCount = list.filter(function(c) { return c.servedNearby; }).length;
+    var rows = list.map(function(c, i) {
       var restr = [];
+      if (c.active === false) restr.push("⛔ INACTIVE — needs reactivation");
       if (c.agencyConflict) restr.push("⛔ RESTRICTED from " + (data.agency || "agency"));
       if (c.restrAgencies.length) restr.push("agencies: " + c.restrAgencies.join(", "));
       if (c.restrClinicians.length) restr.push("clinicians: " + c.restrClinicians.join(", "));
       var stars = c.rating ? ("★".repeat(c.rating) + "☆".repeat(5 - c.rating)) : "—";
       return "<tr" + (c.agencyConflict ? " class='conflict'" : "") + ">" +
-        "<td>" + (i + 1) + "</td>" +
-        "<td>" + escapeHtml(c.name) + "</td>" +
+        "<td>" + (c.rank || (i + 1)) + "</td>" +
+        "<td>" + escapeHtml(c.name) + (c.active === false ? " <em>(Inactive)</em>" : "") + "</td>" +
         "<td>" + escapeHtml(c.discipline) + "</td>" +
         "<td>" + (isFinite(c.distance) ? c.distance.toFixed(1) + " mi" : "—") + "</td>" +
         "<td>" + stars + "</td>" +
@@ -25736,8 +25776,9 @@
         (data.agency ? " — " + escapeHtml(data.agency) : "") + "<br>" +
         escapeHtml(ref.address || "") + "<br>" +
         "Discipline: " + escapeHtml(data.discLabel || "—") + " · ZIP: " + escapeHtml(data.zip || "—") + "<br>" +
-        data.counts.total + " suggested — " + data.counts.zip + " cover ZIP, " +
-        data.counts.radius + " within " + REF_SUGGEST_RADIUS_MI + " mi. Ranked closest-first, ★ rating breaks ties." +
+        list.length + " suggested — " + zipCount + " cover ZIP, " +
+        radCount + " within " + REF_SUGGEST_RADIUS_MI + " mi. Ranked closest-first, ★ rating breaks ties." +
+        (refSuggestShowInactive ? "" : (data.candidates.length - list.length ? " (" + (data.candidates.length - list.length) + " inactive hidden.)" : "")) +
       "</div>" +
       "<table><thead><tr><th>#</th><th>Clinician</th><th>Disc</th><th>Distance</th><th>Rating</th>" +
         "<th>Covers ZIP</th><th>Served ≤" + REF_SUGGEST_RADIUS_MI + " mi</th><th>Restrictions</th></tr></thead>" +
