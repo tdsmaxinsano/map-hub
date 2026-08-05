@@ -25716,7 +25716,7 @@
           "<div class='rsg-rank'>" + (c.rank || (i + 1)) + "</div>" +
           "<div class='rsg-main'>" +
             "<div class='rsg-name'>" +
-              "<button class='rsg-namebtn' onclick='focusClinician(\"" + c.id + "\", true)'>" + escHtml(c.name) + "</button>" +
+              "<button class='rsg-namebtn' onclick='focusClinician(\"" + c.id + "\", true)'>" + escHtml(formatClinicianDisplayName(c.name)) + "</button>" +
               "<span class='rsg-disc' style='background:" + getDisciplineColor(c.discipline) + "'>" + escHtml(c.discipline || "?") + "</span>" +
             "</div>" +
             "<div class='rsg-meta'>" +
@@ -25755,7 +25755,7 @@
       var stars = c.rating ? ("★".repeat(c.rating) + "☆".repeat(5 - c.rating)) : "—";
       return "<tr" + (c.agencyConflict ? " class='conflict'" : "") + ">" +
         "<td>" + (c.rank || (i + 1)) + "</td>" +
-        "<td>" + escapeHtml(c.name) + (c.active === false ? " <em>(Inactive)</em>" : "") + "</td>" +
+        "<td>" + escapeHtml(formatClinicianDisplayName(c.name)) + (c.active === false ? " <em>(Inactive)</em>" : "") + "</td>" +
         "<td>" + escapeHtml(c.discipline) + "</td>" +
         "<td>" + (isFinite(c.distance) ? c.distance.toFixed(1) + " mi" : "—") + "</td>" +
         "<td>" + stars + "</td>" +

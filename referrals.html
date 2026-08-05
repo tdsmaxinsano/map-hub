@@ -1000,7 +1000,7 @@
       return "<div class='contact-card' data-contact-id='" + c.id + "'>" +
         "<div class='contact-card-header'>" +
           "<div>" +
-            "<div class='contact-name'>" + esc(c.clinician_name) + "</div>" +
+            "<div class='contact-name'>" + esc(fmtClinName(c.clinician_name)) + "</div>" +
             "<div class='contact-disc'>" + esc(c.discipline) + "</div>" +
             starsHtml +
           "</div>" +
@@ -1612,7 +1612,7 @@
         var accepted = contacts.filter(function(c) { return c.response === "accepted" || c.response === "accepted_solo"; });
         return "<div style='margin-top:4px'>" +
           esc(r.patient_name) + " — " + esc(r.referral_date || "") +
-          (accepted.length ? " | Staffed with: " + accepted.map(function(c) { return esc(c.clinician_name) + " (" + esc(c.discipline) + ")"; }).join(", ") : "") +
+          (accepted.length ? " | Staffed with: " + accepted.map(function(c) { return esc(fmtClinName(c.clinician_name)) + " (" + esc(c.discipline) + ")"; }).join(", ") : "") +
           "</div>";
       }).join("");
     banner.style.display = "";
@@ -1887,6 +1887,24 @@
       return acc;
     }, []);
   }
+  // Display Title-Case for clinician names — the roster stores whatever TB
+  // delivered ("PERTEETE", "edward karius"). Port of the map's
+  // formatClinicianDisplayName: per-token capitalize with hyphen/apostrophe
+  // parts; Jr/Sr/roman-numeral suffixes uppercased. Display + insert only —
+  // matching always goes through suggestNameKey (case-insensitive).
+  function fmtClinName(value) {
+    var raw = String(value == null ? "" : value).trim();
+    if (!raw) return "";
+    return raw.toLowerCase().split(/\s+/).map(function(token) {
+      return token.split("-").map(function(hp) {
+        return hp.split("'").map(function(ap) {
+          if (!ap) return "";
+          if (/^(ii|iii|iv|v|vi|vii|viii|ix|jr|sr)\.?$/i.test(ap)) return ap.replace(/\.$/, "").toUpperCase();
+          return ap.charAt(0).toUpperCase() + ap.slice(1);
+        }).join("'");
+      }).join("-");
+    }).join(" ");
+  }
   function suggestNameKey(s) {
     return String(s || "").toLowerCase()
       .replace(/\s+(pt|pta|ot|ota|st|sta|slp|slpa|cota|otr|otrl|rn|lpn|cna|hha|md|do|dpt|np|pa|mspt)\.?\s*$/, "")
@@ -2130,7 +2148,7 @@
         "<div class='suggest-rank'>" + c._rank + "</div>" +
         "<div class='suggest-main'>" +
           "<div class='suggest-name-row'>" +
-            "<span class='suggest-name'>" + esc(c.name) + "</span>" +
+            "<span class='suggest-name'>" + esc(fmtClinName(c.name)) + "</span>" +
             "<span class='suggest-disc " + suggestDiscCss(c.discipline) + "'>" + esc(c.discipline || "?") + "</span>" +
           "</div>" +
           "<div class='suggest-meta'>" +
@@ -2201,7 +2219,7 @@
     });
     if (!toAdd.length) { showToast("No accepted clinicians to add — ✓-mark some first"); return; }
     var rows = toAdd.map(function(c) {
-      return { referral_id: refId, clinician_name: c.name, discipline: c.discipline || "PT", response: "waiting", notes: null };
+      return { referral_id: refId, clinician_name: fmtClinName(c.name), discipline: c.discipline || "PT", response: "waiting", notes: null };
     });
     var out = await db.from("referral_contacts").insert(rows).select();
     if (out.error) { showToast("Error adding: " + out.error.message); return; }
@@ -2403,7 +2421,7 @@
           "</div>" +
           (accepted.length ?
             "<div class='ref-popup-accepted'>✓ " +
-            accepted.map(function(c) { return esc(c.clinician_name) + " (" + esc(c.discipline) + ")"; }).join(", ") +
+            accepted.map(function(c) { return esc(fmtClinName(c.clinician_name)) + " (" + esc(c.discipline) + ")"; }).join(", ") +
             "</div>" : "") +
           "<button class='ref-popup-btn' onclick=\"switchView('table');setTimeout(function(){toggleExpand('" + r.id + "')},120)\">Open Detail ↗</button>" +
         "</div>";
