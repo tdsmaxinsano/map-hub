@@ -434,6 +434,9 @@
     .suggest-disc-chip.inact:hover { background: #f1f5f9; }
     .suggest-disc-chip.inact.active { background: #64748b; border-color: #64748b; color: #fff; }
     .suggest-flag.inact { color: #475569; background: #eef2f7; font-weight: 700; }
+    .suggest-tier-btn.lift { border-color: #f3c0c0; color: #b3261e; font-size: 11px; }
+    .suggest-tier-btn.lift:hover { background: #fdeaea; }
+    .suggest-tier-btn.lift.requested { background: #fdf6e6; border-color: #e3cd8e; color: #7a5a1a; cursor: default; }
     .suggest-body { padding: 8px; display: flex; flex-direction: column; gap: 6px; }
     .suggest-empty { padding: 14px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.5; }
     .suggest-card { display: flex; gap: 9px; align-items: flex-start; padding: 7px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--surface); }
@@ -1135,6 +1138,21 @@
     var resp  = document.getElementById("cf-resp-" + refId).value;
     var notes = (document.getElementById("cf-notes-" + refId).value || "").trim();
     if (!name) { showToast("Enter a clinician name"); return; }
+
+    // Manual-add guard: if the typed name matches a suggestion candidate
+    // who is restricted from this agency (or DNR), refuse — same rule as
+    // the tray's ✓, so the form isn't a bypass.
+    var stA = suggestState[refId];
+    if (stA && stA.candidates) {
+      var nameKey = suggestNameKey(name);
+      var blockedMatch = stA.candidates.find(function(c) {
+        return suggestNameKey(c.name) === nameKey && suggestBlocked(c);
+      });
+      if (blockedMatch) {
+        showToast("⛔ " + fmtClinName(blockedMatch.name) + " is " + suggestBlockedLabel(refId, blockedMatch) + " — request a lift (🔓) in the suggestions tray first");
+        return;
+      }
+    }
 
     var { data, error } = await db.from("referral_contacts").insert({
       referral_id: refId, clinician_name: name,
@@ -1993,6 +2011,17 @@
   async function setSuggestTier(refId, clinicianId, tier) {
     var ref = allReferrals.find(function(r) { return r.id === refId; });
     if (!ref) return;
+    // Restricted / DNR clinicians can't be accepted for dispatch — backstop
+    // for stale DOM (the card normally shows 🔓 instead of ✓).
+    if (tier === "accept") {
+      var stG = suggestState[refId];
+      var cand = stG && stG.candidates
+        ? stG.candidates.find(function(x) { return x.clinician_id === clinicianId; }) : null;
+      if (cand && suggestBlocked(cand)) {
+        showToast("⛔ " + fmtClinName(cand.name) + " is " + suggestBlockedLabel(refId, cand) + " — request a lift (🔓) first");
+        return;
+      }
+    }
     var triage = Object.assign({}, getTriage(ref));
     var prev = triage[clinicianId] || null;
     var next = (prev && prev.t === tier) ? null : tier;
@@ -2040,6 +2069,98 @@
   function refAgencyName(refId) {
     var ref = allReferrals.find(function(r) { return r.id === refId; });
     return (ref && ref.agency) || "this agency";
+  }
+  // A candidate we refuse to dispatch: restricted from THIS referral's
+  // agency, or flagged do-not-rehire. Their ✓ Accept becomes a 🔓
+  // "request a restriction lift" (creates a kanban task for admins).
+  function suggestBlocked(c) {
+    return !!(c && (c.agency_conflict || c.do_not_rehire));
+  }
+  function suggestBlockedLabel(refId, c) {
+    return c && c.do_not_rehire ? "flagged do-not-rehire" : ("restricted from " + refAgencyName(refId));
+  }
+  // 🔓 on a blocked card → create a "Lift restriction" task on the kanban
+  // Referrals board (leftmost column) so an admin can review + lift from
+  // the clinician's profile. Portal-native: no email dependency. Dedupes
+  // on the exact task title while an open request exists.
+  async function requestRestrictionLift(refId, clinicianId) {
+    var st = suggestState[refId];
+    var ref = allReferrals.find(function(r) { return r.id === refId; });
+    var cand = st && st.candidates
+      ? st.candidates.find(function(x) { return x.clinician_id === clinicianId; }) : null;
+    if (!ref || !cand) return;
+    if (cand._liftRequested) { showToast("⏳ Lift request already sent — it's on the admin task board"); return; }
+
+    var clinName = fmtClinName(cand.name);
+    var blockWhat = cand.do_not_rehire ? "Do-not-rehire flag" : ("Restriction: " + (ref.agency || "this agency"));
+    var title = "Lift restriction: " + clinName + " ↔ " + (cand.do_not_rehire ? "DNR" : (ref.agency || "agency"));
+
+    var reason = window.prompt("Request to lift — " + clinName + " (" + blockWhat + ")\nWhy should this be lifted? (optional)");
+    if (reason === null) return; // cancelled
+
+    try {
+      // Already an open request? (title-keyed; archived/completed don't count)
+      var dupe = await db.from("tasks").select("id")
+        .eq("title", title).eq("is_archived", false).is("completed_at", null).limit(1);
+      if (!dupe.error && dupe.data && dupe.data.length) {
+        cand._liftRequested = true;
+        renderSuggestTray(refId);
+        showToast("⏳ A lift request for " + clinName + " is already open on the task board");
+        return;
+      }
+
+      // Referrals board (stable slug) → default board → first board.
+      var b = await db.from("boards").select("id").eq("slug", "referrals").maybeSingle();
+      var boardId = b.data && b.data.id;
+      if (!boardId) {
+        b = await db.from("boards").select("id").eq("is_default", true).limit(1).maybeSingle();
+        boardId = b.data && b.data.id;
+      }
+      if (!boardId) {
+        b = await db.from("boards").select("id").order("position", { ascending: true }).limit(1).maybeSingle();
+        boardId = b.data && b.data.id;
+      }
+      if (!boardId) throw new Error("no kanban board found");
+      var col = await db.from("board_columns").select("id")
+        .eq("board_id", boardId).order("position", { ascending: true }).limit(1).single();
+      if (col.error || !col.data) throw new Error("no kanban column found");
+
+      var sess = (await db.auth.getSession()).data.session;
+      if (!sess || !sess.user) throw new Error("not signed in");
+
+      var desc =
+        "Dispatch is blocked for this clinician.\n" +
+        "• Clinician: " + clinName + " (" + (cand.discipline || "?") + ")\n" +
+        "• Block: " + blockWhat + "\n" +
+        "• Referral: " + (ref.patient_name || "—") + " — " + (ref.address || "") + "\n" +
+        "• Requested by: " + (sess.user.email || sess.user.id) + " (referral board)\n" +
+        (reason.trim() ? "• Reason: " + reason.trim() + "\n" : "") +
+        "\nTo lift: open the clinician's profile (Roster Review or Map) → Restrictions" +
+        (cand.do_not_rehire ? " / Do-not-rehire flag" : "") + ".";
+
+      var ins = await db.from("tasks").insert({
+        title: title,
+        description: desc,
+        board_id: boardId,
+        column_id: col.data.id,
+        position: 0,
+        created_by: sess.user.id,
+        sla_preset: "24h",
+        due_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
+        linked_entity_type: "clinician",
+        linked_entity_id: clinicianId,
+        linked_entity_label: clinName,
+        updated_at: new Date().toISOString()
+      });
+      if (ins.error) throw ins.error;
+
+      cand._liftRequested = true;
+      renderSuggestTray(refId);
+      showToast("🔓 Lift request sent — it's on the 🗂 task board for admin review");
+    } catch (e) {
+      console.warn("[lift-request] failed", e);
+      showToast("Couldn't create the lift request: " + (e.message || e));
+    }
   }
 
   function renderSuggestTray(refId) {
@@ -2157,7 +2278,13 @@
           "</div>" + flags +
         "</div>" +
         "<div class='suggest-tiers'>" +
-          tierBtn("accept", "✓", "Accept — queue for dispatch") +
+          (suggestBlocked(c)
+            ? "<button class='suggest-tier-btn lift" + (c._liftRequested ? " requested" : "") + "' title='" +
+              (c.do_not_rehire ? "Do-not-rehire" : "Restricted from this agency") +
+              " — can&#39;t be dispatched. Click to request a restriction lift (creates an admin task).' " +
+              "onclick='event.stopPropagation();requestRestrictionLift(\"" + refId + "\",\"" + c.clinician_id + "\")'>" +
+              (c._liftRequested ? "⏳" : "🔓") + "</button>"
+            : tierBtn("accept", "✓", "Accept — queue for dispatch")) +
           tierBtn("maybe", "?", "Potential — keep on the bench") +
           tierBtn("reject", "✕", "Reject") +
         "</div>" +
@@ -2195,7 +2322,7 @@
     // discipline chip never silently drops a hidden accept.
     var acceptTotal = visible.filter(function(c) {
       var t = triage[c.clinician_id];
-      return t && t.t === "accept";
+      return t && t.t === "accept" && !suggestBlocked(c);
     }).length;
     var foot = "<div class='suggest-foot'>" +
       (acceptTotal
@@ -2215,9 +2342,18 @@
       .forEach(function(c) { already[suggestNameKey(c.clinician_name)] = true; });
     var toAdd = st.candidates.filter(function(c) {
       var t = triage[c.clinician_id];
-      return t && t.t === "accept" && !already[suggestNameKey(c.name)];
+      return t && t.t === "accept" && !already[suggestNameKey(c.name)] && !suggestBlocked(c);
     });
-    if (!toAdd.length) { showToast("No accepted clinicians to add — ✓-mark some first"); return; }
+    // Old triage data may hold an accept on a since-restricted clinician —
+    // never write those; say so instead of silently dropping.
+    var blockedAccepted = st.candidates.filter(function(c) {
+      var t = triage[c.clinician_id];
+      return t && t.t === "accept" && !already[suggestNameKey(c.name)] && suggestBlocked(c);
+    });
+    if (blockedAccepted.length) {
+      showToast("⛔ Skipped " + blockedAccepted.length + " restricted / do-not-rehire — request a lift (🔓) first");
+    }
+    if (!toAdd.length) { if (!blockedAccepted.length) showToast("No accepted clinicians to add — ✓-mark some first"); return; }
     var rows = toAdd.map(function(c) {
       return { referral_id: refId, clinician_name: fmtClinName(c.name), discipline: c.discipline || "PT", response: "waiting", notes: null };
     });
