@@ -673,6 +673,35 @@ function renderTable() {
   document.getElementById("rows-body").innerHTML = html;
 }
 
+// Display Title-Case for agency names — stored as imported (some ALL CAPS,
+// some missing caps). Rules: a fully-uppercase name is "shouting" → Title
+// Case every word; a mixed-case name only fixes all-lowercase words
+// ("Buena Vida Home health" → "… Home Health") and leaves the rest alone so
+// real acronyms survive ("ATNT …" stays ATNT). Corporate suffixes normalize
+// either way (INC → Inc, LLC stays LLC). Display-only — stored names are
+// untouched (imports stay source of truth; search + matching use raw).
+const AGENCY_SUFFIX_CASE = { inc: "Inc", llc: "LLC", ltd: "Ltd", corp: "Corp", co: "Co", pc: "PC", pllc: "PLLC", pa: "PA" };
+function fmtAgencyName(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
+  const letters = raw.replace(/[^A-Za-z]/g, "");
+  const allCaps = !!letters && letters === letters.toUpperCase();
+  return raw.split(/\s+/).map(tok => {
+    const core = tok.replace(/[^A-Za-z]/g, "");
+    const suffix = core ? AGENCY_SUFFIX_CASE[core.toLowerCase()] : null;
+    if (suffix) return tok.replace(core, suffix);
+    if (allCaps || (core && core === core.toLowerCase())) {
+      return tok.toLowerCase().replace(/[a-z]/, ch => ch.toUpperCase());
+    }
+    return tok;
+  }).join(" ");
+}
+function fmtCityName(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
+  return raw.toLowerCase().split(/\s+/).map(w => w.replace(/[a-z]/, c => c.toUpperCase())).join(" ");
+}
+
 function renderRow(r) {
   const inactive = r.is_active === false || r.agency_active === false;
   const rowClass = inactive ? "row-inactive" : "";
@@ -680,8 +709,8 @@ function renderRow(r) {
   return `
     <tr class="${rowClass}" data-agency-id="${aid}">
       <td class="name-col">
-        <a class="agency-name-link" data-agency-link="${aid}">${escapeHtml(r.agency_name || '(unnamed)')}</a>
-        <div class="agency-loc">${escapeHtml([r.agency_city, r.agency_state].filter(Boolean).join(", ") || "—")}</div>
+        <a class="agency-name-link" data-agency-link="${aid}">${escapeHtml(fmtAgencyName(r.agency_name) || '(unnamed)')}</a>
+        <div class="agency-loc">${escapeHtml([fmtCityName(r.agency_city), r.agency_state].filter(Boolean).join(", ") || "—")}</div>
       </td>
       <td>${renderActivePill(r)}</td>
       <td>${renderRateInput(r, "rate_ot_eval")}</td>
@@ -765,7 +794,7 @@ function renderStartCell(r) {
 function renderLatestEffCell(r) {
   if (!r.rates_effective_date) return `<span style="color:#cbd5e1;">—</span>`;
   const aid = escapeAttr(r.agency_id);
-  return `<button type="button" class="rate-date-link" data-history="${aid}" data-name="${escapeAttr(r.agency_name || '')}" title="Most recent effective rate — click for full history">${escapeHtml(fmtHistDate(r.rates_effective_date))}</button>`;
+  return `<button type="button" class="rate-date-link" data-history="${aid}" data-name="${escapeAttr(fmtAgencyName(r.agency_name) || '')}" title="Most recent effective rate — click for full history">${escapeHtml(fmtHistDate(r.rates_effective_date))}</button>`;
 }
 
 // ── Dropdown option pools — derived from the values already in the data
@@ -975,7 +1004,7 @@ document.addEventListener("click", (e) => {
   const row = allRows.find(r => r.agency_id === aid);
   if (!row) return;
   notesDrawerAgencyId = aid;
-  document.getElementById("notes-agency-name").textContent = row.agency_name || "—";
+  document.getElementById("notes-agency-name").textContent = fmtAgencyName(row.agency_name) || "—";
   document.getElementById("notes-textarea").value = row.notes || "";
   document.getElementById("notes-drawer").classList.add("open");
   setTimeout(() => document.getElementById("notes-textarea").focus(), 50);
