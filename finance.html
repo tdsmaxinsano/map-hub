@@ -1360,6 +1360,7 @@
     <button data-view="billing">🧾 Billing</button>
     <button data-view="qbtools">🔧 QB Tools</button>
     <button data-view="expenses">💸 Tax Categorizer</button>
+    <button data-view="renewals">🏛 Renewals</button>
   </div>
 
   <!-- LANDING -->
@@ -1388,6 +1389,12 @@
         <div class="tile-title">Tax Categorizer</div>
         <div class="tile-desc">Drop a Chase CSV → auto-categorize expense transactions for tax review (Health Insurance / Marketing / Auto / Office / etc.). Editable rules shared across admins. Multi-sheet XLSX output for the accountant.</div>
         <span class="tile-cta">Open Tax Categorizer →</span>
+      </button>
+      <button type="button" class="tile" data-go="renewals">
+        <div class="tile-icon">🏛</div>
+        <div class="tile-title">Company Renewals</div>
+        <div class="tile-desc">Annual filings tracker — LLC annual report, insurance, licenses. Due-date reminders on the Home board from 60 days out, mark-filed history with fees + penalties, and the stamped PDF archived per year.</div>
+        <span class="tile-cta">Open Renewals →</span>
       </button>
     </div>
   </div>
@@ -1989,6 +1996,40 @@
     </div>
   </div>
 
+  <!-- RENEWALS — 🏛 Company annual renewals / filings tracker. Recurring
+       company obligations (IL LLC Annual Report, insurance, licenses…):
+       due dates with Home-board reminders (list_company_renewal_alerts),
+       mark-filed history with fees + penalties, and the stamped PDF per
+       filing in the PRIVATE company-documents bucket (signed URLs).
+       Backed by migration 54. See RENEW IIFE module. -->
+  <div class="view" id="view-renewals">
+    <div class="card">
+      <h3>🏛 Company Renewals <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— annual filings, reminders, and the filed PDFs</span></h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:6px 0 12px">
+        Recurring company obligations. Reminders surface on the Home 📰 News &amp; Alerts board from 60 days out
+        (amber → red as the date nears; overdue pins to the top). Mark a renewal filed to log the fee / penalty
+        and attach the stamped PDF — the next due date advances by the interval automatically.
+      </p>
+      <div id="rnw-status" style="font-size:12px;color:var(--muted);margin:4px 0 8px"></div>
+      <div id="rnw-table"></div>
+      <div style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0">
+        <strong style="font-size:13px">＋ Add a renewal</strong>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;font-size:12px">
+          <label style="display:flex;flex-direction:column;gap:3px">Name
+            <input id="rnw-add-name" placeholder="e.g. General liability insurance" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:240px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Next due
+            <input type="date" id="rnw-add-due" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Every (months)
+            <input type="number" id="rnw-add-interval" value="12" min="1" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:80px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Notes
+            <input id="rnw-add-notes" placeholder="account #, portal URL, fee…" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:260px"></label>
+          <button onclick="RENEW.addRenewal()" style="padding:7px 16px;background:#1e4d8c;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">Add</button>
+        </div>
+      </div>
+      <input type="file" id="rnw-file" accept="application/pdf,image/*" style="display:none">
+    </div>
+  </div>
+
   <!-- EXPENSES — Tax Categorizer sub-view (sibling of view-qbtools).
        Conceptually distinct from QB Tools: this tool categorizes
        OUTGOING expenses for tax review (no QB push). Backed by
@@ -2227,7 +2268,7 @@ async function launchApp(user) {
 // SUB-VIEW SWITCHING
 // ══════════════════════════════════════════════════════════════════
 function switchView(viewName, skipPushState) {
-  const validViews = ["landing", "payroll", "billing", "qbtools", "expenses"];
+  const validViews = ["landing", "payroll", "billing", "qbtools", "expenses", "renewals"];
   if (!validViews.includes(viewName)) viewName = "landing";
 
   document.querySelectorAll(".view").forEach(v => {
@@ -2242,7 +2283,8 @@ function switchView(viewName, skipPushState) {
     payroll:  "Current pay period totals and link to the Time Tracker pay period view.",
     billing:  "Agency invoicing — placeholder for v1.",
     qbtools:  "Helpers that streamline QuickBooks-side workflows.",
-    expenses: "Drop a Chase CSV → auto-categorize expense rows for tax review. Editable rules shared across admins."
+    expenses: "Drop a Chase CSV → auto-categorize expense rows for tax review. Editable rules shared across admins.",
+    renewals: "Company annual filings — due dates, Home-board reminders, mark-filed history + archived PDFs."
   };
   document.getElementById("hero-sub").textContent = subtitleMap[viewName] || subtitleMap.landing;
 
@@ -12764,6 +12806,254 @@ const EXP = (() => {
 })();
 
 // Initialize VDR + IIF + ATTACH modules after launchApp confirms admin role + when billing view opens
+// ═══════════════════════════════════════════════════════════════════════
+//  RENEW — 🏛 Company Renewals (migration 54).
+//  company_renewals (one row per recurring obligation) +
+//  company_renewal_filings (history, with the stamped PDF in the private
+//  company-documents bucket — opened via signed URLs). "Mark filed" goes
+//  through record_company_renewal_filing() which inserts the history row
+//  AND advances next_due_date by one interval in a single call.
+// ═══════════════════════════════════════════════════════════════════════
+const RENEW = (() => {
+  let initialized = false;
+  let renewals = [];
+  let filingsByRenewal = {};
+  let historyOpen = {};   // renewal_id -> bool
+  let markOpen = {};      // renewal_id -> bool
+  let attachTarget = null; // { filingId, renewalId } while the file picker is open
+  let markFile = null;     // File chosen in the mark-filed form
+
+  const escR = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const money = (n) => (n == null || n === "") ? "—" : ("$" + Number(n).toFixed(2));
+
+  async function load() {
+    const status = document.getElementById("rnw-status");
+    status.textContent = "Loading…";
+    const [r, f] = await Promise.all([
+      db.from("company_renewals").select("*").order("next_due_date", { ascending: true }),
+      db.from("company_renewal_filings").select("*").order("filed_on", { ascending: false })
+    ]);
+    if (r.error || f.error) {
+      status.textContent = "Couldn't load renewals — has migration 54 been run? (" + escR((r.error || f.error).message) + ")";
+      return;
+    }
+    renewals = r.data || [];
+    filingsByRenewal = {};
+    (f.data || []).forEach(row => {
+      (filingsByRenewal[row.renewal_id] = filingsByRenewal[row.renewal_id] || []).push(row);
+    });
+    status.textContent = renewals.length
+      ? renewals.length + " renewal" + (renewals.length === 1 ? "" : "s") + " tracked · reminders start 60 days before each due date"
+      : "Nothing tracked yet — add your first renewal below.";
+    render();
+  }
+
+  function duePill(days) {
+    let bg, fg, label;
+    if (days < 0)       { bg = "#fee2e2"; fg = "#991b1b"; label = "OVERDUE " + Math.abs(days) + "d"; }
+    else if (days === 0){ bg = "#fee2e2"; fg = "#991b1b"; label = "DUE TODAY"; }
+    else if (days <= 30){ bg = "#fef3c7"; fg = "#92400e"; label = "in " + days + "d"; }
+    else                { bg = "#dcfce7"; fg = "#166534"; label = "in " + days + "d"; }
+    return "<span style='background:" + bg + ";color:" + fg + ";font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:9px;white-space:nowrap'>" + label + "</span>";
+  }
+
+  function fmtDate(d) {
+    if (!d) return "—";
+    const dt = new Date(String(d).slice(0, 10) + "T00:00:00");
+    return isNaN(dt) ? String(d) : dt.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  }
+
+  function render() {
+    const el = document.getElementById("rnw-table");
+    if (!el) return;
+    if (!renewals.length) { el.innerHTML = ""; return; }
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+
+    el.innerHTML = "<table style='width:100%;border-collapse:collapse;font-size:12.5px'>" +
+      "<thead><tr style='text-align:left;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em'>" +
+      "<th style='padding:6px 8px'>Renewal</th><th style='padding:6px 8px'>Next due</th>" +
+      "<th style='padding:6px 8px'>Every</th><th style='padding:6px 8px'>Last filed</th>" +
+      "<th style='padding:6px 8px'></th></tr></thead><tbody>" +
+      renewals.map(rn => {
+        const days = Math.round((new Date(String(rn.next_due_date).slice(0, 10) + "T00:00:00") - today) / 86400000);
+        const filings = filingsByRenewal[rn.id] || [];
+        const last = filings[0];
+        let html = "<tr style='border-top:1px solid #eef2f7" + (rn.is_active ? "" : ";opacity:.55") + "'>" +
+          "<td style='padding:8px'>" +
+            "<div style='font-weight:700;color:#1e2d4a'>" + escR(rn.name) + (rn.is_active ? "" : " <span style='font-size:10px;color:#94a3b8'>(inactive)</span>") + "</div>" +
+            (rn.description ? "<div style='font-size:11px;color:#64748b;margin-top:2px'>" + escR(rn.description) + "</div>" : "") +
+            (rn.notes ? "<div style='font-size:11px;color:#94a3b8;margin-top:2px'>" + escR(rn.notes) + "</div>" : "") +
+          "</td>" +
+          "<td style='padding:8px;white-space:nowrap'>" + fmtDate(rn.next_due_date) + " " + duePill(days) + "</td>" +
+          "<td style='padding:8px;white-space:nowrap'>" + rn.interval_months + " mo</td>" +
+          "<td style='padding:8px;white-space:nowrap'>" + (last ? fmtDate(last.filed_on) : "—") + "</td>" +
+          "<td style='padding:8px;white-space:nowrap;text-align:right'>" +
+            "<button onclick='RENEW.toggleMark(\"" + rn.id + "\")' style='padding:5px 10px;background:#1e4d8c;color:#fff;border:none;border-radius:6px;font-size:11.5px;font-weight:700;cursor:pointer'>✓ Mark filed</button> " +
+            "<button onclick='RENEW.toggleHistory(\"" + rn.id + "\")' style='padding:5px 10px;background:#fff;border:1px solid #cbd5e1;border-radius:6px;font-size:11.5px;cursor:pointer'>" +
+              (historyOpen[rn.id] ? "▾" : "▸") + " History (" + filings.length + ")</button>" +
+          "</td></tr>";
+
+        if (markOpen[rn.id]) {
+          const yr = new Date().getFullYear();
+          html += "<tr><td colspan='5' style='padding:6px 8px 12px;background:#f8fafc'>" +
+            "<div style='display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;font-size:12px'>" +
+            "<label style='display:flex;flex-direction:column;gap:3px'>Filed on<input type='date' id='rnw-mk-date-" + rn.id + "' value='" + new Date().toISOString().slice(0, 10) + "' style='padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px'></label>" +
+            "<label style='display:flex;flex-direction:column;gap:3px'>Period<input id='rnw-mk-period-" + rn.id + "' value='" + yr + "' style='padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px;width:70px'></label>" +
+            "<label style='display:flex;flex-direction:column;gap:3px'>Fee $<input type='number' step='0.01' id='rnw-mk-fee-" + rn.id + "' style='padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px;width:90px'></label>" +
+            "<label style='display:flex;flex-direction:column;gap:3px'>Penalty $<input type='number' step='0.01' id='rnw-mk-pen-" + rn.id + "' style='padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px;width:90px'></label>" +
+            "<label style='display:flex;flex-direction:column;gap:3px'>Notes<input id='rnw-mk-notes-" + rn.id + "' style='padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px;width:200px'></label>" +
+            "<button onclick='RENEW.pickMarkFile(\"" + rn.id + "\")' style='padding:6px 10px;background:#fff;border:1px dashed #94a3b8;border-radius:6px;font-size:11.5px;cursor:pointer' id='rnw-mk-file-btn-" + rn.id + "'>📎 Attach PDF…</button>" +
+            "<button onclick='RENEW.saveFiling(\"" + rn.id + "\")' style='padding:6px 14px;background:#1e9b58;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer'>Save filing</button>" +
+            "</div>" +
+            "<div style='font-size:10.5px;color:#94a3b8;margin-top:5px'>Saving advances the next due date to " +
+              fmtDate(addMonths(rn.next_due_date, rn.interval_months)) + ".</div>" +
+          "</td></tr>";
+        }
+
+        if (historyOpen[rn.id]) {
+          html += filings.length
+            ? filings.map(fl =>
+                "<tr style='background:#fbfcfe'><td colspan='5' style='padding:5px 8px 5px 24px;font-size:12px;color:#334155'>" +
+                "📅 " + fmtDate(fl.filed_on) + (fl.period_label ? " <span style='color:#94a3b8'>(" + escR(fl.period_label) + ")</span>" : "") +
+                " · fee " + money(fl.fee_paid) +
+                (fl.penalty_paid ? " · <span style='color:#b3261e;font-weight:700'>penalty " + money(fl.penalty_paid) + "</span>" : "") +
+                " · " + (fl.document_path
+                  ? "<a href='javascript:void(0)' onclick='RENEW.openDoc(\"" + escR(fl.document_path) + "\")' style='color:#2463eb;font-weight:700'>📎 " + escR(fl.document_name || "document") + "</a>"
+                  : "<a href='javascript:void(0)' onclick='RENEW.attachDoc(\"" + fl.id + "\",\"" + rn.id + "\")' style='color:#64748b'>📎 attach PDF…</a>") +
+                (fl.notes ? "<div style='font-size:11px;color:#94a3b8;margin-top:2px'>" + escR(fl.notes) + "</div>" : "") +
+                "</td></tr>").join("")
+            : "<tr style='background:#fbfcfe'><td colspan='5' style='padding:5px 8px 5px 24px;font-size:11.5px;color:#94a3b8'>No filings recorded yet.</td></tr>";
+        }
+        return html;
+      }).join("") + "</tbody></table>";
+  }
+
+  function addMonths(dateStr, months) {
+    const d = new Date(String(dateStr).slice(0, 10) + "T00:00:00");
+    d.setMonth(d.getMonth() + Number(months || 12));
+    return d.toISOString().slice(0, 10);
+  }
+
+  function toggleHistory(id) { historyOpen[id] = !historyOpen[id]; render(); }
+  function toggleMark(id)    { markOpen[id] = !markOpen[id]; markFile = null; render(); }
+
+  function pickMarkFile(renewalId) {
+    attachTarget = null;
+    const inp = document.getElementById("rnw-file");
+    inp.onchange = () => {
+      markFile = inp.files[0] || null;
+      const btn = document.getElementById("rnw-mk-file-btn-" + renewalId);
+      if (btn && markFile) btn.textContent = "📎 " + markFile.name;
+      inp.value = "";
+    };
+    inp.click();
+  }
+
+  async function uploadDoc(renewalId, file) {
+    const safe = String(file.name || "doc.pdf").replace(/[^A-Za-z0-9._-]/g, "_");
+    const path = renewalId + "/" + Date.now() + "_" + safe;
+    const up = await db.storage.from("company-documents").upload(path, file, { contentType: file.type || "application/pdf" });
+    if (up.error) throw new Error("Upload failed: " + up.error.message);
+    return path;
+  }
+
+  async function saveFiling(renewalId) {
+    const val = (id) => { const n = document.getElementById(id); return n ? n.value : ""; };
+    const filedOn = val("rnw-mk-date-" + renewalId);
+    if (!filedOn) { showToast("Enter the filed date"); return; }
+    if (markFile && markFile.size > 10 * 1024 * 1024) { showToast("PDF must be under 10MB"); return; }
+    try {
+      let docPath = null, docName = null;
+      if (markFile) {
+        showToast("Uploading document…");
+        docPath = await uploadDoc(renewalId, markFile);
+        docName = markFile.name;
+      }
+      const fee = val("rnw-mk-fee-" + renewalId);
+      const pen = val("rnw-mk-pen-" + renewalId);
+      const out = await db.rpc("record_company_renewal_filing", {
+        p_renewal_id: renewalId,
+        p_filed_on: filedOn,
+        p_period_label: val("rnw-mk-period-" + renewalId) || null,
+        p_fee_paid: fee === "" ? null : Number(fee),
+        p_penalty_paid: pen === "" ? null : Number(pen),
+        p_document_path: docPath,
+        p_document_name: docName,
+        p_notes: val("rnw-mk-notes-" + renewalId) || null
+      });
+      if (out.error) throw out.error;
+      markOpen[renewalId] = false;
+      markFile = null;
+      showToast("✓ Filing recorded — next due date advanced");
+      await load();
+    } catch (e) {
+      showToast("Couldn't record the filing: " + (e.message || e));
+    }
+  }
+
+  // 📎 attach on an existing history row (e.g. the seeded 2026 LLC filing)
+  function attachDoc(filingId, renewalId) {
+    attachTarget = { filingId, renewalId };
+    const inp = document.getElementById("rnw-file");
+    inp.onchange = async () => {
+      const file = inp.files[0];
+      inp.value = "";
+      if (!file || !attachTarget) return;
+      if (file.size > 10 * 1024 * 1024) { showToast("PDF must be under 10MB"); return; }
+      try {
+        showToast("Uploading document…");
+        const path = await uploadDoc(attachTarget.renewalId, file);
+        const upd = await db.from("company_renewal_filings")
+          .update({ document_path: path, document_name: file.name })
+          .eq("id", attachTarget.filingId);
+        if (upd.error) throw upd.error;
+        showToast("📎 Document attached");
+        await load();
+      } catch (e) {
+        showToast("Attach failed: " + (e.message || e));
+      } finally {
+        attachTarget = null;
+      }
+    };
+    inp.click();
+  }
+
+  async function openDoc(path) {
+    try {
+      const { data, error } = await db.storage.from("company-documents").createSignedUrl(path, 60);
+      if (error) throw error;
+      window.open(data.signedUrl, "_blank");
+    } catch (e) {
+      showToast("Couldn't open the document: " + (e.message || e));
+    }
+  }
+
+  async function addRenewal() {
+    const name = (document.getElementById("rnw-add-name").value || "").trim();
+    const due = document.getElementById("rnw-add-due").value;
+    const interval = Number(document.getElementById("rnw-add-interval").value) || 12;
+    const notes = (document.getElementById("rnw-add-notes").value || "").trim();
+    if (!name || !due) { showToast("Name and next due date are required"); return; }
+    const ins = await db.from("company_renewals").insert({
+      name: name, next_due_date: due, interval_months: interval, notes: notes || null
+    });
+    if (ins.error) { showToast("Couldn't add: " + ins.error.message); return; }
+    document.getElementById("rnw-add-name").value = "";
+    document.getElementById("rnw-add-due").value = "";
+    document.getElementById("rnw-add-notes").value = "";
+    showToast("✓ Renewal added — reminders start 60 days before it's due");
+    await load();
+  }
+
+  function init() {
+    if (initialized) { load(); return; }
+    initialized = true;
+    load();
+  }
+
+  return { init, toggleHistory, toggleMark, pickMarkFile, saveFiling, attachDoc, openDoc, addRenewal };
+})();
+
 function maybeInitVdr() {
   if (currentRole === "admin") VDR.init();
   if (currentRole === "admin") IIF.init();
@@ -12779,6 +13069,9 @@ function maybeInitExpenses() {
 function maybeInitPayroll() {
   if (currentRole === "admin") cprPayRatesInit();
 }
+function maybeInitRenewals() {
+  if (currentRole === "admin") RENEW.init();
+}
 // Re-init / refresh when switching to billing / qbtools / expenses view
 const _originalSwitchView = switchView;
 switchView = function(viewName, skipPushState) {
@@ -12787,6 +13080,7 @@ switchView = function(viewName, skipPushState) {
   if (viewName === "qbtools")  maybeInitQbTools();
   if (viewName === "expenses") maybeInitExpenses();
   if (viewName === "payroll")  maybeInitPayroll();
+  if (viewName === "renewals") maybeInitRenewals();
 };
 
 // Hook into launchApp completion (the admin role check is already in launchApp)
@@ -12801,6 +13095,7 @@ launchApp = async function(user) {
     if (v === "qbtools")  { BANK.init(); HIST.init(); }
     if (v === "expenses") { EXP.init(); }
     if (v === "payroll")  { cprPayRatesInit(); }
+    if (v === "renewals") { RENEW.init(); }
   }
 };
 

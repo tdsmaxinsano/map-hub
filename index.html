@@ -928,7 +928,11 @@
     staff_birthday_tomorrow: { icon: "🎂", tint: "blue",  verb: "birthday" },
     staff_vacation_today:    { icon: "🏖", tint: "amber", verb: "vacation" },
     staff_vacation_active:   { icon: "🏖", tint: "blue",  verb: "vacation" },
-    staff_vacation_soon:     { icon: "🏖", tint: "amber", verb: "vacation" }
+    staff_vacation_soon:     { icon: "🏖", tint: "amber", verb: "vacation" },
+    // Company renewal filings (admin-only — RPC returns rows only to admins)
+    renewal_overdue:   { icon: "🏛", tint: "red",   verb: "filing" },
+    renewal_due_today: { icon: "🏛", tint: "red",   verb: "filing" },
+    renewal_due_soon:  { icon: "🏛", tint: "amber", verb: "filing" }
   };
 
   function fmtDateShort(d) {
@@ -958,6 +962,9 @@
     if (alert.alert_type === "staff_vacation_today")    return "TODAY";
     if (alert.alert_type === "staff_vacation_active")   return "on vacation";
     if (alert.alert_type === "staff_vacation_soon")     return o === 1 ? "tomorrow" : "in " + o + " days";
+    if (alert.alert_type === "renewal_overdue")         return "OVERDUE " + Math.abs(o) + (Math.abs(o) === 1 ? " day" : " days");
+    if (alert.alert_type === "renewal_due_today")       return "DUE TODAY";
+    if (alert.alert_type === "renewal_due_soon")        return "in " + o + (o === 1 ? " day" : " days");
     return "";
   }
 
@@ -984,6 +991,9 @@
       case "staff_vacation_today":    return `on vacation today${vacRange}`;
       case "staff_vacation_active":   return `on vacation now${vacRange}`;
       case "staff_vacation_soon":     return `vacation${vacRange}`;
+      case "renewal_overdue":   return `filing was due ${fmtDateShort(alert.due_date)} — late penalties may apply. File + pay now.`;
+      case "renewal_due_today": return `filing due today — file + pay to avoid the late penalty`;
+      case "renewal_due_soon":  return `filing due ${fmtDateShort(alert.due_date)}`;
       default: return reason;
     }
   }
@@ -1141,15 +1151,18 @@
       catch (e) { console.warn("[alerts]", name, "failed:", e && e.message); return []; }
     }
     try {
-      const [pauseRows, bdayRows, staffBdayRows, staffVacRows] = await Promise.all([
+      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, renewalRows] = await Promise.all([
         safeRpc("list_pause_alerts"),
         safeRpc("list_birthday_alerts"),
         safeRpc("list_staff_birthday_alerts"),
-        safeRpc("list_staff_vacation_alerts")
+        safeRpc("list_staff_vacation_alerts"),
+        safeRpc("list_company_renewal_alerts")
       ]);
       // Sort: TODAY alerts first (days_offset/days_until = 0), then by absolute
-      // distance ascending so tomorrow's beat in-3-days etc.
+      // distance ascending so tomorrow's beat in-3-days etc. Overdue company
+      // filings pin above everything — every extra day costs penalties.
       function alertSortKey(a) {
+        if (a.alert_type === "renewal_overdue") return -2;
         const o = a.days_offset != null ? a.days_offset : (a.days_until != null ? a.days_until : 99);
         return o === 0 ? -1 : Math.abs(o);
       }
@@ -1157,6 +1170,7 @@
         .concat(bdayRows)
         .concat(staffBdayRows)
         .concat(staffVacRows)
+        .concat(renewalRows)
         .sort(function(a, b) { return alertSortKey(a) - alertSortKey(b); });
       if (!rows.length) {
         list.innerHTML = "";
@@ -1173,13 +1187,15 @@
         // and don't deep-link to the Map. Clinician alerts use the existing
         // clinician_* fields and open the Map on click.
         const isStaff = a.alert_type && a.alert_type.indexOf("staff_") === 0;
-        const name    = isStaff ? (a.staff_name    || "—") : (a.clinician_name || "—");
-        const disc    = isStaff ? (a.staff_role    || "") : (a.discipline      || "");
-        const discColor = isStaff ? "#64748b" : (DISC_COLOR[disc] || "#94a3b8");
-        const cid     = isStaff ? "" : (a.clinician_id || "");
+        const isRenewal = a.alert_type && a.alert_type.indexOf("renewal_") === 0;
+        const name    = isRenewal ? (a.renewal_name || "Company filing")
+                      : isStaff ? (a.staff_name    || "—") : (a.clinician_name || "—");
+        const disc    = isRenewal ? "FILING" : isStaff ? (a.staff_role    || "") : (a.discipline      || "");
+        const discColor = (isStaff || isRenewal) ? "#64748b" : (DISC_COLOR[disc] || "#94a3b8");
+        const cid     = (isStaff || isRenewal) ? "" : (a.clinician_id || "");
         const cls     = "alert-item alert-tint-" + meta.tint + (isStaff ? " alert-staff" : "");
         return `
-          <li class="${cls}" data-cid="${escHtml(cid)}" data-staff="${isStaff ? "1" : ""}">
+          <li class="${cls}" data-cid="${escHtml(cid)}" data-staff="${isStaff ? "1" : ""}" data-renewal="${isRenewal ? "1" : ""}">
             <span class="alert-icon">${meta.icon}</span>
             <div>
               <div>
@@ -1194,9 +1210,13 @@
       }).join("");
 
       // Clicking a clinician alert → Map deep-link. Staff alerts → Time tab.
+      // Company-renewal alerts → Finance 🏛 Renewals view (admin-only rows,
+      // and the Finance tab is admin-only-revealed, so the routing matches).
       list.querySelectorAll(".alert-item").forEach(li => {
         li.addEventListener("click", () => {
-          if (li.dataset.staff === "1") {
+          if (li.dataset.renewal === "1") {
+            shellSwitchTab("finance", "view=renewals");
+          } else if (li.dataset.staff === "1") {
             shellSwitchTab("time");
           } else {
             const cid = li.dataset.cid;
