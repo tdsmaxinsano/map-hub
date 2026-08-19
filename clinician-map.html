@@ -7027,6 +7027,9 @@
           <button id="profile-save-shell" type="button" class="btn-primary edit-only">Save Profile</button>
               <button id="profile-open-history" type="button" class="btn-secondary" disabled>Show History</button>
             </div>
+            <div class="button-row">
+              <button type="button" class="btn-secondary" style="margin-top:6px;font-size:12px;" onclick="openTerritoryPlannerForCurrentClinician()">🧭 Territory Planner</button>
+            </div>
           </section>
 
           <section id="profile-version-history-card" class="profile-card" hidden>
@@ -26133,6 +26136,15 @@
   //      kanban with deep-link params (which loads the kanban iframe and
   //      auto-opens the modal via its existing URL-param flow).
   //   3. Standalone (no shell) → open new browser tab.
+  // Territory Planner — per-therapist workspace (territory-planner.html).
+  // Deliberately a NEW TAB (page is deep-link-only, not shell-registered):
+  // lets staff open several therapists' territories side by side.
+  function openTerritoryPlannerForCurrentClinician() {
+    var c = getCurrentProfileClinicianRecord();
+    if (!c || !c.id) { showToast("Open a clinician profile first.", "warning"); return; }
+    window.open("territory-planner.html?clinician=" + encodeURIComponent(c.id), "_blank", "noopener");
+  }
+
   function openKanbanTaskForCurrentClinician() {
     var c = getCurrentProfileClinicianRecord();
     if (!c) { showToast("Open a clinician profile first.", "warning"); return; }
