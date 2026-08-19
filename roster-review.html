@@ -1312,6 +1312,7 @@ function buildRow(r) {
     name: `<td class="name-cell" data-col="name">
       <div class="name-cell-stack">
         <a class="name-main" href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(formatName(r.name))}</a>
+        <a href="territory-planner.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open Territory Planner" style="font-size:11px;text-decoration:none;">🧭 Territory</a>
         <span class="name-subline">
           <span class="disc-pill" style="background:${discColor};font-size:9.5px;padding:1px 6px;">${escHtml(r.discipline || "—")}</span>
           <span class="name-status-pill s-${r.status}">${escHtml(r.status)}</span>

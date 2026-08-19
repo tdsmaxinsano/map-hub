@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Territory Planner — DependableCare</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+<style>
+  :root {
+    --blue: #0b1f44; --blue-mid: #163172; --gold: #c79a26; --accent: #2463eb;
+    --green: #22c55e; --amber: #eab308; --red: #ef4444;
+    --bg: #f4f6fa; --card: #ffffff; --border: #e2e8f0; --text: #1f2937; --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* Login overlay */
+  #login-screen { display: none; position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); }
+  .login-card { background: #fff; border-radius: 16px; padding: 36px 32px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .login-card h1 { margin: 0 0 4px; color: var(--blue); font-size: 22px; font-weight: 800; text-align: center; }
+  .login-card p  { margin: 0 0 22px; color: var(--gold); font-size: 13px; font-weight: 600; text-align: center; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .login-card button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  .login-err { color: #b91c1c; font-size: 12px; margin-top: 8px; min-height: 14px; text-align: center; }
+
+  /* Header (hidden inside iframe shell) */
+  .header { background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); color: #fff; padding: 12px 22px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .header-brand h1 { margin: 0; font-size: 18px; font-weight: 800; }
+  .header-brand p  { margin: 0; font-size: 11px; color: var(--gold); font-weight: 600; }
+  .header-nav { display: flex; gap: 4px; flex: 1; }
+  .header-nav a { color: rgba(255,255,255,0.7); text-decoration: none; padding: 7px 11px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .header-nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .header-user { font-size: 11px; color: rgba(255,255,255,0.85); }
+  .header-signout { background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  html.in-iframe-shell .header { display: none !important; }
+
+  .container { max-width: 1500px; margin: 0 auto; padding: 16px 22px 80px; }
+
+  /* Clinician picker (no ?clinician= param) */
+  #picker { display: none; }
+  #picker h2 { margin: 6px 0 2px; font-size: 22px; font-weight: 800; color: var(--blue); }
+  #picker .sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+  #picker input { width: 100%; max-width: 420px; border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14px; margin-bottom: 12px; }
+  .picker-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 8px; }
+  .picker-item { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .picker-item:hover { border-color: var(--accent); box-shadow: 0 4px 12px rgba(12,22,50,0.08); }
+  .picker-item .nm { font-weight: 700; font-size: 13.5px; }
+
+  /* Workspace */
+  #workspace { display: none; }
+  .tp-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin: 4px 0 4px; }
+  .tp-head h2 { margin: 0; font-size: 24px; font-weight: 800; color: var(--blue); }
+  .disc-pill { color: #fff; font-size: 11px; font-weight: 800; padding: 2px 10px; border-radius: 10px; letter-spacing: .3px; }
+  .status-pill { font-size: 11px; font-weight: 800; padding: 2px 10px; border-radius: 10px; }
+  .status-pill.active { background: #dcfce7; color: #166534; }
+  .status-pill.paused { background: #fef3c7; color: #92400e; }
+  .status-pill.inactive { background: #fee2e2; color: #991b1b; }
+  .tp-stars { color: #f5a623; font-size: 15px; letter-spacing: 1px; }
+  .tp-facts { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted); margin: 2px 0 14px; }
+  .tp-facts b { color: var(--text); font-weight: 700; }
+  .tp-facts .chip { background: #e0ecff; color: #1e3a8a; border-radius: 999px; padding: 2px 10px; font-weight: 700; font-size: 11.5px; }
+
+  .tp-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 14px; align-items: start; }
+  @media (max-width: 980px) { .tp-grid { grid-template-columns: 1fr; } }
+
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 14px; }
+  .card h3 { margin: 0 0 4px; font-size: 14px; font-weight: 800; color: var(--blue); }
+  .card .hint { font-size: 11.5px; color: var(--muted); margin: 0 0 10px; line-height: 1.45; }
+
+  #tp-map { width: 100%; height: 520px; border-radius: 10px; border: 1px solid var(--border); }
+  .map-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .map-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+
+  .zip-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .zip-chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid; }
+  .zip-chip.declared { background: #eef7f0; color: #166534; border-color: #bfe3c9; }
+  .zip-chip.served   { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
+  .zip-chip.gap-add  { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
+  .zip-chip.gap-idle { background: #fdf6e6; color: #92400e; border-color: #ecd9a8; }
+  .zip-chip .cnt { font-weight: 600; opacity: .75; margin-left: 3px; }
+  .cutoff-note { font-size: 11px; color: #92400e; background: #fdf6e6; border: 1px solid #ecd9a8; border-radius: 7px; padding: 4px 9px; margin-bottom: 8px; display: inline-block; }
+  .empty-note { font-size: 12px; color: #94a3b8; font-style: italic; }
+
+  /* Visit history table */
+  .vh-filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .vh-filters input, .vh-filters select { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
+  .vh-chip { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 3px 11px; font-size: 11.5px; font-weight: 700; color: var(--muted); cursor: pointer; }
+  .vh-chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .vh-totals { font-size: 12px; color: var(--muted); margin-left: auto; }
+  .vh-wrap { overflow-x: auto; }
+  table.vh { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.vh th { text-align: left; padding: 7px 9px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); border-bottom: 2px solid var(--border); cursor: pointer; user-select: none; white-space: nowrap; position: sticky; top: 0; background: var(--card); }
+  table.vh th .arr { font-size: 9px; }
+  table.vh td { padding: 7px 9px; border-bottom: 1px solid #eef2f7; vertical-align: top; }
+  table.vh tr:hover td { background: #f8fafc; }
+
+  .loading-line { font-size: 13px; color: var(--muted); padding: 20px 0; }
+  .err-line { font-size: 13px; color: #b91c1c; padding: 12px 0; }
+
+  /* Map markers */
+  .tp-pin { width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; box-shadow: 0 2px 8px rgba(0,0,0,.35); border: 2px solid #fff; }
+  .tp-pin.home { background: #b3261e; }
+  .tp-pin.work { background: #7c3aed; }
+  .tp-zip-badge { font-size: 10.5px; font-weight: 800; padding: 2px 8px; border-radius: 999px; border: 1.5px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,.3); color: #fff; cursor: default; }
+  .tp-zip-badge.both { background: #16a34a; }
+  .tp-zip-badge.served { background: #2463eb; }
+  .tp-zip-badge.declared { background: #d97706; }
+
+  .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 11px 22px; border-radius: 8px; font-size: 13px; font-weight: 700; z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+  .toast.show { opacity: 1; }
+</style>
+<script>
+  if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+</script>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>DependableCare</h1>
+    <p>Territory Planner</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-err" class="login-err"></div>
+  </div>
+</div>
+
+<!-- Header (standalone only; hidden in shell) -->
+<header class="header" id="app-header" style="display:none;">
+  <div class="header-brand">
+    <h1>DependableCare</h1>
+    <p>Territory Planner</p>
+  </div>
+  <nav class="header-nav">
+    <a href="index.html">🏠 Home</a>
+    <a href="clinician-map.html">🗺️ Map</a>
+    <a href="referrals.html">📋 Referrals</a>
+    <a href="roster-review.html">📋 Roster</a>
+  </nav>
+  <span class="header-user" id="header-user"></span>
+  <button class="header-signout" id="signout-btn">Sign out</button>
+</header>
+
+<div class="container" id="app-container" style="display:none;">
+
+  <!-- Picker: shown when no ?clinician= is given -->
+  <div id="picker">
+    <h2>🧭 Territory Planner</h2>
+    <p class="sub">Pick a therapist to open their territory workspace — coverage ZIPs, served history, gaps, and their own map.</p>
+    <input id="picker-search" type="text" placeholder="Search clinician name…" autocomplete="off">
+    <div class="picker-list" id="picker-list"></div>
+  </div>
+
+  <!-- Per-clinician workspace -->
+  <div id="workspace">
+    <div class="tp-head">
+      <h2 id="tp-name">—</h2>
+      <span class="disc-pill" id="tp-disc" style="background:#64748b">—</span>
+      <span class="status-pill active" id="tp-status">—</span>
+      <span class="tp-stars" id="tp-stars"></span>
+    </div>
+    <div class="tp-facts" id="tp-facts"></div>
+
+    <div class="tp-grid">
+      <div>
+        <div class="card">
+          <h3>🗺️ Territory map</h3>
+          <p class="hint">Home + work-center pins, every completed-service site, and ZIP badges — <b style="color:#16a34a">green</b> = declared &amp; served, <b style="color:#2463eb">blue</b> = served only, <b style="color:#d97706">amber</b> = declared but never served.</p>
+          <div id="tp-map"></div>
+          <div class="map-legend">
+            <span><span class="sw" style="background:#b3261e"></span>Home</span>
+            <span><span class="sw" style="background:#7c3aed"></span>Work center</span>
+            <span><span class="sw" style="background:#5b8def"></span>Service site</span>
+            <span><span class="sw" style="background:#16a34a"></span>ZIP declared+served</span>
+            <span><span class="sw" style="background:#2463eb"></span>ZIP served only</span>
+            <span><span class="sw" style="background:#d97706"></span>ZIP declared, never served</span>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <h3>📮 TB Loaded ZIPs <span id="tp-declared-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
+          <p class="hint">Declared coverage — synced from TherapyBoss. To change it, update the clinician's ZIPs in TB, then run the ZIP Coverage import on the Map.</p>
+          <div class="zip-chips" id="tp-declared-zips"><span class="empty-note">None loaded.</span></div>
+        </div>
+
+        <div class="card">
+          <h3>📍 Referral-History ZIPs <span id="tp-served-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
+          <p class="hint">Every ZIP where this clinician has completed service, with episode counts — the full list (the profile card only shows the top 8).</p>
+          <div id="tp-cutoff-note"></div>
+          <div class="zip-chips" id="tp-served-zips"><span class="empty-note">No completed-service history.</span></div>
+        </div>
+
+        <div class="card">
+          <h3>🔍 Coverage gaps</h3>
+          <p class="hint">Where declared coverage and reality disagree.</p>
+          <div style="font-size:11px;font-weight:800;color:#1a5fb4;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Served but NOT declared — consider adding in TB</div>
+          <div class="zip-chips" id="tp-gap-add" style="margin-bottom:12px"><span class="empty-note">None 🎉</span></div>
+          <div style="font-size:11px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Declared but never served</div>
+          <div class="zip-chips" id="tp-gap-idle"><span class="empty-note">None — every declared ZIP has history.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>📚 Full visit history <span id="vh-grain" style="font-weight:600;color:var(--muted);font-size:12px">— one row per episode; “Visits” is the true visit count</span></h3>
+      <div class="vh-filters" id="vh-filters">
+        <span id="vh-year-chips"></span>
+        <select id="vh-service"><option value="">All services</option></select>
+        <select id="vh-zip"><option value="">All ZIPs</option></select>
+        <input id="vh-search" type="text" placeholder="Search patient / address…">
+        <span class="vh-totals" id="vh-totals"></span>
+      </div>
+      <div class="vh-wrap" style="max-height:520px;overflow-y:auto">
+        <table class="vh">
+          <thead>
+            <tr>
+              <th data-sort="anchor">Date <span class="arr" id="arr-anchor"></span></th>
+              <th data-sort="patient">Patient <span class="arr" id="arr-patient"></span></th>
+              <th data-sort="address">Address <span class="arr" id="arr-address"></span></th>
+              <th data-sort="zip">ZIP <span class="arr" id="arr-zip"></span></th>
+              <th data-sort="service">Service <span class="arr" id="arr-service"></span></th>
+              <th data-sort="visits">Visits <span class="arr" id="arr-visits"></span></th>
+              <th data-sort="episode">Episode <span class="arr" id="arr-episode"></span></th>
+              <th data-sort="payer">Payer <span class="arr" id="arr-payer"></span></th>
+            </tr>
+          </thead>
+          <tbody id="vh-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="loading-line" id="tp-loading" style="display:none"></div>
+    <div class="err-line" id="tp-error" style="display:none"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+//  Territory Planner — per-therapist territory workspace.
+//  Data-driven successor to the removed hand-drawn territory overlay:
+//  TB-declared ZIPs (clinician_zip_coverages) vs actually-served ZIPs
+//  (completed-service history), coverage gaps, travel stats, and the
+//  clinician's own map — plus their FULL visit history (all years; the
+//  map's boot load is 2-year-windowed, this page is the archive view).
+//  Deep-link only: territory-planner.html?clinician=<id>, opened from
+//  the Map profile Quick Actions and Roster Review rows. Read posture
+//  mirrors the map (any authenticated user). No SQL — existing tables.
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+// Capture the query string BEFORE Supabase init (its auth redirect handling
+// can rewrite the URL — same guard the map uses for ?import=).
+const PAGE_INITIAL_SEARCH = window.location.search;
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+});
+mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
+
+const DISC_COLOR = { PT: "#2463eb", PTA: "#7c3aed", OT: "#22c55e", OTA: "#16a34a", ST: "#f97316", STA: "#ea580c" };
+
+let currentUser = null;
+let clinician = null;        // clinician_v2 row
+let profileRow = null;       // clinician_profiles row (tags, rating)
+let declaredRows = [];       // clinician_zip_coverages rows
+let historyRows = [];        // deduped episode rows (full history, all years)
+let tpMap = null;
+let zipCentroidCache = new Map();
+let vhState = { year: "", service: "", zip: "", search: "", sortKey: "anchor", sortDir: -1 };
+
+// ── Small helpers (ported from clinician-map.html so numbers match) ──
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function normZip(v) { return String(v == null ? "" : v).trim(); }
+function toNum(v) { const n = Number(v); return isFinite(n) ? n : null; }
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+// Anchor precedence — mirrors getCompletedServiceCoverageAnchorDate.
+function anchorDate(row) {
+  return (row && row.start_of_episode) || (row && row.referral_date) || (row && row.last_visit_date) || (row && row.ended_date) || null;
+}
+// Title-Case names — port of the map's formatClinicianDisplayName.
+function fmtName(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
+  return raw.toLowerCase().split(/\s+/).map(tok =>
+    tok.split("-").map(hp => hp.split("'").map(ap => {
+      if (!ap) return "";
+      if (/^(ii|iii|iv|v|vi|vii|viii|ix|jr|sr)\.?$/i.test(ap)) return ap.replace(/\.$/, "").toUpperCase();
+      return ap.charAt(0).toUpperCase() + ap.slice(1);
+    }).join("'")).join("-")
+  ).join(" ");
+}
+function fmtDate(d) {
+  if (!d) return "—";
+  const x = new Date(String(d).slice(0, 10) + "T00:00:00");
+  return isNaN(x) ? String(d) : x.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+// Ignore-History-Before — clinician_profiles.tags, 4 key spellings.
+function readIgnoreBefore(tags) {
+  if (!tags || typeof tags !== "object" || Array.isArray(tags)) return null;
+  const raw = tags.ignore_history_before || tags.ignoreHistoryBefore || tags.history_ignore_before || tags.historyIgnoreBefore || "";
+  const s = String(raw).trim();
+  if (!s) return null;
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + "T00:00:00") : new Date(s);
+  if (isNaN(d.getTime())) return null;
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+// Row eligible under the cutoff? (no anchor date → stays eligible)
+function rowEligible(row, cutoff) {
+  if (!cutoff) return true;
+  const a = anchorDate(row);
+  if (!a) return true;
+  return new Date(a) >= cutoff;
+}
+// Name-variant matcher — mirrors the map's import lookups (comma-swap +
+// last-token rotation) so the ILIKE fallback confirms the same rows.
+function normImportName(v) {
+  return String(v == null ? "" : v).toLowerCase().replace(/[^a-z0-9,\s]+/g, " ").replace(/\s+/g, " ").trim();
+}
+function nameVariants(v) {
+  const base = normImportName(v);
+  const out = new Set();
+  if (!base) return out;
+  out.add(base.replace(/,/g, "").replace(/\s+/g, " ").trim());
+  out.add(base);
+  const commaParts = base.split(",").map(p => p.trim()).filter(Boolean);
+  if (commaParts.length >= 2) out.add((commaParts.slice(1).join(" ") + " " + commaParts[0]).replace(/\s+/g, " ").trim());
+  const tokens = base.replace(/,/g, "").split(" ").filter(Boolean);
+  if (tokens.length >= 2) {
+    out.add(tokens.join(" "));
+    out.add([tokens[tokens.length - 1]].concat(tokens.slice(0, -1)).join(" "));
+  }
+  out.delete("");
+  return out;
+}
+async function fetchAllRows(build) {
+  const all = [];
+  let from = 0;
+  for (;;) {
+    const { data, error } = await build(from, from + 999);
+    if (error) return { data: all, error };
+    all.push.apply(all, data || []);
+    if (!data || data.length < 1000) break;
+    from += 1000;
+  }
+  return { data: all, error: null };
+}
+async function getZipCentroid(zip) {
+  const z = normZip(zip);
+  if (!z) return null;
+  if (zipCentroidCache.has(z)) return zipCentroidCache.get(z);
+  try {
+    const res = await fetch("https://api.mapbox.com/geocoding/v5/mapbox.places/" + encodeURIComponent(z) +
+      ".json?access_token=" + encodeURIComponent(mapboxgl.accessToken) + "&limit=1&country=US");
+    const data = await res.json();
+    const c = data && data.features && data.features[0] && data.features[0].center;
+    const out = (Array.isArray(c) && c.length >= 2) ? { lat: c[1], lng: c[0] } : null;
+    zipCentroidCache.set(z, out);
+    return out;
+  } catch (e) { zipCentroidCache.set(z, null); return null; }
+}
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show";
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, 2600);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH (imports.html shape; no admin gate — read posture mirrors the map)
+// ══════════════════════════════════════════════════════════════════
+async function checkSession() {
+  const { data } = await db.auth.getSession();
+  if (data && data.session && data.session.user) await launchApp(data.session.user);
+  else document.getElementById("login-screen").style.display = "flex";
+}
+async function doSignIn() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) { err.textContent = error.message || "Incorrect credentials."; return; }
+  await launchApp(data.session.user);
+}
+async function doSignOut() { await db.auth.signOut(); location.reload(); }
+
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("app-container").style.display = "block";
+  document.getElementById("header-user").textContent = user.email || "";
+
+  const cid = new URLSearchParams(PAGE_INITIAL_SEARCH || window.location.search).get("clinician");
+  if (cid) openWorkspace(cid);
+  else openPicker();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PICKER — direct visits without ?clinician= aren't a dead end
+// ══════════════════════════════════════════════════════════════════
+let pickerRows = [];
+async function openPicker() {
+  document.getElementById("picker").style.display = "block";
+  const { data, error } = await db.from("clinician_v2").select("id, name, discipline, active").order("name");
+  if (error) { showToast("Couldn't load clinicians: " + error.message); return; }
+  pickerRows = data || [];
+  renderPicker();
+}
+function renderPicker() {
+  const q = (document.getElementById("picker-search").value || "").toLowerCase();
+  const list = pickerRows.filter(r => !q || String(r.name || "").toLowerCase().includes(q));
+  document.getElementById("picker-list").innerHTML = list.slice(0, 60).map(r =>
+    `<div class="picker-item" data-cid="${esc(r.id)}">
+      <span class="nm">${esc(fmtName(r.name))}${r.active === false ? " <span style='font-size:10px;color:#94a3b8'>(inactive)</span>" : ""}</span>
+      <span class="disc-pill" style="background:${DISC_COLOR[String(r.discipline || "").toUpperCase()] || "#64748b"}">${esc(r.discipline || "?")}</span>
+    </div>`).join("") || "<span class='empty-note'>No matches.</span>";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DATA LOAD — full history, standalone (no map appState needed)
+// ══════════════════════════════════════════════════════════════════
+async function openWorkspace(clinicianId) {
+  const ws = document.getElementById("workspace");
+  const loading = document.getElementById("tp-loading");
+  ws.style.display = "block";
+  loading.style.display = "block";
+  loading.textContent = "Loading clinician…";
+
+  try {
+    const [cRes, pRes, zRes] = await Promise.all([
+      db.from("clinician_v2").select("*").eq("id", clinicianId).maybeSingle(),
+      db.from("clinician_profiles").select("*").eq("clinician_id", clinicianId).maybeSingle(),
+      db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinicianId)
+    ]);
+    if (cRes.error) throw cRes.error;
+    if (!cRes.data) { throw new Error("Clinician not found."); }
+    clinician = cRes.data;
+    profileRow = pRes.data || null;
+    declaredRows = zRes.data || [];
+
+    renderHeader();
+    loading.textContent = "Loading full visit history (all years)…";
+
+    // 1) Rows linked by matched_clinician_id
+    const aRes = await fetchAllRows((from, to) => db
+      .from("therapy_boss_completed_service_import_clinicians")
+      .select("service_row_id")
+      .eq("matched_clinician_id", clinicianId)
+      .order("row_number", { ascending: true })
+      .range(from, to));
+    if (aRes.error) throw aRes.error;
+    const rowIds = Array.from(new Set((aRes.data || []).map(a => String(a.service_row_id || "").trim()).filter(Boolean)));
+
+    const ROW_SELECT = "id, patient_name, full_address, street, city, state, zip_code, patient_lat, patient_lng, service, start_of_episode, referral_date, ended_date, last_visit_date, service_visits, clinician_names_raw, primary_payer";
+    const byId = new Map();
+    for (let i = 0; i < rowIds.length; i += 100) {
+      const chunk = rowIds.slice(i, i + 100);
+      const r = await db.from("therapy_boss_completed_service_import_rows").select(ROW_SELECT).in("id", chunk);
+      if (r.error) throw r.error;
+      (r.data || []).forEach(row => byId.set(String(row.id), row));
+    }
+
+    // 2) Name-ILIKE fallback (mirrors the map: matched_clinician_id is often
+    //    NULL; confirm each hit client-side via the same name-variant match)
+    loading.textContent = "Checking name-matched history…";
+    const myVariants = nameVariants(clinician.name);
+    const patterns = Array.from(new Set(Array.from(myVariants)
+      .map(v => v.split(/\s+/).filter(Boolean).join("*"))
+      .filter(v => v.length >= 4)
+      .map(v => "*" + v + "*"))).slice(0, 6);
+    if (patterns.length) {
+      const fRes = await fetchAllRows((from, to) => db
+        .from("therapy_boss_completed_service_import_rows")
+        .select(ROW_SELECT)
+        .or(patterns.map(p => "clinician_names_raw.ilike." + p).join(","))
+        .order("created_at", { ascending: true })
+        .range(from, to));
+      if (!fRes.error) {
+        (fRes.data || []).forEach(row => {
+          const rid = String(row.id);
+          if (byId.has(rid)) return;
+          // Confirm: one of the row's ;-split names (credential-stripped)
+          // shares a variant with this clinician.
+          const parts = String(row.clinician_names_raw || "").split(";").map(p =>
+            p.trim().replace(/\b(PTA|PT|OTA|OT)\b\.?$/i, "").replace(/\s+/g, " ").trim().replace(/[;,]+$/, ""));
+          const hit = parts.some(part => {
+            if (!part) return false;
+            const vs = nameVariants(part);
+            for (const v of vs) if (myVariants.has(v)) return true;
+            return false;
+          });
+          if (hit) byId.set(rid, row);
+        });
+      }
+    }
+
+    historyRows = Array.from(byId.values());
+    loading.style.display = "none";
+
+    renderZipPanels();
+    renderVisitTable(true);
+    renderTravelStats();
+    initTerritoryMap();
+  } catch (e) {
+    loading.style.display = "none";
+    const errEl = document.getElementById("tp-error");
+    errEl.style.display = "block";
+    errEl.textContent = "Couldn't load this clinician: " + (e.message || e);
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// HEADER + TRAVEL STATS
+// ══════════════════════════════════════════════════════════════════
+function clinicianStatus() {
+  const s = String((profileRow && profileRow.status) || (clinician.active === false ? "Inactive" : "Active"));
+  return s || "Active";
+}
+function renderHeader() {
+  document.title = fmtName(clinician.name) + " — Territory Planner";
+  document.getElementById("tp-name").textContent = fmtName(clinician.name) || "Unnamed";
+  const disc = String(clinician.discipline || "").toUpperCase();
+  const discEl = document.getElementById("tp-disc");
+  discEl.textContent = clinician.discipline || "?";
+  discEl.style.background = DISC_COLOR[disc] || "#64748b";
+  const status = clinicianStatus();
+  const stEl = document.getElementById("tp-status");
+  stEl.textContent = status;
+  stEl.className = "status-pill " + (status.toLowerCase() === "inactive" ? "inactive" : status.toLowerCase() === "paused" ? "paused" : "active");
+  const rating = profileRow && profileRow.internal_rating ? Math.min(5, Math.round(Number(profileRow.internal_rating))) : 0;
+  document.getElementById("tp-stars").innerHTML = rating
+    ? "★".repeat(rating) + "<span style='opacity:.25'>" + "★".repeat(5 - rating) + "</span>" : "";
+}
+function renderTravelStats() {
+  // Matches the profile card's Field Intelligence math (deliberately NOT
+  // cutoff-filtered — keep both pages agreeing): origin = home-ZIP centroid,
+  // else work center; distances over mapped sites; p25–p75 + max.
+  const facts = [];
+  if (clinician.address) facts.push("<span>🏠 <b>" + esc(clinician.address) + "</b></span>");
+  else if (clinician.zip) facts.push("<span>🏠 ZIP <b>" + esc(clinician.zip) + "</b></span>");
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  if (cutoff) facts.push("<span class='chip'>⏳ Ignore history before " + esc(cutoff.toISOString().slice(0, 10)) + "</span>");
+  const wc = resolveWorkCenter();
+  if (wc) facts.push("<span>📌 Work center: <b>" + esc(wc.label) + "</b></span>");
+  const el = document.getElementById("tp-facts");
+  el.innerHTML = facts.join("") + "<span id='tp-travel' class='chip'>Computing travel range…</span>";
+
+  (async () => {
+    const sites = buildSites();
+    let origin = clinician.zip ? await getZipCentroid(clinician.zip) : null;
+    if (!origin && wc && wc.lat != null) origin = { lat: wc.lat, lng: wc.lng };
+    const chip = document.getElementById("tp-travel");
+    if (!chip) return;
+    if (!origin || !sites.length) { chip.textContent = "Travel range: no data"; return; }
+    const dists = sites.filter(s => s.lat != null && s.lng != null)
+      .map(s => haversineMiles(origin.lat, origin.lng, s.lat, s.lng))
+      .sort((a, b) => a - b);
+    if (!dists.length) { chip.textContent = "Travel range: no mapped sites"; return; }
+    const f = n => n < 10 ? n.toFixed(1) : Math.round(n).toString();
+    const p25 = dists[Math.floor(dists.length * 0.25)], p75 = dists[Math.floor(dists.length * 0.75)];
+    chip.textContent = "🚗 Typical " + f(p25) + "–" + f(p75) + " mi · max " + f(dists[dists.length - 1]) + " mi · " + dists.length + " sites";
+  })();
+}
+// Work-center resolution — stored manual/history (tags) → auto centroid
+// (cutoff-aware, ≥3 contributing sites, weight = max(service_visits,1)) → home.
+function resolveWorkCenter() {
+  const tags = (profileRow && profileRow.tags && typeof profileRow.tags === "object" && !Array.isArray(profileRow.tags)) ? profileRow.tags : {};
+  const src = String(tags.workCenterSource || tags.work_center_source || "").toLowerCase();
+  const sLat = toNum(tags.workCenterLat != null ? tags.workCenterLat : tags.work_center_lat);
+  const sLng = toNum(tags.workCenterLng != null ? tags.workCenterLng : tags.work_center_lng);
+  if (src && src !== "home" && sLat != null && sLng != null) {
+    return { lat: sLat, lng: sLng, label: (src === "history" ? "history-derived" : "manual") };
+  }
+  if (src === "home") return homeCenter("home pin");
+  const auto = computeHistoryCenter();
+  if (auto) return auto;
+  return homeCenter("home pin");
+}
+function homeCenter(label) {
+  const lat = toNum(clinician.lat), lng = toNum(clinician.lng);
+  return (lat != null && lng != null) ? { lat, lng, label } : null;
+}
+function computeHistoryCenter() {
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  let wLat = 0, wLng = 0, wTot = 0, contributing = 0;
+  buildSites().forEach(site => {
+    if (site.lat == null || site.lng == null) return;
+    const eligible = site.rows.filter(r => rowEligible(r, cutoff));
+    if (!eligible.length) return;
+    const weight = eligible.reduce((t, r) => t + Math.max(Number(r.service_visits || 0) || 0, 1), 0);
+    if (weight <= 0) return;
+    wLat += site.lat * weight; wLng += site.lng * weight; wTot += weight; contributing++;
+  });
+  if (!wTot || contributing < 3) return null;
+  return { lat: wLat / wTot, lng: wLng / wTot, label: "history-derived (auto)" };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// SITES + ZIP DERIVATIONS
+// ══════════════════════════════════════════════════════════════════
+let _sitesCache = null;
+function buildSites() {
+  if (_sitesCache) return _sitesCache;
+  const byKey = new Map();
+  historyRows.forEach(row => {
+    const lat = toNum(row.patient_lat), lng = toNum(row.patient_lng);
+    const addr = String(row.full_address || [row.street, row.city, row.state].filter(Boolean).join(", ") || "").trim();
+    const key = (lat != null && lng != null) ? lat.toFixed(5) + "|" + lng.toFixed(5) : "addr|" + addr.toLowerCase();
+    let site = byKey.get(key);
+    if (!site) { site = { key, lat, lng, address: addr, rows: [], totalVisits: 0, latest: null }; byKey.set(key, site); }
+    site.rows.push(row);
+    site.totalVisits += Math.max(Number(row.service_visits || 0) || 0, 1);
+    const a = anchorDate(row);
+    const latestCandidate = row.last_visit_date || row.ended_date || a;
+    if (latestCandidate && (!site.latest || String(latestCandidate) > String(site.latest))) site.latest = latestCandidate;
+  });
+  _sitesCache = Array.from(byKey.values());
+  return _sitesCache;
+}
+// Served ZIP counts — cutoff-aware, episode counts (matches the card's
+// Referral ZIPs). ZIP from row.zip_code, fallback regex on the address.
+function servedZipCounts() {
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const counts = {};
+  historyRows.forEach(row => {
+    if (!rowEligible(row, cutoff)) return;
+    let zip = normZip(row.zip_code);
+    if (!zip) {
+      const m = String(row.full_address || "").match(/\b(\d{5})\b/);
+      if (m) zip = m[1];
+    }
+    if (!zip) return;
+    counts[zip] = (counts[zip] || 0) + 1;
+  });
+  return counts;
+}
+function declaredZipSet() {
+  const set = new Set();
+  declaredRows.forEach(r => { const z = normZip(r.zip_code); if (z) set.add(z); });
+  if (!set.size && clinician.preferred_zips) {
+    String(clinician.preferred_zips).split(",").map(z => normZip(z)).filter(Boolean).forEach(z => set.add(z));
+  }
+  return set;
+}
+
+function renderZipPanels() {
+  const declared = declaredZipSet();
+  const served = servedZipCounts();
+  const servedZips = Object.keys(served).sort((a, b) => served[b] - served[a]);
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+
+  document.getElementById("tp-declared-count").textContent = declared.size ? "· " + declared.size : "";
+  document.getElementById("tp-declared-zips").innerHTML = declared.size
+    ? Array.from(declared).sort().map(z => `<span class="zip-chip declared">${esc(z)}</span>`).join("")
+    : "<span class='empty-note'>No TB ZIP coverage loaded for this clinician.</span>";
+
+  document.getElementById("tp-cutoff-note").innerHTML = cutoff
+    ? `<div class="cutoff-note">ⓘ Filtered by Ignore History Before ${esc(cutoff.toISOString().slice(0, 10))} — older episodes are excluded from ZIP counts and gaps (the visit table below still shows everything).</div>` : "";
+  document.getElementById("tp-served-count").textContent = servedZips.length ? "· " + servedZips.length : "";
+  document.getElementById("tp-served-zips").innerHTML = servedZips.length
+    ? servedZips.map(z => `<span class="zip-chip served">${esc(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
+    : "<span class='empty-note'>No completed-service history" + (cutoff ? " after the cutoff" : "") + ".</span>";
+
+  const gapAdd = servedZips.filter(z => !declared.has(z));
+  const gapIdle = Array.from(declared).filter(z => !served[z]).sort();
+  document.getElementById("tp-gap-add").innerHTML = gapAdd.length
+    ? gapAdd.map(z => `<span class="zip-chip gap-add">${esc(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
+    : "<span class='empty-note'>None 🎉 — everywhere they've served is declared.</span>";
+  document.getElementById("tp-gap-idle").innerHTML = gapIdle.length
+    ? gapIdle.map(z => `<span class="zip-chip gap-idle">${esc(z)}</span>`).join("")
+    : "<span class='empty-note'>None — every declared ZIP has history.</span>";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// THE MAP
+// ══════════════════════════════════════════════════════════════════
+function initTerritoryMap() {
+  const sites = buildSites().filter(s => s.lat != null && s.lng != null);
+  tpMap = new mapboxgl.Map({
+    container: "tp-map",
+    style: "mapbox://styles/mapbox/light-v11",
+    center: [-87.6298, 41.8781],
+    zoom: 9
+  });
+  tpMap.addControl(new mapboxgl.NavigationControl(), "top-right");
+
+  tpMap.on("load", async () => {
+    const bounds = new mapboxgl.LngLatBounds();
+    let hasBounds = false;
+
+    // Service sites — one geojson circle layer (fast for hundreds of sites)
+    tpMap.addSource("tp-sites", {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: sites.map(s => ({
+          type: "Feature",
+          geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+          properties: { address: s.address, visits: s.totalVisits, episodes: s.rows.length, latest: s.latest || "" }
+        }))
+      }
+    });
+    tpMap.addLayer({
+      id: "tp-sites-dots", type: "circle", source: "tp-sites",
+      paint: {
+        "circle-color": "#5b8def",
+        "circle-opacity": 0.75,
+        "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 4, 30, 9, 120, 13],
+        "circle-stroke-width": 1, "circle-stroke-color": "#ffffff"
+      }
+    });
+    tpMap.on("click", "tp-sites-dots", e => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      new mapboxgl.Popup({ offset: 10 })
+        .setLngLat(e.lngLat)
+        .setHTML("<div style='font:12px -apple-system,Segoe UI,Roboto,sans-serif;max-width:230px'>" +
+          "<b>" + esc(f.properties.address || "Site") + "</b><br>" +
+          f.properties.visits + " visits · " + f.properties.episodes + " episode(s)" +
+          (f.properties.latest ? "<br>Latest: " + esc(fmtDate(f.properties.latest)) : "") + "</div>")
+        .addTo(tpMap);
+    });
+    tpMap.on("mouseenter", "tp-sites-dots", () => { tpMap.getCanvas().style.cursor = "pointer"; });
+    tpMap.on("mouseleave", "tp-sites-dots", () => { tpMap.getCanvas().style.cursor = ""; });
+    sites.forEach(s => { bounds.extend([s.lng, s.lat]); hasBounds = true; });
+
+    // Home + work-center pins
+    const homeLat = toNum(clinician.lat), homeLng = toNum(clinician.lng);
+    if (homeLat != null && homeLng != null) {
+      const el = document.createElement("div");
+      el.className = "tp-pin home"; el.textContent = "H"; el.title = "Home: " + (clinician.address || "");
+      new mapboxgl.Marker({ element: el }).setLngLat([homeLng, homeLat]).addTo(tpMap);
+      bounds.extend([homeLng, homeLat]); hasBounds = true;
+    }
+    const wc = resolveWorkCenter();
+    if (wc && wc.lat != null && (homeLat == null || Math.abs(wc.lat - homeLat) > 1e-6 || Math.abs(wc.lng - homeLng) > 1e-6)) {
+      const el = document.createElement("div");
+      el.className = "tp-pin work"; el.textContent = "W"; el.title = "Work center (" + wc.label + ")";
+      new mapboxgl.Marker({ element: el }).setLngLat([wc.lng, wc.lat]).addTo(tpMap);
+      bounds.extend([wc.lng, wc.lat]); hasBounds = true;
+    }
+
+    if (hasBounds) tpMap.fitBounds(bounds, { padding: 60, maxZoom: 12.5 });
+
+    // ZIP badges at geocoded centroids — colored by declared/served status
+    const declared = declaredZipSet();
+    const served = servedZipCounts();
+    const allZips = Array.from(new Set([...declared, ...Object.keys(served)]));
+    for (const zip of allZips) {
+      const c = await getZipCentroid(zip);
+      if (!c || !tpMap) continue;
+      const cls = declared.has(zip) && served[zip] ? "both" : served[zip] ? "served" : "declared";
+      const el = document.createElement("div");
+      el.className = "tp-zip-badge " + cls;
+      el.textContent = zip;
+      el.title = cls === "both" ? "Declared in TB + served (" + served[zip] + " episodes)"
+        : cls === "served" ? "Served (" + served[zip] + " episodes) — NOT declared in TB"
+        : "Declared in TB — never served";
+      new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat([c.lng, c.lat]).addTo(tpMap);
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// VISIT HISTORY TABLE — the archive view (all years, no cutoff)
+// ══════════════════════════════════════════════════════════════════
+function vhRowValue(row, key) {
+  switch (key) {
+    case "anchor":  return String(anchorDate(row) || "");
+    case "patient": return String(row.patient_name || "").toLowerCase();
+    case "address": return String(row.full_address || "").toLowerCase();
+    case "zip":     return normZip(row.zip_code);
+    case "service": return String(row.service || "").toLowerCase();
+    case "visits":  return Number(row.service_visits || 0) || 0;
+    case "episode": return String(row.start_of_episode || "");
+    case "payer":   return String(row.primary_payer || "").toLowerCase();
+    default: return "";
+  }
+}
+function renderVisitTable(rebuildFilters) {
+  const rows = historyRows.slice();
+
+  if (rebuildFilters) {
+    const years = Array.from(new Set(rows.map(r => String(anchorDate(r) || "").slice(0, 4)).filter(y => /^\d{4}$/.test(y)))).sort().reverse();
+    document.getElementById("vh-year-chips").innerHTML =
+      `<button type="button" class="vh-chip${vhState.year === "" ? " on" : ""}" data-year="">All years</button>` +
+      years.map(y => `<button type="button" class="vh-chip${vhState.year === y ? " on" : ""}" data-year="${y}">${y}</button>`).join("");
+    const services = Array.from(new Set(rows.map(r => String(r.service || "").trim()).filter(Boolean))).sort();
+    document.getElementById("vh-service").innerHTML = "<option value=''>All services</option>" +
+      services.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
+    const zips = Array.from(new Set(rows.map(r => normZip(r.zip_code)).filter(Boolean))).sort();
+    document.getElementById("vh-zip").innerHTML = "<option value=''>All ZIPs</option>" +
+      zips.map(z => `<option value="${esc(z)}">${esc(z)}</option>`).join("");
+    // Rebuilding the option lists resets the DOM selection — restore it.
+    document.getElementById("vh-service").value = vhState.service;
+    document.getElementById("vh-zip").value = vhState.zip;
+  }
+
+  let list = rows;
+  if (vhState.year)    list = list.filter(r => String(anchorDate(r) || "").slice(0, 4) === vhState.year);
+  if (vhState.service) list = list.filter(r => String(r.service || "").trim() === vhState.service);
+  if (vhState.zip)     list = list.filter(r => normZip(r.zip_code) === vhState.zip);
+  if (vhState.search) {
+    const q = vhState.search.toLowerCase();
+    list = list.filter(r => String(r.patient_name || "").toLowerCase().includes(q) || String(r.full_address || "").toLowerCase().includes(q));
+  }
+
+  const k = vhState.sortKey, dir = vhState.sortDir;
+  list.sort((a, b) => {
+    const va = vhRowValue(a, k), vb = vhRowValue(b, k);
+    if (va < vb) return -1 * dir;
+    if (va > vb) return 1 * dir;
+    return 0;
+  });
+
+  ["anchor","patient","address","zip","service","visits","episode","payer"].forEach(key => {
+    const el = document.getElementById("arr-" + key);
+    if (el) el.textContent = key === vhState.sortKey ? (vhState.sortDir === 1 ? "▲" : "▼") : "";
+  });
+
+  const totalVisits = list.reduce((t, r) => t + (Number(r.service_visits || 0) || 0), 0);
+  document.getElementById("vh-totals").textContent = list.length + " episodes · " + totalVisits + " visits";
+
+  document.getElementById("vh-body").innerHTML = list.map(r => {
+    const epi = (r.start_of_episode ? fmtDate(r.start_of_episode) : "—") + (r.ended_date ? " → " + fmtDate(r.ended_date) : "");
+    return `<tr>
+      <td style="white-space:nowrap">${esc(fmtDate(anchorDate(r)))}</td>
+      <td style="font-weight:700">${esc(fmtName(r.patient_name))}</td>
+      <td>${esc(r.full_address || [r.street, r.city, r.state].filter(Boolean).join(", ") || "—")}</td>
+      <td>${esc(normZip(r.zip_code) || "—")}</td>
+      <td>${esc(r.service || "—")}</td>
+      <td>${Number(r.service_visits || 0) || "—"}</td>
+      <td style="white-space:nowrap">${epi}</td>
+      <td>${esc(r.primary_payer || "—")}</td>
+    </tr>`;
+  }).join("") || "<tr><td colspan='8' class='empty-note' style='padding:16px'>No episodes match the filters.</td></tr>";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// WIRING
+// ══════════════════════════════════════════════════════════════════
+document.getElementById("login-btn").addEventListener("click", doSignIn);
+document.getElementById("login-password").addEventListener("keydown", e => { if (e.key === "Enter") doSignIn(); });
+document.getElementById("signout-btn").addEventListener("click", doSignOut);
+document.getElementById("picker-search").addEventListener("input", renderPicker);
+document.getElementById("picker-list").addEventListener("click", e => {
+  const item = e.target.closest(".picker-item[data-cid]");
+  if (item) location.href = "territory-planner.html?clinician=" + encodeURIComponent(item.dataset.cid);
+});
+document.getElementById("vh-year-chips").addEventListener("click", e => {
+  const btn = e.target.closest(".vh-chip");
+  if (!btn) return;
+  vhState.year = btn.dataset.year || "";
+  renderVisitTable(true);
+});
+document.getElementById("vh-service").addEventListener("change", e => { vhState.service = e.target.value; renderVisitTable(false); });
+document.getElementById("vh-zip").addEventListener("change", e => { vhState.zip = e.target.value; renderVisitTable(false); });
+let vhSearchTimer = null;
+document.getElementById("vh-search").addEventListener("input", e => {
+  clearTimeout(vhSearchTimer);
+  vhSearchTimer = setTimeout(() => { vhState.search = e.target.value.trim(); renderVisitTable(false); }, 200);
+});
+document.querySelector("table.vh thead").addEventListener("click", e => {
+  const th = e.target.closest("th[data-sort]");
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (vhState.sortKey === key) vhState.sortDir = -vhState.sortDir;
+  else { vhState.sortKey = key; vhState.sortDir = key === "anchor" || key === "visits" || key === "episode" ? -1 : 1; }
+  renderVisitTable(false);
+});
+
+checkSession();
+</script>
+</body>
+</html>
