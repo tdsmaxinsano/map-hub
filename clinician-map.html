@@ -5494,12 +5494,6 @@
       transform: translateX(22px);
     }
 
-    .territory-status {
-      font-size: 12px;
-      color: var(--muted);
-      line-height: 1.5;
-    }
-
     .version-indicator {
       position: fixed;
       right: 18px;
@@ -7028,29 +7022,6 @@
           </details>
 
           <section class="profile-card">
-            <h3 class="profile-card-title">Territory Shell</h3>
-            <div class="toggle-row">
-              <div class="toggle-copy">
-                <div class="toggle-title">Show Territory Overlay</div>
-                <div class="toggle-caption">Only display clinician territories when requested.</div>
-              </div>
-              <label class="switch">
-                <input id="territory-visible-toggle" type="checkbox">
-                <span class="switch-slider"></span>
-              </label>
-            </div>
-            <div class="button-row">
-              <button id="territory-draw-toggle" type="button" class="btn-secondary">Draw Territory</button>
-              <button id="territory-save-draft" type="button" class="btn-primary edit-only">Save Local Draft</button>
-            </div>
-            <div class="button-row">
-              <button id="territory-clear-draft" type="button" class="btn-secondary">Clear Draft</button>
-              <button id="territory-open-history" type="button" class="btn-secondary">Revision History</button>
-            </div>
-            <div id="territory-status" class="territory-status">No saved territory yet. This shell will manage versioned clinician areas and movement over time.</div>
-          </section>
-
-          <section class="profile-card">
             <h3 class="profile-card-title">Quick Actions</h3>
             <div class="button-row">
           <button id="profile-save-shell" type="button" class="btn-primary edit-only">Save Profile</button>
@@ -8420,12 +8391,6 @@
       profileIsolateVisits: document.getElementById("profile-isolate-visits"),
       profileVersionHistoryCard: document.getElementById("profile-version-history-card"),
       profileVersionHistoryShell: document.getElementById("profile-version-history-shell"),
-      territoryVisibleToggle: document.getElementById("territory-visible-toggle"),
-      territoryDrawToggle: document.getElementById("territory-draw-toggle"),
-      territorySaveDraft: document.getElementById("territory-save-draft"),
-      territoryClearDraft: document.getElementById("territory-clear-draft"),
-      territoryOpenHistory: document.getElementById("territory-open-history"),
-      territoryStatus: document.getElementById("territory-status"),
       agencyProfilePanel: document.getElementById("agency-profile-panel"),
       agencyProfileClose: document.getElementById("agency-profile-close"),
       agencyPanelName: document.getElementById("agency-panel-name"),
@@ -8567,10 +8532,6 @@
       radiusMode: false,
       addClinicianMode: false,
       rulerMode: false,
-      territoryDrawMode: false,
-      territoriesVisible: false,
-      territoryDraftPoints: [],
-      territoryDraftMarkers: [],
       profileCreateMode: false,
       profileHistoryExpanded: false,
       profileVersionHistoryLoading: false,
@@ -8578,8 +8539,6 @@
       currentProfileStatusHistory: [],
       profileDraftByClinicianId: new Map(),
       newClinicianDraft: null,
-      territoryDraftByClinicianId: new Map(),
-      territoryByClinicianId: new Map(),
       rulerPoints: [],
       rulerPointMarkers: [],
       rulerLabelMarker: null,
@@ -8604,7 +8563,6 @@
       lastPointSearchResult: null,
       selectionCircleId: "selection-circle-source",
       rulerSourceId: "ruler-line-source",
-      territorySourceId: "territory-source",
       hasLoadedClinicians: false,
       realtimeChannel: null,
       referralRealtimeChannel: null,
@@ -14761,13 +14719,6 @@
     }
 
     function syncMapInstructions() {
-      if (appState.territoryDrawMode) {
-        elements.mapInstructions.textContent = appState.currentProfileClinicianId
-          ? "Territory draw mode is active. Click the map to add polygon points for the open clinician profile."
-          : "Open a clinician profile to draw a territory shell, or search any address or ZIP to place a location pin.";
-        return;
-      }
-
       if (appState.addClinicianMode) {
         elements.mapInstructions.textContent = "Add clinician mode is active. Fill in the profile shell and save to create the clinician. The address will place the marker on the map.";
         return;
@@ -15978,7 +15929,6 @@
         lng: snapshot.lng,
         radius: radiusValue,
         preferred_zips: snapshot.preferredZips || null,
-        territory_geojson: clinician && clinician.current_territory_geojson ? clinician.current_territory_geojson : null,
         status: snapshot.status,
         internal_rating: snapshot.internalRating,
         change_reason: buildProfileVersionChangeReason(changedFields, draft),
@@ -16528,32 +16478,6 @@
       syncProfileUnsavedBadge(Boolean(safeDraft._dirty));
     }
 
-    function persistCurrentTerritoryDraft() {
-      if (!appState.currentProfileClinicianId) return;
-
-      if (appState.territoryDraftPoints.length) {
-        appState.territoryDraftByClinicianId.set(appState.currentProfileClinicianId, appState.territoryDraftPoints.map(function(point) {
-          return { lat: point.lat, lng: point.lng };
-        }));
-      }
-    }
-
-    function loadTerritoryDraft(clinicianId) {
-      clearTerritoryDraftMarkers();
-      appState.territoryDraftPoints = (appState.territoryDraftByClinicianId.get(clinicianId) || []).map(function(point) {
-        return { lat: point.lat, lng: point.lng };
-      });
-
-      appState.territoryDraftPoints.forEach(function(point) {
-        const node = document.createElement("div");
-        node.className = "ruler-point";
-        const marker = new mapboxgl.Marker({ element: node, anchor: "center" })
-          .setLngLat([point.lng, point.lat])
-          .addTo(map);
-        appState.territoryDraftMarkers.push(marker);
-      });
-    }
-
     function getFirstAvailableFieldValue(record, keys) {
       if (!record) return "";
       for (let index = 0; index < keys.length; index += 1) {
@@ -16962,10 +16886,6 @@
         return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M4 16L16 4'/><path d='M7 13L9 15'/><path d='M11 9L13 11'/><path d='M15 5L17 7'/><path d='M4 20h6'/></svg>";
       }
 
-      if (action === "boundary") {
-        return "<svg viewBox='0 0 24 24' aria-hidden='true'><path d='M6 7l4-3 5 2 3 5-2 6-6 2-5-4z'/><circle cx='6' cy='7' r='1.2' fill='currentColor' stroke='none'/><circle cx='10' cy='4' r='1.2' fill='currentColor' stroke='none'/><circle cx='15' cy='6' r='1.2' fill='currentColor' stroke='none'/><circle cx='18' cy='11' r='1.2' fill='currentColor' stroke='none'/><circle cx='16' cy='17' r='1.2' fill='currentColor' stroke='none'/><circle cx='10' cy='19' r='1.2' fill='currentColor' stroke='none'/></svg>";
-      }
-
       return "<svg viewBox='0 0 24 24' aria-hidden='true'><circle cx='12' cy='12' r='7'/><circle cx='12' cy='12' r='2.5'/><path d='M12 3v3'/><path d='M12 18v3'/><path d='M3 12h3'/><path d='M18 12h3'/></svg>";
     }
 
@@ -16995,7 +16915,6 @@
     }
 
     function getPopupHtml(clinician) {
-      const hasBoundary = appState.territoryByClinicianId.has(clinician.id);
       const statusInfo = getClinicianPopupStatusInfo(clinician);
       const statusClassName = String(statusInfo.status || "Active").toLowerCase();
       const profileDraft = getProfileDraftForClinician(clinician);
@@ -17036,13 +16955,6 @@
         "<div class='popup-label'>Quick Tools</div>",
         "<div class='popup-tool-row'>",
         getPopupToolButtonHtml("ruler", "Ruler Tool"),
-        getPopupToolButtonHtml("boundary", "Boundary", {
-          active: hasBoundary && appState.territoriesVisible,
-          disabled: !hasBoundary,
-          tooltip: hasBoundary
-            ? (appState.territoriesVisible ? "Hide Boundary" : "Show Boundary")
-            : "No Boundary Saved"
-        }),
         getPopupToolButtonHtml("isolate", "Isolate", {
           active: appState.isolatedClinicianId === clinician.id,
           tooltip: appState.isolatedClinicianId === clinician.id ? "Clear Isolation" : "Isolate Referrals"
@@ -17142,27 +17054,12 @@
       popup.on("open", function() {
         const popupElement = popup.getElement();
         const rulerButton = popupElement.querySelector("[data-action='ruler']");
-        const boundaryButton = popupElement.querySelector("[data-action='boundary']");
         const isolateButton = popupElement.querySelector("[data-action='isolate']");
 
         if (rulerButton) {
           rulerButton.addEventListener("click", function() {
             clearRuler(true);
             setRulerMode(true);
-            popup.remove();
-          }, { once: true });
-        }
-
-        if (boundaryButton) {
-          boundaryButton.addEventListener("click", function() {
-            if (!appState.territoryByClinicianId.has(clinician.id)) {
-              window.alert("No drawn boundary shell is saved for this clinician yet.");
-              return;
-            }
-            appState.territoriesVisible = !appState.territoriesVisible;
-            elements.territoryVisibleToggle.checked = appState.territoriesVisible;
-            renderTerritories();
-            updateTerritoryShell();
             popup.remove();
           }, { once: true });
         }
@@ -17333,11 +17230,6 @@
         return;
       }
 
-      if (appState.territoryDrawMode) {
-        elements.selectionMessage.textContent = "Territory draw mode active. Click the map to add area points for the open clinician profile.";
-        return;
-      }
-
       if (appState.addClinicianMode) {
         elements.selectionMessage.textContent = "Add clinician mode active. Fill in the open profile shell to create the new clinician.";
         return;
@@ -17479,7 +17371,6 @@
 
       closeAgencyProfile();
       persistCurrentProfileDraft();
-      persistCurrentTerritoryDraft();
       appState.profileCreateMode = false;
       appState.addClinicianMode = false;
       if (elements.addClinicianMode) {
@@ -17489,9 +17380,6 @@
       applyProfilePhoto("");
       resetProfileVersionHistoryUi();
       applyProfileDraft(getProfileDraftForClinician(clinician));
-      loadTerritoryDraft(clinicianId);
-      updateTerritoryShell();
-      renderTerritories();
       syncMapInstructions();
       elements.profilePanel.classList.add("open");
       elements.profilePanel.setAttribute("aria-hidden", "false");
@@ -17505,19 +17393,12 @@
     function openNewClinicianProfile() {
       closeAgencyProfile();
       persistCurrentProfileDraft();
-      persistCurrentTerritoryDraft();
       appState.currentProfileClinicianId = null;
       appState.profileCreateMode = true;
       applyProfilePhoto("");
       resetProfileVersionHistoryUi();
       applyProfileDraft(appState.newClinicianDraft || getDefaultProfileDraft());
-      appState.territoryDrawMode = false;
-      elements.territoryDrawToggle.classList.remove("active");
       resetProfileVersionHistoryUi();
-      appState.territoryDraftPoints = [];
-      clearTerritoryDraftMarkers();
-      updateTerritoryShell();
-      renderTerritories();
       syncMapInstructions();
       elements.profilePanel.classList.add("open");
       elements.profilePanel.setAttribute("aria-hidden", "false");
@@ -17528,7 +17409,6 @@
       if (shouldPersistDraft) {
         persistCurrentProfileDraft();
       }
-      persistCurrentTerritoryDraft();
       // Hide the ZIP compare panel so stale gap data doesn't carry between profiles
       if (typeof hideZipComparePanel === "function") hideZipComparePanel();
       appState.currentProfileClinicianId = null;
@@ -17537,12 +17417,6 @@
       if (elements.addClinicianMode) {
         elements.addClinicianMode.classList.remove("active");
       }
-      appState.territoryDrawMode = false;
-      elements.territoryDrawToggle.classList.remove("active");
-      appState.territoryDraftPoints = [];
-      clearTerritoryDraftMarkers();
-      updateTerritoryShell();
-      renderTerritories();
       syncMapInstructions();
       elements.profilePanel.classList.remove("open");
       elements.profilePanel.setAttribute("aria-hidden", "true");
@@ -17663,11 +17537,9 @@
       if (enabled) {
         appState.addClinicianMode = false;
         appState.rulerMode = false;
-        appState.territoryDrawMode = false;
         if (elements.addClinicianMode) {
           elements.addClinicianMode.classList.remove("active");
         }
-        elements.territoryDrawToggle.classList.remove("active");
         clearRulerVisuals();
         appState.rulerPoints = [];
       }
@@ -17682,9 +17554,7 @@
       if (enabled) {
         appState.radiusMode = false;
         appState.rulerMode = false;
-        appState.territoryDrawMode = false;
         elements.radiusModeToggle.classList.remove("active");
-        elements.territoryDrawToggle.classList.remove("active");
         clearRulerVisuals();
         appState.rulerPoints = [];
       }
@@ -20787,196 +20657,6 @@
       map.setStyle(styleUrl);
     }
 
-    function ensureTerritoryLayer() {
-      if (!map.getSource(appState.territorySourceId)) {
-        map.addSource(appState.territorySourceId, {
-          type: "geojson",
-          data: { type: "FeatureCollection", features: [] }
-        });
-      }
-
-      if (!map.getLayer("territory-fill")) {
-        map.addLayer({
-          id: "territory-fill",
-          type: "fill",
-          source: appState.territorySourceId,
-          paint: {
-            "fill-color": [
-              "coalesce",
-              ["get", "fillColor"],
-              "#1e4d8c"
-            ],
-            "fill-opacity": 0.16
-          }
-        });
-      }
-
-      if (!map.getLayer("territory-line")) {
-        map.addLayer({
-          id: "territory-line",
-          type: "line",
-          source: appState.territorySourceId,
-          paint: {
-            "line-color": [
-              "coalesce",
-              ["get", "lineColor"],
-              "#1e4d8c"
-            ],
-            "line-width": 2
-          }
-        });
-      }
-    }
-
-    function clearTerritoryDraftMarkers() {
-      appState.territoryDraftMarkers.forEach(function(marker) {
-        marker.remove();
-      });
-      appState.territoryDraftMarkers = [];
-    }
-
-    function clearTerritoryDraft() {
-      if (appState.currentProfileClinicianId) {
-        appState.territoryDraftByClinicianId.delete(appState.currentProfileClinicianId);
-      }
-      appState.territoryDraftPoints = [];
-      clearTerritoryDraftMarkers();
-      updateTerritoryShell();
-      renderTerritories();
-    }
-
-    function addTerritoryDraftPoint(point) {
-      appState.territoryDraftPoints.push(point);
-      const node = document.createElement("div");
-      node.className = "ruler-point";
-      const marker = new mapboxgl.Marker({ element: node, anchor: "center" })
-        .setLngLat([point.lng, point.lat])
-        .addTo(map);
-      appState.territoryDraftMarkers.push(marker);
-      updateTerritoryShell();
-      renderTerritories();
-    }
-
-    function buildPolygonFromPoints(points) {
-      if (!points || points.length < 3) return null;
-      const coordinates = points.map(function(point) {
-        return [point.lng, point.lat];
-      });
-      coordinates.push([points[0].lng, points[0].lat]);
-      return {
-        type: "Feature",
-        geometry: {
-          type: "Polygon",
-          coordinates: [coordinates]
-        },
-        properties: {}
-      };
-    }
-
-    function getTerritoryFeature(clinicianId, polygonFeature, isDraft) {
-      const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
-      const color = getDisciplineColor(clinician ? clinician.discipline : "");
-      return {
-        type: "Feature",
-        geometry: polygonFeature.geometry,
-        properties: {
-          clinicianId: clinicianId,
-          fillColor: color,
-          lineColor: color,
-          isDraft: isDraft ? "true" : "false"
-        }
-      };
-    }
-
-    function renderTerritories() {
-      ensureTerritoryLayer();
-      const source = map.getSource(appState.territorySourceId);
-      if (!source) return;
-
-      const features = [];
-
-      if (appState.territoriesVisible) {
-        appState.territoryByClinicianId.forEach(function(polygonFeature, clinicianId) {
-          features.push(getTerritoryFeature(clinicianId, polygonFeature, false));
-        });
-      }
-
-      if (appState.currentProfileClinicianId && appState.territoryDraftPoints.length >= 3) {
-        const draftPolygon = buildPolygonFromPoints(appState.territoryDraftPoints);
-        if (draftPolygon) {
-          features.push(getTerritoryFeature(appState.currentProfileClinicianId, draftPolygon, true));
-        }
-      }
-
-      source.setData({
-        type: "FeatureCollection",
-        features: features
-      });
-    }
-
-    function setTerritoryDrawMode(enabled) {
-      appState.territoryDrawMode = enabled;
-      elements.territoryDrawToggle.classList.toggle("active", enabled);
-      if (enabled) {
-        setAddClinicianMode(false);
-        setRadiusMode(false);
-        clearRuler(false);
-      }
-      syncMapInstructions();
-      updateTerritoryShell();
-    }
-
-    function saveTerritoryDraft() {
-      if (!appState.currentProfileClinicianId) {
-        window.alert("Open a clinician profile first.");
-        return;
-      }
-      if (appState.territoryDraftPoints.length < 3) {
-        window.alert("Add at least three points to save a territory.");
-        return;
-      }
-      const polygon = buildPolygonFromPoints(appState.territoryDraftPoints);
-      if (!polygon) return;
-      appState.territoryByClinicianId.set(appState.currentProfileClinicianId, polygon);
-      appState.territoryDraftByClinicianId.set(appState.currentProfileClinicianId, appState.territoryDraftPoints.map(function(point) {
-        return { lat: point.lat, lng: point.lng };
-      }));
-      clearTerritoryDraftMarkers();
-      appState.territoryDraftPoints = [];
-      appState.territoriesVisible = true;
-      elements.territoryVisibleToggle.checked = true;
-      updateTerritoryShell();
-      renderTerritories();
-    }
-
-    function updateTerritoryShell() {
-      const clinicianId = appState.currentProfileClinicianId;
-      const hasSaved = clinicianId ? appState.territoryByClinicianId.has(clinicianId) : false;
-      const draftCount = appState.territoryDraftPoints.length;
-      elements.territoryVisibleToggle.checked = appState.territoriesVisible;
-      elements.territoryDrawToggle.disabled = !clinicianId;
-      elements.territorySaveDraft.disabled = !clinicianId || draftCount < 3;
-      elements.territoryClearDraft.disabled = draftCount === 0;
-      elements.territoryOpenHistory.disabled = !clinicianId;
-
-      if (!clinicianId) {
-        elements.territoryStatus.textContent = "Open a clinician profile to start drawing or reviewing a territory shell.";
-        return;
-      }
-
-      if (draftCount > 0) {
-        elements.territoryStatus.textContent = "Local draft in progress with " + draftCount + " point(s). Add at least three points, then save the local territory draft.";
-        return;
-      }
-
-      if (hasSaved) {
-        elements.territoryStatus.textContent = "Saved territory shell available for this clinician. Use the toggle to display all saved territories on the map.";
-        return;
-      }
-
-      elements.territoryStatus.textContent = "No saved territory yet. Start draw mode to sketch a clinician area shell.";
-    }
-
     function addRulerPointMarker(point) {
       const node = document.createElement("div");
       node.className = "ruler-point";
@@ -21087,8 +20767,6 @@
       if (enabled) {
         setAddClinicianMode(false);
         setRadiusMode(false);
-        appState.territoryDrawMode = false;
-        elements.territoryDrawToggle.classList.remove("active");
       }
 
       appState.rulerMode = enabled;
@@ -21371,7 +21049,6 @@
       appState.focusedCompletedServiceKey = null;
       appState.isolatedClinicianId = null;
       appState.isolatedCompletedServiceClinicianId = null;
-      appState.territoriesVisible = false;
 
       syncDisciplineToggleState();
       syncStatusFilterToggleState();
@@ -21388,13 +21065,11 @@
       setAddClinicianMode(false);
       closeClinicianProfile();
       closeAgencyProfile();
-      elements.territoryVisibleToggle.checked = false;
 
       applyFilters();
       renderCompletedServiceSidebar();
       updateCompletedServiceMarkerVisual();
       closeCompletedServicePopup();
-      renderTerritories();
       syncMapInstructions();
       updateSummary();
     }
@@ -21826,8 +21501,6 @@
       if (missingProfileClinicianId) {
         closeClinicianProfile();
         appState.profileDraftByClinicianId.delete(missingProfileClinicianId);
-        appState.territoryDraftByClinicianId.delete(missingProfileClinicianId);
-        appState.territoryByClinicianId.delete(missingProfileClinicianId);
       }
 
       applyFilters();
@@ -24024,28 +23697,6 @@
         focusCompletedServiceSite(siteKey, true);
       });
 
-      elements.territoryVisibleToggle.addEventListener("change", function() {
-        appState.territoriesVisible = elements.territoryVisibleToggle.checked;
-        renderTerritories();
-        updateTerritoryShell();
-      });
-
-      elements.territoryDrawToggle.addEventListener("click", function() {
-        setTerritoryDrawMode(!appState.territoryDrawMode);
-      });
-
-      elements.territorySaveDraft.addEventListener("click", function() {
-        saveTerritoryDraft();
-      });
-
-      elements.territoryClearDraft.addEventListener("click", function() {
-        clearTerritoryDraft();
-      });
-
-      elements.territoryOpenHistory.addEventListener("click", function() {
-        window.alert("Territory revision history will connect to clinician_territory_versions.");
-      });
-
       elements.styleSelector.addEventListener("change", function() {
         changeMapStyle(elements.styleSelector.value);
       });
@@ -24220,15 +23871,6 @@
           if (clickedCompletedServiceFeature.length) return;
         }
 
-        if (appState.territoryDrawMode) {
-          if (!appState.currentProfileClinicianId) {
-            window.alert("Open a clinician profile before drawing a territory.");
-            return;
-          }
-          addTerritoryDraftPoint({ lat: event.lngLat.lat, lng: event.lngLat.lng });
-          return;
-        }
-
         if (appState.rulerMode) {
           if (appState.rulerPoints.length >= 2) {
             clearRuler(true);
@@ -24294,8 +23936,7 @@
       "💡 Filter by discipline or language in the left sidebar.",
       "💡 Click a clinician to open their profile, ZIP coverage, and EMR chips.",
       "💡 The 🟣 Completed Services layer shows where visits actually happened.",
-      "💡 Quick Add a referral pin to find the nearest available clinicians.",
-      "💡 Territory tools let you draw + save a coverage area for a clinician."
+      "💡 Quick Add a referral pin to find the nearest available clinicians."
     ];
     function bootStep(key, state) {
       var el = document.getElementById("mbs-step-" + key);
@@ -24480,7 +24121,6 @@
       }
       ensureSelectionCircleLayer();
       ensureRulerLayer();
-      ensureTerritoryLayer();
       ensureClinicianLayer();
       ensureReferralLayer();
       ensureCompletedServiceLayers();
@@ -24510,8 +24150,6 @@
         updateRulerLine();
       }
       updateSelectionLabels();
-      renderTerritories();
-      updateTerritoryShell();
       renderSidebar();
       renderAgencySidebar();
       renderCompletedServiceSidebar();

@@ -24,14 +24,13 @@ The main dashboard. Everything lives in this single file (HTML + CSS + JS).
 **What it does:**
 - Interactive Mapbox map showing clinician locations (work center or home)
 - Sidebar with filterable clinician list (discipline, status, EMR, language filters)
-- Clinician profile panel (edit address, work center, EMR, languages, ratings, restrictions, territories)
+- Clinician profile panel (edit address, work center, EMR, languages, ratings, restrictions)
 - ZIP code coverage tool — enter a ZIP, see which clinicians cover it
 - Radius/lens tool — drop a pin, find clinicians within X miles
 - Agency directory — home health agency profiles with map markers
 - AI assistant — chat interface with map context awareness
 - Referral overlay — sonar pins on map for open referrals
 - Bulk import system (TherapyBoss CSV imports for clinicians, services, referrals)
-- Territory drawing tool
 - Ruler/distance measurement tool
 - User management modal (admin only) — see "Manage Users modal" note below
 - Onboarding tour
@@ -155,7 +154,7 @@ The referral board. Separate standalone file.
 ### Mapbox
 - **Access token:** `pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A`
 - **Version:** v3.0.1 in clinician-map.html, v3.3.0 in referrals.html
-- **Used for:** Geocoding (address → lat/lng), map rendering, markers, radius search, territory polygons
+- **Used for:** Geocoding (address → lat/lng), map rendering, markers, radius search
 
 ### SendGrid
 - Used for sending reactivation request emails to the hiring manager
