@@ -25103,6 +25103,7 @@
   var _refSuggestData = null;
   var _zipExclusionSet = null; // "clinicianId|zip" won't-serve pairs (migration 56), refreshed per suggest run
   var _zipRequestSet = null;   // "clinicianId|zip" requested-area pairs (migration 57)
+  var _refZipPlace = null;     // place name for the current referral's ZIP ("Skokie")
 
   function refDeriveZip(address) {
     var m = String(address || "").match(/,.*?\b(\d{5})\b/);
@@ -25276,6 +25277,31 @@
         return String(r.clinician_id) + "|" + String(r.zip_code || "").trim();
       }));
     } catch (e) { _zipRequestSet = new Set(); }
+    // ZIP → place name for the header/flags ("60077 · Skokie") — shared
+    // zip_places cache (migration 58) first, ZIP directory as fallback.
+    _refZipPlace = null;
+    var zipForPlace = refDeriveZip(referral.address);
+    if (zipForPlace) {
+      try {
+        var zpRes = await supabaseClient.from("zip_places").select("place_name").eq("zip_code", zipForPlace).maybeSingle();
+        if (!zpRes.error && zpRes.data && zpRes.data.place_name) _refZipPlace = zpRes.data.place_name;
+      } catch (e) {}
+      if (!_refZipPlace) {
+        try {
+          var zr = await fetch("https://api.zippopotam.us/us/" + zipForPlace);
+          if (zr.ok) {
+            var zd = await zr.json();
+            var zp = zd && zd.places && zd.places[0];
+            _refZipPlace = zp ? (String(zp["place name"] || "").trim() || null) : null;
+            if (_refZipPlace) {
+              supabaseClient.from("zip_places").upsert(
+                { zip_code: zipForPlace, place_name: _refZipPlace, state: ((zp["state abbreviation"] || "").trim() || null), source: "zippopotam" },
+                { onConflict: "zip_code" });
+            }
+          }
+        } catch (e) {}
+      }
+    }
     renderReferralSuggestPanel(buildReferralSuggestions(referral));
   }
 
@@ -25330,7 +25356,7 @@
         (data.discLabel ? " · " + escHtml(data.discLabel) : "") +
       "</div>" +
       "<div class='rsg-counts'>" + list.length + (list.length === 1 ? " match" : " matches") +
-        " · " + zipCount + " cover ZIP" + (data.zip ? " " + escHtml(data.zip) : "") +
+        " · " + zipCount + " cover ZIP" + (data.zip ? " " + escHtml(data.zip) + (_refZipPlace ? " · " + escHtml(_refZipPlace) : "") : "") +
         " · " + radCount + " within " + REF_SUGGEST_RADIUS_MI + " mi" + inactToggle + "</div>";
 
     var body;
@@ -25362,7 +25388,7 @@
           restr += "<div class='rsg-restr rsg-inact'>⛔ Inactive — needs reactivation</div>";
         }
         if (c.zipExcluded) {
-          restr += "<div class='rsg-restr rsg-conflict'>⛔ Won't serve " + escHtml(data.zip || "this ZIP") + "</div>";
+          restr += "<div class='rsg-restr rsg-conflict'>⛔ Won't serve " + escHtml(data.zip || "this ZIP") + (_refZipPlace ? " · " + escHtml(_refZipPlace) : "") + "</div>";
         }
         if (c.agencyConflict) {
           restr += "<div class='rsg-restr rsg-conflict'>⛔ Restricted from " + escHtml(data.agency || "this agency") + "</div>";
@@ -25441,7 +25467,7 @@
       "<div class='meta'><strong>" + escapeHtml(ref.patient_name || "Referral") + "</strong>" +
         (data.agency ? " — " + escapeHtml(data.agency) : "") + "<br>" +
         escapeHtml(ref.address || "") + "<br>" +
-        "Discipline: " + escapeHtml(data.discLabel || "—") + " · ZIP: " + escapeHtml(data.zip || "—") + "<br>" +
+        "Discipline: " + escapeHtml(data.discLabel || "—") + " · ZIP: " + escapeHtml(data.zip || "—") + (_refZipPlace ? " (" + escapeHtml(_refZipPlace) + ")" : "") + "<br>" +
         list.length + " suggested — " + zipCount + " cover ZIP, " +
         radCount + " within " + REF_SUGGEST_RADIUS_MI + " mi. Ranked closest-first, ★ rating breaks ties." +
         (refSuggestShowInactive ? "" : (data.candidates.length - list.length ? " (" + (data.candidates.length - list.length) + " inactive hidden.)" : "")) +

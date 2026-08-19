@@ -103,6 +103,7 @@
   .zip-chip.req { background: #ccfbf1; color: #0f766e; border-color: #7edcd0; }
   .zip-chip.req .x { cursor: pointer; margin-left: 6px; opacity: .55; }
   .zip-chip.req .x:hover { opacity: 1; }
+  .zc-place { font-weight: 600; opacity: .62; margin-left: 4px; font-size: 10px; }
   .empty-note { font-size: 12px; color: #94a3b8; font-style: italic; }
 
   /* Visit history table */
@@ -376,6 +377,59 @@ function fmtAddr(value) {
     return tok.toLowerCase().replace(/[a-z]/, c => c.toUpperCase());
   }).join(" ");
 }
+// ── ZIP → place names (display sugar: "60176 · Schiller Park") ────────
+// Shared persistent cache in zip_places (migration 58), self-populated
+// from the therapist's own history cities + the Zippopotam directory.
+const zipPlaceCache = new Map(); // zip -> "Skokie" | null (looked up, unknown)
+function placeSuffix(zip) {
+  const p = zipPlaceCache.get(normZip(zip));
+  return p ? "<span class='zc-place'>· " + esc(p) + "</span>" : "";
+}
+function zipTitleName(zip) {
+  const p = zipPlaceCache.get(normZip(zip));
+  return p ? zip + " · " + p : String(zip);
+}
+function titleCasePlace(s) {
+  return String(s || "").toLowerCase().split(/\s+/).map(w => w.replace(/[a-z]/, c => c.toUpperCase())).join(" ");
+}
+async function ensureZipPlaces(zips) {
+  const wanted = Array.from(new Set((zips || []).map(normZip).filter(z => /^\d{5}$/.test(z) && !zipPlaceCache.has(z))));
+  if (!wanted.length) return;
+  const learned = [];
+  // 1) Free + local: history rows carry the city per ZIP.
+  historyRows.forEach(r => {
+    const z = normZip(r.zip_code);
+    const city = String(r.city || "").trim();
+    if (z && city && wanted.includes(z) && !zipPlaceCache.has(z)) {
+      const name = titleCasePlace(city);
+      zipPlaceCache.set(z, name);
+      learned.push({ zip_code: z, place_name: name, state: (String(r.state || "").trim().slice(0, 2).toUpperCase() || null), source: "history" });
+    }
+  });
+  // 2) The shared cache table (tolerates migration 58 not being run).
+  let missing = wanted.filter(z => !zipPlaceCache.has(z));
+  if (missing.length) {
+    const res = await db.from("zip_places").select("zip_code, place_name").in("zip_code", missing);
+    if (!res.error) (res.data || []).forEach(r => zipPlaceCache.set(normZip(r.zip_code), r.place_name || null));
+  }
+  // 3) ZIP directory for the stragglers (sequential; counts are small).
+  missing = wanted.filter(z => !zipPlaceCache.has(z));
+  for (const z of missing) {
+    try {
+      const res = await fetch("https://api.zippopotam.us/us/" + z);
+      if (res.ok) {
+        const data = await res.json();
+        const p = data && data.places && data.places[0];
+        const name = p ? String(p["place name"] || "").trim() : "";
+        zipPlaceCache.set(z, name || null);
+        if (name) learned.push({ zip_code: z, place_name: name, state: ((p["state abbreviation"] || "").trim() || null), source: "zippopotam" });
+      } else zipPlaceCache.set(z, null);
+    } catch (e) { zipPlaceCache.set(z, null); }
+  }
+  // Persist what we learned so every other page gets instant names.
+  if (learned.length) { await db.from("zip_places").upsert(learned, { onConflict: "zip_code" }); }
+}
+
 // Ignore-History-Before — clinician_profiles.tags, 4 key spellings.
 function readIgnoreBefore(tags) {
   if (!tags || typeof tags !== "object" || Array.isArray(tags)) return null;
@@ -629,6 +683,21 @@ async function openWorkspace(clinicianId) {
     renderVisitTable(true);
     renderTravelStats();
     initTerritoryMap();
+
+    // Resolve ZIP place names in the background, then repaint the chip
+    // surfaces ("60176 · Schiller Park"). Cards with in-progress edits
+    // are left alone so typing isn't interrupted.
+    (async () => {
+      const allZips = new Set([...declaredZipSet(), ...Object.keys(servedZipCounts()), ...excludedZipSet(), ...requestedZipSet()]);
+      ((zipPlan && zipPlan.target_zips) || []).forEach(z => allZips.add(normZip(z)));
+      historyRows.forEach(r => { const z = normZip(r.zip_code); if (z) allZips.add(z); });
+      await ensureZipPlaces(Array.from(allZips));
+      renderZipPanels();
+      if (!moveState && !planEditing) renderMoveCard();
+      if (!xzStaged.length) renderExclCard();
+      if (!rqStaged.length) renderReqCard();
+      renderVisitTable(true);
+    })();
   } catch (e) {
     loading.style.display = "none";
     const errEl = document.getElementById("tp-error");
@@ -783,23 +852,23 @@ function renderZipPanels() {
 
   document.getElementById("tp-declared-count").textContent = declared.size ? "· " + declared.size : "";
   document.getElementById("tp-declared-zips").innerHTML = declared.size
-    ? Array.from(declared).sort().map(z => `<span class="zip-chip declared">${esc(z)}</span>`).join("")
+    ? Array.from(declared).sort().map(z => `<span class="zip-chip declared">${esc(z)}${placeSuffix(z)}</span>`).join("")
     : "<span class='empty-note'>No TB ZIP coverage loaded for this clinician.</span>";
 
   document.getElementById("tp-cutoff-note").innerHTML = cutoff
     ? `<div class="cutoff-note">ⓘ Filtered by Ignore History Before ${esc(cutoff.toISOString().slice(0, 10))} — older episodes are excluded from ZIP counts and gaps (the visit table below still shows everything).</div>` : "";
   document.getElementById("tp-served-count").textContent = servedZips.length ? "· " + servedZips.length : "";
   document.getElementById("tp-served-zips").innerHTML = servedZips.length
-    ? servedZips.map(z => `<span class="zip-chip served">${esc(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
+    ? servedZips.map(z => `<span class="zip-chip served">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
     : "<span class='empty-note'>No completed-service history" + (cutoff ? " after the cutoff" : "") + ".</span>";
 
   const gapAdd = servedZips.filter(z => !declared.has(z));
   const gapIdle = Array.from(declared).filter(z => !served[z]).sort();
   document.getElementById("tp-gap-add").innerHTML = gapAdd.length
-    ? gapAdd.map(z => `<span class="zip-chip gap-add">${esc(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
+    ? gapAdd.map(z => `<span class="zip-chip gap-add">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
     : "<span class='empty-note'>None 🎉 — everywhere they've served is declared.</span>";
   document.getElementById("tp-gap-idle").innerHTML = gapIdle.length
-    ? gapIdle.map(z => `<span class="zip-chip gap-idle">${esc(z)}</span>`).join("")
+    ? gapIdle.map(z => `<span class="zip-chip gap-idle">${esc(z)}${placeSuffix(z)}</span>`).join("")
     : "<span class='empty-note'>None — every declared ZIP has history.</span>";
 }
 
@@ -874,7 +943,7 @@ function renderPlanEditor() {
     html += "<div class='zip-chips'>" + declared.map(z => {
       const removed = st.removed.has(z);
       const suggest = !!cutoff && !served[z];
-      return `<span class="zip-chip ${removed ? "plan-remove" : "plan-keep"}${suggest ? " plan-suggest" : ""}" onclick="togglePlanZip('${esc(z)}')">${suggest ? "💡 " : ""}${esc(z)}</span>`;
+      return `<span class="zip-chip ${removed ? "plan-remove" : "plan-keep"}${suggest ? " plan-suggest" : ""}" onclick="togglePlanZip('${esc(z)}')">${suggest ? "💡 " : ""}${esc(z)}${placeSuffix(z)}</span>`;
     }).join("") + "</div>";
   } else {
     html += "<span class='empty-note'>No TB-declared ZIPs to start from — add the new-area ZIPs below.</span>";
@@ -884,7 +953,7 @@ function renderPlanEditor() {
     "<button class='mv-btn' onclick='addPlanZips()'>＋ Add</button></div>";
   if (st.added.length) {
     html += "<div class='zip-chips' style='margin-bottom:6px'>" + st.added.map(z =>
-      `<span class="zip-chip plan-add" title="Click to drop from the plan" onclick="removeAddedZip('${esc(z)}')">＋ ${esc(z)}</span>`).join("") + "</div>";
+      `<span class="zip-chip plan-add" title="Click to drop from the plan" onclick="removeAddedZip('${esc(z)}')">＋ ${esc(z)}${placeSuffix(z)}</span>`).join("") + "</div>";
   }
   const target = buildTargetList();
   html += `<div style="font-size:11.5px;color:var(--muted);margin:6px 0">Target list: <b>${target.length}</b> ZIP${target.length === 1 ? "" : "s"}</div>`;
@@ -920,9 +989,9 @@ function renderPlanDiff(canEdit) {
     if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button></div>";
   } else {
     html += "<div class='zip-chips'>" +
-      matched.map(z => `<span class="zip-chip diff-ok" title="In TB and in the plan">✓ ${esc(z)}</span>`).join("") +
-      toRemove.map(z => `<span class="zip-chip diff-remove" title="Still declared in TB — planned for removal">− ${esc(z)}</span>`).join("") +
-      toAdd.map(z => `<span class="zip-chip diff-add" title="Planned add — not in TB yet">＋ ${esc(z)}</span>`).join("") +
+      matched.map(z => `<span class="zip-chip diff-ok" title="In TB and in the plan">✓ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
+      toRemove.map(z => `<span class="zip-chip diff-remove" title="Still declared in TB — planned for removal">− ${esc(z)}${placeSuffix(z)}</span>`).join("") +
+      toAdd.map(z => `<span class="zip-chip diff-add" title="Planned add — not in TB yet">＋ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
       "</div>";
     html += `<div style="font-size:11px;color:var(--muted);margin-top:6px">${matched.length} matched · ${toRemove.length} to remove in TB · ${toAdd.length} to add in TB</div>`;
   }
@@ -1107,7 +1176,7 @@ function renderExclCard() {
   html += zipExclusions.length
     ? "<div class='zip-chips' style='margin-bottom:8px'>" + zipExclusions.map(r => {
         const meta = [r.note, r.set_by_email, r.created_at ? fmtDate(r.created_at) : ""].filter(Boolean).join(" · ");
-        return `<span class="zip-chip excl" title="${esc(meta || "refused")}">⛔ ${esc(normZip(r.zip_code))}` +
+        return `<span class="zip-chip excl" title="${esc(meta || "refused")}">⛔ ${esc(normZip(r.zip_code))}${placeSuffix(r.zip_code)}` +
           (canEdit ? `<span class="x" onclick="xzDelete('${esc(normZip(r.zip_code))}')" title="Remove from the list">✕</span>` : "") + "</span>";
       }).join("") + "</div>"
     : "<div class='empty-note' style='margin-bottom:8px'>No refused areas recorded.</div>";
@@ -1125,7 +1194,7 @@ function renderExclCard() {
     if (xzStaged.length) {
       html += "<div style='font-size:11px;color:var(--muted);margin:4px 0'>Confirm — uncheck any ZIP that's wrong:</div>";
       html += "<div class='zip-chips' style='margin-bottom:8px'>" + xzStaged.map(s =>
-        `<span class="zip-chip gap-idle" title="${esc(s.from)}">${esc(s.zip)}<span class="x" style="cursor:pointer;margin-left:5px" onclick="xzRemoveStaged('${esc(s.zip)}')">✕</span></span>`).join("") + "</div>";
+        `<span class="zip-chip gap-idle" title="${esc(s.from)}">${esc(s.zip)}${placeSuffix(s.zip)}<span class="x" style="cursor:pointer;margin-left:5px" onclick="xzRemoveStaged('${esc(s.zip)}')">✕</span></span>`).join("") + "</div>";
       html += "<div class='mv-row'>" +
         "<input id='xz-note' class='mv-input' placeholder='Note (e.g. told us 8/19 — no more Skokie)' style='min-width:200px'>" +
         `<button class="mv-btn primary" onclick="xzConfirm()">⛔ Add ${xzStaged.length} to Won't-serve</button>` +
@@ -1259,7 +1328,7 @@ function renderReqCard() {
         const z = normZip(r.zip_code);
         const inTb = declared.has(z);
         const meta = [r.note, r.set_by_email, r.created_at ? fmtDate(r.created_at) : ""].filter(Boolean).join(" · ");
-        return `<span class="zip-chip req" title="${esc(meta || "requested")}">✋ ${esc(z)}` +
+        return `<span class="zip-chip req" title="${esc(meta || "requested")}">✋ ${esc(z)}${placeSuffix(z)}` +
           `<span style="font-weight:600;opacity:.8;margin-left:4px">${inTb ? "✓ in TB" : "· not in TB"}</span>` +
           (canEdit ? `<span class="x" onclick="rqDelete('${esc(z)}')" title="Remove the request">✕</span>` : "") + "</span>";
       }).join("") + "</div>"
@@ -1278,7 +1347,7 @@ function renderReqCard() {
     if (rqStaged.length) {
       html += "<div style='font-size:11px;color:var(--muted);margin:4px 0'>Confirm — uncheck any ZIP that's wrong:</div>";
       html += "<div class='zip-chips' style='margin-bottom:8px'>" + rqStaged.map(s =>
-        `<span class="zip-chip gap-idle" title="${esc(s.from)}">${esc(s.zip)}<span class="x" style="cursor:pointer;margin-left:5px" onclick="rqRemoveStaged('${esc(s.zip)}')">✕</span></span>`).join("") + "</div>";
+        `<span class="zip-chip gap-idle" title="${esc(s.from)}">${esc(s.zip)}${placeSuffix(s.zip)}<span class="x" style="cursor:pointer;margin-left:5px" onclick="rqRemoveStaged('${esc(s.zip)}')">✕</span></span>`).join("") + "</div>";
       html += "<div class='mv-row'>" +
         "<input id='rq-note' class='mv-input' placeholder='Note (e.g. asked 8/19 — wants Mt Prospect work)' style='min-width:200px'>" +
         `<button class="mv-btn primary" onclick="rqConfirm()">✋ Add ${rqStaged.length} requested</button>` +
@@ -1453,11 +1522,11 @@ function initTerritoryMap() {
       const el = document.createElement("div");
       el.className = "tp-zip-badge " + cls;
       el.textContent = (cls === "excluded" ? "⛔ " : cls === "requested" ? "✋ " : "") + zip;
-      el.title = cls === "excluded" ? "Won't serve — refused area"
-        : cls === "requested" ? "Requested area — not in TB yet"
-        : cls === "both" ? "Declared in TB + served (" + served[zip] + " episodes)" + (requested.has(zip) ? " · requested ✋" : "")
-        : cls === "served" ? "Served (" + served[zip] + " episodes) — NOT declared in TB"
-        : "Declared in TB — never served";
+      el.title = zipTitleName(zip) + " — " + (cls === "excluded" ? "won't serve (refused area)"
+        : cls === "requested" ? "requested area, not in TB yet"
+        : cls === "both" ? "declared in TB + served (" + served[zip] + " episodes)" + (requested.has(zip) ? " · requested ✋" : "")
+        : cls === "served" ? "served (" + served[zip] + " episodes) — NOT declared in TB"
+        : "declared in TB — never served");
       new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat([c.lng, c.lat]).addTo(tpMap);
     }
   });
@@ -1495,7 +1564,7 @@ function renderVisitTable(rebuildFilters) {
       services.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join("");
     const zips = Array.from(new Set(rows.map(r => normZip(r.zip_code)).filter(Boolean))).sort();
     document.getElementById("vh-zip").innerHTML = "<option value=''>All ZIPs</option>" +
-      zips.map(z => `<option value="${esc(z)}">${esc(z)}</option>`).join("");
+      zips.map(z => `<option value="${esc(z)}">${esc(zipTitleName(z))}</option>`).join("");
     // Rebuilding the option lists resets the DOM selection — restore it.
     document.getElementById("vh-service").value = vhState.service;
     document.getElementById("vh-zip").value = vhState.zip;
