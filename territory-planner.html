@@ -191,7 +191,7 @@
       <div>
         <div class="card">
           <h3>🗺️ Territory map</h3>
-          <p class="hint">Home + work-center pins, every completed-service site, and ZIP badges — <b style="color:#16a34a">green</b> = declared &amp; served, <b style="color:#2463eb">blue</b> = served only, <b style="color:#d97706">amber</b> = declared but never served.</p>
+          <p class="hint">Home + work-center pins, every completed-service site, and ZIP badges — <b style="color:#16a34a">green</b> = declared &amp; served, <b style="color:#2463eb">blue</b> = served only, <b style="color:#d97706">amber</b> = declared but never served, <b style="color:#111827">dark ⛔</b> = won't serve.</p>
           <div id="tp-map"></div>
           <div class="map-legend">
             <span><span class="sw" style="background:#b3261e"></span>Home</span>
@@ -203,6 +203,34 @@
             <span><span class="sw" style="background:#111827"></span>ZIP won't serve</span>
           </div>
         </div>
+
+    <div class="card">
+      <h3>📚 Full visit history <span id="vh-grain" style="font-weight:600;color:var(--muted);font-size:12px">— one row per episode; “Visits” is the true visit count</span></h3>
+      <div class="vh-filters" id="vh-filters">
+        <span id="vh-year-chips"></span>
+        <select id="vh-service"><option value="">All services</option></select>
+        <select id="vh-zip"><option value="">All ZIPs</option></select>
+        <input id="vh-search" type="text" placeholder="Search patient / address…">
+        <span class="vh-totals" id="vh-totals"></span>
+      </div>
+      <div class="vh-wrap" style="max-height:520px;overflow-y:auto">
+        <table class="vh">
+          <thead>
+            <tr>
+              <th data-sort="anchor">Date <span class="arr" id="arr-anchor"></span></th>
+              <th data-sort="patient">Patient <span class="arr" id="arr-patient"></span></th>
+              <th data-sort="address">Address <span class="arr" id="arr-address"></span></th>
+              <th data-sort="zip">ZIP <span class="arr" id="arr-zip"></span></th>
+              <th data-sort="service">Service <span class="arr" id="arr-service"></span></th>
+              <th data-sort="visits">Visits <span class="arr" id="arr-visits"></span></th>
+              <th data-sort="episode">Episode <span class="arr" id="arr-episode"></span></th>
+              <th data-sort="payer">Payer <span class="arr" id="arr-payer"></span></th>
+            </tr>
+          </thead>
+          <tbody id="vh-body"></tbody>
+        </table>
+      </div>
+    </div>
       </div>
 
       <div>
@@ -241,35 +269,6 @@
         </div>
       </div>
     </div>
-
-    <div class="card">
-      <h3>📚 Full visit history <span id="vh-grain" style="font-weight:600;color:var(--muted);font-size:12px">— one row per episode; “Visits” is the true visit count</span></h3>
-      <div class="vh-filters" id="vh-filters">
-        <span id="vh-year-chips"></span>
-        <select id="vh-service"><option value="">All services</option></select>
-        <select id="vh-zip"><option value="">All ZIPs</option></select>
-        <input id="vh-search" type="text" placeholder="Search patient / address…">
-        <span class="vh-totals" id="vh-totals"></span>
-      </div>
-      <div class="vh-wrap" style="max-height:520px;overflow-y:auto">
-        <table class="vh">
-          <thead>
-            <tr>
-              <th data-sort="anchor">Date <span class="arr" id="arr-anchor"></span></th>
-              <th data-sort="patient">Patient <span class="arr" id="arr-patient"></span></th>
-              <th data-sort="address">Address <span class="arr" id="arr-address"></span></th>
-              <th data-sort="zip">ZIP <span class="arr" id="arr-zip"></span></th>
-              <th data-sort="service">Service <span class="arr" id="arr-service"></span></th>
-              <th data-sort="visits">Visits <span class="arr" id="arr-visits"></span></th>
-              <th data-sort="episode">Episode <span class="arr" id="arr-episode"></span></th>
-              <th data-sort="payer">Payer <span class="arr" id="arr-payer"></span></th>
-            </tr>
-          </thead>
-          <tbody id="vh-body"></tbody>
-        </table>
-      </div>
-    </div>
-
     <div class="loading-line" id="tp-loading" style="display:none"></div>
     <div class="err-line" id="tp-error" style="display:none"></div>
   </div>
@@ -349,6 +348,19 @@ function fmtDate(d) {
   if (!d) return "—";
   const x = new Date(String(d).slice(0, 10) + "T00:00:00");
   return isNaN(x) ? String(d) : x.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+// Title-Case an address for display ("1708 W Lunt Ave, Des plaines, IL" →
+// "…, Des Plaines, IL"): numbers and 2-letter uppercase state codes pass
+// through; everything else gets first-letter caps.
+function fmtAddr(value) {
+  const raw = String(value == null ? "" : value).trim();
+  if (!raw) return "";
+  return raw.split(/\s+/).map(tok => {
+    if (/^\d/.test(tok)) return tok;
+    const core = tok.replace(/[^A-Za-z]/g, "");
+    if (core.length === 2 && core === core.toUpperCase()) return tok;
+    return tok.toLowerCase().replace(/[a-z]/, c => c.toUpperCase());
+  }).join(" ");
 }
 // Ignore-History-Before — clinician_profiles.tags, 4 key spellings.
 function readIgnoreBefore(tags) {
@@ -569,7 +581,27 @@ async function openWorkspace(clinicianId) {
       }
     }
 
-    historyRows = Array.from(byId.values());
+    // Collapse content-duplicate episodes — the import table can hold the
+    // same episode from overlapping TB exports, which would inflate visit
+    // totals, ZIP episode counts, and site weights (everything reads
+    // historyRows, so one dedupe fixes them all).
+    const seenEp = new Set();
+    let dupCount = 0;
+    historyRows = Array.from(byId.values()).filter(row => {
+      const key = [
+        String(row.patient_name || "").toLowerCase().trim(),
+        String(row.service || "").trim().toUpperCase(),
+        row.start_of_episode || "", row.ended_date || "", row.last_visit_date || "",
+        String(row.service_visits || ""), normZip(row.zip_code)
+      ].join("|");
+      if (seenEp.has(key)) { dupCount++; return false; }
+      seenEp.add(key);
+      return true;
+    });
+    _sitesCache = null;
+    const grain = document.getElementById("vh-grain");
+    if (grain) grain.textContent = "— one row per episode; “Visits” is the true visit count" +
+      (dupCount ? " · " + dupCount + " duplicate import row" + (dupCount === 1 ? "" : "s") + " collapsed" : "");
     loading.style.display = "none";
 
     renderZipPanels();
@@ -613,7 +645,7 @@ function renderTravelStats() {
   // cutoff-filtered — keep both pages agreeing): origin = home-ZIP centroid,
   // else work center; distances over mapped sites; p25–p75 + max.
   const facts = [];
-  if (clinician.address) facts.push("<span>🏠 <b>" + esc(clinician.address) + "</b></span>");
+  if (clinician.address) facts.push("<span>🏠 <b>" + esc(fmtAddr(clinician.address)) + "</b></span>");
   else if (clinician.zip) facts.push("<span>🏠 ZIP <b>" + esc(clinician.zip) + "</b></span>");
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
   if (cutoff) facts.push("<span class='chip'>⏳ Ignore history before " + esc(cutoff.toISOString().slice(0, 10)) + "</span>");
@@ -682,7 +714,11 @@ function buildSites() {
   historyRows.forEach(row => {
     const lat = toNum(row.patient_lat), lng = toNum(row.patient_lng);
     const addr = String(row.full_address || [row.street, row.city, row.state].filter(Boolean).join(", ") || "").trim();
-    const key = (lat != null && lng != null) ? lat.toFixed(5) + "|" + lng.toFixed(5) : "addr|" + addr.toLowerCase();
+    // Key = coords + address, matching the map's site key — keeps the
+    // planner's "N sites" in agreement with the profile card.
+    const key = (lat != null && lng != null)
+      ? lat.toFixed(5) + "|" + lng.toFixed(5) + "|" + addr.toLowerCase()
+      : "addr|" + addr.toLowerCase();
     let site = byKey.get(key);
     if (!site) { site = { key, lat, lng, address: addr, rows: [], totalVisits: 0, latest: null }; byKey.set(key, site); }
     site.rows.push(row);
@@ -1290,7 +1326,10 @@ function renderVisitTable(rebuildFilters) {
   const rows = historyRows.slice();
 
   if (rebuildFilters) {
-    const years = Array.from(new Set(rows.map(r => String(anchorDate(r) || "").slice(0, 4)).filter(y => /^\d{4}$/.test(y)))).sort().reverse();
+    // Year chips: plausibility floor mirrors the map's isPlausibleServiceDate —
+    // one garbage row (Excel serial mis-read → 1905/1985) must not mint a chip.
+    const years = Array.from(new Set(rows.map(r => String(anchorDate(r) || "").slice(0, 4))
+      .filter(y => /^\d{4}$/.test(y) && Number(y) >= 2000))).sort().reverse();
     document.getElementById("vh-year-chips").innerHTML =
       `<button type="button" class="vh-chip${vhState.year === "" ? " on" : ""}" data-year="">All years</button>` +
       years.map(y => `<button type="button" class="vh-chip${vhState.year === y ? " on" : ""}" data-year="${y}">${y}</button>`).join("");
