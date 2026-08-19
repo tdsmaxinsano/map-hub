@@ -1897,6 +1897,34 @@
   var suggestState = {}; // refId -> { status, candidates, error, showRejected, discFilter, showInactive }
 
   function zipFromAddress(addr) { var m = String(addr || "").match(/,.*?\b(\d{5})\b/); return m ? m[1] : ""; }
+  // ZIP → place name (display sugar, e.g. "60077 · Skokie") via the shared
+  // zip_places cache (migration 58), falling back to the ZIP directory.
+  var zipPlaceByZip = {};
+  async function ensureRefZipPlace(zip) {
+    if (!zip || Object.prototype.hasOwnProperty.call(zipPlaceByZip, zip)) return;
+    zipPlaceByZip[zip] = null;
+    try {
+      var res = await db.from("zip_places").select("place_name").eq("zip_code", zip).maybeSingle();
+      if (!res.error && res.data && res.data.place_name) { zipPlaceByZip[zip] = res.data.place_name; return; }
+    } catch (e) {}
+    try {
+      var r = await fetch("https://api.zippopotam.us/us/" + zip);
+      if (r.ok) {
+        var data = await r.json();
+        var p = data && data.places && data.places[0];
+        var name = p ? String(p["place name"] || "").trim() : "";
+        if (name) {
+          zipPlaceByZip[zip] = name;
+          db.from("zip_places").upsert(
+            { zip_code: zip, place_name: name, state: ((p["state abbreviation"] || "").trim() || null), source: "zippopotam" },
+            { onConflict: "zip_code" });
+        }
+      }
+    } catch (e) {}
+  }
+  function refZipLabel(zip) {
+    return zip ? (zipPlaceByZip[zip] ? zip + " · " + zipPlaceByZip[zip] : zip) : "";
+  }
   function splitPairsToIndividual(disc) {
     return (disc || []).reduce(function(acc, d) {
       if (d === "PT/PTA") acc.push("PT", "PTA");
@@ -1993,6 +2021,8 @@
       suggestState[ref.id] = { status: "error", error: e.message || String(e), candidates: [], showRejected: prevShowRejected, discFilter: prevDiscFilter, showInactive: prevShowInactive };
     }
     renderSuggestTray(ref.id);
+    // Resolve the referral ZIP's place name in the background, repaint once known.
+    if (zip) ensureRefZipPlace(zip).then(function() { renderSuggestTray(ref.id); });
   }
 
   function refreshSuggestions(refId) {
@@ -2260,13 +2290,13 @@
 
     var cardHtml = function(c, tierKey) {
       var dist = isFinite(c._distance) ? c._distance.toFixed(1) + " mi" : "—";
-      var chips = (c.covers_zip ? "<span class='suggest-chip zip'>✓ ZIP</span>" : "") +
+      var chips = (c.covers_zip ? "<span class='suggest-chip zip' title='Covers " + esc(refZipLabel(refZip) || "this ZIP") + "'>✓ ZIP</span>" : "") +
                   (c.served_nearby && c.nearest_miles != null ? "<span class='suggest-chip rad'>📍 " + Number(c.nearest_miles).toFixed(1) + " mi</span>" : "") +
                   (c.zip_requested ? "<span class='suggest-chip req' title='This therapist asked to work this area'>✋ Requested</span>" : "");
       var flags = "";
       if (c.active === false) flags += "<div class='suggest-flag inact'>⛔ Inactive — needs reactivation</div>";
       if (c.do_not_rehire)   flags += "<div class='suggest-flag danger'>🚫 Do-not-rehire</div>";
-      if (c.zip_excluded)    flags += "<div class='suggest-flag danger'>⛔ Won't serve" + (refZip ? " " + esc(refZip) : " this area") + "</div>";
+      if (c.zip_excluded)    flags += "<div class='suggest-flag danger'>⛔ Won't serve" + (refZip ? " " + esc(refZipLabel(refZip)) : " this area") + "</div>";
       if (c.agency_conflict) flags += "<div class='suggest-flag danger'>⛔ Restricted: " + esc(refAgencyName(refId)) + "</div>";
       var otherAg = (Array.isArray(c.restricted_agencies) ? c.restricted_agencies : []).filter(Boolean);
       var otherCl = (Array.isArray(c.restricted_clinicians) ? c.restricted_clinicians : []).filter(Boolean);
