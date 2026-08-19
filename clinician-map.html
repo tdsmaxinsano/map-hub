@@ -25100,6 +25100,7 @@
   // ═══════════════════════════════════════════════════════════════════
   var REF_SUGGEST_RADIUS_MI = 2.5;
   var _refSuggestData = null;
+  var _zipExclusionSet = null; // "clinicianId|zip" won't-serve pairs (migration 56), refreshed per suggest run
 
   function refDeriveZip(address) {
     var m = String(address || "").match(/,.*?\b(\d{5})\b/);
@@ -25204,6 +25205,7 @@
         name: clinician.name || "",
         discipline: clinDisc || clinician.discipline || "",
         active: clinician.active !== false,
+        zipExcluded: !!(zip && _zipExclusionSet && _zipExclusionSet.has(String(clinician.id) + "|" + zip)),
         distance: distance,
         rating: rating,
         coversZip: coversZip,
@@ -25257,6 +25259,13 @@
     } catch (e) {
       console.warn("[refSuggest] load failed", e);
     }
+    // "Won't serve" refusals — tolerate the table not existing yet (migration 56).
+    try {
+      var exRes = await supabaseClient.from("clinician_zip_exclusions").select("clinician_id, zip_code");
+      _zipExclusionSet = new Set((exRes.data || []).map(function(r) {
+        return String(r.clinician_id) + "|" + String(r.zip_code || "").trim();
+      }));
+    } catch (e) { _zipExclusionSet = new Set(); }
     renderReferralSuggestPanel(buildReferralSuggestions(referral));
   }
 
@@ -25341,6 +25350,9 @@
         if (c.active === false) {
           restr += "<div class='rsg-restr rsg-inact'>⛔ Inactive — needs reactivation</div>";
         }
+        if (c.zipExcluded) {
+          restr += "<div class='rsg-restr rsg-conflict'>⛔ Won't serve " + escHtml(data.zip || "this ZIP") + "</div>";
+        }
         if (c.agencyConflict) {
           restr += "<div class='rsg-restr rsg-conflict'>⛔ Restricted from " + escHtml(data.agency || "this agency") + "</div>";
         }
@@ -25390,6 +25402,7 @@
     var rows = list.map(function(c, i) {
       var restr = [];
       if (c.active === false) restr.push("⛔ INACTIVE — needs reactivation");
+      if (c.zipExcluded) restr.push("⛔ WON'T SERVE " + (data.zip || "this ZIP"));
       if (c.agencyConflict) restr.push("⛔ RESTRICTED from " + (data.agency || "agency"));
       if (c.restrAgencies.length) restr.push("agencies: " + c.restrAgencies.join(", "));
       if (c.restrClinicians.length) restr.push("clinicians: " + c.restrClinicians.join(", "));

@@ -2074,10 +2074,16 @@
   // agency, or flagged do-not-rehire. Their ✓ Accept becomes a 🔓
   // "request a restriction lift" (creates a kanban task for admins).
   function suggestBlocked(c) {
-    return !!(c && (c.agency_conflict || c.do_not_rehire));
+    return !!(c && (c.agency_conflict || c.do_not_rehire || c.zip_excluded));
   }
   function suggestBlockedLabel(refId, c) {
-    return c && c.do_not_rehire ? "flagged do-not-rehire" : ("restricted from " + refAgencyName(refId));
+    if (c && c.do_not_rehire) return "flagged do-not-rehire";
+    if (c && c.zip_excluded) {
+      var ref = allReferrals.find(function(r) { return r.id === refId; });
+      var zip = ref ? zipFromAddress(ref.address) : "";
+      return "marked won't-serve for " + (zip ? "ZIP " + zip : "this area");
+    }
+    return "restricted from " + refAgencyName(refId);
   }
   // 🔓 on a blocked card → create a "Lift restriction" task on the kanban
   // Referrals board (leftmost column) so an admin can review + lift from
@@ -2092,8 +2098,12 @@
     if (cand._liftRequested) { showToast("⏳ Lift request already sent — it's on the admin task board"); return; }
 
     var clinName = fmtClinName(cand.name);
-    var blockWhat = cand.do_not_rehire ? "Do-not-rehire flag" : ("Restriction: " + (ref.agency || "this agency"));
-    var title = "Lift restriction: " + clinName + " ↔ " + (cand.do_not_rehire ? "DNR" : (ref.agency || "agency"));
+    var refZipL = zipFromAddress(ref.address) || "";
+    var blockWhat = cand.do_not_rehire ? "Do-not-rehire flag"
+      : cand.zip_excluded ? ("Won't-serve ZIP" + (refZipL ? " " + refZipL : ""))
+      : ("Restriction: " + (ref.agency || "this agency"));
+    var title = "Lift restriction: " + clinName + " ↔ " +
+      (cand.do_not_rehire ? "DNR" : cand.zip_excluded ? ("ZIP " + (refZipL || "refusal")) : (ref.agency || "agency"));
 
     var reason = window.prompt("Request to lift — " + clinName + " (" + blockWhat + ")\nWhy should this be lifted? (optional)");
     if (reason === null) return; // cancelled
@@ -2135,8 +2145,10 @@
         "• Referral: " + (ref.patient_name || "—") + " — " + (ref.address || "") + "\n" +
         "• Requested by: " + (sess.user.email || sess.user.id) + " (referral board)\n" +
         (reason.trim() ? "• Reason: " + reason.trim() + "\n" : "") +
-        "\nTo lift: open the clinician's profile (Roster Review or Map) → Restrictions" +
-        (cand.do_not_rehire ? " / Do-not-rehire flag" : "") + ".";
+        "\nTo lift: " + (cand.zip_excluded
+          ? "confirm with the therapist, then remove the ZIP from their ⛔ Won't-serve list on the Territory Planner."
+          : "open the clinician's profile (Roster Review or Map) → Restrictions" +
+            (cand.do_not_rehire ? " / Do-not-rehire flag" : "") + ".");
 
       var ins = await db.from("tasks").insert({
         title: title,
@@ -2179,6 +2191,7 @@
     if (st.status === "error")   { el.innerHTML = shell("<div class='suggest-empty'>Couldn't load suggestions.<br>" + esc(st.error) + "</div>"); return; }
 
     var ref = allReferrals.find(function(r) { return r.id === refId; });
+    var refZip = ref ? zipFromAddress(ref.address) : "";
     var triage = getTriage(ref);
     var already = {};
     allContacts.filter(function(c) { return c.referral_id === refId; })
@@ -2251,6 +2264,7 @@
       var flags = "";
       if (c.active === false) flags += "<div class='suggest-flag inact'>⛔ Inactive — needs reactivation</div>";
       if (c.do_not_rehire)   flags += "<div class='suggest-flag danger'>🚫 Do-not-rehire</div>";
+      if (c.zip_excluded)    flags += "<div class='suggest-flag danger'>⛔ Won't serve" + (refZip ? " " + esc(refZip) : " this area") + "</div>";
       if (c.agency_conflict) flags += "<div class='suggest-flag danger'>⛔ Restricted: " + esc(refAgencyName(refId)) + "</div>";
       var otherAg = (Array.isArray(c.restricted_agencies) ? c.restricted_agencies : []).filter(Boolean);
       var otherCl = (Array.isArray(c.restricted_clinicians) ? c.restricted_clinicians : []).filter(Boolean);
@@ -2280,7 +2294,7 @@
         "<div class='suggest-tiers'>" +
           (suggestBlocked(c)
             ? "<button class='suggest-tier-btn lift" + (c._liftRequested ? " requested" : "") + "' title='" +
-              (c.do_not_rehire ? "Do-not-rehire" : "Restricted from this agency") +
+              (c.do_not_rehire ? "Do-not-rehire" : c.zip_excluded ? "Won&#39;t serve this ZIP" : "Restricted from this agency") +
               " — can&#39;t be dispatched. Click to request a restriction lift (creates an admin task).' " +
               "onclick='event.stopPropagation();requestRestrictionLift(\"" + refId + "\",\"" + c.clinician_id + "\")'>" +
               (c._liftRequested ? "⏳" : "🔓") + "</button>"
