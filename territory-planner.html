@@ -82,6 +82,21 @@
   .zip-chip.gap-idle { background: #fdf6e6; color: #92400e; border-color: #ecd9a8; }
   .zip-chip .cnt { font-weight: 600; opacity: .75; margin-left: 3px; }
   .cutoff-note { font-size: 11px; color: #92400e; background: #fdf6e6; border: 1px solid #ecd9a8; border-radius: 7px; padding: 4px 9px; margin-bottom: 8px; display: inline-block; }
+  /* Move-workflow chips + controls */
+  .zip-chip.plan-keep   { background: #eef7f0; color: #166534; border-color: #bfe3c9; cursor: pointer; }
+  .zip-chip.plan-remove { background: #fdeaea; color: #b3261e; border-color: #f3c0c0; text-decoration: line-through; cursor: pointer; }
+  .zip-chip.plan-suggest{ box-shadow: 0 0 0 2px #ecd9a8; }
+  .zip-chip.plan-add    { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; cursor: pointer; }
+  .zip-chip.diff-ok     { background: #eef7f0; color: #166534; border-color: #bfe3c9; }
+  .zip-chip.diff-remove { background: #fdeaea; color: #b3261e; border-color: #f3c0c0; }
+  .zip-chip.diff-add    { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
+  .mv-btn { padding: 6px 12px; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; border: 1px solid var(--border); background: #fff; }
+  .mv-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .mv-btn.danger { color: #b3261e; border-color: #f3c0c0; }
+  .mv-btn:disabled { opacity: .5; cursor: default; }
+  .mv-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
+  .mv-label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin: 12px 0 5px; }
+  .mv-input { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
   .empty-note { font-size: 12px; color: #94a3b8; font-style: italic; }
 
   /* Visit history table */
@@ -207,6 +222,12 @@
           <div style="font-size:11px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Declared but never served</div>
           <div class="zip-chips" id="tp-gap-idle"><span class="empty-note">None — every declared ZIP has history.</span></div>
         </div>
+
+        <div class="card" id="tp-move-card">
+          <h3>📦 Therapist moved?</h3>
+          <p class="hint">Set the history cutoff, stage the new ZIP list, update TherapyBoss to match, then run the ZIP Coverage import on the Map — the diff below confirms when TB has caught up.</p>
+          <div id="tp-move-body"><span class="empty-note">Loading…</span></div>
+        </div>
       </div>
     </div>
 
@@ -270,7 +291,13 @@ mapboxgl.accessToken = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpb
 const DISC_COLOR = { PT: "#2463eb", PTA: "#7c3aed", OT: "#22c55e", OTA: "#16a34a", ST: "#f97316", STA: "#ea580c" };
 
 let currentUser = null;
+let currentRole = "readonly"; // move-workflow edits gate to admin + editor
 let clinician = null;        // clinician_v2 row
+let zipPlan = null;          // clinician_zip_plans row (staged move plan) or null
+let planTableMissing = false; // migration 55 not run yet
+let moveState = null;        // in-progress plan editor: { removed:Set, added:[], note }
+let planEditing = false;     // restaging an existing plan
+let discardArmed = false;
 let profileRow = null;       // clinician_profiles row (tags, rating)
 let declaredRows = [];       // clinician_zip_coverages rows
 let historyRows = [];        // deduped episode rows (full history, all years)
@@ -411,6 +438,10 @@ async function launchApp(user) {
   document.getElementById("app-header").style.display = "flex";
   document.getElementById("app-container").style.display = "block";
   document.getElementById("header-user").textContent = user.email || "";
+  try {
+    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    currentRole = (roleRow && roleRow.role) || "readonly";
+  } catch (e) { currentRole = "readonly"; }
 
   const cid = new URLSearchParams(PAGE_INITIAL_SEARCH || window.location.search).get("clinician");
   if (cid) openWorkspace(cid);
@@ -449,16 +480,20 @@ async function openWorkspace(clinicianId) {
   loading.textContent = "Loading clinician…";
 
   try {
-    const [cRes, pRes, zRes] = await Promise.all([
+    const [cRes, pRes, zRes, planRes] = await Promise.all([
       db.from("clinician_v2").select("*").eq("id", clinicianId).maybeSingle(),
       db.from("clinician_profiles").select("*").eq("clinician_id", clinicianId).maybeSingle(),
-      db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinicianId)
+      db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinicianId),
+      db.from("clinician_zip_plans").select("*").eq("clinician_id", clinicianId).maybeSingle()
     ]);
     if (cRes.error) throw cRes.error;
     if (!cRes.data) { throw new Error("Clinician not found."); }
     clinician = cRes.data;
     profileRow = pRes.data || null;
     declaredRows = zRes.data || [];
+    // Plan table may predate migration 55 — tolerate a missing table.
+    zipPlan = (planRes && !planRes.error && planRes.data) ? planRes.data : null;
+    planTableMissing = !!(planRes && planRes.error);
 
     renderHeader();
     loading.textContent = "Loading full visit history (all years)…";
@@ -520,6 +555,7 @@ async function openWorkspace(clinicianId) {
     loading.style.display = "none";
 
     renderZipPanels();
+    renderMoveCard();
     renderVisitTable(true);
     renderTravelStats();
     initTerritoryMap();
@@ -691,6 +727,283 @@ function renderZipPanels() {
   document.getElementById("tp-gap-idle").innerHTML = gapIdle.length
     ? gapIdle.map(z => `<span class="zip-chip gap-idle">${esc(z)}</span>`).join("")
     : "<span class='empty-note'>None — every declared ZIP has history.</span>";
+}
+
+// ══════════════════════════════════════════════════════════════════
+// 📦 THERAPIST-MOVED WORKFLOW (migration 55)
+// Cutoff lives in clinician_profiles.tags.ignoreHistoryBefore (what the
+// map + suggest RPC read); the staged target-ZIP plan lives in
+// clinician_zip_plans (DB-gated admin+editor). TB stays source of truth:
+// the plan is intent, the declared-vs-target diff confirms after the
+// next ZIP Coverage import.
+// ══════════════════════════════════════════════════════════════════
+function canEditPlan() { return currentRole === "admin" || currentRole === "editor"; }
+function ensureMoveState() {
+  if (!moveState) moveState = { removed: new Set(), added: [], note: "" };
+  return moveState;
+}
+function captureMoveInputs() {
+  const st = ensureMoveState();
+  const note = document.getElementById("mv-note");
+  if (note) st.note = note.value;
+}
+function buildTargetList() {
+  const st = ensureMoveState();
+  const kept = Array.from(declaredZipSet()).filter(z => !st.removed.has(z));
+  return Array.from(new Set(kept.concat(st.added))).sort();
+}
+
+function renderMoveCard() {
+  const body = document.getElementById("tp-move-body");
+  if (!body) return;
+  const canEdit = canEditPlan();
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const cutoffIso = cutoff ? cutoff.toISOString().slice(0, 10) : "";
+  let html = "";
+
+  // Step 1 — the history cutoff
+  html += "<div class='mv-label' style='margin-top:0'>1 · Ignore history before</div>";
+  if (canEdit) {
+    html += `<div class="mv-row">
+      <input type="date" id="mv-cutoff" class="mv-input" value="${cutoffIso}">
+      <button class="mv-btn primary" onclick="saveCutoff()">Save</button>` +
+      (cutoffIso ? `<button class="mv-btn" onclick="clearCutoff()">Clear</button>` : "") +
+      `</div><div style="font-size:11px;color:var(--muted)">Coverage tools ignore visits before this date — the full visit table below keeps everything.</div>`;
+  } else {
+    html += `<div style="font-size:12px">${cutoffIso ? "Set: <b>" + esc(cutoffIso) + "</b>" : "<span class='empty-note'>Not set.</span>"}</div>`;
+  }
+
+  if (planTableMissing) {
+    html += "<div class='mv-label'>2 · Target ZIP plan</div><div class='cutoff-note'>⚠ Run migration 55 (clinician_zip_plans) to enable staged ZIP plans.</div>";
+  } else if (zipPlan && !planEditing) {
+    html += renderPlanDiff(canEdit);
+  } else if (canEdit) {
+    html += renderPlanEditor();
+  } else {
+    html += "<div class='mv-label'>2 · Target ZIP plan</div><span class='empty-note'>No staged plan.</span>";
+  }
+
+  body.innerHTML = html;
+  const noteInput = document.getElementById("mv-note");
+  if (noteInput && moveState && moveState.note) noteInput.value = moveState.note;
+}
+
+function renderPlanEditor() {
+  const st = ensureMoveState();
+  const declared = Array.from(declaredZipSet()).sort();
+  const served = servedZipCounts();
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  let html = "<div class='mv-label'>2 · Stage the new ZIP list</div>";
+  if (declared.length) {
+    html += "<div style='font-size:11px;color:var(--muted);margin-bottom:6px'>Click a ZIP to keep / remove." +
+      (cutoff ? " 💡 = no episodes since the cutoff — likely the old area." : "") + "</div>";
+    html += "<div class='zip-chips'>" + declared.map(z => {
+      const removed = st.removed.has(z);
+      const suggest = !!cutoff && !served[z];
+      return `<span class="zip-chip ${removed ? "plan-remove" : "plan-keep"}${suggest ? " plan-suggest" : ""}" onclick="togglePlanZip('${esc(z)}')">${suggest ? "💡 " : ""}${esc(z)}</span>`;
+    }).join("") + "</div>";
+  } else {
+    html += "<span class='empty-note'>No TB-declared ZIPs to start from — add the new-area ZIPs below.</span>";
+  }
+  html += "<div class='mv-row' style='margin-top:10px'>" +
+    "<input id='mv-add-zips' class='mv-input' placeholder='Add new-area ZIPs (e.g. 60056, 60005)' style='min-width:200px'>" +
+    "<button class='mv-btn' onclick='addPlanZips()'>＋ Add</button></div>";
+  if (st.added.length) {
+    html += "<div class='zip-chips' style='margin-bottom:6px'>" + st.added.map(z =>
+      `<span class="zip-chip plan-add" title="Click to drop from the plan" onclick="removeAddedZip('${esc(z)}')">＋ ${esc(z)}</span>`).join("") + "</div>";
+  }
+  const target = buildTargetList();
+  html += `<div style="font-size:11.5px;color:var(--muted);margin:6px 0">Target list: <b>${target.length}</b> ZIP${target.length === 1 ? "" : "s"}</div>`;
+  html += "<div class='mv-row'>" +
+    "<input id='mv-note' class='mv-input' placeholder='Note (e.g. moved to Arlington Heights)' style='min-width:200px'>" +
+    `<button class="mv-btn primary" onclick="saveZipPlan()" ${target.length ? "" : "disabled"}>💾 Save plan</button>` +
+    (zipPlan ? "<button class='mv-btn' onclick='cancelRestage()'>Cancel</button>" : "") +
+    "</div>";
+  return html;
+}
+
+function renderPlanDiff(canEdit) {
+  const target = new Set((zipPlan.target_zips || []).map(normZip));
+  const declared = declaredZipSet();
+  const matched = [], toRemove = [], toAdd = [];
+  Array.from(new Set([...target, ...declared])).sort().forEach(z => {
+    if (target.has(z) && declared.has(z)) matched.push(z);
+    else if (declared.has(z)) toRemove.push(z);
+    else toAdd.push(z);
+  });
+  const done = !toRemove.length && !toAdd.length;
+  let html = "<div class='mv-label'>2 · Target ZIP plan</div>";
+  html += `<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Staged ${esc(fmtDate(zipPlan.set_at))}${zipPlan.set_by_email ? " by " + esc(zipPlan.set_by_email) : ""}${zipPlan.note ? " — “" + esc(zipPlan.note) + "”" : ""} · ${(zipPlan.target_zips || []).length} ZIPs</div>`;
+  if (canEdit) {
+    html += `<div class="mv-row"><button class="mv-btn" onclick="copyZipList()">📋 Copy target ZIP list</button>` +
+      `<button class="mv-btn" onclick="restagePlan()">✎ Restage</button>` +
+      `<button class="mv-btn danger" id="mv-discard" onclick="discardPlan()">🗑 Discard</button></div>`;
+  }
+  html += "<div class='mv-label'>3 · Update TherapyBoss, then run the ZIP Coverage import on the Map</div>";
+  html += "<div class='mv-label'>4 · TB vs plan</div>";
+  if (done) {
+    html += "<div style='font-size:12.5px;font-weight:700;color:#166534;margin-bottom:6px'>🎉 TB matches the plan — the move is fully reflected in coverage.</div>";
+    if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button></div>";
+  } else {
+    html += "<div class='zip-chips'>" +
+      matched.map(z => `<span class="zip-chip diff-ok" title="In TB and in the plan">✓ ${esc(z)}</span>`).join("") +
+      toRemove.map(z => `<span class="zip-chip diff-remove" title="Still declared in TB — planned for removal">− ${esc(z)}</span>`).join("") +
+      toAdd.map(z => `<span class="zip-chip diff-add" title="Planned add — not in TB yet">＋ ${esc(z)}</span>`).join("") +
+      "</div>";
+    html += `<div style="font-size:11px;color:var(--muted);margin-top:6px">${matched.length} matched · ${toRemove.length} to remove in TB · ${toAdd.length} to add in TB</div>`;
+  }
+  return html;
+}
+
+// ── Cutoff writes: fresh re-read → merge → upsert (roster house style;
+//    re-reading narrows the map's stale-tab whole-tags-replace window).
+async function writeCutoff(isoOrNull) {
+  if (!canEditPlan()) { showToast("Admin or editor only"); return; }
+  try {
+    const fresh = await db.from("clinician_profiles").select("tags").eq("clinician_id", clinician.id).maybeSingle();
+    const tags = (fresh.data && fresh.data.tags && typeof fresh.data.tags === "object" && !Array.isArray(fresh.data.tags))
+      ? Object.assign({}, fresh.data.tags) : {};
+    // The reader checks snake_case FIRST — always clear the legacy spellings
+    // so a stale key can't shadow the value we set.
+    delete tags.ignore_history_before; delete tags.history_ignore_before; delete tags.historyIgnoreBefore;
+    if (isoOrNull) tags.ignoreHistoryBefore = isoOrNull;
+    else delete tags.ignoreHistoryBefore;
+    const res = await db.from("clinician_profiles").upsert(
+      { clinician_id: clinician.id, tags: tags, updated_at: new Date().toISOString() },
+      { onConflict: "clinician_id" });
+    if (res.error) throw res.error;
+    profileRow = profileRow || { clinician_id: clinician.id };
+    profileRow.tags = tags;
+    showToast(isoOrNull ? "Cutoff saved — coverage numbers updated" : "Cutoff cleared");
+    refreshAfterCutoff();
+  } catch (e) { showToast("Couldn't save cutoff: " + (e.message || e)); }
+}
+function saveCutoff() {
+  const v = (document.getElementById("mv-cutoff") || {}).value || "";
+  if (!v) { showToast("Pick a date first (or use Clear)"); return; }
+  writeCutoff(v);
+}
+function clearCutoff() { writeCutoff(null); }
+function refreshAfterCutoff() {
+  renderZipPanels();
+  renderTravelStats();
+  renderMoveCard();
+  if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
+  initTerritoryMap();
+}
+
+// ── Plan editor actions ──
+function togglePlanZip(zip) {
+  captureMoveInputs();
+  const st = ensureMoveState();
+  if (st.removed.has(zip)) st.removed.delete(zip); else st.removed.add(zip);
+  renderMoveCard();
+}
+function addPlanZips() {
+  captureMoveInputs();
+  const st = ensureMoveState();
+  const input = document.getElementById("mv-add-zips");
+  const raw = (input && input.value) || "";
+  const declared = declaredZipSet();
+  let added = 0, bad = 0;
+  raw.split(/[,\s]+/).map(z => z.trim()).filter(Boolean).forEach(z => {
+    if (!/^\d{5}$/.test(z)) { bad++; return; }
+    if (declared.has(z)) { st.removed.delete(z); added++; return; } // re-keeping a declared ZIP
+    if (!st.added.includes(z)) { st.added.push(z); added++; }
+  });
+  if (bad) showToast(bad + " entr" + (bad === 1 ? "y" : "ies") + " skipped — ZIPs are 5 digits");
+  if (!added && !bad) showToast("Type one or more ZIPs first");
+  renderMoveCard();
+}
+function removeAddedZip(zip) {
+  captureMoveInputs();
+  const st = ensureMoveState();
+  st.added = st.added.filter(z => z !== zip);
+  renderMoveCard();
+}
+function restagePlan() {
+  const declared = declaredZipSet();
+  const target = new Set((zipPlan.target_zips || []).map(normZip));
+  moveState = {
+    removed: new Set(Array.from(declared).filter(z => !target.has(z))),
+    added: Array.from(target).filter(z => !declared.has(z)),
+    note: zipPlan.note || ""
+  };
+  planEditing = true;
+  renderMoveCard();
+}
+function cancelRestage() { planEditing = false; moveState = null; renderMoveCard(); }
+
+async function saveZipPlan() {
+  if (!canEditPlan()) return;
+  captureMoveInputs();
+  const target = buildTargetList();
+  if (!target.length) { showToast("The target list is empty"); return; }
+  const st = ensureMoveState();
+  const payload = {
+    clinician_id: clinician.id,
+    target_zips: target,
+    note: (st.note || "").trim() || null,
+    set_by_email: (currentUser && currentUser.email) || null,
+    set_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  const res = await db.from("clinician_zip_plans").upsert(payload, { onConflict: "clinician_id" });
+  if (res.error) { showToast("Couldn't save the plan: " + res.error.message); return; }
+  zipPlan = payload;
+  moveState = null;
+  planEditing = false;
+  showToast("💾 Plan staged — now update TherapyBoss to match, then re-run the ZIP import");
+  renderMoveCard();
+}
+
+function copyZipList() {
+  const text = (zipPlan && zipPlan.target_zips ? zipPlan.target_zips : []).join(", ");
+  if (!text) { showToast("No target list to copy"); return; }
+  const done = () => showToast("📋 Copied " + zipPlan.target_zips.length + " ZIPs — paste into TherapyBoss");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyZipFallback(text, done));
+  } else {
+    copyZipFallback(text, done);
+  }
+}
+function copyZipFallback(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand("copy"); done(); } catch (e) { showToast("Copy failed — select manually"); }
+  document.body.removeChild(ta);
+}
+
+async function discardPlan() {
+  if (!canEditPlan()) return;
+  if (!discardArmed) {
+    discardArmed = true;
+    const b = document.getElementById("mv-discard");
+    if (b) b.textContent = "🗑 Sure?";
+    setTimeout(() => {
+      discardArmed = false;
+      const b2 = document.getElementById("mv-discard");
+      if (b2) b2.textContent = "🗑 Discard";
+    }, 4000);
+    return;
+  }
+  discardArmed = false;
+  const res = await db.from("clinician_zip_plans").delete().eq("clinician_id", clinician.id);
+  if (res.error) { showToast("Couldn't discard: " + res.error.message); return; }
+  zipPlan = null; moveState = null; planEditing = false;
+  showToast("Plan discarded");
+  renderMoveCard();
+}
+async function completePlan() {
+  if (!canEditPlan()) return;
+  const res = await db.from("clinician_zip_plans").delete().eq("clinician_id", clinician.id);
+  if (res.error) { showToast("Couldn't clear the plan: " + res.error.message); return; }
+  zipPlan = null; moveState = null; planEditing = false;
+  showToast("🎉 Move complete — plan cleared");
+  renderMoveCard();
 }
 
 // ══════════════════════════════════════════════════════════════════
