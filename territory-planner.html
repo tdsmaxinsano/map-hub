@@ -100,6 +100,9 @@
   .zip-chip.excl { background: #111827; color: #fff; border-color: #111827; }
   .zip-chip.excl .x { cursor: pointer; margin-left: 6px; opacity: .65; }
   .zip-chip.excl .x:hover { opacity: 1; }
+  .zip-chip.req { background: #ccfbf1; color: #0f766e; border-color: #7edcd0; }
+  .zip-chip.req .x { cursor: pointer; margin-left: 6px; opacity: .55; }
+  .zip-chip.req .x:hover { opacity: 1; }
   .empty-note { font-size: 12px; color: #94a3b8; font-style: italic; }
 
   /* Visit history table */
@@ -127,6 +130,7 @@
   .tp-zip-badge.served { background: #2463eb; }
   .tp-zip-badge.declared { background: #d97706; }
   .tp-zip-badge.excluded { background: #111827; }
+  .tp-zip-badge.requested { background: #0d9488; }
 
   .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 11px 22px; border-radius: 8px; font-size: 13px; font-weight: 700; z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
   .toast.show { opacity: 1; }
@@ -201,6 +205,7 @@
             <span><span class="sw" style="background:#2463eb"></span>ZIP served only</span>
             <span><span class="sw" style="background:#d97706"></span>ZIP declared, never served</span>
             <span><span class="sw" style="background:#111827"></span>ZIP won't serve</span>
+            <span><span class="sw" style="background:#0d9488"></span>ZIP requested, not in TB</span>
           </div>
         </div>
 
@@ -267,6 +272,12 @@
           <p class="hint">Areas this therapist refuses ("no more Skokie"). Suggestion tools flag them and block dispatch for referrals in these ZIPs. Type ZIPs <b>or a city name</b> — a city resolves to ZIPs from their own visit history plus a ZIP directory, and you confirm before saving.</p>
           <div id="tp-excl-body"><span class="empty-note">Loading…</span></div>
         </div>
+
+        <div class="card" id="tp-req-card">
+          <h3>✋ Requested areas <span id="tp-req-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
+          <p class="hint">Areas this therapist <b>asked</b> to work ("Mt Prospect + Des Plaines please"). Suggestion tools show a green ✋ chip for referrals here. Type ZIPs or a city name — same collector as Won't-serve.</p>
+          <div id="tp-req-body"><span class="empty-note">Loading…</span></div>
+        </div>
       </div>
     </div>
     <div class="loading-line" id="tp-loading" style="display:none"></div>
@@ -311,6 +322,9 @@ let discardArmed = false;
 let zipExclusions = [];      // clinician_zip_exclusions rows ("won't serve")
 let exclTableMissing = false; // migration 56 not run yet
 let xzStaged = [];           // collector: ZIPs pending confirmation [{zip, from}]
+let zipRequests = [];        // clinician_zip_requests rows ("requested areas")
+let reqTableMissing = false; // migration 57 not run yet
+let rqStaged = [];           // requested-areas collector staging [{zip, from}]
 let profileRow = null;       // clinician_profiles row (tags, rating)
 let declaredRows = [];       // clinician_zip_coverages rows
 let historyRows = [];        // deduped episode rows (full history, all years)
@@ -506,12 +520,13 @@ async function openWorkspace(clinicianId) {
   loading.textContent = "Loading clinician…";
 
   try {
-    const [cRes, pRes, zRes, planRes, exRes] = await Promise.all([
+    const [cRes, pRes, zRes, planRes, exRes, rqRes] = await Promise.all([
       db.from("clinician_v2").select("*").eq("id", clinicianId).maybeSingle(),
       db.from("clinician_profiles").select("*").eq("clinician_id", clinicianId).maybeSingle(),
       db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinicianId),
       db.from("clinician_zip_plans").select("*").eq("clinician_id", clinicianId).maybeSingle(),
-      db.from("clinician_zip_exclusions").select("*").eq("clinician_id", clinicianId).order("zip_code")
+      db.from("clinician_zip_exclusions").select("*").eq("clinician_id", clinicianId).order("zip_code"),
+      db.from("clinician_zip_requests").select("*").eq("clinician_id", clinicianId).order("zip_code")
     ]);
     if (cRes.error) throw cRes.error;
     if (!cRes.data) { throw new Error("Clinician not found."); }
@@ -524,6 +539,9 @@ async function openWorkspace(clinicianId) {
     // Won't-serve table may predate migration 56 — same tolerance.
     zipExclusions = (exRes && !exRes.error && exRes.data) ? exRes.data : [];
     exclTableMissing = !!(exRes && exRes.error);
+    // Requested-areas table may predate migration 57 — same tolerance.
+    zipRequests = (rqRes && !rqRes.error && rqRes.data) ? rqRes.data : [];
+    reqTableMissing = !!(rqRes && rqRes.error);
 
     renderHeader();
     loading.textContent = "Loading full visit history (all years)…";
@@ -607,6 +625,7 @@ async function openWorkspace(clinicianId) {
     renderZipPanels();
     renderMoveCard();
     renderExclCard();
+    renderReqCard();
     renderVisitTable(true);
     renderTravelStats();
     initTerritoryMap();
@@ -1213,6 +1232,140 @@ async function reloadExclusions() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// ✋ REQUESTED AREAS (migration 57) — the positive mirror of Won't-serve.
+// Where the therapist ASKED to work. Suggest tools show a green ✋ chip
+// for referrals in these ZIPs; here each request shows its TB status
+// (declared ✓ / not declared → one click stages it in the move plan).
+// ══════════════════════════════════════════════════════════════════
+function requestedZipSet() {
+  return new Set(zipRequests.map(r => normZip(r.zip_code)).filter(Boolean));
+}
+function renderReqCard() {
+  const body = document.getElementById("tp-req-body");
+  if (!body) return;
+  const canEdit = canEditPlan();
+  const requested = requestedZipSet();
+  document.getElementById("tp-req-count").textContent = requested.size ? "· " + requested.size : "";
+
+  if (reqTableMissing) {
+    body.innerHTML = "<div class='cutoff-note'>⚠ Run migration 57 (clinician_zip_requests) to enable Requested areas.</div>";
+    return;
+  }
+
+  const declared = declaredZipSet();
+  let html = "";
+  html += zipRequests.length
+    ? "<div class='zip-chips' style='margin-bottom:8px'>" + zipRequests.map(r => {
+        const z = normZip(r.zip_code);
+        const inTb = declared.has(z);
+        const meta = [r.note, r.set_by_email, r.created_at ? fmtDate(r.created_at) : ""].filter(Boolean).join(" · ");
+        return `<span class="zip-chip req" title="${esc(meta || "requested")}">✋ ${esc(z)}` +
+          `<span style="font-weight:600;opacity:.8;margin-left:4px">${inTb ? "✓ in TB" : "· not in TB"}</span>` +
+          (canEdit ? `<span class="x" onclick="rqDelete('${esc(z)}')" title="Remove the request">✕</span>` : "") + "</span>";
+      }).join("") + "</div>"
+    : "<div class='empty-note' style='margin-bottom:8px'>No requested areas recorded.</div>";
+
+  // Requested-but-not-declared → offer to stage them straight into the move plan.
+  const missing = Array.from(requested).filter(z => !declared.has(z)).sort();
+  if (missing.length && canEdit) {
+    html += `<div class="mv-row"><button class="mv-btn" onclick="rqStageMissing()">📦 Stage ${missing.length} missing ZIP${missing.length === 1 ? "" : "s"} in the move plan</button></div>`;
+  }
+
+  if (canEdit) {
+    html += "<div class='mv-row' style='margin-top:8px'>" +
+      "<input id='rq-input' class='mv-input' placeholder='ZIPs or a city — e.g. Mount Prospect' style='min-width:200px'>" +
+      "<button class='mv-btn' onclick='rqAdd()' id='rq-add-btn'>Look up</button></div>";
+    if (rqStaged.length) {
+      html += "<div style='font-size:11px;color:var(--muted);margin:4px 0'>Confirm — uncheck any ZIP that's wrong:</div>";
+      html += "<div class='zip-chips' style='margin-bottom:8px'>" + rqStaged.map(s =>
+        `<span class="zip-chip gap-idle" title="${esc(s.from)}">${esc(s.zip)}<span class="x" style="cursor:pointer;margin-left:5px" onclick="rqRemoveStaged('${esc(s.zip)}')">✕</span></span>`).join("") + "</div>";
+      html += "<div class='mv-row'>" +
+        "<input id='rq-note' class='mv-input' placeholder='Note (e.g. asked 8/19 — wants Mt Prospect work)' style='min-width:200px'>" +
+        `<button class="mv-btn primary" onclick="rqConfirm()">✋ Add ${rqStaged.length} requested</button>` +
+        "<button class='mv-btn' onclick='rqClearStaged()'>Cancel</button></div>";
+    }
+  }
+  body.innerHTML = html;
+}
+async function rqAdd() {
+  if (!canEditPlan()) { showToast("Admin or editor only"); return; }
+  const input = document.getElementById("rq-input");
+  const raw = ((input && input.value) || "").trim();
+  if (!raw) { showToast("Type ZIPs or a city name first"); return; }
+  const btn = document.getElementById("rq-add-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  const requested = requestedZipSet();
+  const stagedSet = new Set(rqStaged.map(s => s.zip));
+  const cityTerms = [];
+  let added = 0;
+  raw.split(",").map(t => t.trim()).filter(Boolean).forEach(t => {
+    if (/^\d{5}$/.test(t)) {
+      if (!requested.has(t) && !stagedSet.has(t)) { rqStaged.push({ zip: t, from: "entered directly" }); stagedSet.add(t); added++; }
+    } else if (t) {
+      cityTerms.push(t);
+    }
+  });
+  for (const city of cityTerms) {
+    const found = await resolveCityZips(city);
+    if (!found.size) { showToast("Couldn't find ZIPs for “" + city + "” — enter them directly"); continue; }
+    found.forEach((from, z) => {
+      if (!requested.has(z) && !stagedSet.has(z)) { rqStaged.push({ zip: z, from: from }); stagedSet.add(z); added++; }
+    });
+  }
+  rqStaged.sort((a, b) => a.zip.localeCompare(b.zip));
+  if (input) input.value = "";
+  if (added) showToast(added + " ZIP" + (added === 1 ? "" : "s") + " staged — confirm below");
+  else if (!cityTerms.length) showToast("Nothing new to stage");
+  renderReqCard();
+}
+function rqRemoveStaged(zip) { rqStaged = rqStaged.filter(s => s.zip !== zip); renderReqCard(); }
+function rqClearStaged() { rqStaged = []; renderReqCard(); }
+async function rqConfirm() {
+  if (!canEditPlan() || !rqStaged.length) return;
+  const noteEl = document.getElementById("rq-note");
+  const note = ((noteEl && noteEl.value) || "").trim() || null;
+  const rows = rqStaged.map(s => ({
+    clinician_id: clinician.id,
+    zip_code: s.zip,
+    note: note,
+    set_by_email: (currentUser && currentUser.email) || null
+  }));
+  const res = await db.from("clinician_zip_requests").upsert(rows, { onConflict: "clinician_id,zip_code" });
+  if (res.error) { showToast("Couldn't save: " + res.error.message); return; }
+  showToast("✋ " + rows.length + " requested area" + (rows.length === 1 ? "" : "s") + " recorded");
+  rqStaged = [];
+  await reloadRequests();
+}
+async function rqDelete(zip) {
+  if (!canEditPlan()) return;
+  const res = await db.from("clinician_zip_requests").delete()
+    .eq("clinician_id", clinician.id).eq("zip_code", zip);
+  if (res.error) { showToast("Couldn't remove: " + res.error.message); return; }
+  showToast(zip + " request removed");
+  await reloadRequests();
+}
+async function reloadRequests() {
+  const r = await db.from("clinician_zip_requests").select("*").eq("clinician_id", clinician.id).order("zip_code");
+  zipRequests = (r && !r.error && r.data) ? r.data : zipRequests;
+  renderReqCard();
+  if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
+  initTerritoryMap();
+}
+// Requested-but-not-in-TB → drop them into the move-plan editor's added list.
+function rqStageMissing() {
+  if (!canEditPlan()) return;
+  const declared = declaredZipSet();
+  const missing = Array.from(requestedZipSet()).filter(z => !declared.has(z)).sort();
+  if (!missing.length) { showToast("Nothing missing — all requested ZIPs are declared"); return; }
+  const st = ensureMoveState();
+  let added = 0;
+  missing.forEach(z => { if (!st.added.includes(z)) { st.added.push(z); added++; } });
+  if (zipPlan) planEditing = true;
+  showToast("📦 " + added + " ZIP" + (added === 1 ? "" : "s") + " staged in the move plan — save it there");
+  renderMoveCard();
+}
+
+// ══════════════════════════════════════════════════════════════════
 // THE MAP
 // ══════════════════════════════════════════════════════════════════
 function initTerritoryMap() {
@@ -1288,17 +1441,21 @@ function initTerritoryMap() {
     const declared = declaredZipSet();
     const served = servedZipCounts();
     const excluded = excludedZipSet();
-    const allZips = Array.from(new Set([...declared, ...Object.keys(served), ...excluded]));
+    const requested = requestedZipSet();
+    const allZips = Array.from(new Set([...declared, ...Object.keys(served), ...excluded, ...requested]));
     for (const zip of allZips) {
       const c = await getZipCentroid(zip);
       if (!c || !tpMap) continue;
       const cls = excluded.has(zip) ? "excluded"
-        : declared.has(zip) && served[zip] ? "both" : served[zip] ? "served" : "declared";
+        : declared.has(zip) && served[zip] ? "both" : served[zip] ? "served"
+        : declared.has(zip) ? "declared"
+        : "requested"; // requested-only: not declared, not served, not refused
       const el = document.createElement("div");
       el.className = "tp-zip-badge " + cls;
-      el.textContent = (cls === "excluded" ? "⛔ " : "") + zip;
+      el.textContent = (cls === "excluded" ? "⛔ " : cls === "requested" ? "✋ " : "") + zip;
       el.title = cls === "excluded" ? "Won't serve — refused area"
-        : cls === "both" ? "Declared in TB + served (" + served[zip] + " episodes)"
+        : cls === "requested" ? "Requested area — not in TB yet"
+        : cls === "both" ? "Declared in TB + served (" + served[zip] + " episodes)" + (requested.has(zip) ? " · requested ✋" : "")
         : cls === "served" ? "Served (" + served[zip] + " episodes) — NOT declared in TB"
         : "Declared in TB — never served";
       new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat([c.lng, c.lat]).addTo(tpMap);

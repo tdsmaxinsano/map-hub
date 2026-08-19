@@ -3120,6 +3120,7 @@
     .rsg-chip { font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 7px; }
     .rsg-zip { background: #e4f0ff; color: #1a5fb4; }
     .rsg-rad { background: #eaf7ee; color: #1c7a44; }
+    .rsg-req { background: #ccfbf1; color: #0f766e; }
     .rsg-perf { font-size: 10px; font-weight: 700; padding: 1px 5px; border-radius: 7px; background: #eef2f7; color: #475569; }
     .rsg-perf.rsg-good { background: #e6f6ec; color: #1c7a44; }
     .rsg-perf.rsg-warn { background: #fef4e3; color: #a5741b; }
@@ -25101,6 +25102,7 @@
   var REF_SUGGEST_RADIUS_MI = 2.5;
   var _refSuggestData = null;
   var _zipExclusionSet = null; // "clinicianId|zip" won't-serve pairs (migration 56), refreshed per suggest run
+  var _zipRequestSet = null;   // "clinicianId|zip" requested-area pairs (migration 57)
 
   function refDeriveZip(address) {
     var m = String(address || "").match(/,.*?\b(\d{5})\b/);
@@ -25206,6 +25208,7 @@
         discipline: clinDisc || clinician.discipline || "",
         active: clinician.active !== false,
         zipExcluded: !!(zip && _zipExclusionSet && _zipExclusionSet.has(String(clinician.id) + "|" + zip)),
+        zipRequested: !!(zip && _zipRequestSet && _zipRequestSet.has(String(clinician.id) + "|" + zip)),
         distance: distance,
         rating: rating,
         coversZip: coversZip,
@@ -25266,6 +25269,13 @@
         return String(r.clinician_id) + "|" + String(r.zip_code || "").trim();
       }));
     } catch (e) { _zipExclusionSet = new Set(); }
+    // "Requested areas" — the positive mirror (migration 57), same tolerance.
+    try {
+      var rqRes = await supabaseClient.from("clinician_zip_requests").select("clinician_id, zip_code");
+      _zipRequestSet = new Set((rqRes.data || []).map(function(r) {
+        return String(r.clinician_id) + "|" + String(r.zip_code || "").trim();
+      }));
+    } catch (e) { _zipRequestSet = new Set(); }
     renderReferralSuggestPanel(buildReferralSuggestions(referral));
   }
 
@@ -25337,7 +25347,8 @@
         var distTxt = isFinite(c.distance) ? c.distance.toFixed(1) + " mi" : "—";
         var chips =
           (c.coversZip ? "<span class='rsg-chip rsg-zip'>✓ ZIP</span>" : "") +
-          (c.servedNearby ? "<span class='rsg-chip rsg-rad'>📍 " + c.distance.toFixed(1) + " mi</span>" : "");
+          (c.servedNearby ? "<span class='rsg-chip rsg-rad'>📍 " + c.distance.toFixed(1) + " mi</span>" : "") +
+          (c.zipRequested ? "<span class='rsg-chip rsg-req' title='Asked to work this area'>✋ Requested</span>" : "");
         var perf = "";
         if (c.avgSyncDays != null) {
           var tone = c.avgSyncDays <= 3 ? "rsg-good" : c.avgSyncDays <= 7 ? "rsg-warn" : "rsg-bad";
@@ -25402,6 +25413,7 @@
     var rows = list.map(function(c, i) {
       var restr = [];
       if (c.active === false) restr.push("⛔ INACTIVE — needs reactivation");
+      if (c.zipRequested) restr.push("✋ REQUESTED this area");
       if (c.zipExcluded) restr.push("⛔ WON'T SERVE " + (data.zip || "this ZIP"));
       if (c.agencyConflict) restr.push("⛔ RESTRICTED from " + (data.agency || "agency"));
       if (c.restrAgencies.length) restr.push("agencies: " + c.restrAgencies.join(", "));
