@@ -7,6 +7,7 @@
 <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
 <link href="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.css" rel="stylesheet">
 <script src="https://api.mapbox.com/mapbox-gl-js/v3.3.0/mapbox-gl.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   :root {
     --blue: #0b1f44; --blue-mid: #163172; --gold: #c79a26; --accent: #2463eb;
@@ -251,9 +252,11 @@
       <div>
         <div class="card">
           <h3>📮 TB Loaded ZIPs <span id="tp-declared-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
-          <p class="hint">Declared coverage — synced from TherapyBoss. To change it, update the clinician's ZIPs in TB, then run the ZIP Coverage import on the Map.</p>
+          <p class="hint">Declared coverage — synced from TherapyBoss. Update the clinician's ZIPs in TB, then import here (this clinician only) or via the Map's bulk importer.</p>
           <div class="zip-chips" id="tp-declared-zips"><span class="empty-note">None loaded.</span></div>
+          <div id="tp-cov-import"></div>
           <div id="tp-cov-revisions"></div>
+          <input type="file" id="tp-cov-file" accept=".csv,.xlsx,.xls" style="display:none">
         </div>
 
         <div class="card">
@@ -693,6 +696,7 @@ async function openWorkspace(clinicianId) {
 
     renderZipPanels();
     renderCovRevisions();
+    renderCovImport();
     renderMoveCard();
     renderExclCard();
     renderReqCard();
@@ -934,6 +938,222 @@ function renderCovRevisions() {
   host.innerHTML = html;
 }
 function toggleCovRevisions() { covRevOpen = !covRevOpen; renderCovRevisions(); }
+
+// ══════════════════════════════════════════════════════════════════
+// 📥 LOCALIZED ZIP COVERAGE IMPORT — same TB "Zip coverage" export the
+// Map's bulk importer takes (Zip code | Name | Discipline | Memo), but
+// applied to THIS clinician only. Accepts an UNFILTERED full-roster
+// export too: rows for other clinicians are identified by the same
+// name-variant matcher and ignored — no need to isolate in TB first.
+// Feeds the migration-59 revision log like the bulk import.
+// ══════════════════════════════════════════════════════════════════
+let covImport = null; // { fileName, fileType, zips:[{zip,discipline,memo}], ignoredRows, ignoredClinicians }
+
+function renderCovImport() {
+  const host = document.getElementById("tp-cov-import");
+  if (!host) return;
+  if (!canEditPlan()) { host.innerHTML = ""; return; }
+  if (!covImport) {
+    host.innerHTML = "<div class='mv-row' style='margin-top:8px'>" +
+      "<button class='mv-btn' onclick='covImportPick()'>📥 Import from TB — this clinician only</button>" +
+      "<span style='font-size:10.5px;color:var(--muted)'>Accepts the full export — other clinicians' rows are ignored.</span></div>";
+    return;
+  }
+  const declared = declaredZipSet();
+  const fileZips = covImport.zips.map(x => x.zip);
+  const fileSet = new Set(fileZips);
+  const added = fileZips.filter(z => !declared.has(z)).sort();
+  const removed = Array.from(declared).filter(z => !fileSet.has(z)).sort();
+  let html = `<div style="margin-top:8px;padding:9px 11px;border:1px dashed #94a3b8;border-radius:8px;background:#f8fafc">` +
+    `<div style="font-size:12px;font-weight:700;color:#1e2d4a">${covImport.zips.length} ZIP${covImport.zips.length === 1 ? "" : "s"} for ${esc(fmtName(clinician.name))} in “${esc(covImport.fileName)}”</div>` +
+    (covImport.ignoredRows
+      ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${covImport.ignoredRows} row${covImport.ignoredRows === 1 ? "" : "s"} for ${covImport.ignoredClinicians} other clinician${covImport.ignoredClinicians === 1 ? "" : "s"} ignored (localized import).</div>`
+      : "");
+  if (!added.length && !removed.length) {
+    html += "<div style='font-size:11.5px;color:#166534;margin-top:6px'>No changes — the file matches current declared coverage.</div>";
+  } else {
+    html += "<div class='zip-chips' style='margin-top:6px'>" +
+      added.map(z => `<span class="zip-chip rev-add">+ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
+      removed.map(z => `<span class="zip-chip rev-del">− ${esc(z)}${placeSuffix(z)}</span>`).join("") +
+      "</div>";
+  }
+  html += "<div class='mv-row' style='margin-top:8px'>" +
+    `<button class="mv-btn primary" onclick="covImportApply()">✓ Apply to ${esc(fmtName(clinician.name))}</button>` +
+    "<button class='mv-btn' onclick='covImportCancel()'>Cancel</button></div></div>";
+  host.innerHTML = html;
+}
+
+function covImportPick() {
+  if (!canEditPlan()) { showToast("Admin or editor only"); return; }
+  const inp = document.getElementById("tp-cov-file");
+  inp.onchange = () => {
+    const file = inp.files[0];
+    inp.value = "";
+    if (file) covImportParse(file);
+  };
+  inp.click();
+}
+
+function covImportParse(file) {
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array" });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: "" });
+      // Header-row scan (verified TB export: Zip code | Name | Discipline | Memo)
+      let head = null;
+      for (let i = 0; i < Math.min(rows.length, 10); i++) {
+        const cells = (rows[i] || []).map(c => String(c || "").toLowerCase().trim());
+        const zipIdx = cells.findIndex(c => c.includes("zip"));
+        const nameIdx = cells.findIndex(c => c.includes("name") || c.includes("clinician"));
+        if (zipIdx !== -1 && nameIdx !== -1) {
+          head = {
+            row: i, zipIdx, nameIdx,
+            discIdx: cells.findIndex(c => c.includes("disc") || c.includes("service")),
+            memoIdx: cells.findIndex(c => c.includes("memo") || c.includes("note"))
+          };
+          break;
+        }
+      }
+      if (!head) { showToast("Couldn't find Zip/Name columns — is this the TB Zip coverage export?"); return; }
+
+      const myVariants = nameVariants(clinician.name);
+      const rowNameMatches = (raw) => {
+        const cleaned = String(raw || "").trim()
+          .replace(/\b(PTA|PT|OTA|OT|STA|ST|SLP|COTA|OTR)\b\.?$/i, "")
+          .replace(/\s+/g, " ").trim().replace(/[;,]+$/, "");
+        if (!cleaned) return false;
+        const vs = nameVariants(cleaned);
+        for (const v of vs) if (myVariants.has(v)) return true;
+        return false;
+      };
+
+      const zipsSeen = new Set();
+      const targetZips = [];
+      let ignoredRows = 0;
+      const ignoredNames = new Set();
+      for (let i = head.row + 1; i < rows.length; i++) {
+        const r = rows[i] || [];
+        const zipCell = String(r[head.zipIdx] || "");
+        const m = zipCell.match(/\b(\d{5})\b/);
+        const name = String(r[head.nameIdx] || "").trim();
+        if (!m || !name) continue;
+        if (!rowNameMatches(name)) {
+          ignoredRows++;
+          ignoredNames.add(name.toLowerCase());
+          continue;
+        }
+        const zip = m[1];
+        if (zipsSeen.has(zip)) continue; // TB duplicate-chip case
+        zipsSeen.add(zip);
+        targetZips.push({
+          zip: zip,
+          discipline: head.discIdx !== -1 ? String(r[head.discIdx] || "").trim() || null : null,
+          memo: head.memoIdx !== -1 ? String(r[head.memoIdx] || "").trim() || null : null,
+          rawName: name
+        });
+      }
+      if (!targetZips.length) {
+        showToast("No rows in this file matched " + fmtName(clinician.name) + " — check it's a TB Zip coverage export");
+        return;
+      }
+      covImport = {
+        fileName: file.name, fileType: file.type || "application/octet-stream",
+        zips: targetZips.sort((a, b) => a.zip.localeCompare(b.zip)),
+        ignoredRows: ignoredRows, ignoredClinicians: ignoredNames.size
+      };
+      renderCovImport();
+      // Resolve place names for the incoming ZIPs so the diff reads well.
+      ensureZipPlaces(targetZips.map(x => x.zip)).then(() => { if (covImport) renderCovImport(); });
+    } catch (e) {
+      showToast("Couldn't read the file: " + (e.message || e));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function covImportCancel() { covImport = null; renderCovImport(); }
+
+async function covImportApply() {
+  if (!canEditPlan() || !covImport) return;
+  const nowIso = new Date().toISOString();
+  const before = Array.from(declaredZipSet()).sort();
+  const after = covImport.zips.map(x => x.zip).sort();
+  try {
+    // Batch record (non-fatal) — mirrors the bulk importer's audit shape.
+    let batchId = null;
+    const batchResp = await db.from("therapy_boss_zip_coverage_import_batches").insert([{
+      source_system: "Therapy Boss",
+      import_kind: "zip_coverage",
+      file_name: covImport.fileName,
+      file_type: covImport.fileType,
+      row_count: covImport.zips.length,
+      metadata: {
+        localized: true,
+        target_clinician_id: clinician.id,
+        target_clinician_name: clinician.name,
+        ignored_other_rows: covImport.ignoredRows,
+        ignored_other_clinicians: covImport.ignoredClinicians
+      }
+    }]).select().single();
+    if (!batchResp.error && batchResp.data) batchId = batchResp.data.id;
+
+    const del = await db.from("clinician_zip_coverages").delete().eq("clinician_id", clinician.id);
+    if (del.error) throw del.error;
+
+    const ins = await db.from("clinician_zip_coverages").insert(covImport.zips.map(x => ({
+      clinician_id: clinician.id,
+      zip_code: x.zip,
+      discipline: x.discipline,
+      memo: x.memo,
+      clinician_name_raw: x.rawName,
+      source_system: "Therapy Boss",
+      import_batch_id: batchId,
+      updated_at: nowIso
+    })));
+    if (ins.error) throw ins.error;
+
+    await db.from("clinician_v2").update({ preferred_zips: after.join(", ") || null }).eq("id", clinician.id);
+
+    // Revision log (migration 59) — only when something actually changed.
+    const beforeSet = new Set(before), afterSet = new Set(after);
+    const added = after.filter(z => !beforeSet.has(z));
+    const removed = before.filter(z => !afterSet.has(z));
+    if (added.length || removed.length) {
+      const rev = await db.from("clinician_zip_coverage_revisions").insert([{
+        clinician_id: clinician.id, import_batch_id: batchId,
+        zips_before: before, zips_after: after, added: added, removed: removed,
+        changed_by_email: (currentUser && currentUser.email) || null, changed_at: nowIso
+      }]);
+      if (rev.error) console.warn("[localized import] revision insert failed (run migration 59?):", rev.error.message);
+    }
+    try { await db.rpc("log_import", { p_key: "map_zip", p_label: "ZIP coverage", p_area: "Map", p_row_count: covImport.zips.length, p_notes: "Territory Planner localized — " + fmtName(clinician.name) }); } catch (e) {}
+
+    showToast("✓ Coverage updated for " + fmtName(clinician.name) + (added.length || removed.length ? " (+" + added.length + " / −" + removed.length + ")" : " (no changes)"));
+    covImport = null;
+    await reloadCoverage();
+  } catch (e) {
+    showToast("Import failed: " + (e.message || e));
+  }
+}
+
+async function reloadCoverage() {
+  const [zRes, revRes] = await Promise.all([
+    db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinician.id),
+    db.from("clinician_zip_coverage_revisions").select("*").eq("clinician_id", clinician.id).order("changed_at", { ascending: false }).limit(20)
+  ]);
+  if (!zRes.error) declaredRows = zRes.data || [];
+  if (revRes && !revRes.error) zipRevisions = revRes.data || [];
+  renderZipPanels();
+  renderCovRevisions();
+  renderCovImport();
+  if (!moveState && !planEditing) renderMoveCard();
+  if (!xzStaged.length) renderExclCard();
+  if (!rqStaged.length) renderReqCard();
+  if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
+  initTerritoryMap();
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 📦 THERAPIST-MOVED WORKFLOW (migration 55)
