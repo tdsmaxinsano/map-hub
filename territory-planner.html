@@ -108,6 +108,9 @@
   .zip-chip.req .x { cursor: pointer; margin-left: 6px; opacity: .55; }
   .zip-chip.req .x:hover { opacity: 1; }
   .zc-place { font-weight: 600; opacity: .62; margin-left: 4px; font-size: 10px; }
+  .zip-chip.rev-add { background: #eef7f0; color: #166534; border-color: #bfe3c9; }
+  .zip-chip.rev-del { background: #fdeaea; color: #b3261e; border-color: #f3c0c0; text-decoration: line-through; }
+  .rev-row { margin: 6px 0 8px; }
   .empty-note { font-size: 12px; color: #94a3b8; font-style: italic; }
 
   /* Visit history table */
@@ -250,6 +253,7 @@
           <h3>📮 TB Loaded ZIPs <span id="tp-declared-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
           <p class="hint">Declared coverage — synced from TherapyBoss. To change it, update the clinician's ZIPs in TB, then run the ZIP Coverage import on the Map.</p>
           <div class="zip-chips" id="tp-declared-zips"><span class="empty-note">None loaded.</span></div>
+          <div id="tp-cov-revisions"></div>
         </div>
 
         <div class="card">
@@ -332,6 +336,8 @@ let xzStaged = [];           // collector: ZIPs pending confirmation [{zip, from
 let zipRequests = [];        // clinician_zip_requests rows ("requested areas")
 let reqTableMissing = false; // migration 57 not run yet
 let rqStaged = [];           // requested-areas collector staging [{zip, from}]
+let zipRevisions = [];       // clinician_zip_coverage_revisions rows (newest first)
+let covRevOpen = false;      // 📜 Coverage changes toggle
 let profileRow = null;       // clinician_profiles row (tags, rating)
 let declaredRows = [];       // clinician_zip_coverages rows
 let historyRows = [];        // deduped episode rows (full history, all years)
@@ -580,13 +586,14 @@ async function openWorkspace(clinicianId) {
   loading.textContent = "Loading clinician…";
 
   try {
-    const [cRes, pRes, zRes, planRes, exRes, rqRes] = await Promise.all([
+    const [cRes, pRes, zRes, planRes, exRes, rqRes, revRes] = await Promise.all([
       db.from("clinician_v2").select("*").eq("id", clinicianId).maybeSingle(),
       db.from("clinician_profiles").select("*").eq("clinician_id", clinicianId).maybeSingle(),
       db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinicianId),
       db.from("clinician_zip_plans").select("*").eq("clinician_id", clinicianId).maybeSingle(),
       db.from("clinician_zip_exclusions").select("*").eq("clinician_id", clinicianId).order("zip_code"),
-      db.from("clinician_zip_requests").select("*").eq("clinician_id", clinicianId).order("zip_code")
+      db.from("clinician_zip_requests").select("*").eq("clinician_id", clinicianId).order("zip_code"),
+      db.from("clinician_zip_coverage_revisions").select("*").eq("clinician_id", clinicianId).order("changed_at", { ascending: false }).limit(20)
     ]);
     if (cRes.error) throw cRes.error;
     if (!cRes.data) { throw new Error("Clinician not found."); }
@@ -602,6 +609,8 @@ async function openWorkspace(clinicianId) {
     // Requested-areas table may predate migration 57 — same tolerance.
     zipRequests = (rqRes && !rqRes.error && rqRes.data) ? rqRes.data : [];
     reqTableMissing = !!(rqRes && rqRes.error);
+    // Coverage revisions may predate migration 59 — silently empty.
+    zipRevisions = (revRes && !revRes.error && revRes.data) ? revRes.data : [];
 
     renderHeader();
     loading.textContent = "Loading full visit history (all years)…";
@@ -683,6 +692,7 @@ async function openWorkspace(clinicianId) {
     loading.style.display = "none";
 
     renderZipPanels();
+    renderCovRevisions();
     renderMoveCard();
     renderExclCard();
     renderReqCard();
@@ -696,9 +706,13 @@ async function openWorkspace(clinicianId) {
     (async () => {
       const allZips = new Set([...declaredZipSet(), ...Object.keys(servedZipCounts()), ...excludedZipSet(), ...requestedZipSet()]);
       ((zipPlan && zipPlan.target_zips) || []).forEach(z => allZips.add(normZip(z)));
+      zipRevisions.forEach(rev => {
+        (rev.added || []).concat(rev.removed || []).forEach(z => { const n = normZip(z); if (n) allZips.add(n); });
+      });
       historyRows.forEach(r => { const z = normZip(r.zip_code); if (z) allZips.add(z); });
       await ensureZipPlaces(Array.from(allZips));
       renderZipPanels();
+      renderCovRevisions();
       if (!moveState && !planEditing) renderMoveCard();
       if (!xzStaged.length) renderExclCard();
       if (!rqStaged.length) renderReqCard();
@@ -896,6 +910,30 @@ function renderZipPanels() {
       }).join("")
     : "<span class='empty-note'>None — every declared ZIP has " + (cutoff ? "recent " : "") + "history.</span>";
 }
+
+// 📜 Coverage changes — the revision log written by the Map's ZIP Coverage
+// import (migration 59): what each TherapyBoss re-import added/removed.
+function renderCovRevisions() {
+  const host = document.getElementById("tp-cov-revisions");
+  if (!host) return;
+  if (!zipRevisions.length) { host.innerHTML = ""; return; }
+  let html = `<div class="mv-label" style="cursor:pointer;user-select:none" onclick="toggleCovRevisions()">${covRevOpen ? "▾" : "▸"} 📜 Coverage changes (${zipRevisions.length})</div>`;
+  if (covRevOpen) {
+    html += zipRevisions.map(rev => {
+      const added = (rev.added || []).map(normZip).filter(Boolean);
+      const removed = (rev.removed || []).map(normZip).filter(Boolean);
+      const meta = [fmtDate(rev.changed_at), rev.changed_by_email].filter(Boolean).join(" · ");
+      return `<div class="rev-row">` +
+        `<div style="font-size:11px;color:var(--muted);margin-bottom:3px">${esc(meta)} — <b style="color:#166534">+${added.length}</b> / <b style="color:#b3261e">−${removed.length}</b> (now ${(rev.zips_after || []).length} ZIPs)</div>` +
+        `<div class="zip-chips">` +
+        added.map(z => `<span class="zip-chip rev-add">+ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
+        removed.map(z => `<span class="zip-chip rev-del">− ${esc(z)}${placeSuffix(z)}</span>`).join("") +
+        `</div></div>`;
+    }).join("");
+  }
+  host.innerHTML = html;
+}
+function toggleCovRevisions() { covRevOpen = !covRevOpen; renderCovRevisions(); }
 
 // ══════════════════════════════════════════════════════════════════
 // 📦 THERAPIST-MOVED WORKFLOW (migration 55)

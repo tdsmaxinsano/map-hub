@@ -19752,6 +19752,25 @@
         if (batchResponse.error) throw batchResponse.error;
         batchId = batchResponse.data.id;
 
+        // Snapshot current coverage BEFORE the replace, so this import can
+        // record a per-clinician revision (what TherapyBoss added/removed).
+        let coverageBeforeByClinician = new Map();
+        try {
+          const beforeResp = await supabaseClient
+            .from("clinician_zip_coverages")
+            .select("clinician_id, zip_code")
+            .in("clinician_id", clinicianIds);
+          if (!beforeResp.error) {
+            (beforeResp.data || []).forEach(function(row) {
+              const cid = String(row.clinician_id);
+              const bucket = coverageBeforeByClinician.get(cid) || new Set();
+              const z = String(row.zip_code || "").trim();
+              if (z) bucket.add(z);
+              coverageBeforeByClinician.set(cid, bucket);
+            });
+          }
+        } catch (e) { coverageBeforeByClinician = new Map(); }
+
         if (clinicianIds.length) {
           setImportStatus("Refreshing clinician ZIP coverage sets for " + matchedClinicianCount + " clinicians...");
           const deleteResponse = await supabaseClient
@@ -19804,10 +19823,50 @@
           if (updateResponse.error) throw updateResponse.error;
         }
 
+        // Revision log (migration 59): one row per clinician whose declared
+        // set actually CHANGED — the audit trail of TherapyBoss coverage
+        // edits. Non-fatal: a missing table or insert error never blocks
+        // the import.
+        let revisionCount = 0;
+        try {
+          let actorEmail = null;
+          try {
+            const sess = (await supabaseClient.auth.getSession()).data.session;
+            actorEmail = (sess && sess.user && sess.user.email) || null;
+          } catch (e) {}
+          const nowIso = new Date().toISOString();
+          const revisionRows = [];
+          clinicianIds.forEach(function(cid) {
+            const before = Array.from(coverageBeforeByClinician.get(String(cid)) || []).sort();
+            const after = Array.from(preferredZipsByClinicianId.get(cid) || []).sort();
+            const beforeSet = new Set(before);
+            const afterSet = new Set(after);
+            const added = after.filter(function(z) { return !beforeSet.has(z); });
+            const removed = before.filter(function(z) { return !afterSet.has(z); });
+            if (!added.length && !removed.length) return;
+            revisionRows.push({
+              clinician_id: cid,
+              import_batch_id: batchId,
+              zips_before: before,
+              zips_after: after,
+              added: added,
+              removed: removed,
+              changed_by_email: actorEmail,
+              changed_at: nowIso
+            });
+          });
+          if (revisionRows.length) {
+            const revResp = await supabaseClient.from("clinician_zip_coverage_revisions").insert(revisionRows);
+            if (!revResp.error) revisionCount = revisionRows.length;
+            else console.warn("[zip revisions] insert failed (run migration 59?):", revResp.error.message);
+          }
+        } catch (e) { console.warn("[zip revisions]", e && e.message); }
+
         setImportStatus(
           "ZIP coverage import complete. " + matchedRows.length + " rows synced for " + matchedClinicianCount + " clinicians, "
             + unmatchedCount + " unmatched rows skipped, " + duplicateRowsInFileCount + " duplicate rows skipped, "
-            + incompleteRowCount + " incomplete rows ignored.",
+            + incompleteRowCount + " incomplete rows ignored."
+            + (revisionCount ? " " + revisionCount + " coverage change record" + (revisionCount === 1 ? "" : "s") + " logged." : ""),
           "success"
         );
         try { await supabaseClient.rpc("log_import", { p_key: "map_zip", p_label: "ZIP coverage", p_area: "Map", p_row_count: matchedRows.length }); } catch (e) { console.warn("[log_import]", e && e.message); }
