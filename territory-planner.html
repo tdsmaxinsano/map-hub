@@ -98,6 +98,7 @@
   .zip-chip.served   { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
   .zip-chip.gap-add  { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
   .zip-chip.gap-idle { background: #fdf6e6; color: #92400e; border-color: #ecd9a8; }
+  .zip-chip.gap-refused { background: #f3f4f6; color: #6b7280; border-color: #e0e3e8; }
   .zip-chip.copyable { cursor: pointer; }
   .zip-chip.copyable:hover { box-shadow: 0 0 0 2px rgba(26, 95, 180, .28); }
   .zip-chip.tb-done { background: #e7f6ec !important; color: #1b7a3d !important; border-color: #bfe3cc !important; }
@@ -944,7 +945,13 @@ function renderZipPanels() {
     ? servedZips.map(z => `<span class="zip-chip served">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
     : "<span class='empty-note'>No completed-service history" + (cutoff ? " after the cutoff" : "") + ".</span>";
 
-  const gapAdd = servedZips.filter(z => !declared.has(z));
+  // ⛔ Won't-serve ZIPs are NOT gaps — nobody should add a refused area
+  // to TB. Net them out (the roster's migration-60 RPC does the same) and
+  // show them separately below as a muted non-copy line.
+  const excluded = excludedZipSet();
+  const gapAddAll = servedZips.filter(z => !declared.has(z));
+  const gapAdd = gapAddAll.filter(z => !excluded.has(z));
+  const gapRefused = gapAddAll.filter(z => excluded.has(z));
   const gapIdle = Array.from(declared).filter(z => !served[z]).sort();
 
   // Copy-out tools: TB only accepts ZIPs one at a time, so alongside the
@@ -976,9 +983,14 @@ function renderZipPanels() {
     return `<span class="zip-chip ${cls}${tbEntryMode ? " copyable" : ""}${done ? " tb-done" : ""}"${t ? ` title="${esc(t)}"` : ""}${click}>${done ? "✓ " : ""}${inner}</span>`;
   };
 
-  document.getElementById("tp-gap-add").innerHTML = gapAdd.length
+  const refusedHtml = gapRefused.length
+    ? `<div style="margin-top:7px;font-size:11px;color:#6b7280"><b>⛔ Refused but has history</b> — not counted as gaps: ` +
+      gapRefused.map(z => `<span class="zip-chip gap-refused" title="On the won't-serve list — do NOT add to TB">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join(" ") +
+      `</div>`
+    : "";
+  document.getElementById("tp-gap-add").innerHTML = (gapAdd.length
     ? gapAdd.map(z => gapChip(z, "gap-add", `${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span>`, "")).join("")
-    : "<span class='empty-note'>None 🎉 — everywhere they've served is declared.</span>";
+    : "<span class='empty-note'>None 🎉 — everywhere they've served is declared" + (gapRefused.length ? " (or refused)" : "") + ".</span>") + refusedHtml;
 
   // Honest labeling under a cutoff: some "idle" ZIPs WERE served — just
   // not since. Distinguish pre-cutoff-only history (🕰) from truly never.
@@ -1013,7 +1025,9 @@ let tbEntryDone = new Set();
 function gapAddZips() {
   const declared = declaredZipSet();
   const served = servedZipCounts();
-  return Object.keys(served).sort((a, b) => served[b] - served[a]).filter(z => !declared.has(z));
+  const excluded = excludedZipSet(); // refused ZIPs never enter the TB copy flow
+  return Object.keys(served).sort((a, b) => served[b] - served[a])
+    .filter(z => !declared.has(z) && !excluded.has(z));
 }
 function toggleTbEntryMode() {
   tbEntryMode = !tbEntryMode;
