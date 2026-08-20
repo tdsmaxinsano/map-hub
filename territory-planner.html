@@ -72,6 +72,10 @@
 
   #tp-map { width: 100%; height: 520px; border-radius: 10px; border: 1px solid var(--border); }
   .map-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
+  .map-layer-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .ml-chip { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 3px 12px; font-size: 11.5px; font-weight: 700; color: var(--muted); cursor: pointer; }
+  .ml-chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .ml-chip:disabled { opacity: .45; cursor: default; }
   .map-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 
   .zip-chips { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -196,12 +200,14 @@
       <div>
         <div class="card">
           <h3>🗺️ Territory map</h3>
-          <p class="hint">Home + work-center pins, every completed-service site, and ZIP badges — <b style="color:#16a34a">green</b> = declared &amp; served, <b style="color:#2463eb">blue</b> = served only, <b style="color:#d97706">amber</b> = declared but never served, <b style="color:#111827">dark ⛔</b> = won't serve.</p>
+          <p class="hint">Home + work-center pins, service sites, and ZIP badges — <b style="color:#16a34a">green</b> = declared &amp; served, <b style="color:#2463eb">blue</b> = served only, <b style="color:#d97706">amber</b> = declared but never served, <b style="color:#111827">dark ⛔</b> = won't serve, <b style="color:#0d9488">teal ✋</b> = requested. Use the layer chips to show/hide each layer — <b>pre-cutoff sites are hidden by default</b> so old territory doesn't read as current.</p>
+          <div class="map-layer-chips" id="tp-map-layers"></div>
           <div id="tp-map"></div>
           <div class="map-legend">
             <span><span class="sw" style="background:#b3261e"></span>Home</span>
             <span><span class="sw" style="background:#7c3aed"></span>Work center</span>
             <span><span class="sw" style="background:#5b8def"></span>Service site</span>
+            <span><span class="sw" style="background:#9aa4b2"></span>Pre-cutoff site (old territory)</span>
             <span><span class="sw" style="background:#16a34a"></span>ZIP declared+served</span>
             <span><span class="sw" style="background:#2463eb"></span>ZIP served only</span>
             <span><span class="sw" style="background:#d97706"></span>ZIP declared, never served</span>
@@ -1437,8 +1443,82 @@ function rqStageMissing() {
 // ══════════════════════════════════════════════════════════════════
 // THE MAP
 // ══════════════════════════════════════════════════════════════════
+// ── Map layer system ──────────────────────────────────────────────
+// Pre-cutoff sites are their own GHOST layer, hidden by default — a
+// therapist's old territory must not read as current (the "still seeing
+// a 2021 visit" problem). Chips toggle each layer independently.
+let mapLayers = { current: true, old: false, zips: true, pins: true };
+let tpZipMarkers = [];
+let tpPinMarkers = [];
+let tpLayerCounts = { current: 0, old: 0 };
+
+function renderMapLayerChips() {
+  const host = document.getElementById("tp-map-layers");
+  if (!host) return;
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const chips = [];
+  chips.push(`<button type="button" class="ml-chip${mapLayers.current ? " on" : ""}" onclick="toggleMapLayer('current')">🔵 Sites (${tpLayerCounts.current})</button>`);
+  if (cutoff && tpLayerCounts.old) {
+    chips.push(`<button type="button" class="ml-chip${mapLayers.old ? " on" : ""}" onclick="toggleMapLayer('old')">👻 Pre-cutoff sites (${tpLayerCounts.old})</button>`);
+  }
+  chips.push(`<button type="button" class="ml-chip${mapLayers.zips ? " on" : ""}" onclick="toggleMapLayer('zips')">🏷 ZIP badges</button>`);
+  chips.push(`<button type="button" class="ml-chip${mapLayers.pins ? " on" : ""}" onclick="toggleMapLayer('pins')">📍 Pins</button>`);
+  host.innerHTML = chips.join("");
+}
+function toggleMapLayer(key) {
+  mapLayers[key] = !mapLayers[key];
+  applyMapLayerVisibility();
+  renderMapLayerChips();
+}
+function applyMapLayerVisibility() {
+  if (tpMap) {
+    try {
+      if (tpMap.getLayer("tp-sites-current")) tpMap.setLayoutProperty("tp-sites-current", "visibility", mapLayers.current ? "visible" : "none");
+      if (tpMap.getLayer("tp-sites-old"))     tpMap.setLayoutProperty("tp-sites-old",     "visibility", mapLayers.old     ? "visible" : "none");
+    } catch (e) { /* style not ready yet — init applies initial state */ }
+  }
+  tpZipMarkers.forEach(el => { el.style.display = mapLayers.zips ? "" : "none"; });
+  tpPinMarkers.forEach(el => { el.style.display = mapLayers.pins ? "" : "none"; });
+}
+
 function initTerritoryMap() {
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
   const sites = buildSites().filter(s => s.lat != null && s.lng != null);
+  tpZipMarkers = [];
+  tpPinMarkers = [];
+
+  const sumVisits = rows => rows.reduce((t, r) => t + Math.max(Number(r.service_visits || 0) || 0, 1), 0);
+  const latestOf = rows => rows.reduce((m, r) => {
+    const d = r.last_visit_date || r.ended_date || anchorDate(r);
+    return d && (!m || String(d) > String(m)) ? d : m;
+  }, null);
+
+  // Split each site by the cutoff: any eligible episode → current (blue);
+  // only pre-cutoff episodes → ghost layer (grey, off by default).
+  const currentFeats = [], oldFeats = [];
+  sites.forEach(s => {
+    const eligible = cutoff ? s.rows.filter(r => rowEligible(r, cutoff)) : s.rows;
+    const older = cutoff ? s.rows.filter(r => !rowEligible(r, cutoff)) : [];
+    const mk = (rows, note) => ({
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [s.lng, s.lat] },
+      properties: {
+        address: s.address,
+        visits: sumVisits(rows),
+        episodes: rows.length,
+        latest: latestOf(rows) || "",
+        note: note || ""
+      }
+    });
+    if (eligible.length) {
+      currentFeats.push(mk(eligible, older.length ? "+ " + older.length + " older episode(s) before the cutoff" : ""));
+    } else if (older.length) {
+      oldFeats.push(mk(s.rows, "all before the Ignore-History cutoff (" + cutoff.toISOString().slice(0, 10) + ")"));
+    }
+  });
+  tpLayerCounts = { current: currentFeats.length, old: oldFeats.length };
+  renderMapLayerChips();
+
   tpMap = new mapboxgl.Map({
     container: "tp-map",
     style: "mapbox://styles/mapbox/light-v11",
@@ -1451,41 +1531,48 @@ function initTerritoryMap() {
     const bounds = new mapboxgl.LngLatBounds();
     let hasBounds = false;
 
-    // Service sites — one geojson circle layer (fast for hundreds of sites)
-    tpMap.addSource("tp-sites", {
-      type: "geojson",
-      data: {
-        type: "FeatureCollection",
-        features: sites.map(s => ({
-          type: "Feature",
-          geometry: { type: "Point", coordinates: [s.lng, s.lat] },
-          properties: { address: s.address, visits: s.totalVisits, episodes: s.rows.length, latest: s.latest || "" }
-        }))
-      }
-    });
-    tpMap.addLayer({
-      id: "tp-sites-dots", type: "circle", source: "tp-sites",
-      paint: {
-        "circle-color": "#5b8def",
-        "circle-opacity": 0.75,
-        "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 4, 30, 9, 120, 13],
-        "circle-stroke-width": 1, "circle-stroke-color": "#ffffff"
-      }
-    });
-    tpMap.on("click", "tp-sites-dots", e => {
-      const f = e.features && e.features[0];
-      if (!f) return;
-      new mapboxgl.Popup({ offset: 10 })
-        .setLngLat(e.lngLat)
-        .setHTML("<div style='font:12px -apple-system,Segoe UI,Roboto,sans-serif;max-width:230px'>" +
-          "<b>" + esc(f.properties.address || "Site") + "</b><br>" +
-          f.properties.visits + " visits · " + f.properties.episodes + " episode(s)" +
-          (f.properties.latest ? "<br>Latest: " + esc(fmtDate(f.properties.latest)) : "") + "</div>")
-        .addTo(tpMap);
-    });
-    tpMap.on("mouseenter", "tp-sites-dots", () => { tpMap.getCanvas().style.cursor = "pointer"; });
-    tpMap.on("mouseleave", "tp-sites-dots", () => { tpMap.getCanvas().style.cursor = ""; });
-    sites.forEach(s => { bounds.extend([s.lng, s.lat]); hasBounds = true; });
+    const addSiteLayer = (id, feats, paint, visible) => {
+      tpMap.addSource(id, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+      tpMap.addLayer({
+        id: id, type: "circle", source: id,
+        layout: { visibility: visible ? "visible" : "none" },
+        paint: paint
+      });
+      tpMap.on("click", id, e => {
+        const f = e.features && e.features[0];
+        if (!f) return;
+        new mapboxgl.Popup({ offset: 10 })
+          .setLngLat(e.lngLat)
+          .setHTML("<div style='font:12px -apple-system,Segoe UI,Roboto,sans-serif;max-width:230px'>" +
+            "<b>" + esc(f.properties.address || "Site") + "</b><br>" +
+            f.properties.visits + " visits · " + f.properties.episodes + " episode(s)" +
+            (f.properties.latest ? "<br>Latest: " + esc(fmtDate(f.properties.latest)) : "") +
+            (f.properties.note ? "<br><span style='color:#92400e'>" + esc(f.properties.note) + "</span>" : "") +
+            "</div>")
+          .addTo(tpMap);
+      });
+      tpMap.on("mouseenter", id, () => { tpMap.getCanvas().style.cursor = "pointer"; });
+      tpMap.on("mouseleave", id, () => { tpMap.getCanvas().style.cursor = ""; });
+    };
+
+    // Ghost layer FIRST so current dots draw on top of it.
+    addSiteLayer("tp-sites-old", oldFeats, {
+      "circle-color": "#9aa4b2",
+      "circle-opacity": 0.35,
+      "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 3, 30, 7, 120, 10],
+      "circle-stroke-width": 1, "circle-stroke-color": "#ffffff"
+    }, mapLayers.old);
+    addSiteLayer("tp-sites-current", currentFeats, {
+      "circle-color": "#5b8def",
+      "circle-opacity": 0.75,
+      "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 4, 30, 9, 120, 13],
+      "circle-stroke-width": 1, "circle-stroke-color": "#ffffff"
+    }, mapLayers.current);
+
+    // Frame the CURRENT territory (old sites shouldn't drag the viewport
+    // back to the old neighborhood); fall back to everything if needed.
+    currentFeats.forEach(f => { bounds.extend(f.geometry.coordinates); hasBounds = true; });
+    if (!hasBounds) sites.forEach(s => { bounds.extend([s.lng, s.lat]); hasBounds = true; });
 
     // Home + work-center pins
     const homeLat = toNum(clinician.lat), homeLng = toNum(clinician.lng);
@@ -1493,6 +1580,7 @@ function initTerritoryMap() {
       const el = document.createElement("div");
       el.className = "tp-pin home"; el.textContent = "H"; el.title = "Home: " + (clinician.address || "");
       new mapboxgl.Marker({ element: el }).setLngLat([homeLng, homeLat]).addTo(tpMap);
+      tpPinMarkers.push(el);
       bounds.extend([homeLng, homeLat]); hasBounds = true;
     }
     const wc = resolveWorkCenter();
@@ -1500,10 +1588,12 @@ function initTerritoryMap() {
       const el = document.createElement("div");
       el.className = "tp-pin work"; el.textContent = "W"; el.title = "Work center (" + wc.label + ")";
       new mapboxgl.Marker({ element: el }).setLngLat([wc.lng, wc.lat]).addTo(tpMap);
+      tpPinMarkers.push(el);
       bounds.extend([wc.lng, wc.lat]); hasBounds = true;
     }
 
     if (hasBounds) tpMap.fitBounds(bounds, { padding: 60, maxZoom: 12.5 });
+    applyMapLayerVisibility();
 
     // ZIP badges at geocoded centroids — colored by declared/served status;
     // a Won't-serve refusal overrides everything (dark badge).
@@ -1527,7 +1617,9 @@ function initTerritoryMap() {
         : cls === "both" ? "declared in TB + served (" + served[zip] + " episodes)" + (requested.has(zip) ? " · requested ✋" : "")
         : cls === "served" ? "served (" + served[zip] + " episodes) — NOT declared in TB"
         : "declared in TB — never served");
+      if (!mapLayers.zips) el.style.display = "none"; // badges arrive async — honor the toggle
       new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat([c.lng, c.lat]).addTo(tpMap);
+      tpZipMarkers.push(el);
     }
   });
 }
