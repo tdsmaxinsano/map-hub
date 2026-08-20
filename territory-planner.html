@@ -228,6 +228,7 @@
           <div class="map-layer-chips" id="tp-map-layers"></div>
           <div id="tp-tool-status"></div>
           <div id="tp-map"></div>
+          <div id="tp-site-excl"></div>
           <div class="map-legend">
             <span><span class="sw" style="background:#b3261e"></span>Home</span>
             <span><span class="sw" style="background:#7c3aed"></span>Work center</span>
@@ -356,6 +357,8 @@ let moveState = null;        // in-progress plan editor: { removed:Set, added:[]
 let planEditing = false;     // restaging an existing plan
 let discardArmed = false;
 let zipExclusions = [];      // clinician_zip_exclusions rows ("won't serve")
+let siteExclusions = [];     // clinician_site_exclusions rows (excluded visit locations)
+let siteExclTableMissing = false; // migration 61 not run yet
 let exclTableMissing = false; // migration 56 not run yet
 let xzStaged = [];           // collector: ZIPs pending confirmation [{zip, from}]
 let zipRequests = [];        // clinician_zip_requests rows ("requested areas")
@@ -648,14 +651,15 @@ async function openWorkspace(clinicianId) {
   loading.textContent = "Loading clinician…";
 
   try {
-    const [cRes, pRes, zRes, planRes, exRes, rqRes, revRes] = await Promise.all([
+    const [cRes, pRes, zRes, planRes, exRes, rqRes, revRes, seRes] = await Promise.all([
       db.from("clinician_v2").select("*").eq("id", clinicianId).maybeSingle(),
       db.from("clinician_profiles").select("*").eq("clinician_id", clinicianId).maybeSingle(),
       db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinicianId),
       db.from("clinician_zip_plans").select("*").eq("clinician_id", clinicianId).maybeSingle(),
       db.from("clinician_zip_exclusions").select("*").eq("clinician_id", clinicianId).order("zip_code"),
       db.from("clinician_zip_requests").select("*").eq("clinician_id", clinicianId).order("zip_code"),
-      db.from("clinician_zip_coverage_revisions").select("*").eq("clinician_id", clinicianId).order("changed_at", { ascending: false }).limit(20)
+      db.from("clinician_zip_coverage_revisions").select("*").eq("clinician_id", clinicianId).order("changed_at", { ascending: false }).limit(20),
+      db.from("clinician_site_exclusions").select("*").eq("clinician_id", clinicianId).order("created_at")
     ]);
     if (cRes.error) throw cRes.error;
     if (!cRes.data) { throw new Error("Clinician not found."); }
@@ -673,6 +677,9 @@ async function openWorkspace(clinicianId) {
     reqTableMissing = !!(rqRes && rqRes.error);
     // Coverage revisions may predate migration 59 — silently empty.
     zipRevisions = (revRes && !revRes.error && revRes.data) ? revRes.data : [];
+    // Site exclusions may predate migration 61 — same tolerance.
+    siteExclusions = (seRes && !seRes.error && seRes.data) ? seRes.data : [];
+    siteExclTableMissing = !!(seRes && seRes.error);
 
     renderHeader();
     loading.textContent = "Loading full visit history (all years)…";
@@ -762,6 +769,7 @@ async function openWorkspace(clinicianId) {
     renderVisitTable(true);
     renderTravelStats();
     initTerritoryMap();
+    renderSiteExclList();
 
     // Resolve ZIP place names in the background, then repaint the chip
     // surfaces ("60176 · Schiller Park"). Cards with in-progress edits
@@ -832,7 +840,7 @@ function renderTravelStats() {
     const chip = document.getElementById("tp-travel");
     if (!chip) return;
     if (!origin || !sites.length) { chip.textContent = "Travel range: no data"; return; }
-    const dists = sites.filter(s => s.lat != null && s.lng != null)
+    const dists = sites.filter(s => s.lat != null && s.lng != null && !s.excluded)
       .map(s => haversineMiles(origin.lat, origin.lng, s.lat, s.lng))
       .sort((a, b) => a - b);
     if (!dists.length) { chip.textContent = "Travel range: no mapped sites"; return; }
@@ -864,7 +872,7 @@ function computeHistoryCenter() {
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
   let wLat = 0, wLng = 0, wTot = 0, contributing = 0;
   buildSites().forEach(site => {
-    if (site.lat == null || site.lng == null) return;
+    if (site.lat == null || site.lng == null || site.excluded) return;
     const eligible = site.rows.filter(r => rowEligible(r, cutoff));
     if (!eligible.length) return;
     const weight = eligible.reduce((t, r) => t + Math.max(Number(r.service_visits || 0) || 0, 1), 0);
@@ -878,20 +886,54 @@ function computeHistoryCenter() {
 // ══════════════════════════════════════════════════════════════════
 // SITES + ZIP DERIVATIONS
 // ══════════════════════════════════════════════════════════════════
+// ── Site exclusions (migration 61) ──
+// A specific visit-history LOCATION can be excluded from all territory
+// math (one-off far visits, bad geocodes). Keyed by normalized address
+// so it survives re-imports and re-geocodes. Normalization MUST match
+// the SQL in list_clinician_coverage_gaps (lower/trim/collapse spaces).
+function siteAddrKey(addr) {
+  return String(addr == null ? "" : addr).trim().toLowerCase().replace(/\s+/g, " ");
+}
+function rowAddr(row) {
+  return String(row.full_address || [row.street, row.city, row.state].filter(Boolean).join(", ") || "").trim();
+}
+function excludedSiteAddrSet() {
+  const s = new Set();
+  siteExclusions.forEach(r => {
+    const k = siteAddrKey(r.address_norm || r.address_display);
+    if (k) s.add(k);
+  });
+  return s;
+}
+function rowSiteExcluded(row, set) {
+  return set.size ? set.has(siteAddrKey(rowAddr(row))) : false;
+}
+// URI-encode an address for an inline onclick attribute. encodeURIComponent
+// leaves apostrophes alone (O'Hare would break the quoted attribute), so
+// escape them too.
+function encSiteAddr(addr) {
+  return encodeURIComponent(String(addr == null ? "" : addr)).replace(/'/g, "%27");
+}
+
 let _sitesCache = null;
 function buildSites() {
   if (_sitesCache) return _sitesCache;
+  const exclSet = excludedSiteAddrSet();
   const byKey = new Map();
   historyRows.forEach(row => {
     const lat = toNum(row.patient_lat), lng = toNum(row.patient_lng);
-    const addr = String(row.full_address || [row.street, row.city, row.state].filter(Boolean).join(", ") || "").trim();
+    const addr = rowAddr(row);
     // Key = coords + address, matching the map's site key — keeps the
     // planner's "N sites" in agreement with the profile card.
     const key = (lat != null && lng != null)
       ? lat.toFixed(5) + "|" + lng.toFixed(5) + "|" + addr.toLowerCase()
       : "addr|" + addr.toLowerCase();
     let site = byKey.get(key);
-    if (!site) { site = { key, lat, lng, address: addr, rows: [], totalVisits: 0, latest: null }; byKey.set(key, site); }
+    if (!site) {
+      site = { key, lat, lng, address: addr, rows: [], totalVisits: 0, latest: null,
+               excluded: exclSet.has(siteAddrKey(addr)) };
+      byKey.set(key, site);
+    }
     site.rows.push(row);
     site.totalVisits += Math.max(Number(row.service_visits || 0) || 0, 1);
     const a = anchorDate(row);
@@ -903,11 +945,14 @@ function buildSites() {
 }
 // Served ZIP counts — cutoff-aware, episode counts (matches the card's
 // Referral ZIPs). ZIP from row.zip_code, fallback regex on the address.
+// Excluded sites never register (mirrored in the migration-61 RPC).
 function servedZipCounts() {
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const exclSet = excludedSiteAddrSet();
   const counts = {};
   historyRows.forEach(row => {
     if (!rowEligible(row, cutoff)) return;
+    if (rowSiteExcluded(row, exclSet)) return;
     let zip = normZip(row.zip_code);
     if (!zip) {
       const m = String(row.full_address || "").match(/\b(\d{5})\b/);
@@ -996,7 +1041,9 @@ function renderZipPanels() {
   // not since. Distinguish pre-cutoff-only history (🕰) from truly never.
   const servedAllTime = new Set();
   if (cutoff) {
+    const exclSet = excludedSiteAddrSet();
     historyRows.forEach(row => {
+      if (rowSiteExcluded(row, exclSet)) return;
       let z = normZip(row.zip_code);
       if (!z) { const m = String(row.full_address || "").match(/\b(\d{5})\b/); if (m) z = m[1]; }
       if (z) servedAllTime.add(z);
@@ -1067,6 +1114,66 @@ function tbCopyNext() {
   const next = gapAddZips().find(z => !tbEntryDone.has(z));
   if (!next) { showToast("✓ All served-but-not-declared ZIPs copied"); return; }
   tbCopyOne(next);
+}
+
+// ── 🚫 Site exclusion actions (migration 61) ────────────────────────
+// Right-click a site dot (or the popup's 🚫 button) → the location stops
+// counting in served ZIPs, gaps, work center, travel stats, and the
+// roster's Coverage Gaps flag (the RPC applies the same filter).
+async function excludeSite(encAddr) {
+  if (!canEditPlan()) { showToast("Editor or admin role required"); return; }
+  if (siteExclTableMissing) { showToast("⚠ Run migration 61 first (clinician_site_exclusions table missing)"); return; }
+  const addr = decodeURIComponent(encAddr);
+  const key = siteAddrKey(addr);
+  if (!key) return;
+  if (!confirm("Exclude this location from ALL territory math (served ZIPs, gaps, work center, roster flag)?\n\n" + addr)) return;
+  const { error } = await db.from("clinician_site_exclusions").upsert({
+    clinician_id: clinician.id,
+    address_norm: key,
+    address_display: addr,
+    set_by_email: (currentUser && currentUser.email) || null
+  }, { onConflict: "clinician_id,address_norm" });
+  if (error) { showToast("Couldn't exclude: " + error.message); return; }
+  if (!siteExclusions.some(r => siteAddrKey(r.address_norm) === key)) {
+    siteExclusions.push({ clinician_id: clinician.id, address_norm: key, address_display: addr, created_at: new Date().toISOString() });
+  }
+  showToast("🚫 Location excluded — territory math updated");
+  refreshAfterSiteExcl();
+}
+async function unexcludeSite(encAddr) {
+  if (!canEditPlan()) { showToast("Editor or admin role required"); return; }
+  const key = siteAddrKey(decodeURIComponent(encAddr));
+  if (!key) return;
+  const { error } = await db.from("clinician_site_exclusions")
+    .delete().eq("clinician_id", clinician.id).eq("address_norm", key);
+  if (error) { showToast("Couldn't un-exclude: " + error.message); return; }
+  siteExclusions = siteExclusions.filter(r => siteAddrKey(r.address_norm) !== key);
+  showToast("↩ Location restored — territory math updated");
+  refreshAfterSiteExcl();
+}
+function refreshAfterSiteExcl() {
+  _sitesCache = null;
+  renderZipPanels();
+  renderTravelStats();
+  renderVisitTable(true);
+  renderSiteExclList();
+  if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
+  initTerritoryMap();
+}
+// Small manager strip under the map — every excluded location with ↩.
+function renderSiteExclList() {
+  const host = document.getElementById("tp-site-excl");
+  if (!host) return;
+  if (!siteExclusions.length) { host.innerHTML = ""; return; }
+  host.innerHTML = `<div style="margin-top:7px;font-size:11.5px;color:#6b7280">` +
+    `<b>🚫 Excluded locations (${siteExclusions.length})</b> — not counted anywhere: ` +
+    siteExclusions.map(r => {
+      const disp = r.address_display || r.address_norm;
+      const enc = encSiteAddr(r.address_norm || disp);
+      return `<span class="zip-chip gap-refused" title="${esc([r.set_by_email, r.created_at ? fmtDate(r.created_at) : ""].filter(Boolean).join(" · "))}">${esc(disp)}` +
+        (canEditPlan() ? `<span class="x" style="cursor:pointer;margin-left:5px" title="Un-exclude" onclick="unexcludeSite('${enc}')">↩</span>` : "") +
+        `</span>`;
+    }).join(" ") + `</div>`;
 }
 
 // 📜 Coverage changes — the revision log written by the Map's ZIP Coverage
@@ -1972,10 +2079,10 @@ function rqStageMissing() {
 // Pre-cutoff sites are their own GHOST layer, hidden by default — a
 // therapist's old territory must not read as current (the "still seeing
 // a 2021 visit" problem). Chips toggle each layer independently.
-let mapLayers = { current: true, old: false, zips: true, pins: true };
+let mapLayers = { current: true, old: false, zips: true, pins: true, excluded: false };
 let tpZipMarkers = [];
 let tpPinMarkers = [];
-let tpLayerCounts = { current: 0, old: 0 };
+let tpLayerCounts = { current: 0, old: 0, excluded: 0 };
 
 function renderMapLayerChips() {
   const host = document.getElementById("tp-map-layers");
@@ -1985,6 +2092,9 @@ function renderMapLayerChips() {
   chips.push(`<button type="button" class="ml-chip${mapLayers.current ? " on" : ""}" onclick="toggleMapLayer('current')">🔵 Sites (${tpLayerCounts.current})</button>`);
   if (cutoff && tpLayerCounts.old) {
     chips.push(`<button type="button" class="ml-chip${mapLayers.old ? " on" : ""}" onclick="toggleMapLayer('old')">👻 Pre-cutoff sites (${tpLayerCounts.old})</button>`);
+  }
+  if (tpLayerCounts.excluded) {
+    chips.push(`<button type="button" class="ml-chip${mapLayers.excluded ? " on" : ""}" onclick="toggleMapLayer('excluded')">🚫 Excluded (${tpLayerCounts.excluded})</button>`);
   }
   chips.push(`<button type="button" class="ml-chip${mapLayers.zips ? " on" : ""}" onclick="toggleMapLayer('zips')">🏷 ZIP badges</button>`);
   chips.push(`<button type="button" class="ml-chip${mapLayers.pins ? " on" : ""}" onclick="toggleMapLayer('pins')">📍 Pins</button>`);
@@ -2220,7 +2330,7 @@ function renderToolStatus() {
 // Planner-aware lens readout — this therapist's footprint inside the ring.
 function lensReadoutText() {
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
-  const sites = buildSites().filter(s => s.lat != null && s.lng != null);
+  const sites = buildSites().filter(s => s.lat != null && s.lng != null && !s.excluded);
   let curSites = 0, curVisits = 0, oldSites = 0, totalCur = 0;
   const zipsInside = new Set();
   sites.forEach(s => {
@@ -2246,7 +2356,7 @@ function lensReadoutText() {
 // around the work center (fallback home) — "their comfortable reach".
 async function showTypicalReach() {
   const wc = resolveWorkCenter();
-  const sites = buildSites().filter(s => s.lat != null && s.lng != null);
+  const sites = buildSites().filter(s => s.lat != null && s.lng != null && !s.excluded);
   let origin = clinician.zip ? await getZipCentroid(clinician.zip) : null;
   if (!origin && wc && wc.lat != null) origin = { lat: wc.lat, lng: wc.lng };
   if (!origin || !sites.length) { showToast("Not enough data for a typical-reach ring"); return; }
@@ -2267,8 +2377,9 @@ function toggleMapLayer(key) {
 function applyMapLayerVisibility() {
   if (tpMap) {
     try {
-      if (tpMap.getLayer("tp-sites-current")) tpMap.setLayoutProperty("tp-sites-current", "visibility", mapLayers.current ? "visible" : "none");
-      if (tpMap.getLayer("tp-sites-old"))     tpMap.setLayoutProperty("tp-sites-old",     "visibility", mapLayers.old     ? "visible" : "none");
+      if (tpMap.getLayer("tp-sites-current"))  tpMap.setLayoutProperty("tp-sites-current",  "visibility", mapLayers.current  ? "visible" : "none");
+      if (tpMap.getLayer("tp-sites-old"))      tpMap.setLayoutProperty("tp-sites-old",      "visibility", mapLayers.old      ? "visible" : "none");
+      if (tpMap.getLayer("tp-sites-excluded")) tpMap.setLayoutProperty("tp-sites-excluded", "visibility", mapLayers.excluded ? "visible" : "none");
     } catch (e) { /* style not ready yet — init applies initial state */ }
   }
   tpZipMarkers.forEach(el => { el.style.display = mapLayers.zips ? "" : "none"; });
@@ -2289,7 +2400,9 @@ function initTerritoryMap() {
 
   // Split each site by the cutoff: any eligible episode → current (blue);
   // only pre-cutoff episodes → ghost layer (grey, off by default).
-  const currentFeats = [], oldFeats = [];
+  // Excluded LOCATIONS (migration 61) go to their own 🚫 layer regardless
+  // of cutoff — off by default, revealable for auditing/un-excluding.
+  const currentFeats = [], oldFeats = [], exclFeats = [];
   sites.forEach(s => {
     const eligible = cutoff ? s.rows.filter(r => rowEligible(r, cutoff)) : s.rows;
     const older = cutoff ? s.rows.filter(r => !rowEligible(r, cutoff)) : [];
@@ -2304,13 +2417,15 @@ function initTerritoryMap() {
         note: note || ""
       }
     });
-    if (eligible.length) {
+    if (s.excluded) {
+      exclFeats.push(mk(s.rows, "🚫 excluded from territory math"));
+    } else if (eligible.length) {
       currentFeats.push(mk(eligible, older.length ? "+ " + older.length + " older episode(s) before the cutoff" : ""));
     } else if (older.length) {
       oldFeats.push(mk(s.rows, "all before the Ignore-History cutoff (" + cutoff.toISOString().slice(0, 10) + ")"));
     }
   });
-  tpLayerCounts = { current: currentFeats.length, old: oldFeats.length };
+  tpLayerCounts = { current: currentFeats.length, old: oldFeats.length, excluded: exclFeats.length };
   renderMapLayerChips();
 
   tpMap = new mapboxgl.Map({
@@ -2325,13 +2440,20 @@ function initTerritoryMap() {
     const bounds = new mapboxgl.LngLatBounds();
     let hasBounds = false;
 
-    const addSiteLayer = (id, feats, paint, visible) => {
+    const addSiteLayer = (id, feats, paint, visible, isExcluded) => {
       tpMap.addSource(id, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
       tpMap.addLayer({
         id: id, type: "circle", source: id,
         layout: { visibility: visible ? "visible" : "none" },
         paint: paint
       });
+      const actionBtn = (addr) => {
+        if (!canEditPlan() || !addr) return "";
+        const enc = encSiteAddr(addr);
+        return isExcluded
+          ? `<div style='margin-top:6px'><button type="button" onclick="unexcludeSite('${enc}')" style="padding:3px 9px;border:1px solid #bfe3cc;background:#e7f6ec;color:#1b7a3d;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">↩ Un-exclude</button></div>`
+          : `<div style='margin-top:6px'><button type="button" onclick="excludeSite('${enc}')" style="padding:3px 9px;border:1px solid #f3c0c0;background:#fdf2f2;color:#b3261e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer" title="Stop this location from counting in served ZIPs, gaps, work center, and the roster flag">🚫 Exclude location</button></div>`;
+      };
       tpMap.on("click", id, e => {
         const f = e.features && e.features[0];
         if (!f) return;
@@ -2342,26 +2464,41 @@ function initTerritoryMap() {
             f.properties.visits + " visits · " + f.properties.episodes + " episode(s)" +
             (f.properties.latest ? "<br>Latest: " + esc(fmtDate(f.properties.latest)) : "") +
             (f.properties.note ? "<br><span style='color:#92400e'>" + esc(f.properties.note) + "</span>" : "") +
+            actionBtn(f.properties.address) +
             "</div>")
           .addTo(tpMap);
+      });
+      // Right-click shortcut: exclude (or un-exclude) without the popup.
+      tpMap.on("contextmenu", id, e => {
+        const f = e.features && e.features[0];
+        if (!f || !canEditPlan() || !f.properties.address) return;
+        if (e.originalEvent) e.originalEvent.preventDefault();
+        if (isExcluded) unexcludeSite(encSiteAddr(f.properties.address));
+        else excludeSite(encSiteAddr(f.properties.address));
       });
       tpMap.on("mouseenter", id, () => { tpMap.getCanvas().style.cursor = "pointer"; });
       tpMap.on("mouseleave", id, () => { tpMap.getCanvas().style.cursor = ""; });
     };
 
-    // Ghost layer FIRST so current dots draw on top of it.
+    // Excluded + ghost layers FIRST so current dots draw on top of them.
+    addSiteLayer("tp-sites-excluded", exclFeats, {
+      "circle-color": "#b3261e",
+      "circle-opacity": 0.3,
+      "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 3, 30, 7, 120, 10],
+      "circle-stroke-width": 1.5, "circle-stroke-color": "#b3261e"
+    }, mapLayers.excluded, true);
     addSiteLayer("tp-sites-old", oldFeats, {
       "circle-color": "#9aa4b2",
       "circle-opacity": 0.35,
       "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 3, 30, 7, 120, 10],
       "circle-stroke-width": 1, "circle-stroke-color": "#ffffff"
-    }, mapLayers.old);
+    }, mapLayers.old, false);
     addSiteLayer("tp-sites-current", currentFeats, {
       "circle-color": "#5b8def",
       "circle-opacity": 0.75,
       "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 4, 30, 9, 120, 13],
       "circle-stroke-width": 1, "circle-stroke-color": "#ffffff"
-    }, mapLayers.current);
+    }, mapLayers.current, false);
 
     // Frame the CURRENT territory (old sites shouldn't drag the viewport
     // back to the old neighborhood); fall back to everything if needed.
@@ -2406,7 +2543,7 @@ function initTerritoryMap() {
     // opens its popup and is NOT a tool point.
     tpMap.on("click", e => {
       if (!toolMode) return;
-      const hitLayers = ["tp-sites-current", "tp-sites-old"].filter(id => tpMap.getLayer(id));
+      const hitLayers = ["tp-sites-current", "tp-sites-old", "tp-sites-excluded"].filter(id => tpMap.getLayer(id));
       if (hitLayers.length && tpMap.queryRenderedFeatures(e.point, { layers: hitLayers }).length) return;
       const pt = { lat: e.lngLat.lat, lng: e.lngLat.lng };
       if (toolMode === "ruler") {
@@ -2545,12 +2682,16 @@ function renderVisitTable(rebuildFilters) {
   const totalVisits = list.reduce((t, r) => t + (Number(r.service_visits || 0) || 0), 0);
   document.getElementById("vh-totals").textContent = list.length + " episodes · " + totalVisits + " visits";
 
+  // The archive view stays complete — excluded-location rows render
+  // greyed with a 🚫 tag instead of disappearing.
+  const exclSet = excludedSiteAddrSet();
   document.getElementById("vh-body").innerHTML = list.map(r => {
     const epi = (r.start_of_episode ? fmtDate(r.start_of_episode) : "—") + (r.ended_date ? " → " + fmtDate(r.ended_date) : "");
-    return `<tr>
+    const excl = rowSiteExcluded(r, exclSet);
+    return `<tr${excl ? ` style="opacity:.5" title="🚫 Location excluded from territory math"` : ""}>
       <td style="white-space:nowrap">${esc(fmtDate(anchorDate(r)))}</td>
       <td style="font-weight:700">${esc(fmtName(r.patient_name))}</td>
-      <td>${esc(r.full_address || [r.street, r.city, r.state].filter(Boolean).join(", ") || "—")}</td>
+      <td>${excl ? "🚫 " : ""}${esc(r.full_address || [r.street, r.city, r.state].filter(Boolean).join(", ") || "—")}</td>
       <td>${esc(normZip(r.zip_code) || "—")}</td>
       <td>${esc(r.service || "—")}</td>
       <td>${Number(r.service_visits || 0) || "—"}</td>
