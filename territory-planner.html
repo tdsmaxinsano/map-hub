@@ -73,10 +73,23 @@
 
   #tp-map { width: 100%; height: 520px; border-radius: 10px; border: 1px solid var(--border); }
   .map-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
-  .map-layer-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; }
+  .map-layer-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; align-items: center; }
   .ml-chip { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 3px 12px; font-size: 11.5px; font-weight: 700; color: var(--muted); cursor: pointer; }
   .ml-chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
   .ml-chip:disabled { opacity: .45; cursor: default; }
+  /* Armed measuring tool — port of the portal's #radius-mode-toggle.active glow */
+  .ml-chip.armed { background: linear-gradient(135deg, #3b7df5 0%, #2463eb 100%); border-color: #1a4fc4; color: #fff; box-shadow: 0 0 0 2.5px rgba(36, 99, 235, 0.22), 0 0 14px rgba(36, 99, 235, 0.32); }
+  .ml-divider { width: 1px; height: 18px; background: var(--border); margin: 0 2px; }
+  .tp-tool-controls { display: inline-flex; gap: 5px; align-items: center; }
+  .tp-tool-controls .tstep { min-width: 26px; padding: 2px 0; font-size: 15px; border: 1px solid var(--border); background: #fff; border-radius: 7px; cursor: pointer; font-weight: 700; color: #2463eb; }
+  .tp-tool-controls .tstep:disabled { opacity: .4; cursor: default; }
+  .tp-tool-controls .treadout { font-size: 11.5px; font-weight: 800; color: #154880; background: #f0f4fa; border: 1px solid #c3d3e7; border-radius: 7px; padding: 3px 10px; min-width: 56px; text-align: center; cursor: default; user-select: none; }
+  #tp-tool-status { font-size: 12px; color: #1e2d4a; margin: 0 0 6px; min-height: 15px; }
+  #tp-tool-status:empty { display: none; }
+  /* Portal tool visuals — copied verbatim from clinician-map.html */
+  .ruler-point { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #fff; background: #111; box-shadow: 0 8px 18px rgba(17, 17, 17, 0.2); }
+  .selection-label { padding: 5px 9px; border-radius: 999px; background: rgba(15, 35, 80, 0.92); color: #fff; font-size: 12px; font-weight: 700; line-height: 1; white-space: nowrap; box-shadow: 0 10px 24px rgba(10, 18, 42, 0.18); }
+  .radius-center { width: 14px; height: 14px; border-radius: 50%; border: 2px solid #fff; background: #1e4d8c; box-shadow: 0 0 0 6px rgba(30, 77, 140, 0.2); }
   .map-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 
   .zip-chips { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -206,6 +219,7 @@
           <h3>🗺️ Territory map</h3>
           <p class="hint">Home + work-center pins, service sites, and ZIP badges — <b style="color:#16a34a">green</b> = declared &amp; served, <b style="color:#2463eb">blue</b> = served only, <b style="color:#d97706">amber</b> = declared but never served, <b style="color:#111827">dark ⛔</b> = won't serve, <b style="color:#0d9488">teal ✋</b> = requested. Use the layer chips to show/hide each layer — <b>pre-cutoff sites are hidden by default</b> so old territory doesn't read as current.</p>
           <div class="map-layer-chips" id="tp-map-layers"></div>
+          <div id="tp-tool-status"></div>
           <div id="tp-map"></div>
           <div class="map-legend">
             <span><span class="sw" style="background:#b3261e"></span>Home</span>
@@ -1871,7 +1885,276 @@ function renderMapLayerChips() {
   }
   chips.push(`<button type="button" class="ml-chip${mapLayers.zips ? " on" : ""}" onclick="toggleMapLayer('zips')">🏷 ZIP badges</button>`);
   chips.push(`<button type="button" class="ml-chip${mapLayers.pins ? " on" : ""}" onclick="toggleMapLayer('pins')">📍 Pins</button>`);
+  // Measuring tools — portal-consistent Ruler + Lens + typical-reach preset.
+  chips.push(`<span class="ml-divider"></span>`);
+  chips.push(`<button type="button" class="ml-chip${toolMode === "ruler" ? " armed" : ""}" onclick="toggleTool('ruler')">📏 Ruler</button>`);
+  chips.push(`<button type="button" class="ml-chip${toolMode === "lens" ? " armed" : ""}" onclick="toggleTool('lens')">⭕ Lens</button>`);
+  chips.push(`<button type="button" class="ml-chip" onclick="showTypicalReach()">🎯 Typical reach</button>`);
+  if (toolMode === "lens" || lensCenter) {
+    chips.push(`<span class="tp-tool-controls">` +
+      `<button type="button" class="tstep" onclick="stepRadiusMiles(-1)" ${lensRadius <= RADIUS_MIN_MI ? "disabled" : ""} aria-label="Shrink lens">−</button>` +
+      `<span class="treadout" role="spinbutton" tabindex="0" aria-valuemin="${RADIUS_MIN_MI}" aria-valuemax="${RADIUS_MAX_MI}" aria-valuenow="${lensRadius}" ` +
+        `onwheel="event.preventDefault(); stepRadiusMiles(event.deltaY > 0 ? -1 : 1)" onkeydown="lensRadiusKeydown(event)">${esc(fmtRadiusLabel(lensRadius))}</span>` +
+      `<button type="button" class="tstep" onclick="stepRadiusMiles(1)" ${lensRadius >= RADIUS_MAX_MI ? "disabled" : ""} aria-label="Grow lens">+</button>` +
+      `<button type="button" class="tstep" style="color:#b3261e" title="Clear measurements" onclick="clearMapTools()">✕</button>` +
+      `</span>`);
+  }
   host.innerHTML = chips.join("");
+}
+
+// ── 📏 Ruler + ⭕ Lens — ported from the portal (clinician-map.html) so
+// the interactions feel identical: rolling 2-point ruler ("X.XX mi"
+// pill at the midpoint, 3rd click restarts), lens circle via the same
+// 72-step great-circle ring (#1e4d8c, dashed), radius clamped 1–25 in
+// half-mile snaps (0.5-mi steps under 3 mi, 1 mi above), re-click moves
+// the lens. Planner twist: the lens readout reports THIS therapist's
+// sites/visits/ZIPs inside the ring instead of "clinicians selected".
+const RADIUS_MIN_MI = 1;
+const RADIUS_MAX_MI = 25;
+let toolMode = "";          // "" | "ruler" | "lens"
+let rulerPts = [];          // [{lat,lng}]
+let rulerMarkers = [];
+let rulerLabelMarker = null;
+let lensCenter = null;      // {lat,lng}
+let lensRadius = 1;
+let lensCenterMarker = null;
+
+function fmtRadiusLabel(mi) {
+  const n = Number(mi || 0);
+  const label = Number.isInteger(n) ? String(n) : n.toFixed(1);
+  return label + " " + (n === 1 ? "mile" : "miles");
+}
+function clampRadiusMiles(mi) {
+  const n = Number(mi);
+  if (!Number.isFinite(n)) return RADIUS_MIN_MI;
+  const clamped = Math.max(RADIUS_MIN_MI, Math.min(RADIUS_MAX_MI, n));
+  return Math.round(clamped * 2) / 2;
+}
+function getRadiusStepDelta(current, direction) {
+  const safe = clampRadiusMiles(current);
+  if (direction > 0) return safe < 3 ? 0.5 : 1;
+  return safe <= 3 ? 0.5 : 1;
+}
+function stepRadiusMiles(direction) {
+  const dir = direction >= 0 ? 1 : -1;
+  const current = clampRadiusMiles(lensRadius);
+  setRadiusMiles(current + getRadiusStepDelta(current, dir) * dir);
+}
+function setRadiusMiles(mi) {
+  lensRadius = clampRadiusMiles(mi);
+  if (lensCenter) updateLensVisuals();
+  // Surgical update — a full chip re-render would drop focus from the
+  // readout mid-keyboard-stepping (portal's controls are static markup).
+  const host = document.getElementById("tp-map-layers");
+  const readout = host && host.querySelector(".treadout");
+  if (readout) {
+    readout.textContent = fmtRadiusLabel(lensRadius);
+    readout.setAttribute("aria-valuenow", lensRadius);
+    const steps = host.querySelectorAll(".tp-tool-controls .tstep");
+    if (steps.length >= 2) {
+      steps[0].disabled = lensRadius <= RADIUS_MIN_MI;
+      steps[1].disabled = lensRadius >= RADIUS_MAX_MI;
+    }
+  } else {
+    renderMapLayerChips();
+  }
+  renderToolStatus();
+}
+function lensRadiusKeydown(event) {
+  if (event.key === "ArrowLeft" || event.key === "ArrowDown") { event.preventDefault(); stepRadiusMiles(-1); }
+  else if (event.key === "ArrowRight" || event.key === "ArrowUp") { event.preventDefault(); stepRadiusMiles(1); }
+  else if (event.key === "Home") { event.preventDefault(); setRadiusMiles(RADIUS_MIN_MI); }
+  else if (event.key === "End") { event.preventDefault(); setRadiusMiles(RADIUS_MAX_MI); }
+}
+// Verbatim port of the portal's createCircleGeoJson (72-step great circle).
+function createCircleGeoJson(center, radiusMiles) {
+  const earthRadiusMiles = 3958.8;
+  const angularDistance = radiusMiles / earthRadiusMiles;
+  const centerLat = center.lat * (Math.PI / 180);
+  const centerLng = center.lng * (Math.PI / 180);
+  const steps = 72;
+  const coordinates = [];
+  for (let step = 0; step <= steps; step += 1) {
+    const bearing = (step / steps) * Math.PI * 2;
+    const lat = Math.asin(
+      Math.sin(centerLat) * Math.cos(angularDistance)
+      + Math.cos(centerLat) * Math.sin(angularDistance) * Math.cos(bearing)
+    );
+    const lng = centerLng + Math.atan2(
+      Math.sin(bearing) * Math.sin(angularDistance) * Math.cos(centerLat),
+      Math.cos(angularDistance) - Math.sin(centerLat) * Math.sin(lat)
+    );
+    coordinates.push([lng * (180 / Math.PI), lat * (180 / Math.PI)]);
+  }
+  return { type: "Feature", geometry: { type: "Polygon", coordinates: [coordinates] }, properties: {} };
+}
+function ensureToolLayers() {
+  if (!tpMap) return;
+  try {
+  if (!tpMap.getSource("tp-lens-circle")) {
+    tpMap.addSource("tp-lens-circle", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  }
+  if (!tpMap.getLayer("tp-lens-circle-fill")) {
+    tpMap.addLayer({ id: "tp-lens-circle-fill", type: "fill", source: "tp-lens-circle",
+      paint: { "fill-color": "#1e4d8c", "fill-opacity": 0.12 } });
+  }
+  if (!tpMap.getLayer("tp-lens-circle-line")) {
+    tpMap.addLayer({ id: "tp-lens-circle-line", type: "line", source: "tp-lens-circle",
+      paint: { "line-color": "#1e4d8c", "line-width": 2, "line-dasharray": [2, 2] } });
+  }
+  if (!tpMap.getSource("tp-ruler-line")) {
+    tpMap.addSource("tp-ruler-line", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  }
+  if (!tpMap.getLayer("tp-ruler-line-layer")) {
+    tpMap.addLayer({ id: "tp-ruler-line-layer", type: "line", source: "tp-ruler-line",
+      paint: { "line-color": "#111111", "line-width": 3, "line-dasharray": [2, 1] } });
+  }
+  } catch (e) { /* style still loading — the load-handler re-apply will draw it */ }
+}
+function toggleTool(mode) {
+  if (toolMode === mode) {
+    if (mode === "ruler") clearRulerTool();
+    else clearLensTool();
+    toolMode = "";
+  } else {
+    // Portal interplay: arming one tool disarms the other.
+    if (mode === "ruler") clearLensTool();
+    else clearRulerTool();
+    toolMode = mode;
+  }
+  renderMapLayerChips();
+  renderToolStatus();
+}
+function clearMapTools() {
+  clearRulerTool();
+  clearLensTool();
+  toolMode = "";
+  renderMapLayerChips();
+  renderToolStatus();
+}
+function clearRulerTool() {
+  rulerPts = [];
+  rulerMarkers.forEach(m => { try { m.remove(); } catch (e) {} });
+  rulerMarkers = [];
+  if (rulerLabelMarker) { try { rulerLabelMarker.remove(); } catch (e) {} rulerLabelMarker = null; }
+  if (tpMap && tpMap.getSource("tp-ruler-line")) {
+    tpMap.getSource("tp-ruler-line").setData({ type: "FeatureCollection", features: [] });
+  }
+}
+function clearLensTool() {
+  lensCenter = null;
+  if (lensCenterMarker) { try { lensCenterMarker.remove(); } catch (e) {} lensCenterMarker = null; }
+  if (tpMap && tpMap.getSource("tp-lens-circle")) {
+    tpMap.getSource("tp-lens-circle").setData({ type: "FeatureCollection", features: [] });
+  }
+}
+function addRulerPointMarker(point) {
+  const node = document.createElement("div");
+  node.className = "ruler-point";
+  const marker = new mapboxgl.Marker({ element: node, anchor: "center" })
+    .setLngLat([point.lng, point.lat]).addTo(tpMap);
+  rulerMarkers.push(marker);
+}
+function updateRulerVisuals() {
+  ensureToolLayers();
+  const source = tpMap.getSource("tp-ruler-line");
+  if (!source) return;
+  if (rulerPts.length < 2) {
+    source.setData({ type: "FeatureCollection", features: [] });
+    return;
+  }
+  source.setData({
+    type: "FeatureCollection",
+    features: [{ type: "Feature", geometry: { type: "LineString", coordinates: rulerPts.map(p => [p.lng, p.lat]) }, properties: {} }]
+  });
+  const miles = haversineMiles(rulerPts[0].lat, rulerPts[0].lng, rulerPts[1].lat, rulerPts[1].lng);
+  const label = document.createElement("div");
+  label.className = "selection-label";
+  label.textContent = miles.toFixed(2) + " mi";
+  if (rulerLabelMarker) { try { rulerLabelMarker.remove(); } catch (e) {} }
+  rulerLabelMarker = new mapboxgl.Marker({ element: label, anchor: "bottom" })
+    .setLngLat([(rulerPts[0].lng + rulerPts[1].lng) / 2, (rulerPts[0].lat + rulerPts[1].lat) / 2])
+    .addTo(tpMap);
+}
+function updateLensVisuals() {
+  if (!tpMap || !lensCenter) return;
+  ensureToolLayers();
+  const source = tpMap.getSource("tp-lens-circle");
+  if (source) source.setData({ type: "FeatureCollection", features: [createCircleGeoJson(lensCenter, lensRadius)] });
+  if (!lensCenterMarker) {
+    const node = document.createElement("div");
+    node.className = "radius-center";
+    lensCenterMarker = new mapboxgl.Marker({ element: node })
+      .setLngLat([lensCenter.lng, lensCenter.lat]).addTo(tpMap);
+  } else {
+    lensCenterMarker.setLngLat([lensCenter.lng, lensCenter.lat]);
+  }
+}
+function renderToolStatus() {
+  const el = document.getElementById("tp-tool-status");
+  if (!el) return;
+  if (toolMode === "ruler") {
+    if (rulerPts.length === 2) {
+      const miles = haversineMiles(rulerPts[0].lat, rulerPts[0].lng, rulerPts[1].lat, rulerPts[1].lng);
+      el.textContent = "Measured distance: " + miles.toFixed(2) + " miles.";
+    } else if (rulerPts.length === 1) {
+      el.textContent = "Ruler mode active. Click a second point to finish measuring.";
+    } else {
+      el.textContent = "Ruler mode active. Click two points to measure distance.";
+    }
+    return;
+  }
+  if (lensCenter) {
+    el.textContent = lensReadoutText();
+    return;
+  }
+  if (toolMode === "lens") {
+    el.textContent = "Lens active. Click the map to place a " + fmtRadiusLabel(lensRadius) + " reference circle, then use − and + to refine it.";
+    return;
+  }
+  el.textContent = "";
+}
+// Planner-aware lens readout — this therapist's footprint inside the ring.
+function lensReadoutText() {
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const sites = buildSites().filter(s => s.lat != null && s.lng != null);
+  let curSites = 0, curVisits = 0, oldSites = 0, totalCur = 0;
+  const zipsInside = new Set();
+  sites.forEach(s => {
+    const eligible = cutoff ? s.rows.filter(r => rowEligible(r, cutoff)) : s.rows;
+    const isCurrent = eligible.length > 0;
+    if (isCurrent) totalCur++;
+    if (haversineMiles(lensCenter.lat, lensCenter.lng, s.lat, s.lng) > lensRadius) return;
+    if (isCurrent) {
+      curSites++;
+      curVisits += eligible.reduce((t, r) => t + Math.max(Number(r.service_visits || 0) || 0, 1), 0);
+      const z = normZip((s.rows[0] || {}).zip_code) || ((String(s.address).match(/\b(\d{5})\b/) || [])[1] || "");
+      if (z) zipsInside.add(z);
+    } else {
+      oldSites++;
+    }
+  });
+  const zips = Array.from(zipsInside).sort();
+  const zipTxt = zips.length ? " · touches " + zips.slice(0, 6).join(", ") + (zips.length > 6 ? " +" + (zips.length - 6) : "") : "";
+  return curSites + " of " + totalCur + " current sites · " + curVisits + " visits inside " + fmtRadiusLabel(lensRadius) + zipTxt +
+    (cutoff && oldSites ? " · " + oldSites + " pre-cutoff site" + (oldSites === 1 ? "" : "s") : "");
+}
+// 🎯 One-shot: draw the ring at the therapist's p75 travel distance
+// around the work center (fallback home) — "their comfortable reach".
+async function showTypicalReach() {
+  const wc = resolveWorkCenter();
+  const sites = buildSites().filter(s => s.lat != null && s.lng != null);
+  let origin = clinician.zip ? await getZipCentroid(clinician.zip) : null;
+  if (!origin && wc && wc.lat != null) origin = { lat: wc.lat, lng: wc.lng };
+  if (!origin || !sites.length) { showToast("Not enough data for a typical-reach ring"); return; }
+  const dists = sites.map(s => haversineMiles(origin.lat, origin.lng, s.lat, s.lng)).sort((a, b) => a - b);
+  const p75 = dists[Math.floor(dists.length * 0.75)];
+  lensRadius = clampRadiusMiles(p75);
+  lensCenter = (wc && wc.lat != null) ? { lat: wc.lat, lng: wc.lng } : origin;
+  updateLensVisuals();
+  renderMapLayerChips();
+  renderToolStatus();
+  showToast("🎯 Typical reach: " + fmtRadiusLabel(lensRadius) + " around the " + (wc ? "work center" : "home ZIP"));
 }
 function toggleMapLayer(key) {
   mapLayers[key] = !mapLayers[key];
@@ -2002,6 +2285,40 @@ function initTerritoryMap() {
 
     if (hasBounds) tpMap.fitBounds(bounds, { padding: 60, maxZoom: 12.5 });
     applyMapLayerVisibility();
+
+    // Measuring tools survive a map rebuild (cutoff change, import, edits):
+    // the old map took its markers with it, so re-create them from state.
+    ensureToolLayers();
+    rulerMarkers = [];
+    rulerLabelMarker = null;
+    lensCenterMarker = null;
+    if (rulerPts.length) {
+      rulerPts.forEach(p => addRulerPointMarker(p));
+      updateRulerVisuals();
+    }
+    if (lensCenter) updateLensVisuals();
+    renderToolStatus();
+
+    // Tool clicks — portal precedence: a click that lands on a site dot
+    // opens its popup and is NOT a tool point.
+    tpMap.on("click", e => {
+      if (!toolMode) return;
+      const hitLayers = ["tp-sites-current", "tp-sites-old"].filter(id => tpMap.getLayer(id));
+      if (hitLayers.length && tpMap.queryRenderedFeatures(e.point, { layers: hitLayers }).length) return;
+      const pt = { lat: e.lngLat.lat, lng: e.lngLat.lng };
+      if (toolMode === "ruler") {
+        if (rulerPts.length >= 2) clearRulerTool(); // 3rd click → fresh measure, stay armed
+        rulerPts.push(pt);
+        addRulerPointMarker(pt);
+        updateRulerVisuals();
+        renderToolStatus();
+      } else if (toolMode === "lens") {
+        lensCenter = pt; // re-click moves the lens
+        updateLensVisuals();
+        renderMapLayerChips();
+        renderToolStatus();
+      }
+    });
 
     // ZIP badges at geocoded centroids — colored by declared/served status;
     // a Won't-serve refusal overrides everything (dark badge).
