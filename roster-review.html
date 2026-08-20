@@ -326,6 +326,19 @@
   .vdr-tint-red   { color: #b91c1c; font-weight: 800; }
   .vdr-cell-muted { color: var(--muted); font-size: 11px; }
 
+  /* Click-to-sort column headers (same mechanism as agencies.html) */
+  table.roster th[data-sort] { cursor: pointer; user-select: none; }
+  table.roster th[data-sort]:hover { background: #e2e8f0; color: var(--text); }
+  table.roster th[data-sort]::after { content: " ⇅"; font-size: 9px; opacity: 0.3; }
+  table.roster th.sort-asc::after  { content: " ▲"; font-size: 9px; opacity: 1; }
+  table.roster th.sort-desc::after { content: " ▼"; font-size: 9px; opacity: 1; }
+  table.roster th.sort-asc, table.roster th.sort-desc { color: var(--text); }
+
+  /* Coverage-gaps cell (Territory Planner flag) */
+  .covgap-link { color: #1a5fb4; font-weight: 800; font-size: 12px; text-decoration: none; white-space: nowrap; }
+  .covgap-link:hover { text-decoration: underline; }
+  .covgap-ok { color: #15803d; font-weight: 800; }
+
   .num-input { width: 56px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; outline: none; }
   .num-input:focus { border-color: var(--accent); }
   .text-input { width: 100%; min-width: 110px; padding: 4px 7px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; outline: none; }
@@ -592,6 +605,7 @@
       <span class="chip preset" id="preset-need-review">🔍 Need Review</span>
       <span class="chip preset" id="preset-returning">🏖 Returning &lt;14d</span>
       <span class="chip preset" id="preset-paused-long">💤 Paused 30d+</span>
+      <span class="chip preset" id="preset-cov-gaps">🧭 Has Gaps</span>
     </div>
     <input type="text" class="filter-search" id="search-input" placeholder="Search by name…" />
     <div class="col-picker-wrap">
@@ -608,12 +622,13 @@
       <thead>
         <tr>
           <th class="sel-cell" data-col="select"><input type="checkbox" id="select-all" /></th>
-          <th data-col="name">Name</th>
-          <th data-col="disc">Disc</th>
-          <th data-col="status">Status</th>
-          <th data-col="avgSync" style="text-align:right;">Avg Sync Days</th>
-          <th data-col="avgVisits" style="text-align:right;">Avg Visits/Run</th>
-          <th data-col="avgVisitMins" style="text-align:right;">Avg Visit Time</th>
+          <th data-col="name" data-sort="name" data-sort-type="str">Name</th>
+          <th data-col="disc" data-sort="discipline" data-sort-type="str">Disc</th>
+          <th data-col="status" data-sort="status" data-sort-type="str">Status</th>
+          <th data-col="avgSync" data-sort="avgSync" data-sort-type="num" style="text-align:right;">Avg Sync Days</th>
+          <th data-col="avgVisits" data-sort="avgVisits" data-sort-type="num" style="text-align:right;">Avg Visits/Run</th>
+          <th data-col="avgVisitMins" data-sort="avgVisitMins" data-sort-type="num" style="text-align:right;">Avg Visit Time</th>
+          <th data-col="covGaps" data-sort="covGaps" data-sort-type="num" title="Territory coverage gaps: ➕ ZIPs served but not declared in TB · 💤 declared but never served">Coverage Gaps</th>
           <th data-col="rating">Rating</th>
           <th data-col="hireDate">Hire Date</th>
           <th data-col="restrictions">Restrictions</th>
@@ -725,6 +740,9 @@ const COLUMNS = [
   { key: "avgSync",      label: "Avg Sync Days",     defaultOn: true  },
   { key: "avgVisits",    label: "Avg Visits/Run",    defaultOn: true  },
   { key: "avgVisitMins", label: "Avg Visit Time",    defaultOn: true  },
+  // Territory coverage-gaps flag (migration 60 RPC) — ➕ served-but-not-
+  // declared-in-TB / 💤 declared-but-never-served; links to the planner.
+  { key: "covGaps",      label: "Coverage Gaps",     defaultOn: true  },
   { key: "rating",       label: "Rating",       defaultOn: true  },
   { key: "hireDate",     label: "Hire Date",    defaultOn: true  },
   { key: "restrictions", label: "Restrictions", defaultOn: true  },
@@ -794,13 +812,16 @@ let filters = {
   search: "",
   needReview: false,
   returningSoon: false,
-  pausedLong: false
+  pausedLong: false,
+  covGaps: false
 };
 let realtimeChannel = null;
 let visibleCols = loadVisibleCols(); // {key: bool}
 let agenciesList = []; // [{id, name}] from home_health_agencies
 let vdrLookup    = { byId: {}, byName: {} }; // legacy VDR (Create-bills) aggregates
 let visitsLookup = { byId: {}, byName: {} }; // Patient Visits-derived aggregates (preferred)
+let covGapsLookup = { byId: {}, byName: {} }; // Territory coverage-gap flags (migration 60)
+let sortState = { key: null, dir: 1, type: "str" }; // click-to-sort (agencies.html pattern)
 
 // ── Per-clinician metrics lookup ──
 // Patient Visits (TB Reports → Clinicians → Patient visits) is the canonical
@@ -824,12 +845,14 @@ async function loadVdrSummary() {
       return [];
     }
   }
-  const [vdrRows, visRows] = await Promise.all([
+  const [vdrRows, visRows, gapRows] = await Promise.all([
     safeRpc("list_clinician_vdr_summary"),
-    safeRpc("list_clinician_visit_summary")
+    safeRpc("list_clinician_visit_summary"),
+    safeRpc("list_clinician_coverage_gaps")
   ]);
-  vdrLookup    = buildMetricsLookup(vdrRows);
-  visitsLookup = buildMetricsLookup(visRows);
+  vdrLookup     = buildMetricsLookup(vdrRows);
+  visitsLookup  = buildMetricsLookup(visRows);
+  covGapsLookup = buildMetricsLookup(gapRows);
 }
 
 // TB clinician names carry trailing discipline codes: "Leon Diaz PTA",
@@ -865,6 +888,13 @@ function getVdrMetricsFor(clinicianObj) {
   if (clinicianObj.id && vdrLookup.byId[clinicianObj.id])    return vdrLookup.byId[clinicianObj.id];
   if (vdrLookup.byName[key])                                 return vdrLookup.byName[key];
   return null;
+}
+
+// Coverage-gap row for a clinician (migration 60 RPC; null until the
+// migration is run / for clinicians with no history + no declared ZIPs).
+function getCovGapsFor(clinicianObj) {
+  if (clinicianObj.id && covGapsLookup.byId[clinicianObj.id]) return covGapsLookup.byId[clinicianObj.id];
+  return covGapsLookup.byName[clinLookupKey(clinicianObj.name)] || null;
 }
 
 function syncTimeTint(days) {
@@ -1205,7 +1235,65 @@ function passesFilters(r) {
     if (start > cutoff) return false;
   }
 
+  if (filters.covGaps) {
+    const g = getCovGapsFor(r);
+    if (!g || ((g.gap_add_count || 0) + (g.gap_idle_count || 0)) === 0) return false;
+  }
+
   return true;
+}
+
+// ── Click-to-sort (ported from agencies.html) ──
+// Derived columns aren't fields on the row object — resolve them here.
+const SORT_DERIVED = {
+  avgSync:      r => { const m = getVdrMetricsFor(r); return m ? m.avg_sync_days : null; },
+  avgVisits:    r => { const m = getVdrMetricsFor(r); return m ? m.avg_visits_per_run : null; },
+  avgVisitMins: r => { const m = getVdrMetricsFor(r); return m ? m.avg_visit_minutes : null; },
+  // gapAdd dominates (the actionable "add to TB" signal); gapIdle breaks
+  // ties. gap_idle_count can't approach 1000, so the composite is safe.
+  covGaps:      r => {
+    const g = getCovGapsFor(r);
+    if (!g) return null;
+    return (g.gap_add_count || 0) * 1000 + (g.gap_idle_count || 0);
+  }
+};
+
+// Sort the filtered rows by the active column header. Empty/unset values
+// always sink to the bottom regardless of direction.
+function sortRows(rows) {
+  if (!sortState.key) return rows;
+  const { key, dir, type } = sortState;
+  const valOf = (r) => {
+    let v = SORT_DERIVED[key] ? SORT_DERIVED[key](r) : r[key];
+    if (type === "num") {
+      if (v === null || v === undefined || v === "") return null;
+      v = Number(v);
+      return isNaN(v) ? null : v;
+    }
+    return (v === null || v === undefined) ? "" : String(v).trim();
+  };
+  const isEmpty = (v) => v === null || v === undefined || v === "";
+  return rows.slice().sort((a, b) => {
+    const va = valOf(a), vb = valOf(b);
+    const ea = isEmpty(va), eb = isEmpty(vb);
+    if (ea && eb) return 0;
+    if (ea) return 1;    // empties last
+    if (eb) return -1;
+    let cmp;
+    if (type === "str") cmp = va.localeCompare(vb, undefined, { sensitivity: "base", numeric: true });
+    else cmp = va < vb ? -1 : (va > vb ? 1 : 0);
+    return cmp * dir;
+  });
+}
+
+// Reflect the current sort on the header chevrons.
+function syncSortIndicators() {
+  document.querySelectorAll("#roster-table thead th[data-sort]").forEach(th => {
+    th.classList.remove("sort-asc", "sort-desc");
+    if (th.dataset.sort === sortState.key) {
+      th.classList.add(sortState.dir === 1 ? "sort-asc" : "sort-desc");
+    }
+  });
 }
 
 function renderTable() {
@@ -1239,8 +1327,9 @@ function renderTable() {
   });
   const visibleColCount = COLUMNS.filter(c => visibleCols[c.key]).length;
 
+  syncSortIndicators();
   const body = document.getElementById("roster-body");
-  const visible = rosterRows.filter(passesFilters);
+  const visible = sortRows(rosterRows.filter(passesFilters));
   if (!visible.length) {
     body.innerHTML = '<tr><td colspan="' + visibleColCount + '" style="text-align:center;padding:30px;color:var(--muted);">No clinicians match the current filters.</td></tr>';
   } else {
@@ -1473,6 +1562,40 @@ function buildRow(r) {
       : `<td data-col="avgVisitMins" style="text-align:right;" title="${escAttr(sharedTip)}">
            <span class="vdr-cell-muted">—</span>
          </td>`;
+  }
+
+  // Coverage-gaps cell — Territory Planner flag (migration 60 RPC).
+  {
+    const g = getCovGapsFor(r);
+    if (!g) {
+      cells.covGaps = `<td data-col="covGaps">
+        <span class="vdr-cell-muted" title="No TB ZIP coverage or completed-service history for this clinician (or migration 60 not run yet)">—</span>
+      </td>`;
+    } else {
+      const add = g.gap_add_count || 0;
+      const idle = g.gap_idle_count || 0;
+      const refused = g.gap_add_refused_count || 0;
+      if (!add && !idle) {
+        cells.covGaps = `<td data-col="covGaps">
+          <span class="covgap-ok" title="${escAttr("Declared TB ZIPs and served history agree (" + (g.declared_count || 0) + " declared · " + (g.served_count || 0) + " served)" + (refused ? " · " + refused + " refused ZIP(s) with history excluded" : ""))}">✓</span>
+        </td>`;
+      } else {
+        const tipParts = [];
+        if (add) {
+          const list = (g.gap_add_zips || []).join(", ");
+          tipParts.push("Serves but NOT declared in TB (" + add + "): " + list + (add > (g.gap_add_zips || []).length ? "…" : ""));
+        }
+        if (idle) {
+          const list = (g.gap_idle_zips || []).join(", ");
+          tipParts.push("Declared but never served (" + idle + "): " + list + (idle > (g.gap_idle_zips || []).length ? "…" : ""));
+        }
+        if (refused) tipParts.push(refused + " served ZIP(s) are on the won't-serve list (not counted)");
+        tipParts.push("Open the Territory Planner to work the list");
+        cells.covGaps = `<td data-col="covGaps">
+          <a class="covgap-link" href="territory-planner.html?clinician=${encodeURIComponent(cid)}" target="_blank" rel="noopener" title="${escAttr(tipParts.join(" · "))}">${add ? "➕" + add : ""}${add && idle ? " " : ""}${idle ? "💤" + idle : ""}${refused ? " ⛔" + refused : ""}</a>
+        </td>`;
+      }
+    }
   }
 
   const orderedHtml = COLUMNS
@@ -2311,7 +2434,8 @@ function exportCsv(onlySelected) {
     "restricted_agencies", "restricted_clinicians",
     "notes", "do_not_rehire",
     "last_reviewed_at", "last_reviewed_by_email",
-    "avg_sync_days", "avg_visits_per_run", "avg_visit_minutes", "vdr_run_count", "latest_vdr_at"
+    "avg_sync_days", "avg_visits_per_run", "avg_visit_minutes", "vdr_run_count", "latest_vdr_at",
+    "gap_add_count", "gap_idle_count", "gap_add_refused_count", "gap_add_zips", "gap_idle_zips"
   ];
   function emrOn(caps, aliases) {
     if (!caps || typeof caps !== "object") return "";
@@ -2326,6 +2450,7 @@ function exportCsv(onlySelected) {
       ? (staffByUserId[r.last_reviewed_by].email || "")
       : "";
     const m = getVdrMetricsFor(r);
+    const g = getCovGapsFor(r);
     const fields = [
       r.name,
       r.discipline,
@@ -2355,7 +2480,13 @@ function exportCsv(onlySelected) {
       m && m.avg_visits_per_run != null ? m.avg_visits_per_run : "",
       m && m.avg_visit_minutes != null ? m.avg_visit_minutes : "",
       m && m.run_count != null ? m.run_count : "",
-      m && m.latest_run_at ? m.latest_run_at : ""
+      m && m.latest_run_at ? m.latest_run_at : "",
+      // Coverage gaps — empty string = no data (vs a real 0)
+      g ? g.gap_add_count : "",
+      g ? g.gap_idle_count : "",
+      g ? g.gap_add_refused_count : "",
+      g ? (g.gap_add_zips || []).join("; ") : "",
+      g ? (g.gap_idle_zips || []).join("; ") : ""
     ].map(v => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -2411,6 +2542,7 @@ function parseUrlFilters() {
     document.getElementById("search-input").value = params.get("q");
   }
   if (params.has("needReview")) filters.needReview = params.get("needReview") === "1";
+  if (params.has("covGaps")) filters.covGaps = params.get("covGaps") === "1";
   syncFilterUI();
   renderAll();
 }
@@ -2425,6 +2557,7 @@ function syncFilterUI() {
   document.getElementById("preset-need-review").classList.toggle("active", filters.needReview);
   document.getElementById("preset-returning").classList.toggle("active", filters.returningSoon);
   document.getElementById("preset-paused-long").classList.toggle("active", filters.pausedLong);
+  document.getElementById("preset-cov-gaps").classList.toggle("active", filters.covGaps);
 }
 
 function writeUrlFilters() {
@@ -2433,6 +2566,7 @@ function writeUrlFilters() {
   params.set("disc", Array.from(filters.disciplines).join(","));
   if (filters.search) params.set("q", filters.search);
   if (filters.needReview) params.set("needReview", "1");
+  if (filters.covGaps) params.set("covGaps", "1");
   const qs = params.toString();
   history.replaceState(null, "", qs ? "?" + qs : location.pathname);
 }
@@ -2479,6 +2613,28 @@ document.getElementById("preset-returning").addEventListener("click", () => {
 document.getElementById("preset-paused-long").addEventListener("click", () => {
   filters.pausedLong = !filters.pausedLong;
   syncFilterUI(); writeUrlFilters(); renderAll();
+});
+document.getElementById("preset-cov-gaps").addEventListener("click", () => {
+  filters.covGaps = !filters.covGaps;
+  syncFilterUI(); writeUrlFilters(); renderAll();
+});
+
+// Column-header sort — click to cycle asc → desc → off (agencies.html pattern)
+document.addEventListener("click", (e) => {
+  const th = e.target.closest("#roster-table thead th[data-sort]");
+  if (!th) return;
+  const key = th.dataset.sort;
+  if (sortState.key !== key) {
+    sortState.key = key;
+    sortState.dir = 1;
+    sortState.type = th.dataset.sortType || "str";
+  } else if (sortState.dir === 1) {
+    sortState.dir = -1;
+  } else {
+    sortState.key = null;   // third click → back to natural (name) order
+    sortState.dir = 1;
+  }
+  renderTable();
 });
 let searchTimer = null;
 document.getElementById("search-input").addEventListener("input", e => {
