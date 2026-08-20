@@ -98,6 +98,12 @@
   .zip-chip.served   { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
   .zip-chip.gap-add  { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
   .zip-chip.gap-idle { background: #fdf6e6; color: #92400e; border-color: #ecd9a8; }
+  .zip-chip.copyable { cursor: pointer; }
+  .zip-chip.copyable:hover { box-shadow: 0 0 0 2px rgba(26, 95, 180, .28); }
+  .zip-chip.tb-done { background: #e7f6ec !important; color: #1b7a3d !important; border-color: #bfe3cc !important; }
+  .gap-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 7px; }
+  .gap-tools .mv-btn { padding: 4px 10px; font-size: 11.5px; }
+  .gap-tools .tb-progress { font-size: 11.5px; font-weight: 700; color: #1a5fb4; }
   .zip-chip .cnt { font-weight: 600; opacity: .75; margin-left: 3px; }
   .cutoff-note { font-size: 11px; color: #92400e; background: #fdf6e6; border: 1px solid #ecd9a8; border-radius: 7px; padding: 4px 9px; margin-bottom: 8px; display: inline-block; }
   /* Move-workflow chips + controls */
@@ -284,6 +290,7 @@
           <h3>🔍 Coverage gaps</h3>
           <p class="hint">Where declared coverage and reality disagree.</p>
           <div style="font-size:11px;font-weight:800;color:#1a5fb4;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Served but NOT declared — consider adding in TB</div>
+          <div class="gap-tools" id="tp-gap-add-tools"></div>
           <div class="zip-chips" id="tp-gap-add" style="margin-bottom:12px"><span class="empty-note">None 🎉</span></div>
           <div id="tp-gap-idle-head" style="font-size:11px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Declared but never served</div>
           <div class="zip-chips" id="tp-gap-idle"><span class="empty-note">None — every declared ZIP has history.</span></div>
@@ -939,8 +946,38 @@ function renderZipPanels() {
 
   const gapAdd = servedZips.filter(z => !declared.has(z));
   const gapIdle = Array.from(declared).filter(z => !served[z]).sort();
+
+  // Copy-out tools: TB only accepts ZIPs one at a time, so alongside the
+  // plain "copy the whole list" there's a TB entry mode that turns every
+  // gap chip into a click-to-copy that checks itself off as you go.
+  const toolsHost = document.getElementById("tp-gap-add-tools");
+  if (toolsHost) {
+    if (!gapAdd.length && !gapIdle.length) {
+      toolsHost.innerHTML = "";
+    } else {
+      const remaining = gapAdd.filter(z => !tbEntryDone.has(z));
+      let html = "";
+      if (gapAdd.length) html += `<button type="button" class="mv-btn" onclick="copyGapList()">📋 Copy list (${gapAdd.length})</button>`;
+      html += `<button type="button" class="mv-btn${tbEntryMode ? " primary" : ""}" onclick="toggleTbEntryMode()">${tbEntryMode ? "✕ Exit TB entry mode" : "➡ TB entry mode"}</button>`;
+      if (tbEntryMode && gapAdd.length) {
+        html += remaining.length
+          ? `<button type="button" class="mv-btn primary" onclick="tbCopyNext()">Copy next → ${esc(remaining[0])}</button>` +
+            `<span class="tb-progress">${gapAdd.length - remaining.length} of ${gapAdd.length} copied</span>`
+          : `<span class="tb-progress" style="color:#1b7a3d">✓ All ${gapAdd.length} copied — now declared in TB? Re-run the ZIP import to confirm.</span>`;
+      }
+      toolsHost.innerHTML = html;
+    }
+  }
+
+  const gapChip = (z, cls, inner, title) => {
+    const done = tbEntryMode && tbEntryDone.has(z);
+    const click = tbEntryMode ? ` onclick="tbCopyOne('${esc(z)}')"` : "";
+    const t = tbEntryMode ? "Click to copy just this ZIP for TherapyBoss" + (title ? " — " + title : "") : (title || "");
+    return `<span class="zip-chip ${cls}${tbEntryMode ? " copyable" : ""}${done ? " tb-done" : ""}"${t ? ` title="${esc(t)}"` : ""}${click}>${done ? "✓ " : ""}${inner}</span>`;
+  };
+
   document.getElementById("tp-gap-add").innerHTML = gapAdd.length
-    ? gapAdd.map(z => `<span class="zip-chip gap-add">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
+    ? gapAdd.map(z => gapChip(z, "gap-add", `${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span>`, "")).join("")
     : "<span class='empty-note'>None 🎉 — everywhere they've served is declared.</span>";
 
   // Honest labeling under a cutoff: some "idle" ZIPs WERE served — just
@@ -961,9 +998,61 @@ function renderZipPanels() {
         const title = preCutoffOnly
           ? "Served before the cutoff — no episodes since " + cutoff.toISOString().slice(0, 10)
           : "No completed-service history in this ZIP at all";
-        return `<span class="zip-chip gap-idle" title="${esc(title)}">${preCutoffOnly ? "🕰 " : ""}${esc(z)}${placeSuffix(z)}</span>`;
+        return gapChip(z, "gap-idle", `${preCutoffOnly ? "🕰 " : ""}${esc(z)}${placeSuffix(z)}`, title);
       }).join("")
     : "<span class='empty-note'>None — every declared ZIP has " + (cutoff ? "recent " : "") + "history.</span>";
+}
+
+// ── Coverage-gap copy tools ─────────────────────────────────────────
+// TherapyBoss's coverage editor takes ONE zip at a time, so beyond the
+// plain full-list copy there's a TB entry mode: chips become one-click
+// copies that check off as you alternate paste-by-paste with TB.
+let tbEntryMode = false;
+let tbEntryDone = new Set();
+
+function gapAddZips() {
+  const declared = declaredZipSet();
+  const served = servedZipCounts();
+  return Object.keys(served).sort((a, b) => served[b] - served[a]).filter(z => !declared.has(z));
+}
+function toggleTbEntryMode() {
+  tbEntryMode = !tbEntryMode;
+  if (!tbEntryMode) tbEntryDone = new Set(); // fresh checklist next time
+  renderZipPanels();
+  if (tbEntryMode) showToast("➡ TB entry mode — click a chip (or Copy next) to copy one ZIP at a time");
+}
+function copyGapList() {
+  const list = gapAddZips();
+  if (!list.length) { showToast("No ZIPs to copy"); return; }
+  const text = list.join(", ");
+  const done = () => showToast("📋 Copied " + list.length + " ZIPs (full list — TB itself wants them one at a time)");
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyZipFallback(text, done));
+  } else {
+    copyZipFallback(text, done);
+  }
+}
+function tbCopyOne(zip) {
+  const z = normZip(zip);
+  if (!z) return;
+  const wasNew = !tbEntryDone.has(z);
+  const done = () => {
+    tbEntryDone.add(z);
+    renderZipPanels();
+    const left = gapAddZips().filter(x => !tbEntryDone.has(x)).length;
+    showToast("📋 " + z + " copied — paste into TB" +
+      (wasNew ? (left ? " · " + left + " to go" : " · that's the last one 🎉") : " (again)"));
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(z).then(done).catch(() => copyZipFallback(z, done));
+  } else {
+    copyZipFallback(z, done);
+  }
+}
+function tbCopyNext() {
+  const next = gapAddZips().find(z => !tbEntryDone.has(z));
+  if (!next) { showToast("✓ All served-but-not-declared ZIPs copied"); return; }
+  tbCopyOne(next);
 }
 
 // 📜 Coverage changes — the revision log written by the Map's ZIP Coverage
