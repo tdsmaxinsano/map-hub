@@ -228,7 +228,6 @@
           <div class="map-layer-chips" id="tp-map-layers"></div>
           <div id="tp-tool-status"></div>
           <div id="tp-map"></div>
-          <div id="tp-site-excl"></div>
           <div class="map-legend">
             <span><span class="sw" style="background:#b3261e"></span>Home</span>
             <span><span class="sw" style="background:#7c3aed"></span>Work center</span>
@@ -240,6 +239,7 @@
             <span><span class="sw" style="background:#111827"></span>ZIP won't serve</span>
             <span><span class="sw" style="background:#0d9488"></span>ZIP requested, not in TB</span>
           </div>
+          <div id="tp-site-excl"></div>
         </div>
 
     <div class="card">
@@ -1160,20 +1160,33 @@ function refreshAfterSiteExcl() {
   if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
   initTerritoryMap();
 }
-// Small manager strip under the map — every excluded location with ↩.
+// Manager strip below the legend — collapsed to one quiet line by
+// default (same pattern as 📜 Coverage changes); expand for the full
+// address list, one per line, each with ↩ restore.
+let siteExclOpen = false;
+function toggleSiteExclList() {
+  siteExclOpen = !siteExclOpen;
+  renderSiteExclList();
+}
 function renderSiteExclList() {
   const host = document.getElementById("tp-site-excl");
   if (!host) return;
   if (!siteExclusions.length) { host.innerHTML = ""; return; }
-  host.innerHTML = `<div style="margin-top:7px;font-size:11.5px;color:#6b7280">` +
-    `<b>🚫 Excluded locations (${siteExclusions.length})</b> — not counted anywhere: ` +
-    siteExclusions.map(r => {
-      const disp = r.address_display || r.address_norm;
-      const enc = encSiteAddr(r.address_norm || disp);
-      return `<span class="zip-chip gap-refused" title="${esc([r.set_by_email, r.created_at ? fmtDate(r.created_at) : ""].filter(Boolean).join(" · "))}">${esc(disp)}` +
-        (canEditPlan() ? `<span class="x" style="cursor:pointer;margin-left:5px" title="Un-exclude" onclick="unexcludeSite('${enc}')">↩</span>` : "") +
-        `</span>`;
-    }).join(" ") + `</div>`;
+  let html = `<div style="margin-top:8px;font-size:11.5px;color:#6b7280;cursor:pointer;user-select:none;font-weight:700" onclick="toggleSiteExclList()">` +
+    `${siteExclOpen ? "▾" : "▸"} 🚫 Excluded locations (${siteExclusions.length}) <span style="font-weight:400">— not counted in territory math</span></div>`;
+  if (siteExclOpen) {
+    html += `<div style="margin-top:5px;display:flex;flex-direction:column;gap:4px">` +
+      siteExclusions.map(r => {
+        const disp = r.address_display || r.address_norm;
+        const enc = encSiteAddr(r.address_norm || disp);
+        const meta = [r.set_by_email, r.created_at ? fmtDate(r.created_at) : ""].filter(Boolean).join(" · ");
+        return `<div style="font-size:11.5px;color:#4b5563;display:flex;align-items:center;gap:7px">` +
+          `<span title="${esc(meta)}">🚫 ${esc(fmtAddr(disp))}</span>` +
+          (canEditPlan() ? `<button type="button" class="mv-btn" style="padding:1px 8px;font-size:10.5px" title="Un-exclude — counts again everywhere" onclick="unexcludeSite('${enc}')">↩ Restore</button>` : "") +
+          `</div>`;
+      }).join("") + `</div>`;
+  }
+  host.innerHTML = html;
 }
 
 // 📜 Coverage changes — the revision log written by the Map's ZIP Coverage
