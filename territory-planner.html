@@ -264,7 +264,7 @@
           <p class="hint">Where declared coverage and reality disagree.</p>
           <div style="font-size:11px;font-weight:800;color:#1a5fb4;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Served but NOT declared — consider adding in TB</div>
           <div class="zip-chips" id="tp-gap-add" style="margin-bottom:12px"><span class="empty-note">None 🎉</span></div>
-          <div style="font-size:11px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Declared but never served</div>
+          <div id="tp-gap-idle-head" style="font-size:11px;font-weight:800;color:#92400e;text-transform:uppercase;letter-spacing:.4px;margin-bottom:5px">Declared but never served</div>
           <div class="zip-chips" id="tp-gap-idle"><span class="empty-note">None — every declared ZIP has history.</span></div>
         </div>
 
@@ -873,9 +873,28 @@ function renderZipPanels() {
   document.getElementById("tp-gap-add").innerHTML = gapAdd.length
     ? gapAdd.map(z => `<span class="zip-chip gap-add">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join("")
     : "<span class='empty-note'>None 🎉 — everywhere they've served is declared.</span>";
+
+  // Honest labeling under a cutoff: some "idle" ZIPs WERE served — just
+  // not since. Distinguish pre-cutoff-only history (🕰) from truly never.
+  const servedAllTime = new Set();
+  if (cutoff) {
+    historyRows.forEach(row => {
+      let z = normZip(row.zip_code);
+      if (!z) { const m = String(row.full_address || "").match(/\b(\d{5})\b/); if (m) z = m[1]; }
+      if (z) servedAllTime.add(z);
+    });
+  }
+  const idleHead = document.getElementById("tp-gap-idle-head");
+  if (idleHead) idleHead.textContent = cutoff ? "Declared but not served since the cutoff" : "Declared but never served";
   document.getElementById("tp-gap-idle").innerHTML = gapIdle.length
-    ? gapIdle.map(z => `<span class="zip-chip gap-idle">${esc(z)}${placeSuffix(z)}</span>`).join("")
-    : "<span class='empty-note'>None — every declared ZIP has history.</span>";
+    ? gapIdle.map(z => {
+        const preCutoffOnly = cutoff && servedAllTime.has(z);
+        const title = preCutoffOnly
+          ? "Served before the cutoff — no episodes since " + cutoff.toISOString().slice(0, 10)
+          : "No completed-service history in this ZIP at all";
+        return `<span class="zip-chip gap-idle" title="${esc(title)}">${preCutoffOnly ? "🕰 " : ""}${esc(z)}${placeSuffix(z)}</span>`;
+      }).join("")
+    : "<span class='empty-note'>None — every declared ZIP has " + (cutoff ? "recent " : "") + "history.</span>";
 }
 
 // ══════════════════════════════════════════════════════════════════
