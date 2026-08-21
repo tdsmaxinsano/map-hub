@@ -50,6 +50,63 @@ CREATE TABLE IF NOT EXISTS public.clinician_address_changes (
   note               TEXT
 );
 
+-- Self-healing: if a clinician_address_changes table already exists in
+-- some other/partial shape (CREATE TABLE IF NOT EXISTS skips it and the
+-- index below then errors 42703 on the missing column), add any missing
+-- columns. No-ops on a freshly created table. Data, if any, is kept.
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS id                 UUID DEFAULT gen_random_uuid();
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS clinician_id       UUID;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS clinician_name     TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS discipline         TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS old_address        TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS new_address        TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS old_zip            TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS new_zip            TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS detected_at        TIMESTAMPTZ NOT NULL DEFAULT now();
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS detected_by_email  TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS source             TEXT NOT NULL DEFAULT 'sync_update';
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS status             TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS processed_at       TIMESTAMPTZ;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS processed_by_email TEXT;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS move_date          DATE;
+ALTER TABLE public.clinician_address_changes ADD COLUMN IF NOT EXISTS note               TEXT;
+
+-- Ensure the status CHECK exists even when the column pre-dated us
+-- (ADD COLUMN IF NOT EXISTS skips its inline CHECK on an existing column).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'clinician_address_changes_status_check'
+      AND conrelid = 'public.clinician_address_changes'::regclass
+  ) THEN
+    ALTER TABLE public.clinician_address_changes
+      ADD CONSTRAINT clinician_address_changes_status_check
+      CHECK (status IN ('pending','processed','dismissed'));
+  END IF;
+END $$;
+
+-- Same for the clinician FK (drives ON DELETE CASCADE cleanup). Guarded
+-- with an exception handler: if a pre-existing clinician_id column has an
+-- incompatible type or orphan values, we keep the table usable and just
+-- note it instead of failing the whole migration.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conname = 'clinician_address_changes_clinician_id_fkey'
+      AND conrelid = 'public.clinician_address_changes'::regclass
+  ) THEN
+    BEGIN
+      ALTER TABLE public.clinician_address_changes
+        ADD CONSTRAINT clinician_address_changes_clinician_id_fkey
+        FOREIGN KEY (clinician_id) REFERENCES public.clinician_v2(id) ON DELETE CASCADE;
+    EXCEPTION WHEN others THEN
+      RAISE NOTICE 'clinician_address_changes: FK not added (%)', SQLERRM;
+    END;
+  END IF;
+END $$;
+
 CREATE INDEX IF NOT EXISTS idx_addr_chg_clinician
   ON public.clinician_address_changes (clinician_id, detected_at DESC);
 
