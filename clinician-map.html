@@ -3994,6 +3994,23 @@
     }
     .import-preview-table tr:last-child td { border-bottom: none; }
 
+    /* Post-upload result detail — WHO was added / WHAT changed */
+    .import-result-detail {
+      margin-top: 8px;
+      padding: 10px 12px;
+      border-radius: 12px;
+      border: 1px solid #cfe3d2;
+      background: #f2faf4;
+      color: #1e2d4a;
+      font-size: 12px;
+      line-height: 1.55;
+      max-height: 240px;
+      overflow-y: auto;
+    }
+    .import-result-detail[hidden] { display: none; }
+    .import-result-detail b { color: #14532d; }
+    .import-result-detail .ird-row { padding: 2px 0; border-bottom: 1px dashed #dbe7dd; }
+    .import-result-detail .ird-row:last-child { border-bottom: 0; }
     .import-status {
       padding: 11px 14px;
       border-radius: 12px;
@@ -6653,6 +6670,7 @@
                 </label>
                 <div id="import-file-meta" class="import-file-meta"></div>
                 <div id="import-status" class="import-status">Choose a CSV or XLSX file to begin.</div>
+                <div id="import-result-detail" class="import-result-detail" hidden></div>
               </section>
               <section class="import-card admin-only">
                 <h3>Check the columns <span class="import-admin-tag">admin</span></h3>
@@ -8291,6 +8309,7 @@
       importGeocodeToggle: document.getElementById("import-geocode-toggle"),
       importFileMeta: document.getElementById("import-file-meta"),
       importStatus: document.getElementById("import-status"),
+      importResultDetail: document.getElementById("import-result-detail"),
       importMappingGrid: document.getElementById("import-mapping-grid"),
       importPreviewShell: document.getElementById("import-preview-shell"),
       importFooterCopy: document.getElementById("import-footer-copy"),
@@ -18539,6 +18558,14 @@
       }
     }
 
+    // Post-upload result detail under the status line — WHO was added /
+    // WHAT changed (the counts alone don't tell you). Pass "" to hide.
+    function setImportResultDetail(html) {
+      if (!elements.importResultDetail) return;
+      elements.importResultDetail.innerHTML = html || "";
+      elements.importResultDetail.hidden = !html;
+    }
+
     function syncImportUploadState() {
       const canUpload = appState.importRows.length > 0 && getImportMappedFieldCount() > 0 && !appState.importUploadInProgress;
       elements.importUpload.disabled = !canUpload;
@@ -18780,6 +18807,7 @@
       appState.importUploadInProgress = false;
       elements.importFileInput.value = "";
       elements.importGeocodeToggle.checked = true;
+      setImportResultDetail("");
       syncImportKindUi();
       renderImportFileMeta();
       renderImportMappingGrid();
@@ -19901,6 +19929,9 @@
       let dobBackfillCount = 0;   // opportunistic DOB-only writes in Additions Only mode
       let queuedAddressChangeCount = 0;      // Sync Update moves queued for territory review
       const addressChangeCandidates = [];    // {clinician_id, clinician_name, discipline, old/new address+zip}
+      const createdNames = [];               // WHO got added (result detail panel)
+      const dobBackfillNames = [];           // whose DOB was backfilled (Additions Only)
+      const syncChangeLog = [];              // Sync Update: [{name, items[]}] — real diffs only
       const processedCliniciansByKey = new Map();
 
       for (let index = 0; index < normalizedRows.length; index += 1) {
@@ -19970,6 +20001,18 @@
             .upsert(profileUpsert, { onConflict: "clinician_id" });
           if (profRes.error) throw profRes.error;
 
+          // Result detail: record only REAL diffs (status is written for
+          // every matched clinician, so "updated" alone says nothing).
+          {
+            const items = [];
+            const currentlyActive = existingClinician.active !== false && existingClinician.status !== "Inactive";
+            if (newActive !== currentlyActive) items.push(newActive ? "✅ Activated" : "⛔ Deactivated");
+            if (addrChangedSU) items.push("🏠 " + (oldAddrSU || "—") + " → " + newAddrSU);
+            if (newZipSU && newZipSU !== oldZipSU && !addrChangedSU) items.push("📮 Zip: " + (oldZipSU || "—") + " → " + newZipSU);
+            if (newPhoneSU && newPhoneSU !== oldPhoneSU) items.push("📞 " + (oldPhoneSU || "—") + " → " + newPhoneSU);
+            if (items.length) syncChangeLog.push({ name: existingClinician.name || row.name || "(unnamed)", items: items });
+          }
+
           var inMem = appState.clinicians.find(function(x) { return x.id === existingClinician.id; });
           if (inMem) {
             inMem.status = newStatus;
@@ -20010,6 +20053,7 @@
               console.warn("[bulk-import] DOB backfill failed for", existingClinician.id, dobRes.error.message);
             } else {
               dobBackfillCount += 1;
+              dobBackfillNames.push(existingClinician.name || row.name || "(unnamed)");
               existingClinician.dob = row.dob;   // keep in-memory cache in sync
             }
           }
@@ -20036,6 +20080,7 @@
             .select("*")
             .single();
           createdCount += 1;
+          createdNames.push(payload.name || "(unnamed)");
         }
 
         if (response.error) throw response.error;
@@ -20149,6 +20194,35 @@
           + ".",
         "success"
       );
+
+      // Result detail — the counts alone don't tell you WHO was added or
+      // WHAT changed. Names for additions; per-clinician real-diff lines
+      // for Sync Update (statuses are re-written for every match, so the
+      // "updated" count overstates actual changes).
+      {
+        const parts = [];
+        if (createdNames.length) {
+          parts.push("<div><b>➕ Added (" + createdNames.length + "):</b> " + createdNames.map(escapeHtml).join(", ") + "</div>");
+        }
+        if (dobBackfillNames.length) {
+          parts.push("<div><b>🎂 DOB backfilled (" + dobBackfillNames.length + "):</b> " + dobBackfillNames.map(escapeHtml).join(", ") + "</div>");
+        }
+        if (appState.clinicianImportMode === "status_update") {
+          if (syncChangeLog.length) {
+            const MAX_ROWS = 80;
+            parts.push("<div style='margin-bottom:4px'><b>🔄 Actual changes (" + syncChangeLog.length + " clinician" + (syncChangeLog.length === 1 ? "" : "s") + "):</b></div>" +
+              syncChangeLog.slice(0, MAX_ROWS).map(function(c) {
+                return "<div class='ird-row'><b>" + escapeHtml(c.name) + "</b> — " + c.items.map(escapeHtml).join(" · ") + "</div>";
+              }).join("") +
+              (syncChangeLog.length > MAX_ROWS ? "<div class='ird-row'>… +" + (syncChangeLog.length - MAX_ROWS) + " more (full list is in the emailed sync report)</div>" : ""));
+          } else if (updatedCount) {
+            parts.push("<div>🔄 No real changes — " + updatedCount + " matched clinician" + (updatedCount === 1 ? "" : "s") + " already up to date (statuses refreshed only).</div>");
+          }
+        } else if (appState.clinicianImportMode === "additions_only" && !createdNames.length) {
+          parts.push("<div>➕ No new clinicians — everyone in the file is already on the map.</div>");
+        }
+        setImportResultDetail(parts.join(""));
+      }
       try { await supabaseClient.rpc("log_import", { p_key: "map_clinicians", p_label: "Clinicians (master)", p_area: "Map", p_row_count: createdCount + updatedCount }); } catch (e) { console.warn("[log_import]", e && e.message); }
       await loadClinicians();
     }
@@ -20722,6 +20796,7 @@
 
     async function uploadImportToSupabase() {
       if (appState.importUploadInProgress) return;
+      setImportResultDetail(""); // clear any previous run's detail
 
       // Full Initial Load is admin-only (can overwrite the whole roster).
       if (appState.importKind === "clinician_master" &&
