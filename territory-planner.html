@@ -359,6 +359,8 @@ let discardArmed = false;
 let zipExclusions = [];      // clinician_zip_exclusions rows ("won't serve")
 let siteExclusions = [];     // clinician_site_exclusions rows (excluded visit locations)
 let siteExclTableMissing = false; // migration 61 not run yet
+let addrChanges = [];        // pending clinician_address_changes rows (move review queue)
+let addrChgTableMissing = false;  // migration 62 not run yet
 let exclTableMissing = false; // migration 56 not run yet
 let xzStaged = [];           // collector: ZIPs pending confirmation [{zip, from}]
 let zipRequests = [];        // clinician_zip_requests rows ("requested areas")
@@ -651,7 +653,7 @@ async function openWorkspace(clinicianId) {
   loading.textContent = "Loading clinician…";
 
   try {
-    const [cRes, pRes, zRes, planRes, exRes, rqRes, revRes, seRes] = await Promise.all([
+    const [cRes, pRes, zRes, planRes, exRes, rqRes, revRes, seRes, acRes] = await Promise.all([
       db.from("clinician_v2").select("*").eq("id", clinicianId).maybeSingle(),
       db.from("clinician_profiles").select("*").eq("clinician_id", clinicianId).maybeSingle(),
       db.from("clinician_zip_coverages").select("clinician_id, zip_code, discipline, memo, updated_at").eq("clinician_id", clinicianId),
@@ -659,7 +661,8 @@ async function openWorkspace(clinicianId) {
       db.from("clinician_zip_exclusions").select("*").eq("clinician_id", clinicianId).order("zip_code"),
       db.from("clinician_zip_requests").select("*").eq("clinician_id", clinicianId).order("zip_code"),
       db.from("clinician_zip_coverage_revisions").select("*").eq("clinician_id", clinicianId).order("changed_at", { ascending: false }).limit(20),
-      db.from("clinician_site_exclusions").select("*").eq("clinician_id", clinicianId).order("created_at")
+      db.from("clinician_site_exclusions").select("*").eq("clinician_id", clinicianId).order("created_at"),
+      db.from("clinician_address_changes").select("*").eq("clinician_id", clinicianId).eq("status", "pending").order("detected_at", { ascending: false })
     ]);
     if (cRes.error) throw cRes.error;
     if (!cRes.data) { throw new Error("Clinician not found."); }
@@ -680,6 +683,9 @@ async function openWorkspace(clinicianId) {
     // Site exclusions may predate migration 61 — same tolerance.
     siteExclusions = (seRes && !seRes.error && seRes.data) ? seRes.data : [];
     siteExclTableMissing = !!(seRes && seRes.error);
+    // Address-change queue may predate migration 62 — same tolerance.
+    addrChanges = (acRes && !acRes.error && acRes.data) ? acRes.data : [];
+    addrChgTableMissing = !!(acRes && acRes.error);
 
     renderHeader();
     loading.textContent = "Loading full visit history (all years)…";
@@ -1461,6 +1467,21 @@ function renderMoveCard() {
   const cutoffIso = cutoff ? cutoff.toISOString().slice(0, 10) : "";
   let html = "";
 
+  // Step 0 — pending address change from a Sync Update import (migration
+  // 62). TB never says WHEN they moved, so the banner asks for the move
+  // date; saving the cutoff (or staging a plan) auto-marks it processed.
+  // Deliberately does NOT prefill #mv-cutoff — the detection date is when
+  // the import ran, not when they moved.
+  if (addrChanges.length) {
+    const ac = addrChanges[0];
+    html += `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;line-height:1.5">` +
+      `🏠 <b>Address change detected ${esc(fmtDate(ac.detected_at))}:</b> ` +
+      `${esc(fmtAddr(ac.old_address) || "—")} → ${esc(fmtAddr(ac.new_address) || "—")}. ` +
+      `TB doesn't say when they moved — enter the move date below, then stage the new ZIPs.` +
+      (canEdit ? ` <button type="button" class="mv-btn" style="margin-left:6px" onclick="dismissAddrChange()">✕ Not a move</button>` : "") +
+      `</div>`;
+  }
+
   // Step 1 — the history cutoff
   html += "<div class='mv-label' style='margin-top:0'>1 · Ignore history before</div>";
   if (canEdit) {
@@ -1575,6 +1596,9 @@ async function writeCutoff(isoOrNull) {
     profileRow = profileRow || { clinician_id: clinician.id };
     profileRow.tags = tags;
     showToast(isoOrNull ? "Cutoff saved — coverage numbers updated" : "Cutoff cleared");
+    // Saving a real cutoff resolves any pending address-change review —
+    // the chosen date IS the move date. Clearing never processes.
+    if (isoOrNull) await processAddrChange(isoOrNull);
     refreshAfterCutoff();
   } catch (e) { showToast("Couldn't save cutoff: " + (e.message || e)); }
 }
@@ -1590,6 +1614,45 @@ function refreshAfterCutoff() {
   renderMoveCard();
   if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
   initTerritoryMap();
+}
+
+// ── 🏠 Address-change review queue (migration 62) ───────────────────
+// A Sync Update import detected a move for this clinician. Setting the
+// cutoff (writeCutoff) or staging a ZIP plan (saveZipPlan) resolves the
+// pending row; "✕ Not a move" dismisses it (and that address is never
+// re-flagged).
+async function processAddrChange(moveDateIsoOrNull) {
+  if (!addrChanges.length || addrChgTableMissing) return;
+  try {
+    const res = await db.from("clinician_address_changes")
+      .update({
+        status: "processed",
+        processed_at: new Date().toISOString(),
+        processed_by_email: (currentUser && currentUser.email) || null,
+        move_date: moveDateIsoOrNull
+      })
+      .eq("clinician_id", clinician.id)
+      .eq("status", "pending");
+    if (res.error) throw res.error;
+    addrChanges = [];
+    showToast("🏠 Address change marked reviewed");
+  } catch (e) { console.warn("[addr change] process failed:", e && e.message); }
+}
+async function dismissAddrChange() {
+  if (!canEditPlan()) { showToast("Admin or editor only"); return; }
+  if (!window.confirm("Mark this as NOT a move? The 🏠 alert clears and this address won't be re-flagged.")) return;
+  const res = await db.from("clinician_address_changes")
+    .update({
+      status: "dismissed",
+      processed_at: new Date().toISOString(),
+      processed_by_email: (currentUser && currentUser.email) || null
+    })
+    .eq("clinician_id", clinician.id)
+    .eq("status", "pending");
+  if (res.error) { showToast("Couldn't dismiss: " + res.error.message); return; }
+  addrChanges = [];
+  showToast("Dismissed — not a move");
+  renderMoveCard();
 }
 
 // ── Plan editor actions ──
@@ -1654,6 +1717,10 @@ async function saveZipPlan() {
   moveState = null;
   planEditing = false;
   showToast("💾 Plan staged — now update TherapyBoss to match, then re-run the ZIP import");
+  // Staging a plan also resolves a pending address-change review. First
+  // action wins: if the cutoff was saved first, the row is already
+  // processed (with move_date) and this is a no-op.
+  if (addrChanges.length) await processAddrChange(null);
   renderMoveCard();
 }
 
