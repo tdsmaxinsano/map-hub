@@ -72,6 +72,17 @@
   .card .hint { font-size: 11.5px; color: var(--muted); margin: 0 0 10px; line-height: 1.45; }
 
   #tp-map { width: 100%; height: 520px; border-radius: 10px; border: 1px solid var(--border); }
+  /* 🎞 Timeline scrubber — overlaid across the top of the map */
+  #tp-map-wrap { position: relative; }
+  #tp-timeline { position: absolute; top: 8px; left: 8px; right: 8px; z-index: 6; display: flex; align-items: center; gap: 8px; background: rgba(15, 25, 50, 0.88); border-radius: 10px; padding: 7px 10px; box-shadow: 0 10px 24px rgba(10, 18, 42, 0.25); }
+  #tp-timeline[hidden] { display: none; }
+  .tl-btn { min-width: 30px; padding: 4px 8px; border: 0; border-radius: 7px; background: #fff; color: #1e2d4a; font-weight: 800; font-size: 13px; cursor: pointer; }
+  .tl-btn.tl-x { background: transparent; color: #cdd8ee; }
+  .tl-track { position: relative; flex: 1; display: flex; align-items: center; min-width: 120px; }
+  .tl-track input[type=range] { width: 100%; accent-color: #7c8ef8; cursor: pointer; }
+  .tl-tick { position: absolute; top: -2px; width: 2px; height: 22px; background: #fbbf24; pointer-events: none; border-radius: 1px; }
+  #tl-label { font-size: 11.5px; font-weight: 700; color: #e6ecfa; white-space: nowrap; }
+  @media (max-width: 720px) { #tl-label { display: none; } }
   .map-legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11.5px; color: var(--muted); margin-top: 8px; }
   .map-layer-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; align-items: center; }
   .ml-chip { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 3px 12px; font-size: 11.5px; font-weight: 700; color: var(--muted); cursor: pointer; }
@@ -227,7 +238,18 @@
           <p class="hint">Home + work-center pins, service sites, and ZIP badges — <b style="color:#16a34a">green</b> = declared &amp; served, <b style="color:#2463eb">blue</b> = served only, <b style="color:#d97706">amber</b> = declared but never served, <b style="color:#111827">dark ⛔</b> = won't serve, <b style="color:#0d9488">teal ✋</b> = requested. Use the layer chips to show/hide each layer — <b>pre-cutoff sites are hidden by default</b> so old territory doesn't read as current.</p>
           <div class="map-layer-chips" id="tp-map-layers"></div>
           <div id="tp-tool-status"></div>
-          <div id="tp-map"></div>
+          <div id="tp-map-wrap">
+            <div id="tp-map"></div>
+            <div id="tp-timeline" hidden>
+              <button type="button" id="tl-play" class="tl-btn" title="Play — watch the territory evolve month by month">▶</button>
+              <div class="tl-track">
+                <input type="range" id="tl-range" min="0" max="0" step="1" value="0" aria-label="Timeline month">
+                <div id="tl-cutoff-tick" class="tl-tick" hidden></div>
+              </div>
+              <span id="tl-label"></span>
+              <button type="button" id="tl-close" class="tl-btn tl-x" title="Close timeline">✕</button>
+            </div>
+          </div>
           <div class="map-legend">
             <span><span class="sw" style="background:#b3261e"></span>Home</span>
             <span><span class="sw" style="background:#7c3aed"></span>Work center</span>
@@ -2183,6 +2205,7 @@ function renderMapLayerChips() {
   chips.push(`<button type="button" class="ml-chip${toolMode === "ruler" ? " armed" : ""}" onclick="toggleTool('ruler')">📏 Ruler</button>`);
   chips.push(`<button type="button" class="ml-chip${toolMode === "lens" ? " armed" : ""}" onclick="toggleTool('lens')">⭕ Lens</button>`);
   chips.push(`<button type="button" class="ml-chip" onclick="showTypicalReach()">🎯 Typical reach</button>`);
+  chips.push(`<button type="button" class="ml-chip${tlActive ? " armed" : ""}" onclick="toggleTimeline()">🎞 Timeline</button>`);
   if (toolMode === "lens" || lensCenter) {
     chips.push(`<span class="tp-tool-controls">` +
       `<button type="button" class="tstep" onclick="stepRadiusMiles(-1)" ${lensRadius <= RADIUS_MIN_MI ? "disabled" : ""} aria-label="Shrink lens">−</button>` +
@@ -2454,12 +2477,175 @@ function toggleMapLayer(key) {
   applyMapLayerVisibility();
   renderMapLayerChips();
 }
+
+// ── 🎞 Timeline — animate the territory's evolution over time ────────
+// A scrubber overlaid on the map: sites are BLUE while they had activity
+// in the trailing 12 months at the scrub point, and fade to small grey
+// ghosts afterward — so a move reads as the old neighborhood dimming
+// while the new one lights up. ▶ plays month by month; the amber tick
+// on the track marks the Ignore-History-Before cutoff. Uses ALL dated
+// history (the whole point is seeing the pre-cutoff era too); excluded
+// locations stay out. ym = year*12 + (month-1).
+let tlActive = false, tlPlaying = false, tlTimer = null, tlIdx = 0;
+let _tlCache = null;
+const TL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+function tlYm(dateStr) {
+  const m = String(dateStr == null ? "" : dateStr).match(/^(\d{4})-(\d{2})/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  if (y < 2000 || y > 2100) return null; // same plausibility floor as the year chips
+  return y * 12 + (Number(m[2]) - 1);
+}
+function tlYmLabel(ym) {
+  return TL_MONTHS[ym % 12] + " " + Math.floor(ym / 12);
+}
+function tlData() {
+  const sites = buildSites();
+  if (_tlCache && _tlCache._src === sites) return _tlCache; // buildSites cache identity = data version
+  let minYm = null, maxYm = null;
+  const out = [];
+  sites.forEach(s => {
+    if (s.lat == null || s.lng == null || s.excluded) return;
+    const spans = [];
+    let visits = 0;
+    s.rows.forEach(r => {
+      const a = tlYm(anchorDate(r));
+      const lv = tlYm(r.last_visit_date);
+      const en = tlYm(r.ended_date);
+      const endYm = lv != null ? lv : en;
+      const s0 = a != null ? a : endYm;
+      if (s0 == null) return;
+      const s1 = Math.max(s0, endYm != null ? endYm : s0);
+      spans.push([s0, s1]);
+      visits += Math.max(Number(r.service_visits || 0) || 0, 1);
+      if (minYm == null || s0 < minYm) minYm = s0;
+      if (maxYm == null || s1 > maxYm) maxYm = s1;
+    });
+    if (spans.length) {
+      out.push({ lat: s.lat, lng: s.lng, spans: spans, visits: visits,
+                 firstYm: Math.min.apply(null, spans.map(p => p[0])) });
+    }
+  });
+  _tlCache = { _src: sites, sites: out, startYm: minYm, endYm: maxYm };
+  return _tlCache;
+}
+function tlEnsureLayers() {
+  if (!tpMap) return;
+  try {
+    if (!tpMap.getSource("tp-tl-ghost")) {
+      tpMap.addSource("tp-tl-ghost", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    }
+    if (!tpMap.getLayer("tp-tl-ghost-layer")) {
+      tpMap.addLayer({ id: "tp-tl-ghost-layer", type: "circle", source: "tp-tl-ghost",
+        paint: { "circle-color": "#9aa4b2", "circle-opacity": 0.3, "circle-radius": 3 } });
+    }
+    if (!tpMap.getSource("tp-tl-active")) {
+      tpMap.addSource("tp-tl-active", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+    }
+    if (!tpMap.getLayer("tp-tl-active-layer")) {
+      tpMap.addLayer({ id: "tp-tl-active-layer", type: "circle", source: "tp-tl-active",
+        paint: { "circle-color": "#5b8def", "circle-opacity": 0.8,
+          "circle-radius": ["interpolate", ["linear"], ["get", "visits"], 1, 4, 30, 9, 120, 13],
+          "circle-stroke-width": 1, "circle-stroke-color": "#ffffff" } });
+    }
+  } catch (e) { /* style still loading — the load-handler re-apply will draw it */ }
+}
+function toggleTimeline() {
+  if (tlActive) { tlClose(); return; }
+  const d = tlData();
+  if (!d.sites.length || d.startYm == null) { showToast("No dated visit history to animate"); return; }
+  tlActive = true;
+  tlIdx = d.endYm - d.startYm; // open at "now" — press ▶ to replay from the beginning
+  const range = document.getElementById("tl-range");
+  if (range) { range.max = String(d.endYm - d.startYm); range.value = String(tlIdx); }
+  const bar = document.getElementById("tp-timeline");
+  if (bar) bar.hidden = false;
+  // Amber tick = the Ignore-History-Before cutoff, so you can SEE what
+  // the coverage tools are ignoring.
+  const tick = document.getElementById("tl-cutoff-tick");
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const cy = cutoff ? tlYm(cutoff.toISOString().slice(0, 10)) : null;
+  if (tick) {
+    if (cy != null && cy >= d.startYm && cy <= d.endYm && d.endYm > d.startYm) {
+      tick.style.left = (((cy - d.startYm) / (d.endYm - d.startYm)) * 100).toFixed(2) + "%";
+      tick.title = "⏳ Ignore-History cutoff: " + cutoff.toISOString().slice(0, 10);
+      tick.hidden = false;
+    } else {
+      tick.hidden = true;
+    }
+  }
+  tlEnsureLayers();
+  applyMapLayerVisibility(); // hides the regular site layers while active
+  tlRender();
+  renderMapLayerChips();
+}
+function tlClose() {
+  tlStop();
+  tlActive = false;
+  const bar = document.getElementById("tp-timeline");
+  if (bar) bar.hidden = true;
+  if (tpMap) {
+    try {
+      if (tpMap.getSource("tp-tl-active")) tpMap.getSource("tp-tl-active").setData({ type: "FeatureCollection", features: [] });
+      if (tpMap.getSource("tp-tl-ghost"))  tpMap.getSource("tp-tl-ghost").setData({ type: "FeatureCollection", features: [] });
+    } catch (e) {}
+  }
+  applyMapLayerVisibility(); // restores the regular site layers
+  renderMapLayerChips();
+}
+function tlRender() {
+  if (!tlActive || !tpMap) return;
+  const d = tlData();
+  const ym = d.startYm + tlIdx;
+  const activeFeats = [], ghostFeats = [];
+  d.sites.forEach(s => {
+    const isActive = s.spans.some(sp => sp[0] <= ym && sp[1] >= ym - 11);
+    const feat = { type: "Feature", geometry: { type: "Point", coordinates: [s.lng, s.lat] }, properties: { visits: s.visits } };
+    if (isActive) activeFeats.push(feat);
+    else if (s.firstYm <= ym) ghostFeats.push(feat); // seen before → grey memory
+  });
+  try {
+    const a = tpMap.getSource("tp-tl-active");
+    const g = tpMap.getSource("tp-tl-ghost");
+    if (a) a.setData({ type: "FeatureCollection", features: activeFeats });
+    if (g) g.setData({ type: "FeatureCollection", features: ghostFeats });
+  } catch (e) {}
+  const label = document.getElementById("tl-label");
+  if (label) label.textContent = "🎞 " + tlYmLabel(ym) + " · " + activeFeats.length + " active site" + (activeFeats.length === 1 ? "" : "s") + " (last 12 mo)";
+  const range = document.getElementById("tl-range");
+  if (range && Number(range.value) !== tlIdx) range.value = String(tlIdx);
+}
+function tlStop() {
+  tlPlaying = false;
+  if (tlTimer) { clearInterval(tlTimer); tlTimer = null; }
+  const b = document.getElementById("tl-play");
+  if (b) b.textContent = "▶";
+}
+function tlPlayToggle() {
+  if (!tlActive) return;
+  if (tlPlaying) { tlStop(); return; }
+  const d = tlData();
+  const max = d.endYm - d.startYm;
+  if (tlIdx >= max) tlIdx = 0; // at the end → replay from the start
+  tlPlaying = true;
+  const b = document.getElementById("tl-play");
+  if (b) b.textContent = "⏸";
+  tlRender();
+  tlTimer = setInterval(() => {
+    tlIdx += 1;
+    if (tlIdx >= max) { tlIdx = max; tlRender(); tlStop(); return; }
+    tlRender();
+  }, 130);
+}
 function applyMapLayerVisibility() {
   if (tpMap) {
     try {
-      if (tpMap.getLayer("tp-sites-current"))  tpMap.setLayoutProperty("tp-sites-current",  "visibility", mapLayers.current  ? "visible" : "none");
-      if (tpMap.getLayer("tp-sites-old"))      tpMap.setLayoutProperty("tp-sites-old",      "visibility", mapLayers.old      ? "visible" : "none");
-      if (tpMap.getLayer("tp-sites-excluded")) tpMap.setLayoutProperty("tp-sites-excluded", "visibility", mapLayers.excluded ? "visible" : "none");
+      // 🎞 Timeline mode takes over the site dots — the regular layers
+      // stay hidden while it's active regardless of the layer chips.
+      if (tpMap.getLayer("tp-sites-current"))  tpMap.setLayoutProperty("tp-sites-current",  "visibility", (!tlActive && mapLayers.current)  ? "visible" : "none");
+      if (tpMap.getLayer("tp-sites-old"))      tpMap.setLayoutProperty("tp-sites-old",      "visibility", (!tlActive && mapLayers.old)      ? "visible" : "none");
+      if (tpMap.getLayer("tp-sites-excluded")) tpMap.setLayoutProperty("tp-sites-excluded", "visibility", (!tlActive && mapLayers.excluded) ? "visible" : "none");
     } catch (e) { /* style not ready yet — init applies initial state */ }
   }
   tpZipMarkers.forEach(el => { el.style.display = mapLayers.zips ? "" : "none"; });
@@ -2618,6 +2804,14 @@ function initTerritoryMap() {
     }
     if (lensCenter) updateLensVisuals();
     renderToolStatus();
+
+    // 🎞 Timeline survives a map rebuild too — re-create its layers and
+    // repaint the current scrub position (applyMapLayerVisibility above
+    // already kept the regular site layers hidden while it's active).
+    if (tlActive) {
+      tlEnsureLayers();
+      tlRender();
+    }
 
     // Tool clicks — portal precedence: a click that lands on a site dot
     // opens its popup and is NOT a tool point.
@@ -2788,6 +2982,12 @@ document.getElementById("login-btn").addEventListener("click", doSignIn);
 document.getElementById("login-password").addEventListener("keydown", e => { if (e.key === "Enter") doSignIn(); });
 document.getElementById("signout-btn").addEventListener("click", doSignOut);
 document.getElementById("picker-search").addEventListener("input", renderPicker);
+document.getElementById("tl-play").addEventListener("click", tlPlayToggle);
+document.getElementById("tl-close").addEventListener("click", tlClose);
+document.getElementById("tl-range").addEventListener("input", e => {
+  tlIdx = Number(e.target.value) || 0;
+  tlRender();
+});
 document.getElementById("picker-list").addEventListener("click", e => {
   const item = e.target.closest(".picker-item[data-cid]");
   if (item) location.href = "territory-planner.html?clinician=" + encodeURIComponent(item.dataset.cid);
