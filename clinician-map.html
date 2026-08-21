@@ -20086,6 +20086,21 @@
         if (response.error) throw response.error;
         await upsertClinicianProfileRecord(response.data.id, row, existingClinician);
 
+        // 📥 Date-loaded stamp (migration 63) — NEW clinicians only, and
+        // only when not already stamped (.is null guard makes re-runs
+        // harmless). Non-fatal: a missing column must never break the
+        // import.
+        if (!existingClinician) {
+          try {
+            const la = await supabaseClient
+              .from("clinician_profiles")
+              .update({ loaded_at: new Date().toISOString() })
+              .eq("clinician_id", response.data.id)
+              .is("loaded_at", null);
+            if (la.error) console.warn("[loaded_at] stamp failed (run migration 63?):", la.error.message);
+          } catch (e) { console.warn("[loaded_at] stamp failed:", e && e.message); }
+        }
+
         const trackedClinician = Object.assign({}, existingClinician || {}, normalizeClinician(response.data || {}), {
           employee_number: row.employee_number || (existingClinician && existingClinician.employee_number) || null,
           phone: row.phone || (existingClinician && existingClinician.phone) || null,
@@ -21536,6 +21551,14 @@
 
       const createdClinicianId = response.data && response.data.id;
       if (createdClinicianId) {
+        // 📥 Date-loaded stamp (migration 63) — creation path only; a
+        // missing column must never block the create.
+        try {
+          const la = await supabaseClient
+            .from("clinician_profiles")
+            .upsert({ clinician_id: createdClinicianId, loaded_at: new Date().toISOString() }, { onConflict: "clinician_id" });
+          if (la.error) console.warn("[loaded_at] stamp failed (run migration 63?):", la.error.message);
+        } catch (e) { console.warn("[loaded_at] stamp failed:", e && e.message); }
         try {
           await saveClinicianProfileCoreToSupabase(createdClinicianId, draft, null);
           await saveClinicianLanguagesToSupabase(createdClinicianId, draft.languages);

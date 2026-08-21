@@ -249,6 +249,9 @@
     background: #f1f5f9; padding: 1px 5px; border-radius: 8px;
     vertical-align: middle;
   }
+  /* 📥 date-loaded fallback pill (no hire date + no visits, migration 63) */
+  .derived-tag.loaded-tag { background: #e4f0ff; color: #1a5fb4; text-transform: none; }
+  .loaded-date { font-size: 12px; color: var(--muted); white-space: nowrap; }
   .reason-input {
     width: 100%; padding: 4px 7px; border-radius: 5px;
     border: 1px solid var(--border); font-size: 12px; outline: none;
@@ -606,6 +609,7 @@
       <span class="chip preset" id="preset-returning">🏖 Returning &lt;14d</span>
       <span class="chip preset" id="preset-paused-long">💤 Paused 30d+</span>
       <span class="chip preset" id="preset-cov-gaps">🧭 Has Gaps</span>
+      <span class="chip preset" id="preset-no-visits" title="Clinicians with no visit data at all — loaded but never dispatched (or stale records)">📥 No visits yet</span>
     </div>
     <input type="text" class="filter-search" id="search-input" placeholder="Search by name…" />
     <div class="col-picker-wrap">
@@ -631,6 +635,7 @@
           <th data-col="covGaps" data-sort="covGaps" data-sort-type="num" title="Territory coverage gaps: ➕ ZIPs served but not declared in TB · 💤 declared but never served">Coverage Gaps</th>
           <th data-col="rating">Rating</th>
           <th data-col="hireDate">Hire Date</th>
+          <th data-col="loadedAt" data-sort="loadedAt" data-sort-type="num" title="When this clinician was loaded into the portal — click to sort (newest first finds the just-added)">Date Loaded</th>
           <th data-col="restrictions">Restrictions</th>
           <th data-col="notes">Notes</th>
           <th data-col="emergency">Emergency Contact</th>
@@ -745,6 +750,10 @@ const COLUMNS = [
   { key: "covGaps",      label: "Coverage Gaps",     defaultOn: true  },
   { key: "rating",       label: "Rating",       defaultOn: true  },
   { key: "hireDate",     label: "Hire Date",    defaultOn: true  },
+  // Date Loaded — when the clinician was created in the portal (migration
+  // 63). Default-ON because it's SORTABLE (click header, newest first =
+  // find the just-added clinician); a hidden column can't be sorted.
+  { key: "loadedAt",     label: "Date Loaded",  defaultOn: true  },
   { key: "restrictions", label: "Restrictions", defaultOn: true  },
   { key: "notes",        label: "Notes",        defaultOn: true  },
   { key: "emergency",    label: "Emergency Contact", defaultOn: true  },
@@ -813,7 +822,8 @@ let filters = {
   needReview: false,
   returningSoon: false,
   pausedLong: false,
-  covGaps: false
+  covGaps: false,
+  noVisits: false
 };
 let realtimeChannel = null;
 let visibleCols = loadVisibleCols(); // {key: bool}
@@ -1098,7 +1108,10 @@ async function loadRoster() {
   // Pull clinicians + profiles + agencies in three parallel queries.
   // Agencies feed the Restrictions typeahead (drawer); without it that
   // dropdown would have no suggestions.
-  const [vRes, pRes, aRes] = await Promise.all([
+  // loaded_at is fetched separately + non-fatally: putting it in the main
+  // explicit select would hard-fail the whole roster until migration 63
+  // is run. This way an unrun migration just means "—" in Date Loaded.
+  const [vRes, pRes, aRes, lRes] = await Promise.all([
     db.from("clinician_v2")
       .select("id, name, discipline, status, active")
       .order("name", { ascending: true })
@@ -1109,6 +1122,9 @@ async function loadRoster() {
     db.from("home_health_agencies")
       .select("id, name")
       .order("name", { ascending: true })
+      .limit(5000),
+    db.from("clinician_profiles")
+      .select("clinician_id, loaded_at")
       .limit(5000)
   ]);
 
@@ -1120,6 +1136,10 @@ async function loadRoster() {
 
   const profilesByCid = {};
   (pRes.data || []).forEach(p => { profilesByCid[p.clinician_id] = p; });
+
+  const loadedByCid = {};
+  if (lRes && lRes.error) console.warn("[roster] loaded_at fetch failed (run migration 63?):", lRes.error.message);
+  else ((lRes && lRes.data) || []).forEach(p => { if (p.loaded_at) loadedByCid[p.clinician_id] = p.loaded_at; });
 
   rosterRows = (vRes.data || []).map(c => {
     const p = profilesByCid[c.id] || {};
@@ -1158,7 +1178,10 @@ async function loadRoster() {
       payment_method:   p.payment_method   || "bill",
       payment_delivery: p.payment_delivery || "paper_check",
       llc_name:         p.llc_name || "",
-      llc_ein:          p.llc_ein  || ""
+      llc_ein:          p.llc_ein  || "",
+      // When this clinician was created in the portal (migration 63;
+      // null = predates tracking or migration not run)
+      loaded_at:        loadedByCid[c.id] || null
     };
   });
 
@@ -1240,6 +1263,12 @@ function passesFilters(r) {
     if (!g || ((g.gap_add_count || 0) + (g.gap_idle_count || 0)) === 0) return false;
   }
 
+  if (filters.noVisits) {
+    // "No visits yet" = neither the Patient-Visits nor the VDR summary
+    // knows this clinician — the same null the metric cells render as "—".
+    if (getVdrMetricsFor(r)) return false;
+  }
+
   return true;
 }
 
@@ -1255,6 +1284,13 @@ const SORT_DERIVED = {
     const g = getCovGapsFor(r);
     if (!g) return null;
     return (g.gap_add_count || 0) * 1000 + (g.gap_idle_count || 0);
+  },
+  // Date Loaded — desc puts the just-added clinician on top; rows without
+  // a stamp (pre-tracking) sink in both directions.
+  loadedAt:     r => {
+    if (!r.loaded_at) return null;
+    const t = new Date(r.loaded_at).getTime();
+    return isNaN(t) ? null : t;
   }
 };
 
@@ -1427,9 +1463,17 @@ function buildRow(r) {
       const plausibleDerived = isPlausibleHireDate(r.derived_start_date) ? r.derived_start_date : null;
       const effective = r.start_date || plausibleDerived || null;
       const isDerived = !r.start_date && !!plausibleDerived;
+      // Third state: no hire date AND no visit-derived date, but we know
+      // when they were loaded into the portal (migration 63) — flag it.
+      // The input stays EMPTY (it saves to start_date; the load date is
+      // not a hire date).
+      const isLoadedOnly = !effective && !!r.loaded_at;
       const tip = isDerived
         ? "Derived from earliest completed service. Edit to set an explicit hire date."
-        : (r.start_date ? "Explicit hire date" : "No hire date set");
+        : (r.start_date ? "Explicit hire date"
+          : (isLoadedOnly
+            ? "No hire date and no visit history — loaded into the portal " + fmtDate(r.loaded_at) + ". Type a date to set an explicit hire date."
+            : "No hire date set"));
       return `<td data-col="hireDate">
         <input type="date"
           class="date-input start-date${isDerived ? " derived" : ""}"
@@ -1437,8 +1481,12 @@ function buildRow(r) {
           title="${escAttr(tip)}"
           value="${escAttr(fmtDateInput(effective))}"${dis} />
         ${isDerived ? '<span class="derived-tag" title="Derived from earliest visit">derived</span>' : ""}
+        ${isLoadedOnly ? `<span class="derived-tag loaded-tag" title="${escAttr(tip)}">📥 loaded ${escHtml(fmtDate(r.loaded_at))}</span>` : ""}
       </td>`;
     })(),
+    loadedAt: r.loaded_at
+      ? `<td data-col="loadedAt" title="Loaded into the portal ${escAttr(fmtDate(r.loaded_at))}"><span class="loaded-date">${escHtml(fmtDate(r.loaded_at))}</span></td>`
+      : `<td data-col="loadedAt"><span class="vdr-cell-muted" title="Loaded before tracking began (Aug 2026) — or migration 63 not run yet">—</span></td>`,
     rating: `<td data-col="rating">
       <input type="number" class="num-input rating-input" data-cid="${cid}"
         min="0" max="5" step="1"
@@ -2435,7 +2483,8 @@ function exportCsv(onlySelected) {
     "notes", "do_not_rehire",
     "last_reviewed_at", "last_reviewed_by_email",
     "avg_sync_days", "avg_visits_per_run", "avg_visit_minutes", "vdr_run_count", "latest_vdr_at",
-    "gap_add_count", "gap_idle_count", "gap_add_refused_count", "gap_add_zips", "gap_idle_zips"
+    "gap_add_count", "gap_idle_count", "gap_add_refused_count", "gap_add_zips", "gap_idle_zips",
+    "loaded_at"
   ];
   function emrOn(caps, aliases) {
     if (!caps || typeof caps !== "object") return "";
@@ -2486,7 +2535,8 @@ function exportCsv(onlySelected) {
       g ? g.gap_idle_count : "",
       g ? g.gap_add_refused_count : "",
       g ? (g.gap_add_zips || []).join("; ") : "",
-      g ? (g.gap_idle_zips || []).join("; ") : ""
+      g ? (g.gap_idle_zips || []).join("; ") : "",
+      r.loaded_at || ""
     ].map(v => {
       const s = String(v == null ? "" : v);
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -2543,6 +2593,7 @@ function parseUrlFilters() {
   }
   if (params.has("needReview")) filters.needReview = params.get("needReview") === "1";
   if (params.has("covGaps")) filters.covGaps = params.get("covGaps") === "1";
+  if (params.has("noVisits")) filters.noVisits = params.get("noVisits") === "1";
   syncFilterUI();
   renderAll();
 }
@@ -2558,6 +2609,7 @@ function syncFilterUI() {
   document.getElementById("preset-returning").classList.toggle("active", filters.returningSoon);
   document.getElementById("preset-paused-long").classList.toggle("active", filters.pausedLong);
   document.getElementById("preset-cov-gaps").classList.toggle("active", filters.covGaps);
+  document.getElementById("preset-no-visits").classList.toggle("active", filters.noVisits);
 }
 
 function writeUrlFilters() {
@@ -2567,6 +2619,7 @@ function writeUrlFilters() {
   if (filters.search) params.set("q", filters.search);
   if (filters.needReview) params.set("needReview", "1");
   if (filters.covGaps) params.set("covGaps", "1");
+  if (filters.noVisits) params.set("noVisits", "1");
   const qs = params.toString();
   history.replaceState(null, "", qs ? "?" + qs : location.pathname);
 }
@@ -2616,6 +2669,10 @@ document.getElementById("preset-paused-long").addEventListener("click", () => {
 });
 document.getElementById("preset-cov-gaps").addEventListener("click", () => {
   filters.covGaps = !filters.covGaps;
+  syncFilterUI(); writeUrlFilters(); renderAll();
+});
+document.getElementById("preset-no-visits").addEventListener("click", () => {
+  filters.noVisits = !filters.noVisits;
   syncFilterUI(); writeUrlFilters(); renderAll();
 });
 
