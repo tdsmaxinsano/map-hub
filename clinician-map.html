@@ -19899,6 +19899,8 @@
       let updatedCount = 0;
       let skippedCount = 0;
       let dobBackfillCount = 0;   // opportunistic DOB-only writes in Additions Only mode
+      let queuedAddressChangeCount = 0;      // Sync Update moves queued for territory review
+      const addressChangeCandidates = [];    // {clinician_id, clinician_name, discipline, old/new address+zip}
       const processedCliniciansByKey = new Map();
 
       for (let index = 0; index < normalizedRows.length; index += 1) {
@@ -19926,7 +19928,8 @@
           const v2Update = { status: newStatus, active: newActive };
           const newAddrSU = String(row.full_address || "").trim();
           const oldAddrSU = String(existingClinician.address || "").trim();
-          if (newAddrSU && normalizeGeocodeAddressKey(newAddrSU) !== normalizeGeocodeAddressKey(oldAddrSU)) {
+          const addrChangedSU = Boolean(newAddrSU && normalizeGeocodeAddressKey(newAddrSU) !== normalizeGeocodeAddressKey(oldAddrSU));
+          if (addrChangedSU) {
             v2Update.address = newAddrSU;
             if (typeof row.lat === "number") v2Update.lat = row.lat;
             if (typeof row.lng === "number") v2Update.lng = row.lng;
@@ -19934,6 +19937,22 @@
           const newZipSU = String(row.zip || "").trim();
           const oldZipSU = String(existingClinician.zip || "").trim();
           if (newZipSU && newZipSU !== oldZipSU) v2Update.zip = newZipSU;
+
+          // A changed address = a possible MOVE. TB never says WHEN they
+          // moved, so the territory side can't be automated — queue the
+          // detection for human review (migration 62; written after the
+          // loop in one batch, non-fatal).
+          if (addrChangedSU) {
+            addressChangeCandidates.push({
+              clinician_id: existingClinician.id,
+              clinician_name: existingClinician.name || row.name || null,
+              discipline: existingClinician.discipline || null,
+              old_address: oldAddrSU || null,
+              new_address: newAddrSU,
+              old_zip: oldZipSU || null,
+              new_zip: newZipSU || oldZipSU || null
+            });
+          }
 
           const v2Res = await supabaseClient
             .from("clinician_v2")
@@ -20045,10 +20064,88 @@
         }
       }
 
+      // 🏠 Queue detected address changes for territory review (migration
+      // 62). One pending row per clinician: existing pending rows are
+      // updated in place (original old_address preserved); an address
+      // already dismissed as not-a-move is never re-queued. Non-fatal —
+      // a missing table logs a warning and the import still completes.
+      if (addressChangeCandidates.length) {
+        try {
+          let actorEmail = null;
+          try {
+            const sess = (await supabaseClient.auth.getSession()).data.session;
+            actorEmail = (sess && sess.user && sess.user.email) || null;
+          } catch (e) { /* email is best-effort */ }
+          const nowIso = new Date().toISOString();
+          // Dedupe by clinician (last detection in the file wins).
+          const byClin = new Map();
+          addressChangeCandidates.forEach(function(c) { byClin.set(String(c.clinician_id), c); });
+          const candidates = Array.from(byClin.values());
+          const clinIds = candidates.map(function(c) { return c.clinician_id; });
+
+          const exResp = await supabaseClient
+            .from("clinician_address_changes")
+            .select("id, clinician_id, status, new_address")
+            .in("clinician_id", clinIds)
+            .in("status", ["pending", "dismissed"]);
+          if (exResp.error) throw exResp.error;
+
+          const pendingByClin = new Map();
+          const dismissedKeysByClin = new Map();
+          (exResp.data || []).forEach(function(r) {
+            const key = String(r.clinician_id);
+            if (r.status === "pending") {
+              pendingByClin.set(key, r);
+            } else {
+              if (!dismissedKeysByClin.has(key)) dismissedKeysByClin.set(key, new Set());
+              dismissedKeysByClin.get(key).add(normalizeGeocodeAddressKey(String(r.new_address || "")));
+            }
+          });
+
+          const inserts = [];
+          for (const c of candidates) {
+            const clinKey = String(c.clinician_id);
+            const pending = pendingByClin.get(clinKey);
+            if (pending) {
+              const u = await supabaseClient
+                .from("clinician_address_changes")
+                .update({ new_address: c.new_address, new_zip: c.new_zip, detected_at: nowIso, detected_by_email: actorEmail })
+                .eq("id", pending.id);
+              if (!u.error) queuedAddressChangeCount += 1;
+              else console.warn("[address queue] update failed:", u.error.message);
+              continue;
+            }
+            const dismissedKeys = dismissedKeysByClin.get(clinKey);
+            if (dismissedKeys && dismissedKeys.has(normalizeGeocodeAddressKey(String(c.new_address || "")))) continue; // ruled not-a-move
+            inserts.push({
+              clinician_id: c.clinician_id,
+              clinician_name: c.clinician_name,
+              discipline: c.discipline,
+              old_address: c.old_address,
+              new_address: c.new_address,
+              old_zip: c.old_zip,
+              new_zip: c.new_zip,
+              detected_at: nowIso,
+              detected_by_email: actorEmail,
+              source: "sync_update",
+              status: "pending"
+            });
+          }
+          if (inserts.length) {
+            const insResp = await supabaseClient.from("clinician_address_changes").insert(inserts);
+            if (!insResp.error) queuedAddressChangeCount += inserts.length;
+            else console.warn("[address queue] insert failed (run migration 62?):", insResp.error.message);
+          }
+        } catch (e) {
+          console.warn("[address queue] couldn't queue address changes (run migration 62?):", e && e.message);
+        }
+      }
+
       setImportStatus(
         "Clinician master import complete (" + getClinicianImportModeLabel(appState.clinicianImportMode) + "). "
           + createdCount + " created, " + updatedCount + " updated, " + skippedCount + " skipped"
           + (dobBackfillCount ? " · 🎂 backfilled DOB on " + dobBackfillCount + " existing clinicians" : "")
+          + (queuedAddressChangeCount ? " · 🏠 " + queuedAddressChangeCount + " address change" + (queuedAddressChangeCount === 1 ? "" : "s") + " queued for territory review" : "")
           + ".",
         "success"
       );
@@ -20384,6 +20481,7 @@
 
       const changes  = [];
       const notFound = [];
+      let addrChangeCount = 0;   // moves that will be queued for territory review
 
       rows.forEach(function(row) {
         const existing = row.matched_clinician_id
@@ -20410,6 +20508,7 @@
         const addrChanged = newAddr && normalizeGeocodeAddressKey(newAddr) !== normalizeGeocodeAddressKey(oldAddr);
         if (addrChanged) {
           items.push("🏠 Address: " + (oldAddr || "—") + " → " + newAddr);
+          addrChangeCount += 1;
         }
 
         const oldZip = String(existing.zip || "").trim();
@@ -20441,7 +20540,8 @@
           : "";
 
       document.getElementById("status-preview-summary").textContent =
-        changes.length + " clinician" + (changes.length === 1 ? "" : "s") + " will change · " + notFound.length + " not found";
+        changes.length + " clinician" + (changes.length === 1 ? "" : "s") + " will change · " + notFound.length + " not found"
+        + (addrChangeCount ? " · 🏠 " + addrChangeCount + " address change" + (addrChangeCount === 1 ? "" : "s") + " will be queued for territory review" : "");
 
       document.getElementById("status-preview-modal").style.display = "flex";
 
@@ -20467,7 +20567,8 @@
         }
         return {
           reportType: "sync_update",
-          summary: changes.length + " clinicians updated · " + notFound.length + " not found",
+          summary: changes.length + " clinicians updated · " + notFound.length + " not found"
+            + (addrChangeCount ? " · 🏠 " + addrChangeCount + " address change" + (addrChangeCount === 1 ? "" : "s") + " queued for territory review" : ""),
           sectionsHtml: parts.join("")
         };
       }

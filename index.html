@@ -932,7 +932,11 @@
     // Company renewal filings (admin-only — RPC returns rows only to admins)
     renewal_overdue:   { icon: "🏛", tint: "red",   verb: "filing" },
     renewal_due_today: { icon: "🏛", tint: "red",   verb: "filing" },
-    renewal_due_soon:  { icon: "🏛", tint: "amber", verb: "filing" }
+    renewal_due_soon:  { icon: "🏛", tint: "amber", verb: "filing" },
+    // Address-change review queue (migration 62 — plain table SELECT, not an
+    // RPC). A Sync Update import detected a move; TB doesn't say when, so a
+    // human sets the territory cutoff in the planner.
+    address_change_pending: { icon: "🏠", tint: "amber", verb: "moved" }
   };
 
   function fmtDateShort(d) {
@@ -965,6 +969,7 @@
     if (alert.alert_type === "renewal_overdue")         return "OVERDUE " + Math.abs(o) + (Math.abs(o) === 1 ? " day" : " days");
     if (alert.alert_type === "renewal_due_today")       return "DUE TODAY";
     if (alert.alert_type === "renewal_due_soon")        return "in " + o + (o === 1 ? " day" : " days");
+    if (alert.alert_type === "address_change_pending")  return o === 0 ? "TODAY" : o + (o === 1 ? " day ago" : " days ago");
     return "";
   }
 
@@ -994,6 +999,7 @@
       case "renewal_overdue":   return `filing was due ${fmtDateShort(alert.due_date)} — late penalties may apply. File + pay now.`;
       case "renewal_due_today": return `filing due today — file + pay to avoid the late penalty`;
       case "renewal_due_soon":  return `filing due ${fmtDateShort(alert.due_date)}`;
+      case "address_change_pending": return `${meta.verb} · ${alert.old_address || "—"} → ${alert.new_address || "—"} — set their territory cutoff`;
       default: return reason;
     }
   }
@@ -1150,19 +1156,40 @@
       try { const r = await db.rpc(name); return (r && !r.error && r.data) ? r.data : []; }
       catch (e) { console.warn("[alerts]", name, "failed:", e && e.message); return []; }
     }
+    // Twin for plain-table alert sources (safeRpc only takes an RPC name).
+    // A missing table (unrun migration) degrades to no cards, silently.
+    async function safeSelect(label, query) {
+      try { const r = await query; return (r && !r.error && r.data) ? r.data : []; }
+      catch (e) { console.warn("[alerts]", label, "failed:", e && e.message); return []; }
+    }
     try {
-      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, renewalRows] = await Promise.all([
+      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, renewalRows, addrChangeRaw] = await Promise.all([
         safeRpc("list_pause_alerts"),
         safeRpc("list_birthday_alerts"),
         safeRpc("list_staff_birthday_alerts"),
         safeRpc("list_staff_vacation_alerts"),
-        safeRpc("list_company_renewal_alerts")
+        safeRpc("list_company_renewal_alerts"),
+        safeSelect("clinician_address_changes", db.from("clinician_address_changes")
+          .select("clinician_id, clinician_name, discipline, old_address, new_address, detected_at")
+          .eq("status", "pending")
+          .order("detected_at", { ascending: false }))
       ]);
+      // Shape queue rows to the board's alert vocabulary; days_offset = age
+      // of the detection in days (0 = detected today).
+      const addrRows = (addrChangeRaw || []).map(function(r) {
+        return Object.assign({}, r, {
+          alert_type: "address_change_pending",
+          days_offset: Math.max(0, Math.floor((Date.now() - new Date(r.detected_at).getTime()) / 86400000))
+        });
+      });
       // Sort: TODAY alerts first (days_offset/days_until = 0), then by absolute
       // distance ascending so tomorrow's beat in-3-days etc. Overdue company
       // filings pin above everything — every extra day costs penalties.
+      // Pending address changes pin with the TODAY tier so the review queue
+      // never sinks as detections age.
       function alertSortKey(a) {
         if (a.alert_type === "renewal_overdue") return -2;
+        if (a.alert_type === "address_change_pending") return -1;
         const o = a.days_offset != null ? a.days_offset : (a.days_until != null ? a.days_until : 99);
         return o === 0 ? -1 : Math.abs(o);
       }
@@ -1171,6 +1198,7 @@
         .concat(staffBdayRows)
         .concat(staffVacRows)
         .concat(renewalRows)
+        .concat(addrRows)
         .sort(function(a, b) { return alertSortKey(a) - alertSortKey(b); });
       if (!rows.length) {
         list.innerHTML = "";
@@ -1188,6 +1216,8 @@
         // clinician_* fields and open the Map on click.
         const isStaff = a.alert_type && a.alert_type.indexOf("staff_") === 0;
         const isRenewal = a.alert_type && a.alert_type.indexOf("renewal_") === 0;
+        // Address-change cards route to the Territory Planner (not the Map).
+        const isPlanner = a.alert_type === "address_change_pending";
         const name    = isRenewal ? (a.renewal_name || "Company filing")
                       : isStaff ? (a.staff_name    || "—") : (a.clinician_name || "—");
         const disc    = isRenewal ? "FILING" : isStaff ? (a.staff_role    || "") : (a.discipline      || "");
@@ -1195,7 +1225,7 @@
         const cid     = (isStaff || isRenewal) ? "" : (a.clinician_id || "");
         const cls     = "alert-item alert-tint-" + meta.tint + (isStaff ? " alert-staff" : "");
         return `
-          <li class="${cls}" data-cid="${escHtml(cid)}" data-staff="${isStaff ? "1" : ""}" data-renewal="${isRenewal ? "1" : ""}">
+          <li class="${cls}" data-cid="${escHtml(cid)}" data-staff="${isStaff ? "1" : ""}" data-renewal="${isRenewal ? "1" : ""}" data-planner="${isPlanner ? "1" : ""}">
             <span class="alert-icon">${meta.icon}</span>
             <div>
               <div>
@@ -1214,7 +1244,12 @@
       // and the Finance tab is admin-only-revealed, so the routing matches).
       list.querySelectorAll(".alert-item").forEach(li => {
         li.addEventListener("click", () => {
-          if (li.dataset.renewal === "1") {
+          if (li.dataset.planner === "1") {
+            // The planner isn't a shell tab — open it directly (same as the
+            // Map profile's "🧭 Territory Planner" link).
+            const cid = li.dataset.cid;
+            if (cid) window.open("territory-planner.html?clinician=" + encodeURIComponent(cid), "_blank", "noopener");
+          } else if (li.dataset.renewal === "1") {
             shellSwitchTab("finance", "view=renewals");
           } else if (li.dataset.staff === "1") {
             shellSwitchTab("time");
