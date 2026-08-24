@@ -576,6 +576,8 @@
     <iframe id="frame-agencies"   data-src="agencies.html"      data-pane="agencies"   title="Agencies"      hidden></iframe>
     <iframe id="frame-finance"    data-src="finance.html"       data-pane="finance"    title="Finance"       hidden></iframe>
     <iframe id="frame-imports"    data-src="imports.html"       data-pane="imports"    title="Imports"       hidden></iframe>
+    <!-- No tab button — only reachable for role=clinician (own-territory view) -->
+    <iframe id="frame-territory"  data-src="territory-planner.html" data-pane="territory" title="My Territory" hidden></iframe>
   </div>
 </div>
 
@@ -601,11 +603,12 @@
   let currentUser = null;
 
   // Tab IDs that map to iframes (home is a static pane)
-  const TAB_IDS = ["home", "map", "referrals", "time", "compliance", "kanban", "roster", "agencies", "finance", "imports"];
+  const TAB_IDS = ["home", "map", "referrals", "time", "compliance", "kanban", "roster", "agencies", "finance", "imports", "territory"];
   const FRAME_BY_TAB = {
     map: "frame-map", referrals: "frame-referrals", time: "frame-time",
     compliance: "frame-compliance", kanban: "frame-kanban", roster: "frame-roster",
-    agencies: "frame-agencies", finance: "frame-finance", imports: "frame-imports"
+    agencies: "frame-agencies", finance: "frame-finance", imports: "frame-imports",
+    territory: "frame-territory"   // clinician-role only; no tab button
   };
 
   function escHtml(s) {
@@ -905,9 +908,11 @@
     // NOTHING (no iframes, no dashboard RPCs). Fail-open note: if this
     // fetch errors we proceed as before (admin tabs stay hidden).
     let shellRole = "readonly";
+    let shellClinicianId = null;
     try {
       const { data: roleRow } = await db.from("user_roles").select("role, clinician_id").eq("user_id", user.id).maybeSingle();
       if (roleRow && roleRow.role) shellRole = roleRow.role;
+      if (roleRow && roleRow.clinician_id) shellClinicianId = roleRow.clinician_id;
     } catch (e) { /* treat as readonly */ }
     if (shellRole === "pending") { showPendingScreen(user); return; }
     const pendingEl = document.getElementById("pending-screen");
@@ -916,6 +921,27 @@
     document.getElementById("login-screen").style.display = "none";
     document.getElementById("app").style.display = "flex";
     document.getElementById("header-user").textContent = user.email || "";
+
+    // 🩺 Clinician role — their world is their own territory, nothing
+    // else: hide every tab, skip all dashboard loads, and open the
+    // planner pinned to their linked clinician record (the planner
+    // re-pins itself authoritatively — the param here is just a hint).
+    if (shellRole === "clinician") {
+      document.querySelectorAll(".shell-tab").forEach(t => { t.style.display = "none"; });
+      if (shellClinicianId) {
+        shellSwitchTab("territory", "clinician=" + encodeURIComponent(shellClinicianId));
+      } else {
+        const home = document.getElementById("pane-home");
+        if (home) {
+          home.hidden = false;
+          home.innerHTML = "<div style='max-width:480px;margin:80px auto;background:#fff;border:1px solid #d2def0;border-radius:16px;padding:34px 38px;text-align:center'>" +
+            "<div style='font-size:38px;margin-bottom:10px'>🧭</div>" +
+            "<h2 style='margin:0 0 8px;color:#1E3A5F;font-size:18px'>Your account isn't linked to a territory yet</h2>" +
+            "<p style='margin:0;color:#526480;font-size:13.5px;line-height:1.6'>Ask an administrator to link your clinician record in the Users list.</p></div>";
+        }
+      }
+      return;
+    }
 
     // Activate initial tab based on URL
     const params = new URLSearchParams(location.search);
