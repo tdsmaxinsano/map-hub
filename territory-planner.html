@@ -633,10 +633,47 @@ async function launchApp(user) {
   document.getElementById("app-header").style.display = "flex";
   document.getElementById("app-container").style.display = "block";
   document.getElementById("header-user").textContent = user.email || "";
+  let linkedClinicianId = null;
   try {
-    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    const { data: roleRow } = await db.from("user_roles").select("role, clinician_id").eq("user_id", user.id).maybeSingle();
     currentRole = (roleRow && roleRow.role) || "readonly";
+    linkedClinicianId = (roleRow && roleRow.clinician_id) || null;
   } catch (e) { currentRole = "readonly"; }
+
+  // 🩺 Clinician role: pinned to THEIR OWN territory. The ?clinician=
+  // URL param is ignored (no deep-linking other territories), the
+  // picker never opens (it lists the whole roster), and the standalone
+  // nav is hidden. All edit affordances are already admin/editor-gated.
+  if (currentRole === "clinician") {
+    const nav = document.querySelector(".header-nav");
+    if (nav) nav.style.display = "none";
+    if (linkedClinicianId) {
+      // 🧪 Beta framing — read-only viewer for now; tease what's coming
+      // so therapists know this page will grow.
+      const ws = document.getElementById("workspace");
+      if (ws && !document.getElementById("tp-beta-banner")) {
+        const b = document.createElement("div");
+        b.id = "tp-beta-banner";
+        b.style.cssText = "background:linear-gradient(135deg,#1E3A5F 0%,#2463eb 100%);color:#fff;border-radius:12px;padding:11px 16px;margin:0 0 14px;font-size:13px;line-height:1.55;box-shadow:0 8px 22px rgba(30,58,95,0.18)";
+        b.innerHTML = "<b>🧪 Beta — your territory, read-only.</b> This is a live view of your coverage area and visit history. " +
+          "<span style='opacity:0.85'>Coming soon: 📦 request a move · ✋ highlight your preferred areas.</span>";
+        ws.prepend(b);
+      }
+      openWorkspace(linkedClinicianId);
+    } else {
+      // Repurpose the (never-shown-for-clinicians) picker container as a
+      // clean "not linked yet" card.
+      const pk = document.getElementById("picker");
+      if (pk) {
+        pk.style.display = "block";
+        pk.innerHTML = "<div style='max-width:460px;margin:70px auto;background:#fff;border:1px solid var(--border);border-radius:16px;padding:34px 38px;text-align:center'>" +
+          "<div style='font-size:38px;margin-bottom:10px'>🧭</div>" +
+          "<h2 style='margin:0 0 8px;color:#1E3A5F;font-size:18px'>Your account isn't linked to a territory yet</h2>" +
+          "<p style='margin:0;color:#526480;font-size:13.5px;line-height:1.6'>Ask an administrator to link your clinician record in the Users list.</p></div>";
+      }
+    }
+    return;
+  }
 
   const cid = new URLSearchParams(PAGE_INITIAL_SEARCH || window.location.search).get("clinician");
   if (cid) openWorkspace(cid);
