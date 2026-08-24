@@ -1505,7 +1505,16 @@ function escAttr(s) {
 async function loadStaffConfig() {
   const { data } = await db.from('staff_config').select('*');
   staffConfig = data || [];
+  // Roles (best-effort) — the "needs setup" banner must skip pending
+  // (unapproved signups) and clinician (field-therapist logins) accounts,
+  // which get auto-created staff_config rows but aren't office staff.
+  try {
+    const r = await db.rpc('list_staff');
+    ttRoleByUserId = {};
+    ((r && r.data) || []).forEach(s => { if (s.user_id) ttRoleByUserId[s.user_id] = s.role || ''; });
+  } catch (e) { /* keep previous map */ }
 }
+let ttRoleByUserId = {};
 
 // ══════════════════════════════════════════════════════════════
 //  STAFF VIEW
@@ -2844,7 +2853,7 @@ async function renderDashboard() {
   }).join('');
 
   // NEW: inactive staff (auto-created on signup) that need admin setup
-  const pending = staffConfig.filter(s => !s.is_active);
+  const pending = staffConfig.filter(s => !s.is_active && !['pending', 'clinician'].includes(ttRoleByUserId[s.user_id] || ''));
   const pendingHtml = pending.length ? `
     <div class="needs-setup-banner">
       ⚠ ${pending.length} new ${pending.length === 1 ? 'user needs' : 'users need'} setup — click <strong>Set up</strong> to enter rate, timezone, and activate.

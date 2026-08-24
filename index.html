@@ -729,6 +729,8 @@
       link.dataset.target = "signin";
       pw.setAttribute("autocomplete", "new-password");
       pw.setAttribute("placeholder", "Choose a password (min 6 chars)");
+      // Invite-only note (migration 64): uninvited accounts wait as pending.
+      ok.textContent = "Invited? Sign up with the email your invite was sent to — access is set up automatically. Without an invite, your account will wait for admin approval.";
     } else if (mode === "forgot") {
       forgotFields.style.display = "";
       forgotRow.style.display = "none";
@@ -845,7 +847,7 @@
       return;
     }
     // Otherwise, prompt the user to check their email
-    ok.textContent = "Account created! Check your email to confirm, then sign in.";
+    ok.textContent = "Account created! Check your email to confirm, then sign in. (Accounts require an invitation — without one, yours will wait for admin approval.)";
     setLoginMode("signin");
   }
 
@@ -869,8 +871,48 @@
     }
   }
 
+  // Full-screen hold for role='pending' (uninvited signup awaiting admin
+  // approval, migration 64). Nothing else loads — no tabs, no iframes.
+  function showPendingScreen(user) {
+    document.getElementById("login-screen").style.display = "none";
+    document.getElementById("app").style.display = "none";
+    let el = document.getElementById("pending-screen");
+    if (!el) {
+      el = document.createElement("div");
+      el.id = "pending-screen";
+      el.style.cssText = "position:fixed;inset:0;z-index:9999;background:#f0f4fb;display:flex;align-items:center;justify-content:center;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;";
+      document.body.appendChild(el);
+    }
+    el.innerHTML =
+      "<div style='background:#fff;border:1px solid #d2def0;border-radius:16px;padding:34px 38px;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(15,35,80,0.12)'>" +
+      "<div style='font-size:40px;margin-bottom:10px'>⏳</div>" +
+      "<h2 style='margin:0 0 8px;color:#1E3A5F;font-size:19px'>Waiting for approval</h2>" +
+      "<p style='margin:0 0 6px;color:#526480;font-size:13.5px;line-height:1.6'>Your account was created, but portal access requires an invitation or admin approval. An administrator will review it — check back soon.</p>" +
+      "<p style='margin:0 0 18px;color:#9aaccc;font-size:12px'>" + escHtml(user.email || "") + "</p>" +
+      "<button id='pending-signout' style='padding:9px 22px;border:0;border-radius:9px;background:#1E3A5F;color:#fff;font-weight:700;font-size:13px;cursor:pointer'>Sign out</button>" +
+      "</div>";
+    el.style.display = "flex";
+    document.getElementById("pending-signout").addEventListener("click", async () => {
+      try { await db.auth.signOut(); } catch (e) {}
+      location.reload();
+    });
+  }
+
   async function launchApp(user) {
     currentUser = user;
+
+    // Role first — a 'pending' account gets the waiting screen and loads
+    // NOTHING (no iframes, no dashboard RPCs). Fail-open note: if this
+    // fetch errors we proceed as before (admin tabs stay hidden).
+    let shellRole = "readonly";
+    try {
+      const { data: roleRow } = await db.from("user_roles").select("role, clinician_id").eq("user_id", user.id).maybeSingle();
+      if (roleRow && roleRow.role) shellRole = roleRow.role;
+    } catch (e) { /* treat as readonly */ }
+    if (shellRole === "pending") { showPendingScreen(user); return; }
+    const pendingEl = document.getElementById("pending-screen");
+    if (pendingEl) pendingEl.style.display = "none";
+
     document.getElementById("login-screen").style.display = "none";
     document.getElementById("app").style.display = "flex";
     document.getElementById("header-user").textContent = user.email || "";
@@ -894,13 +936,9 @@
     document.getElementById("hero-greeting").textContent = "Welcome back, " + greetName;
 
     // Reveal admin-only tabs (💰 Finance) if role === 'admin'
-    try {
-      const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
-      const isAdmin = roleRow && roleRow.role === "admin";
-      document.querySelectorAll(".admin-only-tab").forEach(btn => {
-        btn.style.display = isAdmin ? "" : "none";
-      });
-    } catch (e) { /* keep hidden by default — fail closed */ }
+    document.querySelectorAll(".admin-only-tab").forEach(btn => {
+      btn.style.display = shellRole === "admin" ? "" : "none";
+    });
 
     Promise.all([
       loadOpenReferralsCount(),
