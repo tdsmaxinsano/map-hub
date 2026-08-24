@@ -310,6 +310,14 @@
     .ts-note-input { width: 100%; padding: 4px 8px; border: 1px solid var(--border); border-radius: 5px; font-size: 12px; background: var(--white); }
     .ts-note-input:focus { border-color: var(--blue); outline: none; }
     .ts-auto-hint { font-size: 10px; color: var(--gray); margin-top: 2px; letter-spacing: 0.2px; }
+    /* Admin timesheet redline — before→after markup on admin edits */
+    .ats-redline { font-size: 10.5px; margin-top: 3px; color: var(--gray); white-space: nowrap; }
+    .ats-redline s { color: #9ca3af; }
+    .ats-revert-btn { border: 1px solid #f3c0c0; background: #fdf2f2; color: var(--red); border-radius: 5px; font-size: 10px; font-weight: 800; padding: 0 6px; cursor: pointer; margin-right: 4px; }
+    .ats-clear-btn { border: 1px solid var(--border); background: var(--white); color: #9ca3af; border-radius: 5px; font-size: 10px; font-weight: 800; padding: 2px 7px; cursor: pointer; }
+    .ats-clear-btn:hover { border-color: var(--red); color: var(--red); }
+    .ats-note-wrap { display: flex; gap: 6px; align-items: center; }
+    .ats-note-wrap .ts-note-input { flex: 1; }
     .ts-auto-hint.struck { text-decoration: line-through; color: #B45309; font-weight: 700; }
     /* Forgotten clock-out: a shift over the 10h cap. Counted at the cap; flagged so an admin fixes it. */
     .ts-cap-warn { font-size: 10px; color: #b91c1c; font-weight: 800; margin-top: 2px; cursor: help; }
@@ -1005,7 +1013,7 @@
   <div class="shifts-modal">
     <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
       <h2 id="ats-title" style="font-size:18px; color:var(--blue);">Timesheet</h2>
-      <button class="btn-cancel" style="width:auto; padding:6px 14px;" onclick="closeModal('admin-ts-modal')">Close</button>
+      <button class="btn-cancel" style="width:auto; padding:6px 14px;" onclick="atsClose()">Close</button>
     </div>
     <div class="ts-nav" style="margin-bottom:6px;">
       <button class="btn-period" type="button" onclick="atsChangePeriod(-1)">◀ Prev</button>
@@ -1014,7 +1022,7 @@
       <button class="btn-period" type="button" onclick="atsOpenShifts()" title="Switch to the editable clock-in/out shifts view of the same person + period">✎ Edit shifts</button>
     </div>
     <div id="ats-status" style="margin-bottom:8px;"></div>
-    <div style="font-size:11px; color:var(--gray); margin-bottom:8px;">⏰ Dates in <strong>US Central Time (CT)</strong> · read-only view of what the employee entered (hours, time off, notes)</div>
+    <div style="font-size:11px; color:var(--gray); margin-bottom:8px;">⏰ Dates in <strong>US Central Time (CT)</strong> · editable admin view — your changes show before → after and are stamped on the day's note when saved</div>
     <table class="ts-table">
       <thead><tr><th>Day</th><th>Date</th><th>Hours</th><th>Time Off</th><th>Notes</th></tr></thead>
       <tbody id="ats-body"></tbody>
@@ -1026,7 +1034,12 @@
         </tr>
       </tfoot>
     </table>
-    <div id="ats-approve-footer" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px;padding-top:14px;border-top:1px solid var(--border);"></div>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+      <span id="ats-dirty-hint" style="font-size:12px;font-weight:800;color:#B45309;display:none;">● Unsaved changes</span>
+      <span style="flex:1;"></span>
+      <button class="btn-confirm" id="ats-save-btn" style="width:auto;padding:8px 18px;" onclick="atsSave()" disabled>💾 Save changes</button>
+    </div>
+    <div id="ats-approve-footer" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);"></div>
   </div>
 </div>
 
@@ -2963,6 +2976,8 @@ function shiftsOpenTimesheet() {
   openStaffTimesheet(userId, offset);
 }
 function atsOpenShifts() {
+  if (atsDirty && !confirm('Discard unsaved timesheet changes and switch to the shifts view?')) return;
+  atsSetDirty(false);
   const s  = (staffConfig || []).find(x => x.user_id === atsUserId) || {};
   closeModal('admin-ts-modal');
   openShiftsModal(atsUserId, s.display_name || atsName || 'Staff', s.timezone || 'Asia/Manila', atsOffset);
@@ -3186,6 +3201,31 @@ async function shiftsReject() {
 //  Mirrors tsLoad()/tsRender() but for a chosen user + period, read-only.
 // ══════════════════════════════════════════════════════════════
 let atsUserId = null, atsName = '', atsOffset = 0, atsRows = [], atsSubmission = null;
+let atsDirty = false, atsOriginal = [];   // admin-edit state: baseline = what the employee had at load
+
+function atsSetDirty(on) {
+  atsDirty = !!on;
+  const hint = document.getElementById('ats-dirty-hint');
+  const btn  = document.getElementById('ats-save-btn');
+  if (hint) hint.style.display = atsDirty ? '' : 'none';
+  if (btn)  btn.disabled = !atsDirty;
+}
+// Does row i differ from the employee's loaded state? (hrs with float
+// tolerance + empty-awareness, then absence kind, then note text)
+function atsRowDiffers(i) {
+  const r = atsRows[i], o = atsOriginal[i];
+  if (!r || !o) return false;
+  const hNow  = parseFloat(r.hrs), hOrig = parseFloat(o.hrs);
+  const eNow  = isNaN(hNow) || hNow <= 0, eOrig = isNaN(hOrig) || hOrig <= 0;
+  if (eNow !== eOrig) return true;
+  if (!eNow && Math.abs(hNow - hOrig) > 0.001) return true;
+  if ((r.absenceKind || '') !== (o.absenceKind || '')) return true;
+  if (String(r.note || '').trim() !== String(o.note || '').trim()) return true;
+  return false;
+}
+function atsRecomputeDirty() {
+  atsSetDirty(atsRows.some((_, i) => atsRowDiffers(i)));
+}
 
 function openStaffTimesheet(userId, initialOffset) {
   const s = (staffConfig || []).find(x => x.user_id === userId);
@@ -3217,6 +3257,7 @@ async function atsLoad(useCache) {
     const day = new Date(period.start.getTime() + i * 86400000);
     const dayLabel = day.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
     atsRows.push({
+      date:        day,   // needed by atsSave's persistence (mirrors tsRows)
       dayKey:      day.toLocaleDateString('en-US', { timeZone: tz }),
       dayLabel,
       dateLabel:   day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
@@ -3266,33 +3307,96 @@ async function atsLoad(useCache) {
   });
   atsRows.forEach(r => { if (!r.hasOverride && r.autoHrs > 0) r.hrs = Number(r.autoHrs.toFixed(2)); });
 
+  // Baseline for the redline markup: what the employee had when this
+  // period loaded. Every nav / save rebuilds it.
+  atsOriginal = atsRows.map(r => ({ hrs: String(r.hrs), absenceKind: r.absenceKind || '', note: r.note || '' }));
+  atsSetDirty(false);
+
   atsRender(period);
+}
+
+// Redline for one row: shows the employee's ORIGINAL values struck
+// through, with a ↶ revert. Empty string when the row matches baseline.
+function atsRedlineHtml(i) {
+  if (!atsRowDiffers(i)) return '';
+  const o = atsOriginal[i] || {};
+  const oh = parseFloat(o.hrs);
+  const parts = [];
+  parts.push((isNaN(oh) || oh <= 0) ? '—' : oh.toFixed(2) + 'h');
+  if (o.absenceKind) parts.push(absenceLabel(o.absenceKind));
+  if (String(o.note || '').trim()) parts.push('“' + escAttr(o.note) + '”');
+  return `<button type="button" class="ats-revert-btn" title="Revert this day to what the employee entered" onclick="atsRevertRow(${i})">↶</button>` +
+    `was: <s>${parts.join(' · ')}</s>`;
 }
 
 function atsRender(period) {
   const tbody = document.getElementById('ats-body');
   if (!tbody) return;
-  tbody.innerHTML = atsRows.map(r => {
+  // 🌴 Paid Leave option: only when the VIEWED staffer has the benefit
+  // (or the day already carries it, so old data still renders).
+  const tgt = (staffConfig || []).find(s => s.user_id === atsUserId);
+  const showPaidLeave = !!(tgt && tgt.has_paid_leave);
+  tbody.innerHTML = atsRows.map((r, i) => {
+    const absenceOptions = ABSENCE_OPTIONS
+      .filter(o => o.value !== 'paid_leave' || showPaidLeave || r.absenceKind === 'paid_leave')
+      .map(o => `<option value="${o.value}" ${r.absenceKind === o.value ? 'selected' : ''}>${o.label}</option>`)
+      .join('');
     const offTint    = r.absenceKind ? ' ts-row-off' : '';
-    const hrsTxt     = (r.hrs === '' || r.hrs == null) ? '<span style="color:#cbd5e1;">—</span>' : `${r.hrs}`;
-    const isOverride = r.autoHrs > 0 && r.hrs !== '' && Math.abs(parseFloat(r.hrs) - r.autoHrs) > 0.001;
-    const autoHint   = r.autoHrs > 0 ? `<div class="ts-auto-hint ${isOverride ? 'struck' : ''}">Auto: ${r.autoHrs.toFixed(2)}h</div>` : '';
-    const warnHtml   = r.flagged
-      ? `<div class="ts-cap-warn" title="Likely forgotten clock-out: ${(r.rawHrs||0).toFixed(2)}h recorded — capped to ${MAX_SHIFT_HOURS}h for pay. Fix the clock-out in View / Edit Shifts.">⚠ capped · ${(r.rawHrs||0).toFixed(1)}h raw</div>`
+    const hasAuto    = r.autoHrs > 0;
+    const inputVal   = parseFloat(r.hrs);
+    const isOverride = hasAuto && !isNaN(inputVal) && Math.abs(inputVal - r.autoHrs) > 0.001;
+    const autoHint   = hasAuto
+      ? `<div class="ts-auto-hint ${isOverride ? 'struck' : ''}" data-auto="${r.autoHrs.toFixed(2)}">Auto: ${r.autoHrs.toFixed(2)}h</div>`
       : '';
-    const abs        = absenceLabel(r.absenceKind);
-    const absCell    = abs
-      ? `<span style="background:#FEF3C7;color:#92400E;font-size:10px;font-weight:700;padding:1px 7px;border-radius:8px;">${escAttr(abs)}</span>`
-      : '<span style="color:#cbd5e1;">—</span>';
-    const noteCell   = r.note ? escAttr(r.note) : '<span style="color:#cbd5e1;">—</span>';
+    const warnHtml   = r.flagged
+      ? `<div class="ts-cap-warn" title="Likely forgotten clock-out: ${(r.rawHrs||0).toFixed(2)}h recorded — capped to ${MAX_SHIFT_HOURS}h for pay. Fix the clock-out in ✎ Edit shifts.">⚠ capped · ${(r.rawHrs||0).toFixed(1)}h raw</div>`
+      : '';
     return `<tr class="ts-row ${r.weekend ? 'weekend' : ''}${offTint}">
       <td class="ts-day">${r.dayLabel}</td>
       <td class="ts-date">${r.dateLabel}</td>
-      <td class="ts-hours">${hrsTxt}${autoHint}${warnHtml}</td>
-      <td class="ts-absence">${absCell}</td>
-      <td>${noteCell}</td>
+      <td class="ts-hours">
+        <input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0" />
+        ${autoHint}${warnHtml}
+      </td>
+      <td class="ts-absence"><select class="ts-absence-select" data-idx="${i}" data-field="absenceKind">${absenceOptions}</select></td>
+      <td>
+        <div class="ats-note-wrap">
+          <input type="text" class="ts-note-input" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${r.weekend ? '(weekend, optional)' : 'optional note'}" />
+          <button type="button" class="ats-clear-btn" title="Clear this day (hours, time off, note)" onclick="atsClearRow(${i})">✕</button>
+        </div>
+        <div class="ats-redline" id="ats-redline-${i}">${atsRedlineHtml(i)}</div>
+      </td>
     </tr>`;
   }).join('');
+
+  // Delegated listeners — wired once, survive tbody innerHTML swaps.
+  if (!tbody.dataset.wired) {
+    tbody.dataset.wired = '1';
+    const handleEdit = e => {
+      const inp = e.target.closest('[data-idx][data-field]');
+      if (!inp) return;
+      const i = parseInt(inp.dataset.idx, 10);
+      if (!(i >= 0 && i < atsRows.length)) return;
+      atsRows[i][inp.dataset.field] = inp.value;
+      atsRecomputeDirty();
+      // Surgical updates — no re-render, no focus loss.
+      const rl = document.getElementById('ats-redline-' + i);
+      if (rl) rl.innerHTML = atsRedlineHtml(i);
+      if (inp.dataset.field === 'hrs') {
+        const tr = inp.closest('tr');
+        const hint = tr && tr.querySelector('.ts-auto-hint');
+        if (hint) {
+          const auto = parseFloat(hint.dataset.auto), val = parseFloat(inp.value);
+          hint.classList.toggle('struck', !isNaN(auto) && !isNaN(val) && Math.abs(val - auto) > 0.001);
+        }
+        const total = atsRows.reduce((s, r) => { const h = parseFloat(r.hrs); return s + (isNaN(h) ? 0 : h); }, 0);
+        const totEl = document.getElementById('ats-total');
+        if (totEl) totEl.innerHTML = total.toFixed(2) + ' h';
+      }
+    };
+    tbody.addEventListener('input', handleEdit);
+    tbody.addEventListener('change', handleEdit);
+  }
 
   const total = atsRows.reduce((s, r) => { const h = parseFloat(r.hrs); return s + (isNaN(h) ? 0 : h); }, 0);
   const atsPl = atsRows.reduce((s, r) => {
@@ -3345,7 +3449,12 @@ function atsRender(period) {
   }
 }
 
-function atsChangePeriod(dir) { atsOffset += dir; atsLoad(true); }   // navigation — use the cache
+function atsChangePeriod(dir) {
+  if (atsDirty && !confirm('Discard unsaved timesheet changes and switch periods?')) return;
+  atsSetDirty(false);
+  atsOffset += dir;
+  atsLoad(true);   // navigation — use the cache
+}
 
 async function atsApprove() {
   const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
@@ -3367,6 +3476,108 @@ async function atsReject() {
   await atsLoad();
   if (typeof renderPayPeriod === 'function') renderPayPeriod();
   if (typeof renderDashboard === 'function') renderDashboard();
+}
+
+// ── Admin edits on the staff timesheet ──────────────────────────────
+function atsRevertRow(i) {
+  const o = atsOriginal[i];
+  if (!o) return;
+  atsRows[i].hrs = o.hrs;
+  atsRows[i].absenceKind = o.absenceKind;
+  atsRows[i].note = o.note;
+  atsRender(getPayPeriod(atsOffset));
+  atsRecomputeDirty();
+}
+function atsClearRow(i) {
+  if (!atsRows[i]) return;
+  atsRows[i].hrs = '';
+  atsRows[i].absenceKind = '';
+  atsRows[i].note = '';
+  atsRender(getPayPeriod(atsOffset));
+  atsRecomputeDirty();
+}
+function atsClose() {
+  if (atsDirty && !confirm('Discard unsaved timesheet changes?')) return;
+  atsSetDirty(false);
+  closeModal('admin-ts-modal');
+}
+
+// Persist the admin's edits — same storage shape the staff Submit uses
+// (Timesheet| override rows, period delete + bulk insert), so payroll,
+// the staff grid, and the Shifts modal badges all keep working. Days the
+// admin CHANGED get a compact stamp appended to the note — visible to
+// the employee too (transparency): "[adm 8/21: was 6h]".
+async function atsSave() {
+  if (!atsDirty) return;
+  // Same rule as the staff grid: a time-off day must carry a reason.
+  const missing = atsRows.findIndex(r => r.absenceKind && !String(r.note || '').trim());
+  if (missing >= 0) {
+    showToast('Day ' + atsRows[missing].dateLabel + ' has Time Off set — add a reason in Notes first.');
+    return;
+  }
+  const btn = document.getElementById('ats-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  try {
+    const stampDate = new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: ADMIN_TZ });
+    const firstDay  = atsRows[0].date;
+    const afterLast = new Date(atsRows[atsRows.length - 1].date.getTime() + 86400000);
+
+    const { error: delErr } = await db.from('time_entries').delete()
+      .eq('user_id', atsUserId).eq('is_manual', true)
+      .like('manual_note', 'Timesheet|%')
+      .gte('clock_in', firstDay.toISOString())
+      .lt('clock_in',  afterLast.toISOString());
+    if (delErr) throw delErr;
+
+    const inserts = [];
+    atsRows.forEach((r, i) => {
+      const hrsNum = parseFloat(r.hrs);
+      const hrs    = (!isNaN(hrsNum) && hrsNum > 0) ? hrsNum : 0;
+      const auto   = Number(r.autoHrs) || 0;
+      const kind   = r.absenceKind || null;
+      let   note   = String(r.note || '').trim();
+      // Stamp changed days (hours or time-off changed) — replace any prior
+      // [adm …] marker so repeat edits don't stack stamps.
+      const o = atsOriginal[i] || {};
+      const oh = parseFloat(o.hrs);
+      const hrsChanged  = Math.abs((isNaN(oh) ? 0 : oh) - hrs) > 0.001;
+      const kindChanged = (o.absenceKind || '') !== (kind || '');
+      if (atsRowDiffers(i) && (hrsChanged || kindChanged)) {
+        note = note.replace(/\s*\[adm [^\]]*\]/g, '').trim();
+        const wasBits = [(isNaN(oh) || oh <= 0) ? '0h' : oh.toFixed(2).replace(/\.00$/, '') + 'h'];
+        if (o.absenceKind) wasBits.push(absenceLabel(o.absenceKind));
+        note = (note ? note + ' ' : '') + '[adm ' + stampDate + ': was ' + wasBits.join(' ') + ']';
+      }
+      const needsOverride = (Math.abs(hrs - auto) > 0.001) || kind || note;
+      if (needsOverride) {
+        inserts.push({
+          user_id:      atsUserId,
+          clock_in:     r.date.toISOString(),
+          clock_out:    new Date(r.date.getTime() + hrs * 3600000).toISOString(),
+          is_manual:    true,
+          manual_note:  'Timesheet|' + note,
+          absence_kind: kind,
+          created_by:   currentUser.id   // admin provenance in the DB row
+        });
+      }
+    });
+    if (inserts.length) {
+      const { error: insErr } = await db.from('time_entries').insert(inserts);
+      if (insErr) throw insErr;
+    }
+
+    const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
+    atsCache.delete(atsUserId + '|' + periodDate);
+    atsSetDirty(false);
+    showToast('💾 Timesheet saved (' + inserts.length + ' day' + (inserts.length === 1 ? '' : 's') + ' with entries).');
+    await atsLoad();
+    if (typeof renderDashboard === 'function') renderDashboard();
+    if (typeof renderPayPeriod === 'function') renderPayPeriod();
+  } catch (e) {
+    showToast('Save failed: ' + (e.message || e));
+  } finally {
+    if (btn) { btn.textContent = '💾 Save changes'; btn.disabled = !atsDirty; }
+  }
 }
 
 function startEditShift(id, clockIn, clockOut) {
