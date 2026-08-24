@@ -951,7 +951,12 @@
       <h2 id="shifts-modal-title" style="font-size:18px; color:var(--blue);">Shifts</h2>
       <button class="btn-cancel" style="width:auto; padding:6px 14px;" onclick="closeModal('shifts-modal')">Close</button>
     </div>
-    <div id="shifts-period-label" style="font-size:12px; color:var(--gray); margin-bottom:4px;"></div>
+    <div class="ts-nav" style="margin-bottom:4px;">
+      <button class="btn-period" type="button" onclick="shiftsChangePeriod(-1)">◀ Prev</button>
+      <span class="ts-period-label" id="shifts-period-label" style="font-size:12px; color:var(--gray);">Loading…</span>
+      <button class="btn-period" type="button" onclick="shiftsChangePeriod(1)">Next ▶</button>
+      <button class="btn-period" type="button" onclick="shiftsOpenTimesheet()" title="Switch to the day-by-day timesheet view of the same person + period">🗓 Timesheet view</button>
+    </div>
     <div id="shifts-total-line" style="font-size:13px; font-weight:700; color:var(--blue); margin-bottom:8px;"></div>
     <div style="font-size:11px; color:var(--gray); margin-bottom:8px;">⏰ All times shown in <strong>US Central Time (CT)</strong></div>
     <table class="shifts-table">
@@ -1006,6 +1011,7 @@
       <button class="btn-period" type="button" onclick="atsChangePeriod(-1)">◀ Prev</button>
       <span class="ts-period-label" id="ats-period-label">Loading…</span>
       <button class="btn-period" type="button" onclick="atsChangePeriod(1)">Next ▶</button>
+      <button class="btn-period" type="button" onclick="atsOpenShifts()" title="Switch to the editable clock-in/out shifts view of the same person + period">✎ Edit shifts</button>
     </div>
     <div id="ats-status" style="margin-bottom:8px;"></div>
     <div style="font-size:11px; color:var(--gray); margin-bottom:8px;">⏰ Dates in <strong>US Central Time (CT)</strong> · read-only view of what the employee entered (hours, time off, notes)</div>
@@ -2927,15 +2933,39 @@ function openStaffSetup(userId) {
 // ══════════════════════════════════════════════════════════════
 //  SHIFTS MODAL
 // ══════════════════════════════════════════════════════════════
-let shiftsContext = { userId: null, name: null, tz: null, submission: null };
+let shiftsContext = { userId: null, name: null, tz: null, submission: null, offset: 0 };
 let shiftsLiveTimer = null;
 
-async function openShiftsModal(userId, name, tz) {
-  shiftsContext = { userId, name, tz, submission: null };
+async function openShiftsModal(userId, name, tz, initialOffset) {
+  shiftsContext = { userId, name, tz, submission: null, offset: initialOffset || 0 };
   document.getElementById('shifts-modal-title').textContent = `${name} — Shifts`;
   document.getElementById('shifts-modal').classList.add('open');
   startShiftsLiveTimer();
   await loadShifts();
+}
+
+// ◀/▶ period navigation inside the Shifts modal — the modal owns its own
+// offset (independent of the Pay Period tab), so an admin can go back
+// and edit a past period's shifts (e.g. after a send-back note names an
+// earlier pay period) without leaving the modal.
+function shiftsChangePeriod(dir) {
+  shiftsContext.offset += dir;
+  loadShifts();
+}
+
+// Cross-links: Shifts (editable clock-ins) ⇄ Timesheet (day-by-day view)
+// stay on the SAME person + period, so the two surfaces feel like two
+// tabs of one thing instead of two places.
+function shiftsOpenTimesheet() {
+  const { userId, offset } = shiftsContext;
+  closeModal('shifts-modal');
+  if (shiftsLiveTimer) { clearInterval(shiftsLiveTimer); shiftsLiveTimer = null; }
+  openStaffTimesheet(userId, offset);
+}
+function atsOpenShifts() {
+  const s  = (staffConfig || []).find(x => x.user_id === atsUserId) || {};
+  closeModal('admin-ts-modal');
+  openShiftsModal(atsUserId, s.display_name || atsName || 'Staff', s.timezone || 'Asia/Manila', atsOffset);
 }
 
 // 1s tick keeps OPEN shifts' running-hours cell live while the modal is open.
@@ -2953,10 +2983,11 @@ function startShiftsLiveTimer() {
 async function loadShifts() {
   const { userId } = shiftsContext;
   const DISP_TZ  = ADMIN_TZ; // always show in US Central
-  // BUG FIX: modal used `periodOffset` (the Pay Period tab's offset),
-  // so opening it from Dashboard while the admin was viewing a past
-  // Pay Period would show the wrong shifts. Always use current (0).
-  const period   = getPayPeriod(0);
+  // The modal owns its own period offset (shiftsContext.offset — defaults
+  // to current). It deliberately does NOT borrow the Pay Period tab's
+  // offset implicitly (that coupling once showed the wrong shifts when
+  // opened from Dashboard); navigation is explicit via ◀/▶ in the modal.
+  const period   = getPayPeriod(shiftsContext.offset || 0);
   const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
   const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
 
@@ -3121,7 +3152,7 @@ function renderShiftsApprovalFooter() {
 }
 
 async function shiftsApprove() {
-  const period     = getPayPeriod(0);
+  const period     = getPayPeriod(shiftsContext.offset || 0);
   const periodDate = period.start.toISOString().slice(0, 10);
   const { error } = await db.rpc('approve_pay_period', {
     p_user_id: shiftsContext.userId, p_period_start: periodDate
@@ -3136,7 +3167,7 @@ async function shiftsApprove() {
 async function shiftsReject() {
   const note = prompt('Send this period back to the employee. Add a note explaining what needs to be fixed:');
   if (!note || !note.trim()) return;
-  const period     = getPayPeriod(0);
+  const period     = getPayPeriod(shiftsContext.offset || 0);
   const periodDate = period.start.toISOString().slice(0, 10);
   const { error } = await db.rpc('reject_pay_period', {
     p_user_id: shiftsContext.userId, p_period_start: periodDate, p_note: note.trim()
@@ -3156,11 +3187,13 @@ async function shiftsReject() {
 // ══════════════════════════════════════════════════════════════
 let atsUserId = null, atsName = '', atsOffset = 0, atsRows = [], atsSubmission = null;
 
-function openStaffTimesheet(userId) {
+function openStaffTimesheet(userId, initialOffset) {
   const s = (staffConfig || []).find(x => x.user_id === userId);
   atsUserId = userId;
   atsName   = (s && s.display_name) || 'Staff';
-  atsOffset = periodOffset;   // start on the period the admin is reviewing
+  // Start on the period the admin is reviewing (Pay Period tab), unless a
+  // caller (the Shifts modal cross-link) hands over its own period.
+  atsOffset = (initialOffset === undefined || initialOffset === null) ? periodOffset : initialOffset;
   document.getElementById('admin-ts-modal').classList.add('open');
   atsLoad();
 }
