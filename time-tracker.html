@@ -1118,6 +1118,11 @@ async function handleSession(session) {
   currentUser = session.user;
   const { data: roleRow } = await db.from('user_roles').select('role').eq('user_id', currentUser.id).single();
   currentRole = roleRow?.role || 'readonly';
+  // Field-therapist (🧭 Territory) logins have no time entry — bounce to
+  // their own-territory view (same pattern as the map). Pending accounts
+  // go to the shell, which shows the waiting-for-approval screen.
+  if (currentRole === 'clinician') { window.location.replace('territory-planner.html'); return; }
+  if (currentRole === 'pending')   { window.location.replace('index.html'); return; }
   await loadStaffConfig();
   showApp();
 }

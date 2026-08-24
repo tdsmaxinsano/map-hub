@@ -648,6 +648,17 @@ async function launchApp(user) {
     const nav = document.querySelector(".header-nav");
     if (nav) nav.style.display = "none";
     if (linkedClinicianId) {
+      // 🧪 Beta framing — read-only viewer for now; tease what's coming
+      // so therapists know this page will grow.
+      const ws = document.getElementById("workspace");
+      if (ws && !document.getElementById("tp-beta-banner")) {
+        const b = document.createElement("div");
+        b.id = "tp-beta-banner";
+        b.style.cssText = "background:linear-gradient(135deg,#1E3A5F 0%,#2463eb 100%);color:#fff;border-radius:12px;padding:11px 16px;margin:0 0 14px;font-size:13px;line-height:1.55;box-shadow:0 8px 22px rgba(30,58,95,0.18)";
+        b.innerHTML = "<b>🧪 Beta — your territory, read-only.</b> This is a live view of your coverage area and visit history. " +
+          "<span style='opacity:0.85'>Coming soon: 📦 request a move · ✋ highlight your preferred areas.</span>";
+        ws.prepend(b);
+      }
       openWorkspace(linkedClinicianId);
     } else {
       // Repurpose the (never-shown-for-clinicians) picker container as a

@@ -7910,12 +7910,12 @@
             '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
             '<input id="um-invite-email" type="email" placeholder="name@email.com" style="flex:1;min-width:170px;padding:6px 9px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px">' +
             '<select id="um-invite-role" onchange="umInviteRoleChanged()" style="padding:6px 8px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px">' +
-            '<option value="readonly">View Only</option><option value="editor">Editor</option><option value="admin">Admin</option><option value="clinician">🩺 Clinician</option>' +
+            '<option value="readonly">View Only</option><option value="editor">Editor</option><option value="admin">Admin</option><option value="clinician">🧭 Territory</option>' +
             '</select>' +
             '<select id="um-invite-clinician" style="display:none;padding:6px 8px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px;max-width:220px">' + umClinicianOptionsHtml(null) + '</select>' +
             '<button id="um-invite-btn" onclick="umSendInvite()" style="padding:6px 14px;border:0;border-radius:7px;background:#1E3A5F;color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Send invite</button>' +
             '</div>' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:5px">They get an email with signup instructions — their role is assigned automatically when they create an account with that address. Signups without an invite wait as ⏳ Pending below. 🩺 Clinician invites link a field therapist to their own read-only territory view.</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px">They get an email with signup instructions — their role is assigned automatically when they create an account with that address. Signups without an invite wait as ⏳ Pending below. 🧭 Territory invites link a field therapist to their own read-only territory view.</div>' +
             '</div>';
           if (invites.length) {
             html += '<div style="font-weight:700;font-size:11.5px;color:#1E3A5F;margin:2px 0 4px">Invites</div>' +
@@ -7956,11 +7956,11 @@
           var joined = row.created_at ? new Date(row.created_at).toLocaleDateString() : "—";
           var badgeClass = role === "admin" ? "admin" : role === "editor" ? "editor" : "readonly";
           var badgeLabel = role === "admin" ? "Admin" : role === "editor" ? "Editor"
-            : role === "pending" ? "⏳ Pending" : role === "clinician" ? "🩺 Clinician" : "View Only";
+            : role === "pending" ? "⏳ Pending" : role === "clinician" ? "🧭 Territory" : "View Only";
           var badge = role === "pending"
             ? '<span class="um-badge readonly" style="background:#fdf6e6;color:#92400e;border-color:#ecd9a8">⏳ Pending approval</span>'
             : role === "clinician"
-              ? '<span class="um-badge readonly" style="background:#e4f0ff;color:#1a5fb4;border-color:#c3d9ff">🩺 Clinician</span>'
+              ? '<span class="um-badge readonly" style="background:#e4f0ff;color:#1a5fb4;border-color:#c3d9ff">🧭 Territory</span>'
               : '<span class="um-badge ' + badgeClass + '">' + badgeLabel + '</span>';
           var actionBtn;
           if (isSelf) {
@@ -7972,7 +7972,7 @@
               '<option value="readonly"' + (role === "readonly" ? " selected" : "") + '>View Only</option>' +
               '<option value="editor"'  + (role === "editor"   ? " selected" : "") + '>Editor</option>' +
               '<option value="admin"'   + (role === "admin"    ? " selected" : "") + '>Admin</option>' +
-              '<option value="clinician"' + (role === "clinician" ? " selected" : "") + '>🩺 Clinician</option>' +
+              '<option value="clinician"' + (role === "clinician" ? " selected" : "") + '>🧭 Territory</option>' +
               '</select>';
             // Clinician rows also pick WHICH clinician record they are —
             // drives their own-territory view.
