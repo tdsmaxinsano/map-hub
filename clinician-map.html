@@ -7530,7 +7530,7 @@
         await ensureUserRoleExists(result.data.session.user.id, "readonly");
         await handleAuthSession(result.data.session);
       } else {
-        authSetSuccess("auth-signup-success", "Account created! Check your email to confirm, then sign in.");
+        authSetSuccess("auth-signup-success", "Account created! Check your email to confirm, then sign in. (Accounts require an invitation — without one, yours will wait for admin approval.)");
       }
     }
 
@@ -7542,7 +7542,9 @@
       authSetError("auth-forgot-error", "");
       authSetSuccess("auth-forgot-success", "");
       btn.disabled = true; btn.textContent = "Sending…";
-      var redirectUrl = "https://www.dependablecareportal.com/clinician-map.html";
+      // Origin-relative so resets work from any deployment (the old
+      // hardcoded prod URL stranded resets initiated from elsewhere).
+      var redirectUrl = window.location.origin + window.location.pathname;
       var result = await supabaseClient.auth.resetPasswordForEmail(email, { redirectTo: redirectUrl });
       btn.disabled = false; btn.textContent = "Send reset link";
       if (result.error) { authSetError("auth-forgot-error", result.error.message || "Could not send reset email."); return; }
@@ -7658,6 +7660,29 @@
       ]);
     }
 
+    // Full-screen hold for role='pending' (uninvited signup awaiting
+    // admin approval). Replaces the app entirely — nothing loads.
+    function showPendingApprovalScreen(email) {
+      var el = document.getElementById("pending-approval-screen");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "pending-approval-screen";
+        el.style.cssText = "position:fixed;inset:0;z-index:99999;background:#f0f4fb;display:flex;align-items:center;justify-content:center;font-family:-apple-system,'Segoe UI',Roboto,sans-serif;";
+        document.body.appendChild(el);
+      }
+      el.innerHTML =
+        "<div style='background:#fff;border:1px solid #d2def0;border-radius:16px;padding:34px 38px;max-width:420px;text-align:center;box-shadow:0 20px 50px rgba(15,35,80,0.12)'>" +
+        "<div style='font-size:40px;margin-bottom:10px'>⏳</div>" +
+        "<h2 style='margin:0 0 8px;color:#1E3A5F;font-size:19px'>Waiting for approval</h2>" +
+        "<p style='margin:0 0 6px;color:#526480;font-size:13.5px;line-height:1.6'>Your account was created, but portal access requires an invitation or admin approval. An administrator will review it — check back soon.</p>" +
+        "<p style='margin:0 0 18px;color:#9aaccc;font-size:12px'>" + String(email || "").replace(/[<>&]/g, "") + "</p>" +
+        "<button onclick=\"supabaseClient.auth.signOut().then(function(){ location.reload(); })\" style='padding:9px 22px;border:0;border-radius:9px;background:#1E3A5F;color:#fff;font-weight:700;font-size:13px;cursor:pointer'>Sign out</button>" +
+        "</div>";
+      el.style.display = "flex";
+      var authOverlay = document.getElementById("auth-overlay");
+      if (authOverlay) authOverlay.style.display = "none";
+    }
+
     async function handleAuthSession(session) {
       // Block auto-login while in password recovery flow
       if (inPasswordRecovery) {
@@ -7705,6 +7730,9 @@
         var cachedRole = "readonly";
         try { cachedRole = localStorage.getItem("dcs_role_" + session.user.id) || "readonly"; } catch(e) {}
         appUserRole = await withTimeout(fetchUserRole(session.user.id), 6000, cachedRole);
+        // Pending accounts (uninvited signups, migration 64) get a waiting
+        // screen and load NO data — approval happens in the 👥 Users modal.
+        if (appUserRole === "pending") { showPendingApprovalScreen(session.user.email); return; }
         applyUserToToolbar(session.user, appUserRole);
         applyRoleMode(appUserRole);
       } catch (e) {
@@ -7863,21 +7891,70 @@
           content.innerHTML = '<div class="um-empty">No users found.</div>';
           return;
         }
-        var html = '<table class="um-table"><thead><tr><th>Email</th><th>Role</th><th>Joined</th><th>Change Role</th></tr></thead><tbody>';
+        // ✉ Invites (migration 64) — tolerate a pre-migration DB.
+        var invites = [];
+        var invitesAvailable = true;
+        try {
+          var invResp = await supabaseClient.from("user_invites").select("*").order("invited_at", { ascending: false }).limit(50);
+          if (invResp.error) invitesAvailable = false;
+          else invites = invResp.data || [];
+        } catch (e) { invitesAvailable = false; }
+
+        var html = "";
+        if (invitesAvailable) {
+          html += '<div style="background:#f0f4fb;border:1px solid #d2def0;border-radius:10px;padding:10px 12px;margin-bottom:10px">' +
+            '<div style="font-weight:700;font-size:12.5px;color:#1E3A5F;margin-bottom:6px">✉ Invite a new user</div>' +
+            '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
+            '<input id="um-invite-email" type="email" placeholder="name@email.com" style="flex:1;min-width:170px;padding:6px 9px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px">' +
+            '<select id="um-invite-role" style="padding:6px 8px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px">' +
+            '<option value="readonly">View Only</option><option value="editor">Editor</option><option value="admin">Admin</option>' +
+            '</select>' +
+            '<button id="um-invite-btn" onclick="umSendInvite()" style="padding:6px 14px;border:0;border-radius:7px;background:#1E3A5F;color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Send invite</button>' +
+            '</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px">They get an email with signup instructions — their role is assigned automatically when they create an account with that address. Signups without an invite wait as ⏳ Pending below.</div>' +
+            '</div>';
+          if (invites.length) {
+            html += '<div style="font-weight:700;font-size:11.5px;color:#1E3A5F;margin:2px 0 4px">Invites</div>' +
+              '<table class="um-table" style="margin-bottom:12px"><thead><tr><th>Email</th><th>Role</th><th>Status</th><th></th></tr></thead><tbody>';
+            invites.forEach(function(inv) {
+              var st = inv.revoked_at
+                ? '<span style="color:#b3261e;font-size:11px">🚫 Revoked</span>'
+                : inv.accepted_at
+                  ? '<span style="color:#1b7a3d;font-size:11px">✓ Accepted ' + new Date(inv.accepted_at).toLocaleDateString() + '</span>'
+                  : '<span style="color:#92400e;font-size:11px">⏳ Sent ' + new Date(inv.invited_at).toLocaleDateString() + '</span>';
+              var actions = (!inv.revoked_at && !inv.accepted_at)
+                ? '<button onclick="umResendInvite(\'' + encodeURIComponent(inv.email) + '\',\'' + inv.role + '\')" style="padding:3px 8px;border:1px solid #d2def0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer" title="Send the email again">↻</button> ' +
+                  '<button onclick="umRevokeInvite(\'' + inv.id + '\')" style="padding:3px 8px;border:1px solid #f3c0c0;border-radius:6px;background:#fff;color:#b3261e;font-size:11px;cursor:pointer" title="Revoke — signup with this email will wait as pending instead">✕</button>'
+                : '';
+              html += '<tr><td style="font-size:12px;word-break:break-all">' + inv.email + '</td>' +
+                '<td><span class="um-badge ' + (inv.role === "admin" ? "admin" : inv.role === "editor" ? "editor" : "readonly") + '">' + inv.role + '</span></td>' +
+                '<td>' + st + '</td><td style="white-space:nowrap">' + actions + '</td></tr>';
+            });
+            html += '</tbody></table>';
+          }
+        } else {
+          html += '<div style="font-size:11.5px;color:#92400e;background:#fdf6e6;border:1px solid #ecd9a8;border-radius:8px;padding:7px 10px;margin-bottom:10px">✉ Invites need migration 64 + the send-user-invite function deployed.</div>';
+        }
+
+        html += '<table class="um-table"><thead><tr><th>Email</th><th>Role</th><th>Joined</th><th>Change Role</th></tr></thead><tbody>';
         rows.forEach(function(row) {
           var role   = row.role || "readonly";
           var isSelf = appCurrentUser && row.user_id === appCurrentUser.id;
           var email  = row.email || row.user_id.substring(0, 8) + "…";
           var joined = row.created_at ? new Date(row.created_at).toLocaleDateString() : "—";
           var badgeClass = role === "admin" ? "admin" : role === "editor" ? "editor" : "readonly";
-          var badgeLabel = role === "admin" ? "Admin" : role === "editor" ? "Editor" : "View Only";
-          var badge = '<span class="um-badge ' + badgeClass + '">' + badgeLabel + '</span>';
+          var badgeLabel = role === "admin" ? "Admin" : role === "editor" ? "Editor"
+            : role === "pending" ? "⏳ Pending" : "View Only";
+          var badge = role === "pending"
+            ? '<span class="um-badge readonly" style="background:#fdf6e6;color:#92400e;border-color:#ecd9a8">⏳ Pending approval</span>'
+            : '<span class="um-badge ' + badgeClass + '">' + badgeLabel + '</span>';
           var actionBtn;
           if (isSelf) {
             actionBtn = '<span style="font-size:11px;color:var(--muted)">You</span>';
           } else {
             actionBtn =
               '<select class="um-role-select" onchange="umChangeRole(\'' + row.user_id + '\', this.value); this.blur();">' +
+              (role === "pending" ? '<option value="" disabled selected>⏳ Approve as…</option>' : '') +
               '<option value="readonly"' + (role === "readonly" ? " selected" : "") + '>View Only</option>' +
               '<option value="editor"'  + (role === "editor"   ? " selected" : "") + '>Editor</option>' +
               '<option value="admin"'   + (role === "admin"    ? " selected" : "") + '>Admin</option>' +
@@ -7893,19 +7970,54 @@
       }
     }
 
-    async function umChangeRole(userId, newRole) {
+    // ✉ Invite actions — the Edge Function verifies the caller is admin,
+    // records the invite, and sends the SendGrid email.
+    async function umCallInviteFunction(email, role) {
+      var sess = await supabaseClient.auth.getSession();
+      var token = (sess.data.session || {}).access_token || "";
+      var resp = await fetch("https://jpemlcuxjvynlbeygukb.supabase.co/functions/v1/send-user-invite", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
+        body: JSON.stringify({ email: email, role: role })
+      });
+      var result = await resp.json();
+      if (!resp.ok || result.error) throw new Error(result.error || resp.statusText);
+    }
+    async function umSendInvite() {
+      var email = String((document.getElementById("um-invite-email") || {}).value || "").trim();
+      var role  = String((document.getElementById("um-invite-role") || {}).value || "readonly");
+      if (!email) { showToast("Enter an email to invite.", "error"); return; }
+      var btn = document.getElementById("um-invite-btn");
+      if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
       try {
-        // Upsert so we can promote users who don't have a user_roles row yet
-        // (orphans from before the auto-trigger migration was run).
-        var result = await supabaseClient.from("user_roles")
-          .upsert({ user_id: userId, role: newRole }, { onConflict: "user_id" });
-        if (result.error) throw result.error;
-        await umLoadUsers(); // refresh the list
+        await umCallInviteFunction(email, role);
+        showToast("✉ Invite sent to " + email, "success");
+        await umLoadUsers();
       } catch (e) {
-        console.error("umChangeRole error:", e);
-        showToast("Could not update role: " + (e.message || e), "error");
+        console.error("umSendInvite error:", e);
+        showToast("Could not send invite: " + (e.message || e), "error");
+        if (btn) { btn.disabled = false; btn.textContent = "Send invite"; }
       }
     }
+    async function umResendInvite(encEmail, role) {
+      try {
+        await umCallInviteFunction(decodeURIComponent(encEmail), role);
+        showToast("✉ Invite re-sent", "success");
+        await umLoadUsers();
+      } catch (e) { showToast("Could not resend: " + (e.message || e), "error"); }
+    }
+    async function umRevokeInvite(inviteId) {
+      try {
+        var result = await supabaseClient.from("user_invites")
+          .update({ revoked_at: new Date().toISOString() }).eq("id", inviteId);
+        if (result.error) throw result.error;
+        showToast("Invite revoked", "success");
+        await umLoadUsers();
+      } catch (e) { showToast("Could not revoke: " + (e.message || e), "error"); }
+    }
+    window.umSendInvite = umSendInvite;
+    window.umResendInvite = umResendInvite;
+    window.umRevokeInvite = umRevokeInvite;
 
     /* ── Show "Users" button only when admin is signed in ── */
     function umUpdateManageBtn(role) {
