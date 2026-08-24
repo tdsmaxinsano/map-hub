@@ -372,6 +372,7 @@ const DISC_COLOR = { PT: "#2463eb", PTA: "#7c3aed", OT: "#22c55e", OTA: "#16a34a
 
 let currentUser = null;
 let currentRole = "readonly"; // move-workflow edits gate to admin + editor
+let phiSafeView = false;     // 🧭 Territory (clinician) logins: hide patient names + street addresses, ZIP only
 let clinician = null;        // clinician_v2 row
 let zipPlan = null;          // clinician_zip_plans row (staged move plan) or null
 let planTableMissing = false; // migration 55 not run yet
@@ -645,6 +646,17 @@ async function launchApp(user) {
   // picker never opens (it lists the whole roster), and the standalone
   // nav is hidden. All edit affordances are already admin/editor-gated.
   if (currentRole === "clinician") {
+    // Privacy-safe view: therapists see their territory WITHOUT patient
+    // identifiers — site dots stay, but popups show ZIP only and the
+    // visit table drops the Patient + Address columns.
+    phiSafeView = true;
+    ["arr-patient", "arr-address"].forEach(id => {
+      const arrowEl = document.getElementById(id);
+      const th = arrowEl && arrowEl.closest("th");
+      if (th) th.style.display = "none";
+    });
+    const vhSearch = document.getElementById("vh-search");
+    if (vhSearch) vhSearch.style.display = "none"; // it searches patient/address
     const nav = document.querySelector(".header-nav");
     if (nav) nav.style.display = "none";
     if (linkedClinicianId) {
@@ -1236,6 +1248,9 @@ function toggleSiteExclList() {
 function renderSiteExclList() {
   const host = document.getElementById("tp-site-excl");
   if (!host) return;
+  // Excluded-location addresses are patient addresses — never shown to
+  // 🧭 Territory logins (it's an admin management strip anyway).
+  if (phiSafeView) { host.innerHTML = ""; return; }
   if (!siteExclusions.length) { host.innerHTML = ""; return; }
   let html = `<div style="margin-top:8px;font-size:11.5px;color:#6b7280;cursor:pointer;user-select:none;font-weight:700" onclick="toggleSiteExclList()">` +
     `${siteExclOpen ? "▾" : "▸"} 🚫 Excluded locations (${siteExclusions.length}) <span style="font-weight:400">— not counted in territory math</span></div>`;
@@ -2760,10 +2775,18 @@ function initTerritoryMap() {
       tpMap.on("click", id, e => {
         const f = e.features && e.features[0];
         if (!f) return;
+        // Privacy-safe (🧭 Territory logins): the dot stays, but the popup
+        // title is ZIP-only — no street address, no patient identifiers.
+        const popupTitle = phiSafeView
+          ? (function() {
+              const z = (String(f.properties.address || "").match(/\b(\d{5})\b/) || [])[1] || "";
+              return "Service site" + (z ? " · " + esc(z) + placeSuffix(z) : "");
+            })()
+          : esc(f.properties.address || "Site");
         new mapboxgl.Popup({ offset: 10 })
           .setLngLat(e.lngLat)
           .setHTML("<div style='font:12px -apple-system,Segoe UI,Roboto,sans-serif;max-width:230px'>" +
-            "<b>" + esc(f.properties.address || "Site") + "</b><br>" +
+            "<b>" + popupTitle + "</b><br>" +
             f.properties.visits + " visits · " + f.properties.episodes + " episode(s)" +
             (f.properties.latest ? "<br>Latest: " + esc(fmtDate(f.properties.latest)) : "") +
             (f.properties.note ? "<br><span style='color:#92400e'>" + esc(f.properties.note) + "</span>" : "") +
@@ -2999,17 +3022,21 @@ function renderVisitTable(rebuildFilters) {
   document.getElementById("vh-body").innerHTML = list.map(r => {
     const epi = (r.start_of_episode ? fmtDate(r.start_of_episode) : "—") + (r.ended_date ? " → " + fmtDate(r.ended_date) : "");
     const excl = rowSiteExcluded(r, exclSet);
+    // 🧭 Territory logins never see patient names or street addresses —
+    // those two cells (and their headers, hidden in launchApp) drop out.
+    const phiCells = phiSafeView ? "" :
+      `<td style="font-weight:700">${esc(fmtName(r.patient_name))}</td>
+      <td>${excl ? "🚫 " : ""}${esc(r.full_address || [r.street, r.city, r.state].filter(Boolean).join(", ") || "—")}</td>`;
     return `<tr${excl ? ` style="opacity:.5" title="🚫 Location excluded from territory math"` : ""}>
       <td style="white-space:nowrap">${esc(fmtDate(anchorDate(r)))}</td>
-      <td style="font-weight:700">${esc(fmtName(r.patient_name))}</td>
-      <td>${excl ? "🚫 " : ""}${esc(r.full_address || [r.street, r.city, r.state].filter(Boolean).join(", ") || "—")}</td>
-      <td>${esc(normZip(r.zip_code) || "—")}</td>
+      ${phiCells}
+      <td>${phiSafeView && excl ? "🚫 " : ""}${esc(normZip(r.zip_code) || "—")}</td>
       <td>${esc(r.service || "—")}</td>
       <td>${Number(r.service_visits || 0) || "—"}</td>
       <td style="white-space:nowrap">${epi}</td>
       <td>${esc(r.primary_payer || "—")}</td>
     </tr>`;
-  }).join("") || "<tr><td colspan='8' class='empty-note' style='padding:16px'>No episodes match the filters.</td></tr>";
+  }).join("") || "<tr><td colspan='" + (phiSafeView ? 6 : 8) + "' class='empty-note' style='padding:16px'>No episodes match the filters.</td></tr>";
 }
 
 // ══════════════════════════════════════════════════════════════════
