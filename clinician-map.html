@@ -7733,6 +7733,9 @@
         // Pending accounts (uninvited signups, migration 64) get a waiting
         // screen and load NO data — approval happens in the 👥 Users modal.
         if (appUserRole === "pending") { showPendingApprovalScreen(session.user.email); return; }
+        // Clinician-role accounts belong in their own-territory view, not
+        // the full map — the planner self-pins to their linked record.
+        if (appUserRole === "clinician") { window.location.replace("territory-planner.html"); return; }
         applyUserToToolbar(session.user, appUserRole);
         applyRoleMode(appUserRole);
       } catch (e) {
@@ -7906,12 +7909,13 @@
             '<div style="font-weight:700;font-size:12.5px;color:#1E3A5F;margin-bottom:6px">✉ Invite a new user</div>' +
             '<div style="display:flex;gap:6px;flex-wrap:wrap">' +
             '<input id="um-invite-email" type="email" placeholder="name@email.com" style="flex:1;min-width:170px;padding:6px 9px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px">' +
-            '<select id="um-invite-role" style="padding:6px 8px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px">' +
-            '<option value="readonly">View Only</option><option value="editor">Editor</option><option value="admin">Admin</option>' +
+            '<select id="um-invite-role" onchange="umInviteRoleChanged()" style="padding:6px 8px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px">' +
+            '<option value="readonly">View Only</option><option value="editor">Editor</option><option value="admin">Admin</option><option value="clinician">🩺 Clinician</option>' +
             '</select>' +
+            '<select id="um-invite-clinician" style="display:none;padding:6px 8px;border:1px solid #d2def0;border-radius:7px;font-size:12.5px;max-width:220px">' + umClinicianOptionsHtml(null) + '</select>' +
             '<button id="um-invite-btn" onclick="umSendInvite()" style="padding:6px 14px;border:0;border-radius:7px;background:#1E3A5F;color:#fff;font-weight:700;font-size:12.5px;cursor:pointer">Send invite</button>' +
             '</div>' +
-            '<div style="font-size:11px;color:var(--muted);margin-top:5px">They get an email with signup instructions — their role is assigned automatically when they create an account with that address. Signups without an invite wait as ⏳ Pending below.</div>' +
+            '<div style="font-size:11px;color:var(--muted);margin-top:5px">They get an email with signup instructions — their role is assigned automatically when they create an account with that address. Signups without an invite wait as ⏳ Pending below. 🩺 Clinician invites link a field therapist to their own read-only territory view.</div>' +
             '</div>';
           if (invites.length) {
             html += '<div style="font-weight:700;font-size:11.5px;color:#1E3A5F;margin:2px 0 4px">Invites</div>' +
@@ -7923,7 +7927,7 @@
                   ? '<span style="color:#1b7a3d;font-size:11px">✓ Accepted ' + new Date(inv.accepted_at).toLocaleDateString() + '</span>'
                   : '<span style="color:#92400e;font-size:11px">⏳ Sent ' + new Date(inv.invited_at).toLocaleDateString() + '</span>';
               var actions = (!inv.revoked_at && !inv.accepted_at)
-                ? '<button onclick="umResendInvite(\'' + encodeURIComponent(inv.email) + '\',\'' + inv.role + '\')" style="padding:3px 8px;border:1px solid #d2def0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer" title="Send the email again">↻</button> ' +
+                ? '<button onclick="umResendInvite(\'' + encodeURIComponent(inv.email) + '\',\'' + inv.role + '\',\'' + (inv.clinician_id || "") + '\')" style="padding:3px 8px;border:1px solid #d2def0;border-radius:6px;background:#fff;font-size:11px;cursor:pointer" title="Send the email again">↻</button> ' +
                   '<button onclick="umRevokeInvite(\'' + inv.id + '\')" style="padding:3px 8px;border:1px solid #f3c0c0;border-radius:6px;background:#fff;color:#b3261e;font-size:11px;cursor:pointer" title="Revoke — signup with this email will wait as pending instead">✕</button>'
                 : '';
               html += '<tr><td style="font-size:12px;word-break:break-all">' + inv.email + '</td>' +
@@ -7936,6 +7940,14 @@
           html += '<div style="font-size:11.5px;color:#92400e;background:#fdf6e6;border:1px solid #ecd9a8;border-radius:8px;padding:7px 10px;margin-bottom:10px">✉ Invites need migration 64 + the send-user-invite function deployed.</div>';
         }
 
+        // Linked-clinician map (role=clinician rows) — list_staff doesn't
+        // return clinician_id; tolerate a pre-migration-64 DB.
+        var clinLinkByUser = {};
+        try {
+          var lnResp = await supabaseClient.from("user_roles").select("user_id, clinician_id");
+          ((lnResp && lnResp.data) || []).forEach(function(r) { if (r.clinician_id) clinLinkByUser[r.user_id] = r.clinician_id; });
+        } catch (e) { /* column may not exist yet */ }
+
         html += '<table class="um-table"><thead><tr><th>Email</th><th>Role</th><th>Joined</th><th>Change Role</th></tr></thead><tbody>';
         rows.forEach(function(row) {
           var role   = row.role || "readonly";
@@ -7944,10 +7956,12 @@
           var joined = row.created_at ? new Date(row.created_at).toLocaleDateString() : "—";
           var badgeClass = role === "admin" ? "admin" : role === "editor" ? "editor" : "readonly";
           var badgeLabel = role === "admin" ? "Admin" : role === "editor" ? "Editor"
-            : role === "pending" ? "⏳ Pending" : "View Only";
+            : role === "pending" ? "⏳ Pending" : role === "clinician" ? "🩺 Clinician" : "View Only";
           var badge = role === "pending"
             ? '<span class="um-badge readonly" style="background:#fdf6e6;color:#92400e;border-color:#ecd9a8">⏳ Pending approval</span>'
-            : '<span class="um-badge ' + badgeClass + '">' + badgeLabel + '</span>';
+            : role === "clinician"
+              ? '<span class="um-badge readonly" style="background:#e4f0ff;color:#1a5fb4;border-color:#c3d9ff">🩺 Clinician</span>'
+              : '<span class="um-badge ' + badgeClass + '">' + badgeLabel + '</span>';
           var actionBtn;
           if (isSelf) {
             actionBtn = '<span style="font-size:11px;color:var(--muted)">You</span>';
@@ -7958,7 +7972,17 @@
               '<option value="readonly"' + (role === "readonly" ? " selected" : "") + '>View Only</option>' +
               '<option value="editor"'  + (role === "editor"   ? " selected" : "") + '>Editor</option>' +
               '<option value="admin"'   + (role === "admin"    ? " selected" : "") + '>Admin</option>' +
+              '<option value="clinician"' + (role === "clinician" ? " selected" : "") + '>🩺 Clinician</option>' +
               '</select>';
+            // Clinician rows also pick WHICH clinician record they are —
+            // drives their own-territory view.
+            if (role === "clinician") {
+              var linked = clinLinkByUser[row.user_id] || null;
+              actionBtn += '<br><select class="um-role-select" style="margin-top:4px;max-width:190px" title="Linked clinician record" ' +
+                'onchange="umChangeClinicianLink(\'' + row.user_id + '\', this.value); this.blur();">' +
+                umClinicianOptionsHtml(linked) + '</select>' +
+                (!linked ? '<div style="font-size:10.5px;color:#92400e;margin-top:2px">⚠ pick their clinician record</div>' : '');
+            }
           }
           html += '<tr><td style="font-size:12px;word-break:break-all;">' + email + '</td><td>' + badge + '</td><td style="font-size:11px;color:var(--muted);">' + joined + '</td><td>' + actionBtn + '</td></tr>';
         });
@@ -7970,15 +7994,45 @@
       }
     }
 
+    // Clinician <option> list for the invite form + the per-user linker.
+    // Sourced from the map's loaded roster (admins always have it).
+    function umClinicianOptionsHtml(selectedId) {
+      var list = (appState.clinicians || []).slice()
+        .sort(function(a, b) { return String(a.name || "").localeCompare(String(b.name || "")); });
+      var html = '<option value="">— pick clinician —</option>';
+      list.forEach(function(c) {
+        html += '<option value="' + c.id + '"' + (selectedId && c.id === selectedId ? ' selected' : '') + '>' +
+          escapeHtml(String(c.name || "?") + (c.discipline ? " · " + c.discipline : "")) + '</option>';
+      });
+      return html;
+    }
+    function umInviteRoleChanged() {
+      var roleSel = document.getElementById("um-invite-role");
+      var clinSel = document.getElementById("um-invite-clinician");
+      if (clinSel) clinSel.style.display = (roleSel && roleSel.value === "clinician") ? "" : "none";
+    }
+    async function umChangeClinicianLink(userId, clinicianId) {
+      try {
+        var result = await supabaseClient.from("user_roles")
+          .update({ clinician_id: clinicianId || null }).eq("user_id", userId);
+        if (result.error) throw result.error;
+        showToast(clinicianId ? "Clinician linked" : "Clinician link cleared", "success");
+        await umLoadUsers();
+      } catch (e) {
+        console.error("umChangeClinicianLink error:", e);
+        showToast("Could not update link: " + (e.message || e), "error");
+      }
+    }
+
     // ✉ Invite actions — the Edge Function verifies the caller is admin,
     // records the invite, and sends the SendGrid email.
-    async function umCallInviteFunction(email, role) {
+    async function umCallInviteFunction(email, role, clinicianId, clinicianName) {
       var sess = await supabaseClient.auth.getSession();
       var token = (sess.data.session || {}).access_token || "";
       var resp = await fetch("https://jpemlcuxjvynlbeygukb.supabase.co/functions/v1/send-user-invite", {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token },
-        body: JSON.stringify({ email: email, role: role })
+        body: JSON.stringify({ email: email, role: role, clinicianId: clinicianId || null, clinicianName: clinicianName || null })
       });
       var result = await resp.json();
       if (!resp.ok || result.error) throw new Error(result.error || resp.statusText);
@@ -7987,10 +8041,17 @@
       var email = String((document.getElementById("um-invite-email") || {}).value || "").trim();
       var role  = String((document.getElementById("um-invite-role") || {}).value || "readonly");
       if (!email) { showToast("Enter an email to invite.", "error"); return; }
+      var clinicianId = null, clinicianName = null;
+      if (role === "clinician") {
+        var clinSel = document.getElementById("um-invite-clinician");
+        clinicianId = clinSel ? String(clinSel.value || "") : "";
+        if (!clinicianId) { showToast("Pick which clinician record this invite links to.", "error"); return; }
+        clinicianName = clinSel.options[clinSel.selectedIndex] ? clinSel.options[clinSel.selectedIndex].text : null;
+      }
       var btn = document.getElementById("um-invite-btn");
       if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
       try {
-        await umCallInviteFunction(email, role);
+        await umCallInviteFunction(email, role, clinicianId, clinicianName);
         showToast("✉ Invite sent to " + email, "success");
         await umLoadUsers();
       } catch (e) {
@@ -7999,9 +8060,9 @@
         if (btn) { btn.disabled = false; btn.textContent = "Send invite"; }
       }
     }
-    async function umResendInvite(encEmail, role) {
+    async function umResendInvite(encEmail, role, clinicianId) {
       try {
-        await umCallInviteFunction(decodeURIComponent(encEmail), role);
+        await umCallInviteFunction(decodeURIComponent(encEmail), role, clinicianId || null);
         showToast("✉ Invite re-sent", "success");
         await umLoadUsers();
       } catch (e) { showToast("Could not resend: " + (e.message || e), "error"); }
@@ -8018,6 +8079,8 @@
     window.umSendInvite = umSendInvite;
     window.umResendInvite = umResendInvite;
     window.umRevokeInvite = umRevokeInvite;
+    window.umInviteRoleChanged = umInviteRoleChanged;
+    window.umChangeClinicianLink = umChangeClinicianLink;
 
     /* ── Show "Users" button only when admin is signed in ── */
     function umUpdateManageBtn(role) {
