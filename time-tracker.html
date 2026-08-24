@@ -2193,16 +2193,18 @@ function tsRender(period) {
     const warnHtml   = r.flagged
       ? `<div class="ts-cap-warn" title="Looks like a forgotten clock-out: ${(r.rawHrs||0).toFixed(2)}h recorded — capped to ${MAX_SHIFT_HOURS}h. Ask your admin to fix the clock-out.">⚠ capped · ${(r.rawHrs||0).toFixed(1)}h raw</div>`
       : '';
+    // Approved = locked for the employee (admin unlocks via ↩ Send Back).
+    const dis = tsIsLocked() ? ' disabled' : '';
     return `
     <tr class="ts-row ${r.weekend ? 'weekend' : ''}${offTint}">
       <td class="ts-day">${r.dayLabel}</td>
       <td class="ts-date">${r.dateLabel}</td>
       <td class="ts-hours">
-        <input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0" />
+        <input type="number" class="ts-hour-input" data-idx="${i}" data-field="hrs" value="${r.hrs}" min="0" step="0.5" placeholder="0"${dis} />
         ${hintHtml}${warnHtml}
       </td>
-      <td class="ts-absence"><select class="ts-absence-select" data-idx="${i}" data-field="absenceKind">${absenceOptions}</select></td>
-      <td><input type="text" class="ts-note-input${(r.absenceKind && !String(r.note||'').trim()) ? ' ts-note-required' : ''}" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${(r.absenceKind && !String(r.note||'').trim()) ? 'Reason required' : (r.weekend ? '(weekend, optional)' : 'optional note')}" /></td>
+      <td class="ts-absence"><select class="ts-absence-select" data-idx="${i}" data-field="absenceKind"${dis}>${absenceOptions}</select></td>
+      <td><input type="text" class="ts-note-input${(r.absenceKind && !String(r.note||'').trim()) ? ' ts-note-required' : ''}" data-idx="${i}" data-field="note" value="${escAttr(r.note)}" placeholder="${(r.absenceKind && !String(r.note||'').trim()) ? 'Reason required' : (r.weekend ? '(weekend, optional)' : 'optional note')}"${dis} /></td>
     </tr>`;
   }).join('');
 
@@ -2360,7 +2362,7 @@ function tsUpdateStatus() {
     if (tsSubmission.status === 'submitted') {
       badge = `<span class="ts-badge ts-badge-submitted">🟢 Submitted ${fmt(tsSubmission.submitted_at)} — awaiting admin approval</span>`;
     } else if (tsSubmission.status === 'approved') {
-      badge = `<span class="ts-badge ts-badge-approved">✓ Approved ${fmt(tsSubmission.approved_at)} — final</span>`;
+      badge = `<span class="ts-badge ts-badge-approved">✓ Approved ${fmt(tsSubmission.approved_at)} — locked. Ask an admin to send it back if something needs fixing.</span>`;
     } else if (tsSubmission.status === 'rejected') {
       const note = tsSubmission.admin_notes ? ` — “${escAttr(tsSubmission.admin_notes)}”` : '';
       badge = `<span class="ts-badge ts-badge-rejected">⚠ Sent back for review${note}</span>`;
@@ -2368,15 +2370,26 @@ function tsUpdateStatus() {
   }
   el.innerHTML = badge + `<div class="ts-saved-line">${savedLine}</div>`;
 
-  // Adjust the submit-button label to reflect intent.
+  // Adjust the submit-button label to reflect intent. When the period is
+  // approved (locked), hide Save + Submit entirely — the grid is
+  // read-only and the DB would refuse anyway (migration 65).
   const btn = document.getElementById('ts-submit-btn');
+  const saveBtn = document.getElementById('ts-save-btn');
+  const locked = tsIsLocked();
   if (btn) {
+    btn.style.display = locked ? 'none' : '';
     btn.textContent = (tsSubmission && tsSubmission.status === 'submitted')
       ? 'Re-submit Timesheet'
       : (tsSubmission && tsSubmission.status === 'rejected')
         ? 'Submit Fixes for Review'
         : 'Submit Timesheet';
   }
+  if (saveBtn) saveBtn.style.display = locked ? 'none' : '';
+}
+
+// Approved = locked for the employee. Admin ↩ Send Back reopens it.
+function tsIsLocked() {
+  return !!(tsSubmission && tsSubmission.status === 'approved');
 }
 
 function tsChangePeriod(dir) {
@@ -2470,6 +2483,7 @@ function tsReasonGuard() {
 // changing the submission status (no "submitted" stamp).
 async function tsSave() {
   if (!tsRows.length) return;
+  if (tsIsLocked()) { showToast('This period is approved and locked — ask an admin to send it back first.'); return; }
   if (!tsReasonGuard()) return;   // time-off days need a reason
   const btn = document.getElementById('ts-save-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
@@ -2488,6 +2502,7 @@ async function tsSave() {
 
 async function tsSubmit() {
   if (!tsRows.length) return;
+  if (tsIsLocked()) { showToast('This period is approved and locked — ask an admin to send it back first.'); return; }
   if (!tsReasonGuard()) return;   // time-off days need a reason
   const btn = document.getElementById('ts-submit-btn');
   if (btn) { btn.disabled = true; btn.textContent = 'Submitting…'; }
