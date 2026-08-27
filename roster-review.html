@@ -2625,8 +2625,16 @@ async function openUnusedReport() {
       .join("");
   };
 
-  // Newest-loaded first (that's who you're usually hunting for).
+  // Grouped by clinician type (PT → PTA → OT → OTA → ST → others),
+  // newest-loaded first within each group.
+  const DISC_ORDER = { PT: 1, PTA: 2, OT: 3, OTA: 4, ST: 5 };
+  const DISC_LABEL = { PT: "Physical Therapists", PTA: "PT Assistants", OT: "Occupational Therapists", OTA: "OT Assistants", ST: "Speech Therapists" };
+  const discRank = d => DISC_ORDER[String(d || "").toUpperCase()] || 99;
   const sorted = rows.slice().sort((a, b) => {
+    const dr = discRank(a.discipline) - discRank(b.discipline);
+    if (dr) return dr;
+    const dd = String(a.discipline || "").localeCompare(String(b.discipline || ""));
+    if (dd) return dd;
     const ta = a.loaded_at ? new Date(a.loaded_at).getTime() : -Infinity;
     const tb = b.loaded_at ? new Date(b.loaded_at).getTime() : -Infinity;
     return tb - ta || String(a.name).localeCompare(String(b.name));
@@ -2637,14 +2645,26 @@ async function openUnusedReport() {
     (filters.search ? " · Search: “" + filters.search + "”" : "");
   const genDate = new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
 
-  const bodyRows = sorted.map((r, i) => `
+  let bodyRows = "";
+  let curDisc = null, groupIdx = 0;
+  sorted.forEach(r => {
+    const d = String(r.discipline || "—").toUpperCase();
+    if (d !== curDisc) {
+      curDisc = d;
+      groupIdx = 0;
+      const count = sorted.filter(x => String(x.discipline || "—").toUpperCase() === d).length;
+      bodyRows += `<tr class="disc-head"><td colspan="5">${escHtml(d)}${DISC_LABEL[d] ? " · " + DISC_LABEL[d] : ""} (${count})</td></tr>`;
+    }
+    groupIdx += 1;
+    bodyRows += `
     <tr>
-      <td class="num">${i + 1}</td>
+      <td class="num">${groupIdx}</td>
       <td><b>${escHtml(r.name)}</b> <span class="pill">${escHtml(r.discipline || "—")}</span> <span class="pill st">${escHtml(r.status)}</span></td>
       <td class="nowrap">${r.loaded_at ? escHtml(fmtDate(r.loaded_at)) : '<span class="muted">—</span>'}</td>
       <td>${escHtml(homeCity(r))}</td>
       <td>${areasHtml(r)}</td>
-    </tr>`).join("");
+    </tr>`;
+  });
 
   const win = window.open("", "_blank");
   if (!win) { showToast("Popup blocked — allow popups for this site to open the report."); return; }
@@ -2663,13 +2683,14 @@ async function openUnusedReport() {
       .pill.st { background: #f1f5f9; color: #475569; }
       .muted { color: #9ca3af; }
       .area { margin-bottom: 3px; line-height: 1.45; }
+      .disc-head td { background: #1E3A5F; color: #fff; font-size: 11.5px; font-weight: 800; letter-spacing: .5px; padding: 6px 8px; }
       .print-btn { position: fixed; top: 14px; right: 16px; padding: 8px 18px; background: #1E3A5F; color: #fff; border: 0; border-radius: 8px; font-weight: 700; cursor: pointer; }
       @media print { .print-btn { display: none; } body { margin: 8px; } }
     </style></head><body>
     <button class="print-btn" onclick="window.print()">🖨 Print</button>
     <h1>Unused Therapists Report</h1>
     <div class="meta">Generated ${escHtml(genDate)} · ${sorted.length} therapist${sorted.length === 1 ? "" : "s"} · ${escHtml(filterNote)}</div>
-    <div class="def">📥 "Unused" = no visit data in the portal (no Patient-Visits or VDR records). Areas are the TherapyBoss-declared coverage ZIPs, grouped by city. Sorted newest-loaded first.</div>
+    <div class="def">📥 "Unused" = no visit data in the portal (no Patient-Visits or VDR records). Areas are the TherapyBoss-declared coverage ZIPs, grouped by city. Grouped by clinician type (PT → PTA → OT → OTA → ST), newest-loaded first within each.</div>
     <table>
       <thead><tr><th></th><th>Therapist</th><th>📥 Loaded</th><th>🏠 Home</th><th>Coverage Areas (city — ZIPs)</th></tr></thead>
       <tbody>${bodyRows}</tbody>
