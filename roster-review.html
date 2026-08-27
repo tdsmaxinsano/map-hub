@@ -616,7 +616,7 @@
       <button class="btn-export" id="col-picker-btn">Columns ▾</button>
       <div class="col-picker-menu" id="col-picker-menu"></div>
     </div>
-    <button class="btn-export" id="csv-btn">⬇ CSV</button>
+    <button class="btn-export" id="csv-btn" style="display:none;">⬇ CSV</button>
     <button class="btn-export" id="unused-report-btn" title="Printable report of therapists with no visit data — load date + coverage areas grouped by city">🖨 Unused Report</button>
     <button class="btn-export" id="bulk-visits-btn" style="display:none;background:#fff;border:1.5px solid #1E3A5F;color:#1E3A5F;">📥 Bulk Import Visits</button>
   </div>
@@ -2469,6 +2469,9 @@ async function bulkReview(on) {
 // CSV EXPORT
 // ══════════════════════════════════════════════════════════════════
 function exportCsv(onlySelected) {
+  // Admin-only: the export includes contact info, emergency contacts,
+  // notes, and pay-method fields (backstop for the hidden buttons).
+  if (currentRole !== "admin") { showToast("CSV export is admin-only."); return; }
   const rows = onlySelected
     ? rosterRows.filter(r => selected.has(r.id))
     : rosterRows.filter(passesFilters);
@@ -3293,10 +3296,16 @@ async function confirmBulkVisitsImport() {
   if (btn) btn.addEventListener("click", openBulkVisModal);
 })();
 
-// Reveal the button only to admins (called after role is resolved)
+// Reveal admin-only buttons (called after role is resolved). The CSV
+// export carries phone/email/emergency-contact/notes data — admin only.
 function refreshBulkVisitsBtnVisibility() {
+  var isAdmin = currentRole === "admin";
   var btn = document.getElementById("bulk-visits-btn");
-  if (btn) btn.style.display = (currentRole === "admin") ? "" : "none";
+  if (btn) btn.style.display = isAdmin ? "" : "none";
+  var csv = document.getElementById("csv-btn");
+  if (csv) csv.style.display = isAdmin ? "" : "none";
+  var bulkCsv = document.getElementById("bulk-csv");
+  if (bulkCsv) bulkCsv.style.display = isAdmin ? "" : "none";
 }
 </script>
 <!-- Chat widget (no-op inside iframe shell since it guards window.self !== window.top) -->
