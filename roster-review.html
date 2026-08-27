@@ -617,6 +617,7 @@
       <div class="col-picker-menu" id="col-picker-menu"></div>
     </div>
     <button class="btn-export" id="csv-btn">⬇ CSV</button>
+    <button class="btn-export" id="unused-report-btn" title="Printable report of therapists with no visit data — load date + coverage areas grouped by city">🖨 Unused Report</button>
     <button class="btn-export" id="bulk-visits-btn" style="display:none;background:#fff;border:1.5px solid #1E3A5F;color:#1E3A5F;">📥 Bulk Import Visits</button>
   </div>
 
@@ -2554,6 +2555,130 @@ function exportCsv(onlySelected) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 🖨 UNUSED THERAPISTS REPORT
+// Printable report of therapists with NO visit data anywhere (same
+// rule as the 📥 No visits yet chip), scoped to the current roster
+// filters. Shows 📥 Date Loaded and their located areas grouped by
+// CITY with the ZIPs expanded under each ("Skokie — 60076, 60077"),
+// via the shared zip_places name cache (migration 58).
+// ══════════════════════════════════════════════════════════════════
+async function openUnusedReport() {
+  const rows = rosterRows.filter(r => passesFilters(r) && !getVdrMetricsFor(r));
+  if (!rows.length) { showToast("No unused therapists match the current filters."); return; }
+  showToast("Building report for " + rows.length + " therapist" + (rows.length === 1 ? "" : "s") + "…");
+
+  const ids = rows.map(r => r.id);
+  const chunk = (arr, n) => { const out = []; for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n)); return out; };
+
+  // Home info + declared coverage ZIPs (preferred_zips as fallback —
+  // mirrors the planner's declaredZipSet rule).
+  const homeById = {};
+  const covByClin = {};
+  try {
+    for (const c of chunk(ids, 100)) {
+      const [vRes, zRes] = await Promise.all([
+        db.from("clinician_v2").select("id, address, zip, preferred_zips").in("id", c),
+        db.from("clinician_zip_coverages").select("clinician_id, zip_code").in("clinician_id", c)
+      ]);
+      ((vRes && vRes.data) || []).forEach(v => { homeById[v.id] = v; });
+      ((zRes && zRes.data) || []).forEach(z => {
+        const zip = String(z.zip_code || "").trim();
+        if (!zip) return;
+        (covByClin[z.clinician_id] = covByClin[z.clinician_id] || new Set()).add(zip);
+      });
+    }
+  } catch (e) { console.warn("[unused report] coverage fetch failed:", e && e.message); }
+  ids.forEach(id => {
+    if ((covByClin[id] && covByClin[id].size) || !homeById[id] || !homeById[id].preferred_zips) return;
+    const s = new Set();
+    String(homeById[id].preferred_zips).split(",").map(z => z.trim()).filter(Boolean).forEach(z => s.add(z));
+    if (s.size) covByClin[id] = s;
+  });
+
+  // ZIP → city names from the shared cache.
+  const allZips = new Set();
+  Object.values(covByClin).forEach(s => s.forEach(z => allZips.add(z)));
+  ids.forEach(id => { const h = homeById[id]; if (h && h.zip) allZips.add(String(h.zip).trim()); });
+  const placeByZip = {};
+  try {
+    for (const c of chunk(Array.from(allZips), 200)) {
+      const { data } = await db.from("zip_places").select("zip_code, place_name").in("zip_code", c);
+      (data || []).forEach(p => { if (p.place_name) placeByZip[p.zip_code] = p.place_name; });
+    }
+  } catch (e) { console.warn("[unused report] zip_places fetch failed:", e && e.message); }
+
+  const homeCity = (r) => {
+    const h = homeById[r.id] || {};
+    const viaZip = h.zip && placeByZip[String(h.zip).trim()];
+    if (viaZip) return viaZip;
+    const parts = String(h.address || "").split(",").map(s => s.trim()).filter(Boolean);
+    return parts.length >= 2 ? parts[1] : "—";
+  };
+  const areasHtml = (r) => {
+    const zips = Array.from(covByClin[r.id] || []).sort();
+    if (!zips.length) return '<span class="muted">No coverage ZIPs loaded</span>';
+    const byCity = {};
+    zips.forEach(z => { const city = placeByZip[z] || "Other / unknown"; (byCity[city] = byCity[city] || []).push(z); });
+    return Object.keys(byCity)
+      .sort((a, b) => byCity[b].length - byCity[a].length || a.localeCompare(b))
+      .map(city => `<div class="area"><b>${escHtml(city)}</b> — ${byCity[city].join(", ")}</div>`)
+      .join("");
+  };
+
+  // Newest-loaded first (that's who you're usually hunting for).
+  const sorted = rows.slice().sort((a, b) => {
+    const ta = a.loaded_at ? new Date(a.loaded_at).getTime() : -Infinity;
+    const tb = b.loaded_at ? new Date(b.loaded_at).getTime() : -Infinity;
+    return tb - ta || String(a.name).localeCompare(String(b.name));
+  });
+
+  const filterNote = "Status: " + (Array.from(filters.statuses).join(", ") || "any") +
+    " · Disc: " + (Array.from(filters.disciplines).join(", ") || "any") +
+    (filters.search ? " · Search: “" + filters.search + "”" : "");
+  const genDate = new Date().toLocaleString("en-US", { dateStyle: "medium", timeStyle: "short" });
+
+  const bodyRows = sorted.map((r, i) => `
+    <tr>
+      <td class="num">${i + 1}</td>
+      <td><b>${escHtml(r.name)}</b> <span class="pill">${escHtml(r.discipline || "—")}</span> <span class="pill st">${escHtml(r.status)}</span></td>
+      <td class="nowrap">${r.loaded_at ? escHtml(fmtDate(r.loaded_at)) : '<span class="muted">—</span>'}</td>
+      <td>${escHtml(homeCity(r))}</td>
+      <td>${areasHtml(r)}</td>
+    </tr>`).join("");
+
+  const win = window.open("", "_blank");
+  if (!win) { showToast("Popup blocked — allow popups for this site to open the report."); return; }
+  win.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Unused Therapists Report</title>
+    <style>
+      body { font-family: -apple-system, "Segoe UI", Roboto, sans-serif; color: #1e2d4a; margin: 28px; }
+      h1 { font-size: 20px; color: #1E3A5F; margin: 0 0 4px; }
+      .meta { font-size: 12px; color: #64748b; margin-bottom: 4px; }
+      .def { font-size: 11.5px; color: #92400e; background: #fdf6e6; border: 1px solid #ecd9a8; border-radius: 8px; padding: 6px 10px; margin: 10px 0 16px; }
+      table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+      th { text-align: left; background: #f1f5f9; color: #475569; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; padding: 8px; border-bottom: 2px solid #d2def0; }
+      td { padding: 8px; border-bottom: 1px solid #e5ecf5; vertical-align: top; }
+      td.num { color: #94a3b8; width: 26px; }
+      td.nowrap { white-space: nowrap; }
+      .pill { font-size: 10px; font-weight: 800; background: #e4f0ff; color: #1a5fb4; border-radius: 8px; padding: 1px 7px; }
+      .pill.st { background: #f1f5f9; color: #475569; }
+      .muted { color: #9ca3af; }
+      .area { margin-bottom: 3px; line-height: 1.45; }
+      .print-btn { position: fixed; top: 14px; right: 16px; padding: 8px 18px; background: #1E3A5F; color: #fff; border: 0; border-radius: 8px; font-weight: 700; cursor: pointer; }
+      @media print { .print-btn { display: none; } body { margin: 8px; } }
+    </style></head><body>
+    <button class="print-btn" onclick="window.print()">🖨 Print</button>
+    <h1>Unused Therapists Report</h1>
+    <div class="meta">Generated ${escHtml(genDate)} · ${sorted.length} therapist${sorted.length === 1 ? "" : "s"} · ${escHtml(filterNote)}</div>
+    <div class="def">📥 "Unused" = no visit data in the portal (no Patient-Visits or VDR records). Areas are the TherapyBoss-declared coverage ZIPs, grouped by city. Sorted newest-loaded first.</div>
+    <table>
+      <thead><tr><th></th><th>Therapist</th><th>📥 Loaded</th><th>🏠 Home</th><th>Coverage Areas (city — ZIPs)</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table>
+    </body></html>`);
+  win.document.close();
+}
+
+// ══════════════════════════════════════════════════════════════════
 // REALTIME — patch on remote edits
 // ══════════════════════════════════════════════════════════════════
 function setupRealtime() {
@@ -2705,6 +2830,7 @@ document.getElementById("search-input").addEventListener("input", e => {
 
 // CSV
 document.getElementById("csv-btn").addEventListener("click", () => exportCsv(false));
+document.getElementById("unused-report-btn").addEventListener("click", openUnusedReport);
 document.getElementById("bulk-csv").addEventListener("click", () => exportCsv(true));
 
 // Column picker
