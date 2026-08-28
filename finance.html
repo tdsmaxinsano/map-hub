@@ -1652,12 +1652,22 @@
         <div class="dz-sub" id="iif-dz-sub">Tab-delimited Intuit Interchange Format export</div>
       </label>
 
+      <label class="dropzone" id="iif-bills-dropzone" for="iif-bills-input" style="margin-top:10px;">
+        <input type="file" id="iif-bills-input" accept=".xlsx,.xls" />
+        <div class="dz-icon">🧪</div>
+        <div class="dz-title" id="iif-bills-dz-title">Optional · beta — drop the "Bills with service items" .xlsx</div>
+        <div class="dz-sub" id="iif-bills-dz-sub">TB Open Bills → green Excel icon → <b>With service items</b>. Builds a SaaSant invoice XLSX with per-visit lines. The cleaned .iif download is unchanged.</div>
+      </label>
+
       <div id="iif-status" style="margin-top:12px;font-size:13px;color:var(--muted);min-height:18px;"></div>
 
       <div class="actions" id="iif-actions" style="display:none;">
         <button id="iif-download-btn">⬇ Download cleaned .iif</button>
+        <button id="iif-lines-btn" style="display:none;">⬇ SaaSant invoice XLSX (beta · service lines)</button>
         <button id="iif-reset-btn" class="btn-secondary">Reset</button>
       </div>
+
+      <div id="iif-lines-recon" style="display:none;margin-top:12px;font-size:12.5px;"></div>
 
       <div id="iif-preview-card" style="display:none;margin-top:14px;">
         <div class="stat-strip" id="iif-stats"></div>
@@ -9989,6 +9999,12 @@ const IIF = (function() {
   let counts = { rowsIn: 0, rowsOut: 0, droppedTaxable: 0, droppedNegative: 0, droppedBlank: 0, customers: 0 };
   let sourceFilename = "";
   let initialized = false;
+  // 🧪 Beta: TB "Bills with service items" export — per-visit lines keyed
+  // by Bill # (= IIF DOCNUM / Invoice No). Feeds the SaaSant invoice XLSX
+  // alongside (never instead of) the production cleaned-.iif flow.
+  let billsLines = null;     // Map<billNo, {lines:[{dateVal,type,clinician,cpt,units,charge}], total}>
+  let billsFilename = "";
+  let billsRowCount = 0;
 
   function escHtml(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -10128,15 +10144,234 @@ const IIF = (function() {
     el.style.color = kind === "error" ? "#b91c1c" : kind === "ok" ? "#15803d" : "var(--muted)";
   }
 
+  // ── 🧪 Beta: service-item lines → SaaSant invoice XLSX ─────────────
+
+  // Any date-ish value from the xlsx (Excel serial, Date, or string) →
+  // MM/DD/YYYY (the format SaaSant expects).
+  function linesDateToMDY(v) {
+    if (v == null || v === "") return "";
+    if (v instanceof Date && !isNaN(v)) {
+      return String(v.getMonth() + 1).padStart(2, "0") + "/" + String(v.getDate()).padStart(2, "0") + "/" + v.getFullYear();
+    }
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 1 && n <= 80000) {
+      if (typeof XLSX !== "undefined" && XLSX.SSF && XLSX.SSF.parse_date_code) {
+        const d = XLSX.SSF.parse_date_code(n);
+        if (d) return String(d.m).padStart(2, "0") + "/" + String(d.d).padStart(2, "0") + "/" + d.y;
+      }
+      const dt = new Date(Math.round((n - 25569) * 86400 * 1000));
+      return String(dt.getUTCMonth() + 1).padStart(2, "0") + "/" + String(dt.getUTCDate()).padStart(2, "0") + "/" + dt.getUTCFullYear();
+    }
+    const parsed = new Date(String(v));
+    if (!isNaN(parsed)) {
+      return String(parsed.getMonth() + 1).padStart(2, "0") + "/" + String(parsed.getDate()).padStart(2, "0") + "/" + parsed.getFullYear();
+    }
+    return String(v);
+  }
+  function linesMoney(v) {
+    const n = Number(String(v == null ? "" : v).replace(/[,$\s]/g, ""));
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  async function processBillsFile(file) {
+    if (!file) return;
+    billsFilename = file.name;
+    document.getElementById("iif-bills-dz-title").textContent = "📄 " + file.name;
+    document.getElementById("iif-bills-dz-sub").textContent = "Parsing…";
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(ws, { defval: "" });
+      const rows = raw.map(r => {
+        const out = {};
+        Object.keys(r).forEach(k => { out[String(k).trim()] = r[k]; });
+        return out;
+      });
+      if (!rows.length) throw new Error("No rows in the sheet.");
+      const required = ["Bill #", "Date", "Type", "Charge"];
+      const missing = required.filter(c => !(c in rows[0]));
+      if (missing.length) throw new Error("Doesn't look like the 'With service items' export — missing column(s): " + missing.join(", "));
+
+      billsLines = new Map();
+      billsRowCount = 0;
+      rows.forEach(r => {
+        const billNo = String(r["Bill #"] || "").trim();
+        if (!billNo) return;
+        billsRowCount++;
+        let entry = billsLines.get(billNo);
+        if (!entry) { entry = { lines: [], total: 0 }; billsLines.set(billNo, entry); }
+        const charge = linesMoney(r["Charge"]);
+        entry.lines.push({
+          dateVal:   r["Date"],
+          type:      String(r["Type"] || "").trim(),
+          clinician: String(r["Clinician"] || "").trim(),
+          cpt:       String(r["CPT/HCPCS"] || "").trim(),
+          units:     Number(r["Units"]) || 1,
+          charge:    charge
+        });
+        entry.total += charge;
+      });
+      document.getElementById("iif-bills-dz-sub").textContent =
+        billsRowCount + " service lines across " + billsLines.size + " bills";
+      updateLinesUI();
+    } catch (e) {
+      console.error("[IIF] bills parse failed:", e);
+      billsLines = null; billsRowCount = 0;
+      document.getElementById("iif-bills-dz-sub").textContent = "✗ " + (e.message || e);
+      updateLinesUI();
+    }
+  }
+
+  // Build the per-invoice plan: real service lines where the bill matches
+  // AND the line sum reconciles to the IIF amount; otherwise one aggregate
+  // fallback line (total always equals the IIF) + a ⚠ entry.
+  function buildLinesPlan() {
+    const idxInv  = cleanedHeader.indexOf("Invoice No");
+    const idxCust = cleanedHeader.indexOf("Customer");
+    const idxDate = cleanedHeader.indexOf("Invoice Date");
+    const idxDue  = cleanedHeader.indexOf("Due Date");
+    const idxAmt  = cleanedHeader.indexOf("AMOUNT");
+    if (idxInv < 0) return null;
+
+    const rows = [], warns = [];
+    let matched = 0, fallback = 0;
+    const seenBills = new Set();
+    cleanedRows.forEach(r => {
+      const inv = String(r[idxInv] || "").trim();
+      if (!inv) return;
+      seenBills.add(inv);
+      const head = {
+        inv:  inv,
+        cust: idxCust >= 0 ? String(r[idxCust] || "").trim() : "",
+        date: idxDate >= 0 ? String(r[idxDate] || "").trim() : "",
+        due:  idxDue  >= 0 ? String(r[idxDue]  || "").trim() : ""
+      };
+      const amount = idxAmt >= 0 ? linesMoney(r[idxAmt]) : NaN;
+      const bill = billsLines && billsLines.get(inv);
+      const sumOk = bill && Number.isFinite(amount) && Math.abs(bill.total - amount) <= 0.011;
+      if (bill && sumOk) {
+        matched++;
+        bill.lines.forEach(ln => {
+          const qty = ln.units > 0 ? ln.units : 1;
+          let rate = Math.round((ln.charge / qty) * 100) / 100;
+          // Only emit a rate when qty × rate reproduces the charge exactly —
+          // QB recomputes from qty×rate and a penny drift would break totals.
+          if (Math.round(rate * qty * 100) / 100 !== Math.round(ln.charge * 100) / 100) rate = null;
+          const mdy = linesDateToMDY(ln.dateVal);
+          rows.push({
+            inv: head.inv, cust: head.cust, date: head.date, due: head.due,
+            svcDate: mdy,
+            desc: [mdy, ln.type, ln.clinician].filter(Boolean).join(" · ") + (ln.cpt ? " (" + ln.cpt + ")" : ""),
+            qty: qty, rate: rate, amt: Math.round(ln.charge * 100) / 100
+          });
+        });
+      } else {
+        fallback++;
+        warns.push({
+          inv: inv,
+          reason: !bill
+            ? "not in Bills.xlsx — exported as one aggregate line"
+            : "lines sum $" + bill.total.toFixed(2) + " vs invoice $" + (Number.isFinite(amount) ? amount.toFixed(2) : "?") + " — exported as one aggregate line"
+        });
+        rows.push({
+          inv: head.inv, cust: head.cust, date: head.date, due: head.due,
+          svcDate: "", desc: "Services rendered — see attached bill",
+          qty: 1, rate: null, amt: Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0
+        });
+      }
+    });
+    const extras = [];
+    if (billsLines) billsLines.forEach((_, billNo) => { if (!seenBills.has(billNo)) extras.push(billNo); });
+    return { rows, warns, extras, matched, fallback, invoiceCount: seenBills.size };
+  }
+
+  function updateLinesUI() {
+    const btn = document.getElementById("iif-lines-btn");
+    const recon = document.getElementById("iif-lines-recon");
+    if (!btn || !recon) return;
+    const ready = cleanedRows.length > 0 && billsLines && billsLines.size > 0;
+    btn.style.display = ready ? "" : "none";
+    if (!ready) {
+      recon.style.display = (billsLines && !cleanedRows.length) ? "block" : "none";
+      recon.innerHTML = (billsLines && !cleanedRows.length)
+        ? "<span style='color:#92400e;'>Drop the .iif too — the IIF decides which invoices export; the xlsx supplies their lines.</span>" : "";
+      return;
+    }
+    const plan = buildLinesPlan();
+    if (!plan) { recon.style.display = "none"; return; }
+    let html = "";
+    if (!plan.fallback) {
+      html += `<div style="color:#15803d;font-weight:700;">✓ All ${plan.invoiceCount} invoices carry service lines · totals reconcile to the IIF.</div>`;
+    } else {
+      html += `<div style="font-weight:700;">${plan.matched} of ${plan.invoiceCount} invoices carry service lines · <span style="color:#b45309;">⚠ ${plan.fallback} fall back to one aggregate line</span> (totals still match the IIF).</div>`;
+      html += "<ul style='margin:6px 0 0 18px;color:#92400e;'>" +
+        plan.warns.slice(0, 15).map(w => `<li><b>${escHtml(w.inv)}</b> — ${escHtml(w.reason)}</li>`).join("") +
+        (plan.warns.length > 15 ? `<li>… +${plan.warns.length - 15} more</li>` : "") + "</ul>";
+    }
+    if (plan.extras.length) {
+      html += `<div style="margin-top:5px;color:var(--muted);">ℹ ${plan.extras.length} bill(s) in the xlsx aren't in this IIF (skipped): ${plan.extras.slice(0, 10).map(escHtml).join(", ")}${plan.extras.length > 10 ? "…" : ""}</div>`;
+    }
+    recon.style.display = "block";
+    recon.innerHTML = html;
+  }
+
+  async function downloadLinesXlsx() {
+    const plan = cleanedRows.length && billsLines ? buildLinesPlan() : null;
+    if (!plan || !plan.rows.length) { showToast("Load both the .iif and the Bills xlsx first.", "error"); return; }
+    // SaaSant invoice-with-lines shape (same lessons as the Bank Deposit
+    // writer): rows sharing an Invoice No become ONE QB invoice with N
+    // lines; header-level columns un-prefixed, line-level "Line "-prefixed;
+    // sheet name MUST stay "Sheet1" for the auto-mapper.
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Sheet1");
+    ws.columns = [
+      { header: "Invoice No",        key: "inv",     width: 12 },
+      { header: "Customer",          key: "cust",    width: 30 },
+      { header: "Invoice Date",      key: "date",    width: 13 },
+      { header: "Due Date",          key: "due",     width: 13 },
+      { header: "Line Service Date", key: "svcDate", width: 14 },
+      { header: "Line Description",  key: "desc",    width: 44 },
+      { header: "Line Qty",          key: "qty",     width: 9  },
+      { header: "Line Rate",         key: "rate",    width: 10 },
+      { header: "Line Amount",       key: "amt",     width: 12 }
+    ];
+    plan.rows.forEach(r => ws.addRow({
+      inv: r.inv, cust: r.cust, date: r.date, due: r.due,
+      svcDate: r.svcDate, desc: r.desc, qty: r.qty,
+      rate: r.rate == null ? "" : r.rate, amt: r.amt
+    }));
+    ws.getRow(1).font = { bold: true };
+    ws.getColumn("rate").numFmt = "#,##0.00";
+    ws.getColumn("amt").numFmt = "#,##0.00";
+    const buf = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+    const dt = new Date();
+    const name = "Dependable_Invoice_Lines_" + dt.getFullYear() + "-" +
+      String(dt.getMonth() + 1).padStart(2, "0") + "-" + String(dt.getDate()).padStart(2, "0") + ".xlsx";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    showToast("Downloaded " + name + " — upload via SaaSant as transaction type Invoice.");
+  }
+
   function resetUI() {
     cleanedHeader = []; cleanedRows = [];
     counts = { rowsIn: 0, rowsOut: 0, droppedTaxable: 0, droppedNegative: 0, droppedBlank: 0, customers: 0 };
     sourceFilename = "";
+    billsLines = null; billsFilename = ""; billsRowCount = 0;
     document.getElementById("iif-actions").style.display = "none";
     document.getElementById("iif-preview-card").style.display = "none";
     document.getElementById("iif-dz-title").textContent = "Drop .iif file here, or click to choose";
     document.getElementById("iif-dz-sub").textContent = "Tab-delimited Intuit Interchange Format export";
     document.getElementById("iif-file-input").value = "";
+    document.getElementById("iif-bills-dz-title").textContent = "Optional · beta — drop the \"Bills with service items\" .xlsx";
+    document.getElementById("iif-bills-dz-sub").innerHTML = "TB Open Bills → green Excel icon → <b>With service items</b>. Builds a SaaSant invoice XLSX with per-visit lines. The cleaned .iif download is unchanged.";
+    document.getElementById("iif-bills-input").value = "";
+    document.getElementById("iif-lines-btn").style.display = "none";
+    document.getElementById("iif-lines-recon").style.display = "none";
     setStatus("");
   }
 
@@ -10154,6 +10389,7 @@ const IIF = (function() {
       setStatus(`✓ ${counts.rowsIn} rows parsed · ${counts.rowsOut} cleaned · ${counts.customers} customers`, "ok");
       document.getElementById("iif-actions").style.display = "flex";
       showPreview();
+      updateLinesUI();
     } catch (e) {
       console.error("[IIF] parse failed:", e);
       setStatus("✗ " + (e.message || e), "error");
@@ -10180,6 +10416,20 @@ const IIF = (function() {
 
     document.getElementById("iif-download-btn").addEventListener("click", downloadOutput);
     document.getElementById("iif-reset-btn").addEventListener("click", resetUI);
+    document.getElementById("iif-lines-btn").addEventListener("click", downloadLinesXlsx);
+
+    // 🧪 Beta bills-with-service-items dropzone
+    const bdz = document.getElementById("iif-bills-dropzone");
+    const bfi = document.getElementById("iif-bills-input");
+    if (bdz && bfi) {
+      bfi.addEventListener("change", () => { if (bfi.files && bfi.files[0]) processBillsFile(bfi.files[0]); });
+      bdz.addEventListener("dragover",  (e) => { e.preventDefault(); bdz.classList.add("dragover"); });
+      bdz.addEventListener("dragleave", () => bdz.classList.remove("dragover"));
+      bdz.addEventListener("drop", (e) => {
+        e.preventDefault(); bdz.classList.remove("dragover");
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) processBillsFile(e.dataTransfer.files[0]);
+      });
+    }
   }
 
   return { init };
