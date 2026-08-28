@@ -10231,6 +10231,17 @@ const IIF = (function() {
   // Build the per-invoice plan: real service lines where the bill matches
   // AND the line sum reconciles to the IIF amount; otherwise one aggregate
   // fallback line (total always equals the IIF) + a ⚠ entry.
+  // IIF cells can arrive wrapped in literal double quotes ("Innova care").
+  // Passing that through verbatim made QB create a NEW customer named
+  // "Innova care" (quotes included) instead of matching Innova Care —
+  // learned on the first live import. Same strip the Attachments Bundler
+  // applies to customer names.
+  function stripIifQuotes(s) {
+    let v = String(s == null ? "" : s).trim();
+    if (v.length >= 2 && v.startsWith('"') && v.endsWith('"')) v = v.slice(1, -1).trim();
+    return v;
+  }
+
   function buildLinesPlan() {
     const idxInv  = cleanedHeader.indexOf("Invoice No");
     const idxCust = cleanedHeader.indexOf("Customer");
@@ -10243,14 +10254,14 @@ const IIF = (function() {
     let matched = 0, fallback = 0;
     const seenBills = new Set();
     cleanedRows.forEach(r => {
-      const inv = String(r[idxInv] || "").trim();
+      const inv = stripIifQuotes(r[idxInv]);
       if (!inv) return;
       seenBills.add(inv);
       const head = {
         inv:  inv,
-        cust: idxCust >= 0 ? String(r[idxCust] || "").trim() : "",
-        date: idxDate >= 0 ? String(r[idxDate] || "").trim() : "",
-        due:  idxDue  >= 0 ? String(r[idxDue]  || "").trim() : ""
+        cust: idxCust >= 0 ? stripIifQuotes(r[idxCust]) : "",
+        date: idxDate >= 0 ? stripIifQuotes(r[idxDate]) : "",
+        due:  idxDue  >= 0 ? stripIifQuotes(r[idxDue])  : ""
       };
       const amount = idxAmt >= 0 ? linesMoney(r[idxAmt]) : NaN;
       const bill = billsLines && billsLines.get(inv);
