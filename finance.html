@@ -1668,6 +1668,11 @@
       </div>
 
       <div id="iif-lines-recon" style="display:none;margin-top:12px;font-size:12.5px;"></div>
+      <div id="iif-item-row" style="display:none;margin-top:8px;font-size:12.5px;align-items:center;gap:8px;">
+        <label for="iif-item-input" style="font-weight:700;">QB Product/Service item:</label>
+        <input id="iif-item-input" type="text" placeholder="Services" style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;width:200px;" />
+        <span style="color:var(--muted);">SaaSant requires an item per line — use the same Product/Service your QB invoices already use (check any existing invoice in QB). Remembered for next time.</span>
+      </div>
 
       <div id="iif-preview-card" style="display:none;margin-top:14px;">
         <div class="stat-strip" id="iif-stats"></div>
@@ -10253,11 +10258,16 @@ const IIF = (function() {
       if (bill && sumOk) {
         matched++;
         bill.lines.forEach(ln => {
-          const qty = ln.units > 0 ? ln.units : 1;
+          // Rate and Amount are BOTH mandatory for SaaSant invoices, and QB
+          // recomputes amount = qty × rate — so when the charge doesn't
+          // divide cleanly by units, collapse to qty 1 × rate = charge so
+          // no penny ever drifts.
+          let qty = ln.units > 0 ? ln.units : 1;
           let rate = Math.round((ln.charge / qty) * 100) / 100;
-          // Only emit a rate when qty × rate reproduces the charge exactly —
-          // QB recomputes from qty×rate and a penny drift would break totals.
-          if (Math.round(rate * qty * 100) / 100 !== Math.round(ln.charge * 100) / 100) rate = null;
+          if (Math.round(rate * qty * 100) / 100 !== Math.round(ln.charge * 100) / 100) {
+            qty = 1;
+            rate = Math.round(ln.charge * 100) / 100;
+          }
           const mdy = linesDateToMDY(ln.dateVal);
           rows.push({
             inv: head.inv, cust: head.cust, date: head.date, due: head.due,
@@ -10274,10 +10284,11 @@ const IIF = (function() {
             ? "not in Bills.xlsx — exported as one aggregate line"
             : "lines sum $" + bill.total.toFixed(2) + " vs invoice $" + (Number.isFinite(amount) ? amount.toFixed(2) : "?") + " — exported as one aggregate line"
         });
+        const aggAmt = Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0;
         rows.push({
           inv: head.inv, cust: head.cust, date: head.date, due: head.due,
           svcDate: "", desc: "Services rendered — see attached bill",
-          qty: 1, rate: null, amt: Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0
+          qty: 1, rate: aggAmt, amt: aggAmt
         });
       }
     });
@@ -10292,6 +10303,14 @@ const IIF = (function() {
     if (!btn || !recon) return;
     const ready = cleanedRows.length > 0 && billsLines && billsLines.size > 0;
     btn.style.display = ready ? "" : "none";
+    const itemRow = document.getElementById("iif-item-row");
+    if (itemRow) {
+      itemRow.style.display = ready ? "flex" : "none";
+      const inp = document.getElementById("iif-item-input");
+      if (ready && inp && !inp.value) {
+        try { inp.value = localStorage.getItem("dcs_iif_qb_item") || ""; } catch (e) {}
+      }
+    }
     if (!ready) {
       recon.style.display = (billsLines && !cleanedRows.length) ? "block" : "none";
       recon.innerHTML = (billsLines && !cleanedRows.length)
@@ -10316,30 +10335,44 @@ const IIF = (function() {
     recon.innerHTML = html;
   }
 
+  // The QB Product/Service item stamped on every line — SaaSant/QB require
+  // one. Admin sets it once (whatever item their QB invoices already use);
+  // remembered in localStorage.
+  function getQbItemName() {
+    const el = document.getElementById("iif-item-input");
+    const v = el ? String(el.value || "").trim() : "";
+    return v || "Services";
+  }
+
   async function downloadLinesXlsx() {
     const plan = cleanedRows.length && billsLines ? buildLinesPlan() : null;
     if (!plan || !plan.rows.length) { showToast("Load both the .iif and the Bills xlsx first.", "error"); return; }
-    // SaaSant invoice-with-lines shape (same lessons as the Bank Deposit
-    // writer): rows sharing an Invoice No become ONE QB invoice with N
-    // lines; header-level columns un-prefixed, line-level "Line "-prefixed;
-    // sheet name MUST stay "Sheet1" for the auto-mapper.
+    try { localStorage.setItem("dcs_iif_qb_item", getQbItemName()); } catch (e) {}
+    // SaaSant invoice-with-lines shape. LESSON (learned live on the first
+    // trial upload): the per-transaction-type dictionary strikes again —
+    // Bank Deposits use "Line *" columns, but INVOICES use
+    // "Product/Service*" naming, and Product/Service (the QB item) +
+    // Rate + Amount are MANDATORY. Rows sharing an Invoice No become one
+    // QB invoice with N lines; sheet name MUST stay "Sheet1".
+    const itemName = getQbItemName();
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet("Sheet1");
     ws.columns = [
-      { header: "Invoice No",        key: "inv",     width: 12 },
-      { header: "Customer",          key: "cust",    width: 30 },
-      { header: "Invoice Date",      key: "date",    width: 13 },
-      { header: "Due Date",          key: "due",     width: 13 },
-      { header: "Line Service Date", key: "svcDate", width: 14 },
-      { header: "Line Description",  key: "desc",    width: 44 },
-      { header: "Line Qty",          key: "qty",     width: 9  },
-      { header: "Line Rate",         key: "rate",    width: 10 },
-      { header: "Line Amount",       key: "amt",     width: 12 }
+      { header: "Invoice No",                  key: "inv",     width: 12 },
+      { header: "Customer",                    key: "cust",    width: 30 },
+      { header: "Invoice Date",                key: "date",    width: 13 },
+      { header: "Due Date",                    key: "due",     width: 13 },
+      { header: "Service Date",                key: "svcDate", width: 14 },
+      { header: "Product/Service",             key: "item",    width: 18 },
+      { header: "Product/Service Description", key: "desc",    width: 44 },
+      { header: "Product/Service Quantity",    key: "qty",     width: 10 },
+      { header: "Product/Service Rate",        key: "rate",    width: 10 },
+      { header: "Product/Service Amount",      key: "amt",     width: 12 }
     ];
     plan.rows.forEach(r => ws.addRow({
       inv: r.inv, cust: r.cust, date: r.date, due: r.due,
-      svcDate: r.svcDate, desc: r.desc, qty: r.qty,
-      rate: r.rate == null ? "" : r.rate, amt: r.amt
+      svcDate: r.svcDate, item: itemName, desc: r.desc, qty: r.qty,
+      rate: r.rate, amt: r.amt
     }));
     ws.getRow(1).font = { bold: true };
     ws.getColumn("rate").numFmt = "#,##0.00";
@@ -10372,6 +10405,7 @@ const IIF = (function() {
     document.getElementById("iif-bills-input").value = "";
     document.getElementById("iif-lines-btn").style.display = "none";
     document.getElementById("iif-lines-recon").style.display = "none";
+    document.getElementById("iif-item-row").style.display = "none";
     setStatus("");
   }
 
