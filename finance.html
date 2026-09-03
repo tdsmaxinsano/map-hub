@@ -1078,6 +1078,155 @@
   table.exp-rule-table .exp-rule-del:hover { background: #fee2e2; }
   table.exp-rule-table .exp-rule-del.confirm { background: #b91c1c; color: #fff; border-color: #b91c1c; }
 
+  /* ② Expense Documentation (beta) — EDOC module */
+  .edoc-beta-tag {
+    display: inline-block; background: #ede9fe; color: #5b21b6;
+    font-size: 10px; font-weight: 800; text-transform: uppercase;
+    letter-spacing: 0.5px; padding: 2px 8px; border-radius: 9px;
+    vertical-align: 2px;
+  }
+  .edoc-btn-primary {
+    background: var(--accent); color: #fff; border: none; border-radius: 7px;
+    padding: 8px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer;
+  }
+  .edoc-btn-primary:hover { background: #1d4fc4; }
+  .edoc-btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .edoc-btn-secondary {
+    background: #fff; color: var(--blue); border: 1px solid var(--border);
+    border-radius: 7px; padding: 8px 12px; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  }
+  .edoc-btn-secondary:hover { background: #eff6ff; color: var(--accent); }
+  .edoc-btn-secondary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .edoc-review-strip {
+    display: flex; gap: 18px; align-items: center; flex-wrap: wrap;
+    margin-top: 14px; padding: 12px 14px;
+    background: #fafbfd; border: 1px solid var(--border); border-radius: 10px;
+  }
+  .edoc-progress { min-width: 190px; flex: 0 0 auto; }
+  .edoc-progress-line { display: flex; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--muted); margin-bottom: 5px; }
+  .edoc-progress-line strong { color: #15803d; }
+  .edoc-progress-bar { height: 7px; background: #e5e7eb; border-radius: 4px; overflow: hidden; }
+  .edoc-progress-bar > div { height: 100%; width: 0; background: var(--accent); border-radius: 4px; transition: width 0.25s; }
+  .edoc-current { flex: 1; min-width: 220px; display: flex; align-items: center; gap: 12px; font-size: 12.5px; }
+  .edoc-current .edoc-cur-date { color: var(--muted); white-space: nowrap; }
+  .edoc-current .edoc-cur-merchant { font-weight: 700; color: var(--text); }
+  .edoc-current .edoc-cur-merchant small { display: block; font-weight: 600; color: var(--muted); font-size: 11px; }
+  .edoc-current .edoc-cur-amt { font-weight: 800; color: var(--blue); white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .edoc-review-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .edoc-cat {
+    border: 1px solid var(--border); border-radius: 9px; background: #fff;
+    margin-bottom: 8px; overflow: hidden;
+  }
+  .edoc-cat > summary {
+    cursor: pointer; padding: 10px 14px; list-style: none; user-select: none;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px;
+  }
+  .edoc-cat > summary::-webkit-details-marker { display: none; }
+  .edoc-cat > summary strong { font-size: 13px; color: var(--blue); }
+  .edoc-cat > summary small { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+  .edoc-merchant-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; padding: 0 12px 12px; }
+  .edoc-merchant {
+    text-align: left; background: #f8fafc; border: 1px solid var(--border);
+    border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 12px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .edoc-merchant:hover { background: #eff6ff; border-color: var(--accent); }
+  .edoc-merchant small { color: var(--muted); font-size: 10.5px; }
+  .edoc-merchant strong { color: var(--blue); font-variant-numeric: tabular-nums; }
+  .edoc-clarify-panel {
+    background: #fffbeb; border: 1px solid #fcd34d; border-radius: 10px; padding: 12px 14px;
+  }
+  .edoc-clarify-panel h4 { margin: 0 0 8px; font-size: 12.5px; color: #92400e; }
+  .edoc-clarify-item { padding: 7px 0; border-bottom: 1px solid #fde68a; font-size: 12px; }
+  .edoc-clarify-item:last-child { border-bottom: none; }
+  .edoc-clarify-item .edoc-clarify-head { display: flex; justify-content: space-between; gap: 10px; }
+  .edoc-clarify-item strong { color: #78350f; }
+  .edoc-clarify-item .edoc-clarify-head span { color: #92400e; font-size: 11px; white-space: nowrap; }
+  .edoc-clarify-item p { margin: 3px 0 0; color: #92400e; font-size: 11.5px; line-height: 1.45; }
+  .edoc-workspace {
+    display: grid; grid-template-columns: 1.15fr 1fr; gap: 16px; margin-top: 16px;
+    align-items: start;
+  }
+  @media (max-width: 980px) { .edoc-workspace { grid-template-columns: 1fr; } }
+  .edoc-form-panel, .edoc-preview-panel {
+    background: #fafbfd; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px;
+  }
+  .edoc-type-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .edoc-type-tab {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; font-size: 12.5px; font-weight: 700; color: var(--muted); cursor: pointer;
+  }
+  .edoc-type-tab:hover:not(:disabled) { background: #eff6ff; }
+  .edoc-type-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .edoc-type-tab:disabled { opacity: 0.55; cursor: not-allowed; }
+  .edoc-locked-banner {
+    background: #eff6ff; border: 1px solid #93c5fd; border-radius: 8px;
+    padding: 9px 12px; font-size: 11.5px; color: #1e40af; line-height: 1.5; margin-bottom: 10px;
+  }
+  .edoc-section-heading { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 10px; }
+  .edoc-section-heading span {
+    background: var(--blue); color: #fff; font-size: 11px; font-weight: 800;
+    border-radius: 6px; padding: 3px 7px; line-height: 1; margin-top: 2px;
+  }
+  .edoc-section-heading h4 { margin: 0; font-size: 13px; color: var(--blue); }
+  .edoc-section-heading p { margin: 1px 0 0; font-size: 11px; color: var(--muted); }
+  .edoc-grid { display: grid; gap: 10px; margin-bottom: 10px; }
+  .edoc-grid.three { grid-template-columns: repeat(3, 1fr); }
+  .edoc-grid.two { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 700px) { .edoc-grid.three, .edoc-grid.two { grid-template-columns: 1fr; } }
+  .edoc-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .edoc-grid .edoc-field { margin-bottom: 0; }
+  .edoc-lbl { font-size: 10.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.35px; }
+  .edoc-field input, .edoc-field textarea {
+    border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px;
+    font-size: 12.5px; font-family: inherit; outline: none; background: #fff; resize: vertical;
+  }
+  .edoc-field input:focus, .edoc-field textarea:focus { border-color: var(--accent); }
+  .edoc-quick-purpose {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
+    padding: 8px 10px; margin-bottom: 10px; font-size: 11.5px; color: #166534;
+  }
+  .edoc-tax-note {
+    background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;
+    padding: 9px 12px; font-size: 12px; color: #78350f; line-height: 1.5; margin-top: 12px;
+  }
+  .edoc-tax-note strong { display: block; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 2px; }
+  .edoc-needs-input {
+    background: #fef2f2; border: 1px solid #fca5a5; border-radius: 8px;
+    padding: 9px 12px; font-size: 12px; color: #991b1b; line-height: 1.5; margin-top: 10px;
+  }
+  .edoc-preview-toolbar { display: flex; justify-content: space-between; align-items: flex-end; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .edoc-eyebrow { font-size: 10px; font-weight: 800; color: #5b21b6; text-transform: uppercase; letter-spacing: 0.6px; }
+  .edoc-preview-btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .edoc-doc-sheet {
+    background: #fff; border: 1px solid var(--border); border-radius: 8px;
+    padding: 18px 20px; font-size: 12.5px; line-height: 1.55;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  }
+  .edoc-doc-topline {
+    display: flex; justify-content: space-between; font-size: 10px; font-weight: 800;
+    color: var(--muted); text-transform: uppercase; letter-spacing: 0.7px;
+    border-bottom: 2px solid var(--blue); padding-bottom: 6px; margin-bottom: 10px;
+  }
+  .edoc-doc-sheet h5 { margin: 0 0 10px; font-size: 14.5px; color: var(--blue); }
+  .edoc-doc-sheet dl { margin: 0; }
+  .edoc-doc-sheet dl > div { display: flex; gap: 10px; padding: 4px 0; border-bottom: 1px solid #f1f5f9; }
+  .edoc-doc-sheet dt { flex: 0 0 145px; font-size: 10.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; padding-top: 1px; }
+  .edoc-doc-sheet dd { margin: 0; flex: 1; color: var(--text); overflow-wrap: anywhere; }
+  .edoc-deduction-box {
+    background: #f0fdf4; border: 1px solid #86efac; border-radius: 8px;
+    padding: 10px 12px; margin: 12px 0; display: flex; flex-direction: column; gap: 1px;
+  }
+  .edoc-deduction-box span { font-size: 10.5px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.4px; }
+  .edoc-deduction-box strong { font-size: 19px; color: #15803d; }
+  .edoc-deduction-box small { font-size: 11px; color: #166534; }
+  .edoc-certification { font-size: 11px; color: var(--muted); font-style: italic; line-height: 1.5; margin: 10px 0 12px; }
+  .edoc-signature-grid { display: flex; gap: 24px; }
+  .edoc-signature-grid > div { flex: 1; border-top: 1px solid var(--border); padding-top: 6px; }
+  .edoc-signature-grid span { display: block; font-weight: 700; font-size: 12.5px; }
+  .edoc-signature-grid small { color: var(--muted); font-size: 10.5px; }
+
   /* v2: Authorize.net per-batch reconciliation panel */
   .bank-recon {
     margin-top: 14px;
@@ -1359,7 +1508,7 @@
     <button data-view="payroll">💵 Payroll</button>
     <button data-view="billing">🧾 Billing</button>
     <button data-view="qbtools">🔧 QB Tools</button>
-    <button data-view="expenses">💸 Tax Categorizer</button>
+    <button data-view="expenses">💸 Expenses</button>
     <button data-view="renewals">🏛 Renewals</button>
   </div>
 
@@ -1386,9 +1535,9 @@
       </button>
       <button type="button" class="tile" data-go="expenses">
         <div class="tile-icon">💸</div>
-        <div class="tile-title">Tax Categorizer</div>
-        <div class="tile-desc">Drop a Chase CSV → auto-categorize expense transactions for tax review (Health Insurance / Marketing / Auto / Office / etc.). Editable rules shared across admins. Multi-sheet XLSX output for the accountant.</div>
-        <span class="tile-cta">Open Tax Categorizer →</span>
+        <div class="tile-title">Expenses</div>
+        <div class="tile-desc">① Tax Categorizer — Chase CSV → auto-categorized tax-review XLSX (shared editable rules). ② Expense Documentation (beta) — walk each bank transaction through a missing-receipt / gift / vendor-meeting record with a printable accountant-ready statement.</div>
+        <span class="tile-cta">Open Expenses →</span>
       </button>
       <button type="button" class="tile" data-go="renewals">
         <div class="tile-icon">🏛</div>
@@ -2052,7 +2201,7 @@
        in the script section. -->
   <div class="view" id="view-expenses">
     <div class="card">
-      <h3>💸 Tax Categorizer <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— Chase CSV → categorized tax-review XLSX</span></h3>
+      <h3>① Tax Categorizer <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— Chase CSV → categorized tax-review XLSX</span></h3>
       <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
         Drop a Chase bank CSV — every expense row gets auto-categorized via keyword match (Health Insurance / Marketing / Auto / Office / Utilities / Payroll / Fees). You review + correct in the table, then download a 3-sheet XLSX (full detail · category summary · review-needed). <strong>No QB integration</strong> — output is for accountant tax review.
       </p>
@@ -2105,6 +2254,106 @@
           <button id="exp-download-btn">⬇ Download Categorized XLSX</button>
           <button id="exp-reset-btn" class="btn-secondary">Reset</button>
         </div>
+      </div>
+    </div>
+
+    <!-- ② Expense Documentation (beta) — port of the user's ChatGPT-built
+         "DCS Expense Documentation Generator". Bank workbook → auto-exclude
+         non-expenses (checks / Zelle / Wise / payroll / transfers) →
+         auto-categorize → per-transaction documentation form (Missing
+         receipt / Business gift / Vendor meeting) → accountant-ready
+         printable statement + reviewed XLSX. Fully separate from the
+         ① Tax Categorizer above (its own upload + rules) — beta-first, so
+         production categorization is untouched. Browser-only: no Supabase
+         writes; in-progress reviews persist to localStorage
+         (dcs_finance_expdoc_state_v1). See EDOC IIFE module. -->
+    <div class="card">
+      <h3>② Expense Documentation <span class="edoc-beta-tag">beta</span> <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— bank workbook → missing-receipt / gift / meeting records + reviewed XLSX</span></h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+        Upload the Chase bank workbook (Excel or CSV). Checks, Zelle, Wise, payroll, and payment transfers are excluded automatically; everything else is grouped by suggested category. Walk through each transaction, document it truthfully, then print the statement or download the reviewed Excel for the accountant. <strong>Documents facts — never creates a replacement receipt.</strong> The form also works by hand for a one-off record without uploading anything.
+      </p>
+
+      <div class="dropzone bank-dropzone" id="edoc-dropzone" tabindex="0" role="button" aria-label="Drop bank workbook for expense documentation">
+        <div class="bank-dz-icon">🧾</div>
+        <div class="bank-dz-title" id="edoc-dz-title">Drop the bank workbook here or click to browse</div>
+        <div class="bank-dz-sub">Excel or CSV with Date, Amount, and Description columns — the same Chase Online export as above.</div>
+      </div>
+      <input type="file" id="edoc-file-input" accept=".csv,.xlsx,.xls" style="display:none;" />
+      <div id="edoc-upload-error" style="display:none;margin-top:10px;font-size:12.5px;color:#b91c1c;"></div>
+
+      <div class="stat-strip" id="edoc-stats" style="display:none;margin-top:14px;"></div>
+
+      <!-- Review strip: progress + current transaction + nav -->
+      <div id="edoc-review-strip" class="edoc-review-strip" style="display:none;">
+        <div class="edoc-progress">
+          <div class="edoc-progress-line"><span id="edoc-progress-label"></span><strong id="edoc-progress-done"></strong></div>
+          <div class="edoc-progress-bar"><div id="edoc-progress-fill"></div></div>
+        </div>
+        <div class="edoc-current" id="edoc-current"></div>
+        <div class="edoc-review-actions">
+          <button type="button" class="edoc-btn-secondary" id="edoc-prev-btn">← Previous</button>
+          <button type="button" class="edoc-btn-secondary" id="edoc-next-btn">Next →</button>
+          <button type="button" class="edoc-btn-primary" id="edoc-download-btn">⬇ Download Updated Excel</button>
+          <button type="button" class="edoc-btn-secondary" id="edoc-clear-btn">✕ Clear file</button>
+        </div>
+      </div>
+
+      <!-- Category → merchant accordion -->
+      <div id="edoc-groups" style="display:none;margin-top:14px;"></div>
+
+      <!-- Merchants still needing input -->
+      <div id="edoc-clarify" style="display:none;margin-top:14px;"></div>
+
+      <!-- Documentation workspace: form + live statement preview -->
+      <div class="edoc-workspace">
+        <section class="edoc-form-panel" id="edoc-form-panel">
+          <div class="edoc-type-tabs" id="edoc-type-tabs">
+            <button type="button" class="edoc-type-tab active" data-type="missing">🧾 Missing receipt</button>
+            <button type="button" class="edoc-type-tab" data-type="gift">🎁 Business gift</button>
+            <button type="button" class="edoc-type-tab" data-type="meeting">🤝 Vendor meeting</button>
+          </div>
+          <div class="edoc-locked-banner" id="edoc-locked-banner" style="display:none;"></div>
+
+          <div class="edoc-section-heading"><span>01</span><div><h4>Transaction details</h4><p>Copy these directly from the bank statement.</p></div></div>
+          <div class="edoc-grid three">
+            <label class="edoc-field"><span class="edoc-lbl">Transaction date</span><input type="date" id="edoc-date" /></label>
+            <label class="edoc-field"><span class="edoc-lbl">Vendor or merchant</span><input type="text" id="edoc-vendor" placeholder="e.g., Filipino Food Catering" /></label>
+            <label class="edoc-field"><span class="edoc-lbl">Amount</span><input type="number" id="edoc-amount" min="0" step="0.01" placeholder="0.00" /></label>
+          </div>
+          <div class="edoc-grid two">
+            <label class="edoc-field"><span class="edoc-lbl">Payment method</span><input type="text" id="edoc-payment" value="Company debit card" /></label>
+            <label class="edoc-field"><span class="edoc-lbl" id="edoc-agency-label">Related agency or client (optional)</span><input type="text" id="edoc-agency" list="edoc-agency-options" placeholder="Agency or company name" /></label>
+            <datalist id="edoc-agency-options"></datalist>
+          </div>
+
+          <div class="edoc-section-heading"><span>02</span><div><h4>Business support</h4><p>Be specific and write only what you know is true.</p></div></div>
+          <label class="edoc-field" id="edoc-people-row" style="display:none;"><span class="edoc-lbl" id="edoc-people-label">Meeting attendees</span><input type="text" id="edoc-people" placeholder="Names and roles, if known" /></label>
+          <label class="edoc-field"><span class="edoc-lbl">Items purchased or services received</span><textarea id="edoc-items" rows="2" placeholder="What was purchased? Include quantities or a short description if remembered."></textarea></label>
+          <label class="edoc-field"><span class="edoc-lbl">Business purpose</span><textarea id="edoc-purpose" rows="3" placeholder="Why was this an ordinary and necessary business expense?"></textarea></label>
+          <div class="edoc-quick-purpose" id="edoc-quick-purpose" style="display:none;">
+            <span>Choose the Starbucks purpose:</span>
+            <button type="button" class="edoc-btn-secondary" data-quick="interview">Clinician interview</button>
+            <button type="button" class="edoc-btn-secondary" data-quick="training">Clinician training</button>
+            <button type="button" class="edoc-btn-secondary" data-quick="hha-gift">Gift to home health agency</button>
+          </div>
+          <label class="edoc-field"><span class="edoc-lbl">Why the receipt is unavailable</span><input type="text" id="edoc-reason" value="Original receipt is no longer available." /></label>
+
+          <div class="edoc-tax-note" id="edoc-tax-note"></div>
+          <div class="edoc-needs-input" id="edoc-needs-input" style="display:none;"></div>
+          <button type="button" class="edoc-btn-primary" id="edoc-complete-btn" style="display:none;margin-top:14px;width:100%;">✓ Mark documented and load next transaction</button>
+        </section>
+
+        <aside class="edoc-preview-panel">
+          <div class="edoc-preview-toolbar">
+            <div><div class="edoc-eyebrow">Live record</div><h4 style="margin:0;font-size:14px;">Accountant-ready statement</h4></div>
+            <div class="edoc-preview-btns">
+              <button type="button" class="edoc-btn-secondary" id="edoc-reset-form-btn">↺ Reset</button>
+              <button type="button" class="edoc-btn-secondary" id="edoc-copy-btn">📋 Copy</button>
+              <button type="button" class="edoc-btn-primary" id="edoc-print-btn">🖨 Print / PDF</button>
+            </div>
+          </div>
+          <article class="edoc-doc-sheet" id="edoc-doc-sheet"></article>
+        </aside>
       </div>
     </div>
 
@@ -2298,7 +2547,7 @@ function switchView(viewName, skipPushState) {
     payroll:  "Current pay period totals and link to the Time Tracker pay period view.",
     billing:  "Agency invoicing — placeholder for v1.",
     qbtools:  "Helpers that streamline QuickBooks-side workflows.",
-    expenses: "Drop a Chase CSV → auto-categorize expense rows for tax review. Editable rules shared across admins.",
+    expenses: "① Categorize expenses for tax review · ② document missing-receipt / gift / meeting transactions (beta).",
     renewals: "Company annual filings — due dates, Home-board reminders, mark-filed history + archived PDFs."
   };
   document.getElementById("hero-sub").textContent = subtitleMap[viewName] || subtitleMap.landing;
@@ -13100,6 +13349,714 @@ const EXP = (() => {
   return { init };
 })();
 
+// ═══════════════════════════════════════════════════════════════════════
+//  EDOC — ② Expense Documentation (beta). Port of the user's ChatGPT-built
+//  "DCS Expense Documentation Generator" (React app), logic kept verbatim:
+//  exclusion regex, category rules, merchant naming, the three locked
+//  special transactions, the Starbucks purpose chooser, the deduction math
+//  ($25 gift cap / 50% meal / full for missing-receipt), and the statement
+//  wording. Separate from the ① Tax Categorizer (EXP) above by design —
+//  beta-first, its own upload, no shared state. Browser-only: no Supabase
+//  writes; in-progress reviews persist to localStorage.
+// ═══════════════════════════════════════════════════════════════════════
+const EDOC = (() => {
+  let initialized = false;
+  const LS_KEY = "dcs_finance_expdoc_state_v1";
+
+  // ── State ─────────────────────────────────────────────────────────
+  let transactions = [];      // enriched rows (serializable)
+  let currentIndex = 0;
+  let excludedCount = 0;
+  let sourceName = "";
+  let completed = new Set();  // indexes marked documented
+  let reviews = {};           // index -> saved form snapshot
+  let type = "missing";       // current record type
+  let persistTimer = null;
+
+  function escHtml(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function escAttr(s) { return escHtml(s); }
+  function money(v) {
+    const n = Number(v || 0);
+    return Number.isFinite(n) ? n.toLocaleString("en-US", { style: "currency", currency: "USD" }) : "$0.00";
+  }
+
+  const typeInfo = {
+    missing: { label: "Missing receipt" },
+    gift:    { label: "Business gift" },
+    meeting: { label: "Vendor meeting" }
+  };
+
+  // Fallback agency list from the source app — replaced by a live
+  // home_health_agencies fetch on init (non-fatal if the fetch fails).
+  const AGENCY_FALLBACK = ["ATNT Home Health Care, Inc.","AWESOME HOME HEALTH CARE, INC","Access Life Care Ltd","Admire Home Healthcare Agency","All American Home Care","American Home Care Express","Apex Home Healthcare, INC.","Ascendant Home Health","Aspira Home Health, Inc","Aspire Home Healthcare","AssureCare Home Health Inc","Astra Health","BEST HOME HEALTHCARE NETWORK","BEST ILLINOIS HOME HEALTH CARE","Best Care Home Health, INC.","Better Care Home Health Inc.","Better Choice Home Health","Buena Vida Home health","Care Choice Home Health","Careforce Homehealth, Inc.","Caress Home Health Care Inc","Caring Hands Home Health and Rehab, LLC","Caring Touch, Inc.","DIRECT HOME HEALTHCARE, INC","Dependable Care Staffing","Devoted Health Care Inc.","Distinct Home Health Care","ECS Healthcare Agency and Home Health Service P.C.","EMMANUEL HOME HEALTH","ENTERA HEALTHCARE SOUTH","Elite Care at Home, Inc.","Entera Healthcare","Evangel Home Health Services, Inc.","Frontline Healthcare, LLC","GOOD HEART HOME CARE, INC.","Good Shepherd Healthcare, LLC","Great Paragon Healthcare Inc","HEALER OF HOPE HOME HEALTH CARE, INC.","Hands and Heart Home Health, Inc.","Healthcare Partners At Home LLC Dba Simply Home Health","Healthcare Plus Corp","Holistic Health Partners Inc.","INSWAN HEALTH CARE, LTD","Icare Home Health Corp","Ideal Care Home Health","Innova Care","Integrity Home Healthcare. INC.","Kay's Angel Care","Life Connect Home Health","METROPOLITAN HOME HEALTH CARE, INC","Medicus Home Health, LLC","NORTH SHORE HEALTHCARE, INC.","New Haven Home Health Care","Nurse Experts LLC","O P HOME HEALTH CARE INC","Optimum Healthcare Services Inc. of Illinois","PRIMELINK HHS","Platinum Healthcare Services","Platinum Home Health Care Inc","Premier Choice Home Health Care LLC","PrimeCare Home Health","SOLIDEX HOME HEALTHCARE SERVICES","SOMEONE WHO CARES HOME HEALTH CARE","Sacred Heart Home Health Inc","Saze Community Services, INC.","Select Home Care Inc","Serenity Home Healthcare INC","T and N Health Services","Total Senior Care Inc.","Tru-Care Home Health","Venus Home Health, Inc DBA Excell Home Health Plus","Vision Home Health Care, INC.","excellent home health care inc"];
+
+  // ── Business rules (ported verbatim from the source app) ──────────
+  function normalizeDate(value) {
+    const text = String(value == null ? "" : value).trim();
+    const match = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (!match) return text;
+    const year = match[3].length === 2 ? `20${match[3]}` : match[3];
+    return `${year}-${match[1].padStart(2, "0")}-${match[2].padStart(2, "0")}`;
+  }
+
+  function shouldExclude(description, bankType) {
+    const text = `${description} ${bankType}`;
+    return /CHECK_PAID|^CHECK\s|Zelle payment|QUICKPAY|Wise Inc|ORIG CO NAME:PAYROLL|CO ENTRY DESCR:PAYROLL|ORIG CO NAME:INTUIT.*CO ENTRY DESCR:TAX|Payment to Chase card|Online Realtime Transfer|ACCT_XFER|LOAN_PMT/i.test(text);
+  }
+
+  function categorize(description, bankType) {
+    const text = `${description} ${bankType}`;
+    if (/\bTO ACCOUNTING\b|ACCOUNTING SERVICE/i.test(text)) return "Professional Fees — Accounting";
+    if (/\bIRS\b|USATAXPYMT|INTUIT.*\bTAX\b/i.test(text)) return "Tax Payments — Apple Review";
+    if (/RINGCENTRAL|T-MOBILE|COMCAST|XFINITY|EFAX/i.test(text)) return "Phone, Internet & Fax";
+    if (/THERAPYBOSS|STRATAPT|OPENAI|CHATGPT|CANVA|APPLE\.COM\/BILL|GOOGLE|QUICKBOOKS|QBooks|AUTHNET|AUCTANE/i.test(text)) return "Software & Online Services";
+    if (/ZIPRECRUITER|INDEED/i.test(text)) return "Recruiting & Advertising";
+    if (/OFFICE\s*MAX|OFFICEMAX|OFFICE DEPOT|USPS/i.test(text)) return "Office Supplies & Postage";
+    if (/CYBERSRC|CYBERSOURCE|CO ENTRY DESCR:TRAN FEE|OVERDRAFT FEE|MONTHLY SERVICE FEE|ACH PMNTS INITIAL FEE|Yardi Service Ch|PAY PLUS/i.test(text)) return "Bank & Processing Fees";
+    if (/goto PremFin|PROG UNIVERSAL|BLISS MARC INTER|INS PREM/i.test(text)) return "Business Insurance";
+    if (/IMPERIALREALTY/i.test(text)) return "Office Rent";
+    if (/IL PROF LICENSE|IL CONTINUITY OF CARE|3110002008/i.test(text)) return "Licenses, Dues & Regulatory";
+    if (/WELLS FARGO AUTO|AUTO LOAN|VEHICLE LOAN/i.test(text)) return "Company Vehicle Payment — Apple Split";
+    if (/SHERATON GRAND CHICAGO/i.test(text)) return "Business Travel — Lodging & Parking";
+    if (/IL TOLLWAY|PARKI|SHELL|SOPUS|\bBP#|TESLA/i.test(text)) return "Vehicle, Tolls & Parking";
+    if (/STARBUCKS|POPEYES|WHITE CASTLE|LITTLE CAESARS|CULVERS|IHOP|MCDONALD|CHEVAL|CAFE|RED RIBBON|CATERIN|JEWEL|COSTCO|INSTACART|ALDI|TONYS FRESH|WAL-MART|MEIJER|POTBELLY|SEAFOOD CITY|DOUBLE GOOD|DD\/BR/i.test(text)) return "Food, Gifts & Meetings — Add Purpose";
+    if (/HOME DEPOT|MENARDS|DOLLARTREE|BURLINGTON|KOHLS|CRATE AND BARREL|WALGREENS|APPLE STORE/i.test(text)) return "Purchases — Receipt/Purpose Review";
+    if (/DEPOSITED ITEM RETURNED|DEPOSIT_RETURN/i.test(text)) return "Returned Deposit — Not Expense";
+    if (/SBA EIDL|NORTHEAST BANK/i.test(text)) return "Business Loan — Split Interest/Principal";
+    return "Needs Your Review";
+  }
+
+  function merchantName(description) {
+    const known = [
+      [/CYBERSRC|CYBERSOURCE/i, "CyberSource / Strata Payment Processing"],
+      [/CO ENTRY DESCR:TRAN FEE/i, "Intuit Transaction Fee"],
+      [/CO ENTRY DESCR:QBooks (?:Onl|Pay)/i, "QuickBooks Online"],
+      [/OVERDRAFT FEE/i, "Bank Overdraft Fee"],
+      [/\bTO ACCOUNTING\b|ACCOUNTING SERVICE/i, "Accounting Service — Apple"],
+      [/\bIRS\b|USATAXPYMT/i, "IRS"], [/RINGCENTRAL/i, "RingCentral"], [/T-MOBILE/i, "T-Mobile"],
+      [/COMCAST|XFINITY/i, "Comcast / Xfinity"], [/THERAPYBOSS/i, "TherapyBoss"], [/STRATAPT/i, "StrataPT"],
+      [/OPENAI|CHATGPT/i, "OpenAI / ChatGPT"], [/CANVA/i, "Canva"], [/APPLE\.COM\/BILL/i, "Apple.com"],
+      [/LOU MALNATI/i, "Lou Malnati's — Lincolnwood"],
+      [/PARIS LV CASINO FRNT DS/i, "Paris Las Vegas — Front Desk"],
+      [/ZIPRECRUITER/i, "ZipRecruiter"], [/INDEED/i, "Indeed"], [/OFFICE\s*MAX|OFFICEMAX|OFFICE DEPOT/i, "OfficeMax / Office Depot"],
+      [/RED RIBBON/i, "Red Ribbon"], [/JEWEL/i, "Jewel-Osco"], [/COSTCO/i, "Costco"], [/STARBUCKS/i, "Starbucks"],
+      [/WALGREENS/i, "Walgreens"], [/IL TOLLWAY/i, "Illinois Tollway"], [/IMPERIALREALTY/i, "Imperial Realty"]
+    ];
+    const match = known.find(([pattern]) => pattern.test(description));
+    if (match) return match[1];
+    const ach = description.match(/ORIG CO NAME:([^\n]{2,28}?)(?:\s{2,}|ORIG ID:)/i);
+    if (ach && ach[1]) return ach[1].trim();
+    return description.replace(/\s+\d{2}\/\d{2}\s*$/, "").replace(/\s+/g, " ").trim().slice(0, 48);
+  }
+
+  function enrichRow(row) {
+    const purposeByCategory = {
+      "Professional Fees — Accounting": "Accounting and bookkeeping services provided by the accounting firm where Apple works.",
+      "Tax Payments — Apple Review": "Federal or payroll-related tax payment. Apple must determine the deductible and liability portions.",
+      "Phone, Internet & Fax": "Business communications used for staffing, clinician coordination, referrals, and agency operations.",
+      "Software & Online Services": "Software or online service used in the operation of Dependable Care Staffing.",
+      "Recruiting & Advertising": "Clinician recruiting, job advertising, or business promotion.",
+      "Office Supplies & Postage": "Office supplies, equipment, postage, or shipping used for company operations.",
+      "Bank & Processing Fees": "Banking or payment-processing fee for the company account.",
+      "Business Insurance": "Insurance coverage for Dependable Care Staffing business operations.",
+      "Office Rent": "Rent for the Dependable Care Staffing office.",
+      "Licenses, Dues & Regulatory": "Business license, professional fee, membership, or regulatory expense.",
+      "Vehicle, Tolls & Parking": "Business travel, parking, toll, fuel, or vehicle-related expense; business-use documentation required.",
+      "Company Vehicle Payment — Apple Split": "Company vehicle payment. Apple must split principal, deductible interest, and any applicable depreciation treatment; the full payment is not automatically deductible.",
+      "Business Travel — Lodging & Parking": "Business lodging and parking connected with attendance at the Serenity Home Healthcare Gala."
+    };
+    // Known one-off transactions with confirmed facts (from the source app —
+    // matched by merchant + date + exact amount, so they can't misfire).
+    if (row.merchant === "Paris Las Vegas — Front Desk" && row.date === "2025-07-21" && Math.abs(row.amount) === 435.33) {
+      return Object.assign({}, row, { category: "Business Expansion Travel — Lodging", suggestedType: "missing",
+        suggestedPurpose: "Business-development trip to Las Vegas for interviews and meetings regarding expansion of Dependable Care Staffing services into that market.",
+        suggestedItems: "Hotel/front-desk lodging charge for the Dependable Care Staffing business-expansion trip.",
+        receiptNote: "Bank description identifies Paris Las Vegas Front Desk. Retain the hotel folio, travel records, meeting correspondence, interview notes, and names of business contacts if available.",
+        needsInput: "Add the traveler name(s), meeting/interview contacts, and confirm whether any personal lodging days or charges must be excluded. Apple must confirm final travel or start-up-cost treatment.",
+        locked: true, lockedReason: "Fixed as Business Expansion Travel — Lodging. The bank description is a hotel front-desk charge, not casino gambling or entertainment." });
+    }
+    if (row.merchant === "Lou Malnati's — Lincolnwood" && row.date === "2025-10-23" && Math.abs(row.amount) === 921.2) {
+      return Object.assign({}, row, { category: "CEU Event Expense — Catering", suggestedType: "missing",
+        suggestedPurpose: "Dependable Care Staffing hosted a continuing-education event attended by at least 30 clinicians. Five participating vendors contributed $175 each, totaling $875 in sponsorship income, toward the food costs and were given an opportunity to speak to clinicians about their healthcare-related products or services. The $875 sponsorship income is recorded separately from the $921.20 catering expense.",
+        suggestedItems: "Pizza and refreshments for at least 30 clinicians, vendor representatives, and other CEU attendees.",
+        receiptNote: "Business purpose confirmed as catering for the Dependable Care Staffing CEU event. Supporting records include five vendor sponsorship invoices/payments totaling $875 and the CEU attendance or sign-in records. Sponsorship income must not be netted against the catering expense.",
+        needsInput: "Apple must confirm whether the event catering receives 100% event-cost treatment or the standard meal limitation.",
+        locked: true, lockedReason: "Fixed as CEU Event Expense — Catering. This known event charge cannot be changed into a gift or ordinary vendor meeting." });
+    }
+    if (row.merchant === "OfficeMax / Office Depot" && row.date === "2025-12-17" && Math.abs(row.amount) === 1100) {
+      return Object.assign({}, row, { category: "Business Gift Cards — Receipt Found", recordAmount: 1050, suggestedType: "gift",
+        suggestedPurpose: "Gift cards purchased for distribution to home health agencies as business relationship gifts.",
+        suggestedItems: "Assorted retailer gift cards totaling $1,050: Macy's, Nike, Cheesecake Factory, Victoria's Secret, Nordstrom, Ulta, Amazon, Starbucks, and Disney. The separate $50 cash back is excluded.",
+        receiptNote: "Original Office Depot/OfficeMax receipt dated 12/17/2025 was found. Bank withdrawal was $1,100, consisting of a $1,050 purchase plus $50 cash back.",
+        needsInput: "Assign each gift card to its receiving home health agency or recipient so Apple can apply the $25 annual recipient limit." });
+    }
+    if (row.merchant === "Starbucks") {
+      return Object.assign({}, row, { category: "Interview, Training or HHA Gift — Choose", suggestedType: "missing",
+        suggestedPurpose: "Confirm whether this Starbucks transaction was a clinician interview, clinician training, or a gift delivered to a home health agency.",
+        suggestedItems: "Starbucks coffee, refreshments, or delivered business gift.",
+        needsInput: "Choose clinician interview, clinician training, or home health agency gift; then add the attendee or recipient agency." });
+    }
+    const needsInput = /Needs Your Review|Food, Gifts & Meetings|Purchases — Receipt|Tax Payments|Loan|Returned Deposit/i.test(row.category)
+      ? "Confirm the exact business purpose and final treatment with Apple." : undefined;
+    const lockedCategories = [
+      "Professional Fees — Accounting", "Tax Payments — Apple Review", "Phone, Internet & Fax", "Software & Online Services", "Recruiting & Advertising",
+      "Office Supplies & Postage", "Bank & Processing Fees", "Business Insurance", "Office Rent",
+      "Licenses, Dues & Regulatory", "Company Vehicle Payment — Apple Split", "Business Travel — Lodging & Parking",
+      "Returned Deposit — Not Expense", "Business Loan — Split Interest/Principal"
+    ];
+    const locked = lockedCategories.includes(row.category);
+    return Object.assign({}, row, { suggestedType: "missing", suggestedPurpose: purposeByCategory[row.category] || "", suggestedItems: row.merchant, needsInput: needsInput,
+      locked: locked, lockedReason: locked ? `Fixed as ${row.category}. This obvious classification cannot be changed into a gift or vendor meeting.` : undefined });
+  }
+
+  // ── Form access + deduction math ──────────────────────────────────
+  function $(id) { return document.getElementById(id); }
+  function formVals() {
+    return {
+      date: $("edoc-date").value, vendor: $("edoc-vendor").value, amount: $("edoc-amount").value,
+      payment: $("edoc-payment").value, agency: $("edoc-agency").value, people: $("edoc-people").value,
+      items: $("edoc-items").value, purpose: $("edoc-purpose").value, reason: $("edoc-reason").value
+    };
+  }
+  function preliminaryDeduction() {
+    const amountNumber = Math.max(0, Number($("edoc-amount").value || 0));
+    return type === "gift" ? Math.min(amountNumber, 25) : type === "meeting" ? amountNumber * 0.5 : amountNumber;
+  }
+  function currentLocked() { return Boolean(transactions[currentIndex] && transactions[currentIndex].locked); }
+  function currentReview() {
+    const f = formVals();
+    return { type: type, agency: f.agency, people: f.people, purpose: f.purpose, items: f.items, payment: f.payment, reason: f.reason, deduction: preliminaryDeduction() };
+  }
+  function saveCurrentReview() {
+    if (transactions.length) reviews[currentIndex] = currentReview();
+    schedulePersist();
+  }
+
+  // ── Record-type tabs ──────────────────────────────────────────────
+  function setType(next, opts) {
+    if (currentLocked() && !(opts && opts.force)) return;
+    type = next;
+    document.querySelectorAll("#edoc-type-tabs .edoc-type-tab").forEach(b => b.classList.toggle("active", b.dataset.type === type));
+    // Field labels + visibility follow the type (verbatim from the app)
+    $("edoc-agency-label").textContent = type === "gift" ? "Home health agency receiving gift"
+      : type === "meeting" ? "Agency or vendor met with" : "Related agency or client (optional)";
+    $("edoc-people-row").style.display = type === "missing" ? "none" : "";
+    $("edoc-people-label").textContent = type === "gift" ? "Recipient names or department" : "Meeting attendees";
+    $("edoc-people").placeholder = type === "gift" ? "Name, team, or department" : "Names and roles, if known";
+    $("edoc-purpose").placeholder = type === "gift" ? "Why was the gift given and how did it relate to the agency relationship?"
+      : type === "meeting" ? "What business was discussed or decided?" : "Why was this an ordinary and necessary business expense?";
+    updatePreview();
+  }
+  function syncLockedUI() {
+    const locked = currentLocked();
+    document.querySelectorAll("#edoc-type-tabs .edoc-type-tab").forEach(b => b.disabled = locked);
+    const banner = $("edoc-locked-banner");
+    if (locked) {
+      banner.innerHTML = "🔒 <strong>Classification locked:</strong> " + escHtml(transactions[currentIndex].lockedReason || "") + " The supporting fields below remain editable.";
+      banner.style.display = "";
+    } else {
+      banner.style.display = "none";
+    }
+  }
+
+  // ── Statement (text is verbatim from the source app) ──────────────
+  function statementText() {
+    const f = formVals();
+    const ded = preliminaryDeduction();
+    const recipientLine = type === "gift" ? `Recipient/agency: ${f.agency || "Not entered"}` : type === "meeting" ? `Agency/vendor met with: ${f.agency || "Not entered"}` : `Related agency/client: ${f.agency || "Not entered"}`;
+    const peopleLine = type !== "missing" ? `Recipient(s)/attendee(s): ${f.people || "Not entered"}` : "";
+    const taxLine = type === "gift" ? `Preliminary federal deduction: ${money(ded)} (business gifts are generally limited to $25 per recipient per year; accountant review required).`
+      : type === "meeting" ? `Preliminary federal deduction: ${money(ded)} (50% business-meal treatment; accountant review required).`
+      : `Preliminary expense amount: ${money(ded)} (final category and deductibility subject to accountant review).`;
+    return `DEPENDABLE CARE STAFFING LLC
+${typeInfo[type].label.toUpperCase()} DOCUMENTATION
+
+Transaction date: ${f.date || "Not entered"}
+Vendor: ${f.vendor || "Not entered"}
+Amount charged: ${money(f.amount)}
+Payment method: ${f.payment || "Not entered"}
+${recipientLine}${peopleLine ? `\n${peopleLine}` : ""}
+Items or services: ${f.items || "Not entered"}
+Business purpose: ${f.purpose || "Not entered"}
+
+Missing-receipt explanation: ${f.reason || "Not entered"}
+
+${taxLine}
+
+Certification: I certify that the information above is true to the best of my knowledge, that this was a legitimate business expenditure, and that no reimbursement or duplicate deduction has been claimed.
+
+Prepared by: Tony, Company Director
+Date prepared: ${new Date().toLocaleDateString("en-US")}`;
+  }
+
+  function docSheetHtml() {
+    const f = formVals();
+    const ded = preliminaryDeduction();
+    const agencyTerm = type === "gift" ? "Recipient agency" : type === "meeting" ? "Agency/vendor" : "Related agency/client";
+    const row = (term, val) => `<div><dt>${escHtml(term)}</dt><dd>${escHtml(val || "—")}</dd></div>`;
+    return `
+      <div class="edoc-doc-topline"><span>DCS</span><span>Expense support record</span></div>
+      <h5>${escHtml(typeInfo[type].label)} documentation</h5>
+      <dl>
+        ${row("Transaction date", f.date)}
+        ${row("Vendor", f.vendor)}
+        ${row("Amount charged", money(f.amount))}
+        ${row("Payment method", f.payment)}
+        ${row(agencyTerm, f.agency)}
+        ${type !== "missing" ? row(type === "gift" ? "Recipient(s)" : "Attendees", f.people) : ""}
+        ${row("Items/services", f.items)}
+        ${row("Business purpose", f.purpose)}
+        ${row("Receipt status", f.reason)}
+      </dl>
+      <div class="edoc-deduction-box">
+        <span>Preliminary suggested deduction</span>
+        <strong>${money(ded)}</strong>
+        <small>${type === "gift" ? "$25 per-recipient annual limit assumed" : type === "meeting" ? "50% business-meal treatment assumed" : "Final category subject to accountant review"}</small>
+      </div>
+      <p class="edoc-certification">I certify that the information above is true to the best of my knowledge, that this was a legitimate business expenditure, and that no reimbursement or duplicate deduction has been claimed.</p>
+      <div class="edoc-signature-grid">
+        <div><span>Tony</span><small>Prepared by / Company Director</small></div>
+        <div><span>${escHtml(new Date().toLocaleDateString("en-US"))}</span><small>Date prepared</small></div>
+      </div>`;
+  }
+
+  function updatePreview() {
+    $("edoc-doc-sheet").innerHTML = docSheetHtml();
+    const ded = preliminaryDeduction();
+    $("edoc-tax-note").innerHTML = "<strong>Preliminary treatment</strong>" +
+      escHtml(type === "gift" ? `${money(ded)} suggested deduction using the $25 recipient limit.`
+        : type === "meeting" ? `${money(ded)} suggested deduction at the standard 50% business-meal rate.`
+        : `${money(ded)} expense amount before Apple assigns the final category.`);
+  }
+
+  // ── Transaction navigation ────────────────────────────────────────
+  function loadTransaction(row, index) {
+    const saved = reviews[index];
+    currentIndex = index;
+    $("edoc-date").value = row.date || "";
+    $("edoc-vendor").value = row.merchant || "";
+    $("edoc-amount").value = String(row.recordAmount != null ? row.recordAmount : Math.abs(row.amount).toFixed(2));
+    $("edoc-payment").value = (saved && saved.payment) || "Company debit card / bank account";
+    $("edoc-agency").value = (saved && saved.agency) || "";
+    $("edoc-people").value = (saved && saved.people) || "";
+    $("edoc-purpose").value = (saved && saved.purpose != null ? saved.purpose : row.suggestedPurpose) || "";
+    $("edoc-items").value = (saved && saved.items != null ? saved.items : row.suggestedItems) || "";
+    $("edoc-reason").value = (saved && saved.reason) || row.receiptNote || "Original receipt is no longer available.";
+    const nextType = row.locked ? (row.suggestedType || "missing") : ((saved && saved.type) || row.suggestedType || "missing");
+    setType(nextType, { force: true });
+    syncLockedUI();
+    $("edoc-quick-purpose").style.display = row.merchant === "Starbucks" ? "" : "none";
+    const ni = $("edoc-needs-input");
+    if (row.needsInput) { ni.innerHTML = "<strong>Your input is still needed:</strong> " + escHtml(row.needsInput); ni.style.display = ""; }
+    else ni.style.display = "none";
+    renderReviewStrip();
+  }
+
+  function move(direction) {
+    saveCurrentReview();
+    const next = Math.min(transactions.length - 1, Math.max(0, currentIndex + direction));
+    if (transactions[next]) loadTransaction(transactions[next], next);
+  }
+
+  function markComplete() {
+    if (!transactions.length) return;
+    reviews[currentIndex] = currentReview();
+    completed.add(currentIndex);
+    if (currentIndex < transactions.length - 1) move(1);
+    else renderReviewStrip();
+    schedulePersist();
+  }
+
+  function openMerchant(merchant) {
+    saveCurrentReview();
+    let first = transactions.findIndex((row, index) => row.merchant === merchant && !completed.has(index));
+    if (first < 0) first = transactions.findIndex(row => row.merchant === merchant);
+    if (first >= 0) loadTransaction(transactions[first], first);
+    const panel = $("edoc-form-panel");
+    if (panel) panel.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ── Rendering (upload-scoped sections) ────────────────────────────
+  function renderStats() {
+    const el = $("edoc-stats");
+    if (!transactions.length) { el.style.display = "none"; return; }
+    const autoFilled = transactions.filter(r => !r.needsInput).length;
+    const needInput = transactions.length - autoFilled;
+    el.innerHTML = `
+      <div class="stat-pill"><div class="lbl">To review</div><div class="val">${transactions.length}</div></div>
+      <div class="stat-pill"><div class="lbl">Excluded</div><div class="val">${excludedCount}</div></div>
+      <div class="stat-pill ok"><div class="lbl">Auto-filled</div><div class="val">${autoFilled}</div></div>
+      <div class="stat-pill flag"><div class="lbl">Need input</div><div class="val">${needInput}</div></div>`;
+    el.style.display = "";
+  }
+
+  function renderReviewStrip() {
+    const strip = $("edoc-review-strip");
+    if (!transactions.length) { strip.style.display = "none"; $("edoc-complete-btn").style.display = "none"; return; }
+    strip.style.display = "";
+    $("edoc-complete-btn").style.display = "";
+    $("edoc-progress-label").textContent = `Transaction ${currentIndex + 1} of ${transactions.length}`;
+    $("edoc-progress-done").textContent = `${completed.size} completed`;
+    $("edoc-progress-fill").style.width = (transactions.length ? (completed.size / transactions.length) * 100 : 0) + "%";
+    const cur = transactions[currentIndex] || {};
+    $("edoc-current").innerHTML =
+      `<span class="edoc-cur-date">${escHtml(cur.date || "No date")}</span>` +
+      `<span class="edoc-cur-merchant">${escHtml(cur.merchant || "")}<small>${escHtml(cur.category || "")}</small></span>` +
+      `<span class="edoc-cur-amt">${money(Math.abs(cur.amount || 0))}</span>`;
+    $("edoc-prev-btn").disabled = currentIndex === 0;
+    $("edoc-next-btn").disabled = currentIndex === transactions.length - 1;
+  }
+
+  function renderGroups() {
+    const el = $("edoc-groups");
+    if (!transactions.length) { el.style.display = "none"; return; }
+    const groups = new Map();
+    transactions.forEach(row => {
+      if (!groups.has(row.category)) groups.set(row.category, new Map());
+      const merchants = groups.get(row.category);
+      const cur = merchants.get(row.merchant) || { count: 0, total: 0 };
+      merchants.set(row.merchant, { count: cur.count + 1, total: cur.total + Math.abs(row.amount) });
+    });
+    const sorted = [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
+    const merchantCount = new Set(transactions.map(r => r.merchant)).size;
+    el.innerHTML =
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:8px;">
+         <div><div class="edoc-eyebrow">Stores &amp; vendors</div><div style="font-size:13px;font-weight:700;color:var(--blue);">Transactions separated by suggested category</div></div>
+         <span style="font-size:11.5px;color:var(--muted);">${sorted.length} categories · ${merchantCount} merchants</span>
+       </div>` +
+      sorted.map(([category, merchants]) => {
+        const list = [...merchants.entries()].sort(([, a], [, b]) => b.total - a.total);
+        const count = list.reduce((s, [, m]) => s + m.count, 0);
+        const total = list.reduce((s, [, m]) => s + m.total, 0);
+        return `<details class="edoc-cat">
+          <summary><strong>${escHtml(category)}</strong><small>${count} transaction${count === 1 ? "" : "s"} · ${money(total)}</small></summary>
+          <div class="edoc-merchant-list">` +
+          list.map(([merchant, stats]) =>
+            `<button type="button" class="edoc-merchant" data-merchant="${escAttr(merchant)}">
+               <span>${escHtml(merchant)}</span>
+               <small>${stats.count} transaction${stats.count === 1 ? "" : "s"} · click to review</small>
+               <strong>${money(stats.total)}</strong>
+             </button>`).join("") +
+          `</div></details>`;
+      }).join("");
+    el.style.display = "";
+  }
+
+  function renderClarify() {
+    const el = $("edoc-clarify");
+    const grouped = new Map();
+    transactions.filter(r => r.needsInput).forEach(row => {
+      const cur = grouped.get(row.merchant) || { count: 0, total: 0, reason: row.needsInput };
+      grouped.set(row.merchant, { reason: cur.reason, count: cur.count + 1, total: cur.total + Math.abs(row.amount) });
+    });
+    if (!grouped.size) { el.style.display = "none"; return; }
+    const list = [...grouped.entries()].sort(([, a], [, b]) => b.total - a.total);
+    el.innerHTML = `<div class="edoc-clarify-panel">
+      <h4>Still need your input — ${list.length} merchant${list.length === 1 ? "" : "s"} that can't be finished truthfully without you</h4>` +
+      list.map(([merchant, info]) =>
+        `<div class="edoc-clarify-item">
+           <div class="edoc-clarify-head"><strong>${escHtml(merchant)}</strong><span>${info.count} transaction${info.count === 1 ? "" : "s"} · ${money(info.total)}</span></div>
+           <p>${escHtml(info.reason)}</p>
+         </div>`).join("") +
+      `</div>`;
+    el.style.display = "";
+  }
+
+  function renderAllUploadSections() {
+    renderStats();
+    renderGroups();
+    renderClarify();
+    renderReviewStrip();
+    const dzTitle = $("edoc-dz-title");
+    dzTitle.textContent = sourceName
+      ? `✓ ${sourceName} — ${transactions.length} to review (drop a new file to replace)`
+      : "Drop the bank workbook here or click to browse";
+  }
+
+  // ── Upload ────────────────────────────────────────────────────────
+  async function uploadWorkbook(file) {
+    if (!file) return;
+    const errEl = $("edoc-upload-error");
+    errEl.style.display = "none";
+    if (typeof XLSX === "undefined") { showToast("Spreadsheet reader didn't load — refresh the page.", "error"); return; }
+    try {
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array" });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json(sheet, { defval: "", raw: false });
+      const parsed = raw.map(srcRow => {
+        // Trim header keys — Chase exports sometimes carry trailing spaces
+        const row = {};
+        Object.keys(srcRow).forEach(k => { row[k.trim()] = srcRow[k]; });
+        const description = String(row.Description != null && row.Description !== "" ? row.Description : (row["Bank Description"] || row["Bank Details and Relevant Transactions"] || ""));
+        const bankType = String(row.Type != null && row.Type !== "" ? row.Type : (row["Bank Type"] || row.Details || ""));
+        const amountText = String(row.Amount != null && row.Amount !== "" ? row.Amount : "0").replace(/[$,()]/g, m => m === "(" ? "-" : "");
+        return enrichRow({
+          date: normalizeDate(row["Posting Date"] != null && row["Posting Date"] !== "" ? row["Posting Date"] : row.Date),
+          amount: Number(amountText.replace(")", "")) || 0,
+          description: description, bankType: bankType,
+          merchant: merchantName(description),
+          category: categorize(description, bankType)
+        });
+      }).filter(row => row.description && row.amount !== 0);
+      const included = parsed.filter(row => !shouldExclude(row.description, row.bankType));
+      transactions = included;
+      excludedCount = parsed.length - included.length;
+      sourceName = file.name;
+      completed = new Set();
+      reviews = {};
+      currentIndex = 0;
+      renderAllUploadSections();
+      if (included[0]) loadTransaction(included[0], 0);
+      if (!included.length) {
+        errEl.textContent = "No reviewable transactions were found after applying the exclusion rules.";
+        errEl.style.display = "";
+      }
+      persistState();
+    } catch (e) {
+      console.warn("[edoc] upload failed:", e);
+      errEl.textContent = "Couldn't read that file. Upload an .xlsx, .xls, or .csv bank export with Date, Amount, and Description columns.";
+      errEl.style.display = "";
+    }
+  }
+
+  // ── Download reviewed workbook (columns verbatim from the app) ────
+  function downloadUpdatedWorkbook() {
+    if (!transactions.length) { showToast("Upload a bank workbook first.", "error"); return; }
+    if (typeof XLSX === "undefined") { showToast("Spreadsheet writer didn't load — refresh the page.", "error"); return; }
+    saveCurrentReview();
+    const rows = transactions.map((row, index) => {
+      const review = reviews[index];
+      const effectiveAmount = row.recordAmount != null ? row.recordAmount : Math.abs(row.amount);
+      const recordType = (review && review.type) || row.suggestedType || "missing";
+      const deduction = review && review.deduction != null ? review.deduction
+        : (recordType === "gift" ? Math.min(effectiveAmount, 25) : recordType === "meeting" ? effectiveAmount * 0.5 : effectiveAmount);
+      return {
+        "Date": row.date,
+        "Bank Amount": Math.abs(row.amount),
+        "Vendor": row.merchant,
+        "Bank Description": row.description,
+        "Suggested Category": row.category,
+        "Record Type": typeInfo[recordType].label,
+        "Agency / Recipient": (review && review.agency) || "",
+        "Attendees / Recipient Details": (review && review.people) || "",
+        "Items / Services": (review && review.items != null ? review.items : row.suggestedItems) || "",
+        "Business Purpose": (review && review.purpose != null ? review.purpose : row.suggestedPurpose) || "",
+        "Receipt Note": (review && review.reason) || row.receiptNote || "Original receipt is no longer available.",
+        "Preliminary Deduction": Number(deduction.toFixed(2)),
+        "Status": completed.has(index) ? "Complete" : "Needs Review",
+        "Still Needs Input": completed.has(index) ? "" : (row.needsInput || "")
+      };
+    });
+    const workbook = XLSX.utils.book_new();
+    const reviewSheet = XLSX.utils.json_to_sheet(rows);
+    reviewSheet["!cols"] = [12, 14, 28, 55, 34, 20, 30, 34, 42, 55, 45, 20, 16, 55].map(wch => ({ wch: wch }));
+    XLSX.utils.book_append_sheet(workbook, reviewSheet, "Updated Review");
+    const summarySheet = XLSX.utils.json_to_sheet([
+      { Item: "Source file", Value: sourceName },
+      { Item: "Included transactions", Value: transactions.length },
+      { Item: "Excluded checks, Zelle, Wise, payroll and transfers", Value: excludedCount },
+      { Item: "Completed", Value: completed.size },
+      { Item: "Still needs review", Value: transactions.length - completed.size }
+    ]);
+    summarySheet["!cols"] = [{ wch: 52 }, { wch: 30 }];
+    XLSX.utils.book_append_sheet(workbook, summarySheet, "Summary");
+    XLSX.writeFile(workbook, `DCS_Updated_Expense_Review_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    showToast("Reviewed workbook downloaded.");
+  }
+
+  // ── Copy + print ──────────────────────────────────────────────────
+  async function copyStatement() {
+    const text = statementText();
+    try {
+      await navigator.clipboard.writeText(text);
+      showToast("Statement copied.");
+    } catch (_) {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); showToast("Statement copied."); }
+      catch (e) { showToast("Copy failed — select the statement text manually.", "error"); }
+      document.body.removeChild(ta);
+    }
+  }
+
+  function printStatement() {
+    const w = window.open("", "_blank");
+    if (!w) { alert("Popup blocked — allow popups for this site to print the statement."); return; }
+    const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>DCS Expense Support Record</title><style>
+      body { font-family: Georgia, "Times New Roman", serif; color: #1f2937; margin: 28px auto; max-width: 680px; font-size: 13.5px; line-height: 1.55; }
+      .edoc-doc-topline { display: flex; justify-content: space-between; font-size: 10.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.8px; border-bottom: 2px solid #1e3a8a; padding-bottom: 6px; margin-bottom: 12px; }
+      h5 { margin: 0 0 12px; font-size: 17px; color: #1e3a8a; }
+      dl { margin: 0; }
+      dl > div { display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px solid #e5e7eb; }
+      dt { flex: 0 0 165px; font-size: 10.5px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.3px; padding-top: 2px; }
+      dd { margin: 0; flex: 1; }
+      .edoc-deduction-box { border: 1px solid #86efac; background: #f0fdf4; border-radius: 8px; padding: 12px 14px; margin: 14px 0; }
+      .edoc-deduction-box span { display: block; font-size: 10.5px; font-weight: 700; color: #166534; text-transform: uppercase; letter-spacing: 0.4px; }
+      .edoc-deduction-box strong { font-size: 20px; color: #15803d; }
+      .edoc-deduction-box small { display: block; font-size: 11px; color: #166534; }
+      .edoc-certification { font-size: 11.5px; color: #6b7280; font-style: italic; margin: 12px 0 18px; }
+      .edoc-signature-grid { display: flex; gap: 30px; }
+      .edoc-signature-grid > div { flex: 1; border-top: 1px solid #9ca3af; padding-top: 6px; }
+      .edoc-signature-grid span { display: block; font-weight: 700; }
+      .edoc-signature-grid small { color: #6b7280; font-size: 10.5px; }
+      @media print { body { margin: 12mm; } }
+    </style></head><body>${docSheetHtml()}</body></html>`;
+    w.document.write(doc); w.document.close();
+    setTimeout(function() { try { w.focus(); w.print(); } catch (_) {} }, 300);
+  }
+
+  // ── Reset ─────────────────────────────────────────────────────────
+  function resetForm() {
+    ["edoc-date","edoc-vendor","edoc-amount","edoc-agency","edoc-people","edoc-purpose","edoc-items"].forEach(id => { $(id).value = ""; });
+    $("edoc-payment").value = "Company debit card";
+    $("edoc-reason").value = "Original receipt is no longer available.";
+    updatePreview();
+  }
+
+  function clearFile() {
+    if (!transactions.length) return;
+    if (!confirm("Clear the loaded file and all in-progress documentation? This can't be undone.")) return;
+    transactions = []; currentIndex = 0; excludedCount = 0; sourceName = "";
+    completed = new Set(); reviews = {};
+    try { localStorage.removeItem(LS_KEY); } catch (_) {}
+    ["edoc-stats","edoc-review-strip","edoc-groups","edoc-clarify"].forEach(id => { $(id).style.display = "none"; });
+    $("edoc-complete-btn").style.display = "none";
+    $("edoc-quick-purpose").style.display = "none";
+    $("edoc-needs-input").style.display = "none";
+    $("edoc-dz-title").textContent = "Drop the bank workbook here or click to browse";
+    setType("missing", { force: true });
+    syncLockedUI();
+    resetForm();
+    showToast("Cleared.");
+  }
+
+  // ── localStorage persistence (ATTACH pattern; everything serializes) ──
+  function persistState() {
+    try {
+      if (!transactions.length) return;
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        transactions: transactions, currentIndex: currentIndex, excludedCount: excludedCount,
+        sourceName: sourceName, completed: Array.from(completed), reviews: reviews
+      }));
+    } catch (_) { /* quota / storage disabled — non-fatal */ }
+  }
+  function schedulePersist() {
+    if (persistTimer) clearTimeout(persistTimer);
+    persistTimer = setTimeout(persistState, 600);
+  }
+  function restoreState() {
+    try {
+      const snap = JSON.parse(localStorage.getItem(LS_KEY) || "null");
+      if (!snap || !Array.isArray(snap.transactions) || !snap.transactions.length) return false;
+      transactions = snap.transactions;
+      excludedCount = snap.excludedCount || 0;
+      sourceName = snap.sourceName || "";
+      completed = new Set(snap.completed || []);
+      reviews = snap.reviews || {};
+      currentIndex = Math.min(Math.max(0, snap.currentIndex || 0), transactions.length - 1);
+      renderAllUploadSections();
+      loadTransaction(transactions[currentIndex], currentIndex);
+      return true;
+    } catch (_) { return false; }
+  }
+
+  // ── Agencies datalist (live portal list, fallback to the app's) ───
+  async function fetchAgencies() {
+    const fill = names => {
+      $("edoc-agency-options").innerHTML = names.map(n => `<option value="${escAttr(n)}"></option>`).join("");
+    };
+    fill(AGENCY_FALLBACK);
+    try {
+      const { data, error } = await db.from("home_health_agencies").select("name").order("name", { ascending: true }).limit(5000);
+      if (!error && data && data.length) fill(data.map(r => r.name).filter(Boolean));
+      else if (error) console.warn("[edoc] agency fetch failed (using fallback list):", error.message);
+    } catch (e) { console.warn("[edoc] agency fetch failed (using fallback list):", e); }
+  }
+
+  // ── Init ──────────────────────────────────────────────────────────
+  function init() {
+    if (initialized) return;
+    initialized = true;
+
+    // Dropzone (post-PR-#64 pattern — div not label, value-reset on change)
+    const dz = $("edoc-dropzone");
+    const fi = $("edoc-file-input");
+    if (!dz || !fi) return;
+    dz.addEventListener("click", () => fi.click());
+    dz.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.click(); }
+    });
+    fi.addEventListener("change", e => {
+      const f = e.target.files[0]; e.target.value = "";
+      if (f) uploadWorkbook(f);
+    });
+    ["dragenter","dragover"].forEach(ev =>
+      dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add("is-dragover"); })
+    );
+    ["dragleave","drop"].forEach(ev =>
+      dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove("is-dragover"); })
+    );
+    dz.addEventListener("drop", e => {
+      if (e.dataTransfer.files[0]) uploadWorkbook(e.dataTransfer.files[0]);
+    });
+
+    // Record-type tabs
+    document.querySelectorAll("#edoc-type-tabs .edoc-type-tab").forEach(btn =>
+      btn.addEventListener("click", () => setType(btn.dataset.type))
+    );
+
+    // Starbucks quick-purpose chooser (purpose text verbatim from the app)
+    $("edoc-quick-purpose").addEventListener("click", e => {
+      const btn = e.target.closest("[data-quick]");
+      if (!btn) return;
+      if (btn.dataset.quick === "interview") {
+        setType("meeting");
+        $("edoc-purpose").value = "Clinician interview meeting to evaluate the clinician's qualifications, availability, and fit for Dependable Care Staffing assignments.";
+      } else if (btn.dataset.quick === "training") {
+        setType("meeting");
+        $("edoc-purpose").value = "Clinician training meeting regarding documentation, compliance, scheduling, or patient-care procedures for Dependable Care Staffing assignments.";
+      } else {
+        setType("gift");
+        $("edoc-purpose").value = "Starbucks gift delivered to a home health agency to maintain and develop the business referral relationship.";
+      }
+      updatePreview();
+      saveCurrentReview();
+    });
+
+    // Live preview + debounced persist on any form edit
+    const panel = $("edoc-form-panel");
+    ["input","change"].forEach(ev => panel.addEventListener(ev, e => {
+      if (!e.target.closest("input, textarea")) return;
+      updatePreview();
+      if (transactions.length) { reviews[currentIndex] = currentReview(); schedulePersist(); }
+    }));
+
+    // Navigation + actions
+    $("edoc-prev-btn").addEventListener("click", () => move(-1));
+    $("edoc-next-btn").addEventListener("click", () => move(1));
+    $("edoc-complete-btn").addEventListener("click", markComplete);
+    $("edoc-download-btn").addEventListener("click", downloadUpdatedWorkbook);
+    $("edoc-clear-btn").addEventListener("click", clearFile);
+    $("edoc-reset-form-btn").addEventListener("click", resetForm);
+    $("edoc-copy-btn").addEventListener("click", copyStatement);
+    $("edoc-print-btn").addEventListener("click", printStatement);
+
+    // Merchant cards → jump to that merchant's first unreviewed transaction
+    $("edoc-groups").addEventListener("click", e => {
+      const btn = e.target.closest(".edoc-merchant");
+      if (btn) openMerchant(btn.dataset.merchant);
+    });
+
+    fetchAgencies();
+    updatePreview();
+    restoreState();
+  }
+
+  return { init };
+})();
+
 // Initialize VDR + IIF + ATTACH modules after launchApp confirms admin role + when billing view opens
 // ═══════════════════════════════════════════════════════════════════════
 //  RENEW — 🏛 Company Renewals (migration 54).
@@ -13362,6 +14319,7 @@ function maybeInitQbTools() {
 }
 function maybeInitExpenses() {
   if (currentRole === "admin") EXP.init();
+  if (currentRole === "admin") EDOC.init();
 }
 function maybeInitPayroll() {
   if (currentRole === "admin") cprPayRatesInit();
@@ -13390,7 +14348,7 @@ launchApp = async function(user) {
     const v = params.get("view") || "landing";
     if (v === "billing")  { VDR.init(); IIF.init(); ATTACH.init(); }
     if (v === "qbtools")  { BANK.init(); HIST.init(); }
-    if (v === "expenses") { EXP.init(); }
+    if (v === "expenses") { EXP.init(); EDOC.init(); }
     if (v === "payroll")  { cprPayRatesInit(); }
     if (v === "renewals") { RENEW.init(); }
   }
