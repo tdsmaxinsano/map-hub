@@ -985,6 +985,34 @@
       <button class="btn-confirm" id="ats-save-btn" style="width:auto;padding:8px 18px;" onclick="atsSave()" disabled>💾 Save changes</button>
     </div>
     <div id="ats-approve-footer" style="display:none;align-items:center;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--border);"></div>
+
+    <!-- 💸 Expenses — mirror of the employee's My Expenses card (same rows,
+         same status pills, same receipt links) + an admin add-on-behalf form.
+         The list is the employee's RECENT expenses (like their card) — not
+         period-scoped. Adding creates a normal PENDING staff_expenses row
+         that flows through 💸 Expense Approvals on the Pay Period tab.
+         Requires migration 66 (admin INSERT on behalf). -->
+    <div id="ats-exp-section" style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+      <div style="font-size:13px;font-weight:800;color:var(--blue);margin-bottom:2px;">💸 Expenses <span id="ats-exp-count" style="background:#EEF4FB;color:var(--blue);font-size:10.5px;padding:1px 8px;border-radius:9px;font-weight:700;"></span></div>
+      <div style="font-size:11px;color:var(--gray);margin-bottom:8px;">Exactly what the employee sees on their My Expenses card (recent, all statuses — not limited to this period). Pending ones are approved from Pay Period → 💸 Expense Approvals.</div>
+      <div id="ats-exp-list" style="margin-bottom:10px;"><div style="color:var(--gray);font-size:12px;">Loading…</div></div>
+      <div style="display:flex;align-items:flex-end;gap:8px;flex-wrap:wrap;background:#FBFCFE;border:1px solid var(--border);border-radius:8px;padding:10px 12px;">
+        <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">DATE</label>
+          <input type="date" id="ats-exp-date" style="padding:6px 8px;font-size:12px;" /></div>
+        <div style="flex:1;min-width:150px;"><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">DESCRIPTION</label>
+          <input type="text" id="ats-exp-desc" placeholder="e.g. Office supplies, Food allowance" style="width:100%;padding:6px 8px;font-size:12px;" /></div>
+        <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">AMOUNT</label>
+          <input type="number" id="ats-exp-amount" min="0" step="0.01" placeholder="0.00" style="width:90px;padding:6px 8px;font-size:12px;" /></div>
+        <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">CURRENCY</label>
+          <select id="ats-exp-currency" style="padding:6px 8px;font-size:12px;">
+            <option value="PHP">🇵🇭 PHP</option>
+            <option value="USD">🇺🇸 USD</option>
+          </select></div>
+        <div><label style="font-size:10px;color:var(--gray);font-weight:700;display:block;">RECEIPT(S)</label>
+          <input type="file" id="ats-exp-receipt" accept="image/*,application/pdf" multiple style="font-size:11px;max-width:180px;" /></div>
+        <button type="button" class="btn-confirm" id="ats-exp-add-btn" style="width:auto;padding:8px 14px;" onclick="atsExpAdd(this)">＋ Add expense</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -2997,6 +3025,7 @@ function openStaffTimesheet(userId, initialOffset) {
   atsOffset = (initialOffset === undefined || initialOffset === null) ? periodOffset : initialOffset;
   document.getElementById('admin-ts-modal').classList.add('open');
   atsLoad();
+  atsExpLoad();   // 💸 expenses are user-scoped (like the employee's card), so load on open — not on period nav
 }
 
 // Admin Staff-Timesheet cache — keyed by user_id|period_start (the viewed
@@ -3261,6 +3290,109 @@ function atsClose() {
   if (atsDirty && !confirm('Discard unsaved timesheet changes?')) return;
   atsSetDirty(false);
   closeModal('admin-ts-modal');
+}
+
+// ── 💸 Expenses in the admin timesheet view ─────────────────────────
+// Mirror of the employee's My Expenses card (expensesLoad/expensesRender)
+// for the VIEWED staffer, plus an add-on-behalf form. The list is
+// user-scoped (recent 30, all statuses) exactly like the employee's card
+// — loaded on modal open + after an add, not on period nav. Adding
+// creates a normal PENDING row (migration 66 widens the INSERT policy so
+// an admin may insert for someone else); approval stays in the Pay
+// Period tab's 💸 Expense Approvals card.
+async function atsExpLoad() {
+  const list = document.getElementById('ats-exp-list');
+  if (!list) return;
+  const dateEl = document.getElementById('ats-exp-date');
+  if (dateEl && !dateEl.value) dateEl.value = new Date().toISOString().slice(0, 10);
+  list.innerHTML = '<div style="color:var(--gray);font-size:12px;">Loading…</div>';
+  try {
+    const { data, error } = await db.from('staff_expenses').select('*')
+      .eq('user_id', atsUserId)
+      .order('created_at', { ascending: false })
+      .limit(30);
+    if (error) throw error;
+    atsExpRender(data || []);
+  } catch (err) {
+    list.innerHTML = '<div style="color:var(--red);font-size:12px;">Expenses unavailable — has migration 42 (staff_expenses) been run? ' + escAttr(err.message || '') + '</div>';
+    document.getElementById('ats-exp-count').textContent = '';
+  }
+}
+
+function atsExpRender(rows) {
+  const list = document.getElementById('ats-exp-list');
+  if (!list) return;
+  const pendingCount = rows.filter(r => r.status === 'pending').length;
+  document.getElementById('ats-exp-count').textContent =
+    rows.length ? rows.length + ' recent' + (pendingCount ? ' · ' + pendingCount + ' pending' : '') : '';
+  if (!rows.length) {
+    list.innerHTML = '<div style="color:var(--gray);font-size:12px;">No expenses submitted yet.</div>';
+    return;
+  }
+  list.innerHTML = rows.map(r => {
+    // Same pills the employee sees on their card (expensesRender).
+    let pill;
+    if (r.status === 'approved') {
+      pill = '<span style="background:#E6F4EA;color:#1B5E20;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Approved — added to their pay as a reimbursement">✅ Approved</span>';
+    } else if (r.status === 'declined') {
+      pill = '<span style="background:#FDECEA;color:var(--red);font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="' + escAttr(r.decline_reason || 'Declined') + '">⛔ Declined</span>';
+    } else {
+      pill = '<span style="background:#FFF4D6;color:#8a5a00;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Approve from Pay Period → 💸 Expense Approvals">🟡 Pending</span>';
+    }
+    const receipt = expReceiptLinks(r, false);   // read-only links here
+    const declineLine = r.status === 'declined' && r.decline_reason
+      ? '<div style="flex-basis:100%;font-size:11px;color:var(--red);padding-left:88px;">Reason: ' + escAttr(r.decline_reason) + '</div>'
+      : '';
+    return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;">' +
+      '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>' +
+      '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>' +
+      '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>' +
+      pill + receipt + declineLine +
+    '</div>';
+  }).join('');
+}
+
+// Upload a receipt under the VIEWED staffer's path (the reimbursement-
+// receipts bucket has had an admin FOR ALL write policy since migration
+// 21, so this passes; the migration-42 per-user path policy is for staff).
+async function atsExpUploadReceipt(file, idx) {
+  const ext  = (file.name.split('.').pop() || 'dat').toLowerCase();
+  const path = 'staff-expenses/' + atsUserId + '/' + Date.now() + '-' + (idx || 0) + '.' + ext;
+  const up = await db.storage.from('reimbursement-receipts').upload(path, file, { contentType: file.type });
+  if (up.error) throw new Error('Receipt upload failed: ' + up.error.message);
+  return db.storage.from('reimbursement-receipts').getPublicUrl(path).data.publicUrl;
+}
+
+async function atsExpAdd(btn) {
+  const date = document.getElementById('ats-exp-date').value || new Date().toISOString().slice(0, 10);
+  const desc = (document.getElementById('ats-exp-desc').value || '').trim();
+  const amt  = parseFloat(document.getElementById('ats-exp-amount').value);
+  const cur  = document.getElementById('ats-exp-currency').value;
+  const files = Array.from(document.getElementById('ats-exp-receipt').files || []);
+  if (!desc) { showToast('Describe what the expense was.'); return; }
+  if (!Number.isFinite(amt) || amt <= 0) { showToast('Enter a valid amount.'); return; }
+  const big = expOversizeFile(files);
+  if (big) { showToast('Each receipt must be under 5MB (' + big.name + ').'); return; }
+  btn.disabled = true; btn.textContent = '...';
+  try {
+    const urls = [];
+    for (let i = 0; i < files.length; i++) urls.push(await atsExpUploadReceipt(files[i], i));
+    const { error } = await db.from('staff_expenses').insert({
+      user_id: atsUserId, expense_date: date, description: desc,
+      amount: amt, currency: cur,
+      receipt_url: urls[0] || null, receipt_urls: urls
+    });
+    if (error) throw new Error(error.message + (/(policy|security)/i.test(error.message) ? ' — has migration 66 (admin add-on-behalf) been run?' : ''));
+    document.getElementById('ats-exp-desc').value = '';
+    document.getElementById('ats-exp-amount').value = '';
+    document.getElementById('ats-exp-receipt').value = '';
+    showToast('Added for ' + atsName + ' — pending in 💸 Expense Approvals (Pay Period tab).');
+    await atsExpLoad();
+    if (typeof expApprovalsLoad === 'function') expApprovalsLoad();   // refresh the approvals card
+  } catch (err) {
+    showToast('Failed: ' + (err.message || err));
+  }
+  btn.disabled = false; btn.textContent = '＋ Add expense';
 }
 
 // Persist the admin's edits — same storage shape the staff Submit uses
