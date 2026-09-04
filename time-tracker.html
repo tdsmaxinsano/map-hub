@@ -258,10 +258,15 @@
     .pay-table tr.adj-subrow td { background: #FBFCFE; border-bottom: 1px solid var(--border); }
     .pay-table tr.adj-subrow:hover td { background: #F4F8FF; }
     .pay-table .adj-name { font-weight: 600; color: var(--gray); font-size: 12px; padding-left: 22px; }
-    .add-adj-btn { padding: 3px 10px; border: 1px dashed var(--border); border-radius: 12px; background: var(--white); font-size: 11px; font-weight: 700; color: var(--blue); cursor: pointer; }
+    /* .pp-approve-btn shares the dashed-pill look but is deliberately a
+       SEPARATE class: the pay-table tbody has a delegated click handler
+       that opens the Add Adjustment modal for any .add-adj-btn, and the
+       row's ✓ Approve button once borrowed that class for styling — so
+       approving a timesheet ALSO popped the adjustment modal. */
+    .add-adj-btn, .pp-approve-btn { padding: 3px 10px; border: 1px dashed var(--border); border-radius: 12px; background: var(--white); font-size: 11px; font-weight: 700; color: var(--blue); cursor: pointer; }
     .ts-view-btn { padding: 2px 7px; border: 1px solid var(--border); border-radius: 10px; background: var(--white); font-size: 12px; line-height: 1; cursor: pointer; vertical-align: middle; }
     .ts-view-btn:hover { background: #EEF4FB; border-color: var(--blue); }
-    .add-adj-btn:hover { border-color: var(--blue); background: var(--blue-light); }
+    .add-adj-btn:hover, .pp-approve-btn:hover { border-color: var(--blue); background: var(--blue-light); }
     .receipt-link { text-decoration: none; font-size: 12px; }
     .adj-row-controls { float: right; display: inline-flex; gap: 4px; opacity: 0.55; transition: opacity 0.15s; }
     .pay-table tr.adj-subrow:hover .adj-row-controls { opacity: 1; }
@@ -3909,7 +3914,7 @@ async function renderPayPeriod(useCache) {
     if (sub) {
       if (sub.status === 'submitted') {
         ppsPill = '<span class="pps-pill pps-submitted">Submitted</span>';
-        ppsApprove = ` <button type="button" class="add-adj-btn" style="border-color:var(--green);color:var(--green);" onclick="payPeriodApprove(this, '${s.user_id}')">✓ Approve</button>`;
+        ppsApprove = ` <button type="button" class="pp-approve-btn" style="border-color:var(--green);color:var(--green);" onclick="payPeriodApprove(this, '${s.user_id}')">✓ Approve</button>`;
       } else if (sub.status === 'approved') {
         ppsPill = '<span class="pps-pill pps-approved">✓ Approved</span>';
       } else if (sub.status === 'rejected') {
