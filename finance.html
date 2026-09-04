@@ -1555,7 +1555,7 @@
       <div class="row"><span class="lbl">Period</span><span class="val" id="pp-period">—</span></div>
       <div class="row"><span class="lbl">Active staff</span><span class="val" id="pp-active">—</span></div>
       <div class="row"><span class="lbl">Estimated total payout</span><span class="val big" id="pp-payout">—</span></div>
-      <div class="row"><span class="lbl">Pending edit requests</span><span class="val" id="pp-pending">—</span></div>
+      <div class="row"><span class="lbl">Timesheets awaiting approval</span><span class="val" id="pp-pending">—</span></div>
       <div class="actions">
         <a id="pp-open-time" href="time-tracker.html">Open Time Tracker →</a>
         <button class="btn-secondary" onclick="loadPayrollSummary()">Refresh</button>
@@ -9372,9 +9372,11 @@ async function loadPayrollSummary() {
   });
   document.getElementById("pp-payout").textContent = fmtUSD(total);
 
-  // Pending edit requests
+  // Timesheets awaiting approval — submitted pay periods not yet approved
+  // (the old time_edit_requests count died with the Approvals tab; this
+  // matches how approval actually works now: Pay Period ✓ Approve).
   try {
-    const r = await db.from("time_edit_requests").select("id", { count: "exact", head: true }).eq("status", "pending");
+    const r = await db.from("pay_period_submissions").select("id", { count: "exact", head: true }).eq("status", "submitted");
     if (r.error) throw r.error;
     document.getElementById("pp-pending").textContent = r.count || 0;
   } catch (e) {
