@@ -3225,17 +3225,34 @@ function atsRender(period) {
   }
   document.getElementById('ats-status').innerHTML = badge;
 
-  // Review → approve / send-back, available when submitted.
+  // Review actions — the admin always has a way forward:
+  //  · submitted → ✓ Approve / ↩ Send back (unchanged)
+  //  · draft or sent-back → ✓ Approve now (approve_pay_period upserts, so
+  //    it works even when the employee never submitted — e.g. the admin
+  //    filled the sheet themselves) + 📣 Ask to review & submit (writes
+  //    the note the employee sees on their My Timesheet badge, and their
+  //    Submit button re-activates)
+  //  · approved → ↩ Send Back (the official unlock, migration 65)
   const footer = document.getElementById('ats-approve-footer');
-  if (sub && sub.status === 'submitted') {
-    footer.style.display = 'flex';
+  const subStatus = sub ? sub.status : 'draft';
+  footer.style.display = 'flex';
+  if (subStatus === 'submitted') {
     footer.innerHTML =
       `<span style="flex:1;font-size:12px;color:var(--gray);">Reviewed the days above?</span>` +
       `<button class="btn-confirm" style="width:auto;padding:8px 18px;" onclick="atsApprove()">✓ Approve period</button>` +
       `<button class="btn-cancel"  style="width:auto;padding:8px 14px;" onclick="atsReject()">↩ Send back</button>`;
+  } else if (subStatus === 'approved') {
+    footer.innerHTML =
+      `<span style="flex:1;font-size:12px;color:var(--gray);">Approved — send it back if something needs fixing (this unlocks the timesheet for the employee).</span>` +
+      `<button class="btn-cancel" style="width:auto;padding:8px 14px;" onclick="atsReject()">↩ Send Back</button>`;
   } else {
-    footer.style.display = 'none';
-    footer.innerHTML = '';
+    const hint = subStatus === 'rejected'
+      ? 'Sent back to the employee — you can still approve it yourself, or update the note.'
+      : 'Not submitted yet — approve it yourself, or ask the employee to review & submit.';
+    footer.innerHTML =
+      `<span style="flex:1;font-size:12px;color:var(--gray);">${hint}</span>` +
+      `<button class="btn-confirm" style="width:auto;padding:8px 18px;" onclick="atsApprove()">✓ Approve now</button>` +
+      `<button class="btn-period" style="width:auto;padding:8px 14px;font-weight:700;" onclick="atsRequestReview()">📣 Ask to review &amp; submit</button>`;
   }
 }
 
@@ -3247,6 +3264,12 @@ function atsChangePeriod(dir) {
 }
 
 async function atsApprove() {
+  if (atsDirty) { showToast('Save your changes first (💾 Save changes), then approve.'); return; }
+  // Approving without a submission is deliberate (admin filled the sheet
+  // themselves) — confirm so it's never an accidental one-click lock.
+  if (!atsSubmission || atsSubmission.status !== 'submitted') {
+    if (!confirm('Approve this period without ' + atsName + ' submitting it?\n\nThis marks it final and locks the timesheet for them (you can still edit, or ↩ Send Back to unlock).')) return;
+  }
   const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
   const { error } = await db.rpc('approve_pay_period', { p_user_id: atsUserId, p_period_start: periodDate });
   if (error) { showToast('Approve failed: ' + error.message); return; }
@@ -3256,7 +3279,29 @@ async function atsApprove() {
   if (typeof renderDashboard === 'function') renderDashboard();
 }
 
+// 📣 Ask the employee to review & submit — for sheets the ADMIN filled in
+// (or any unsubmitted/sent-back period). Reuses reject_pay_period, whose
+// note surfaces on the employee's My Timesheet as the ⚠ badge with this
+// message, and re-activates their Submit button. No email — they see it
+// next time they open the Time tracker.
+async function atsRequestReview() {
+  if (atsDirty) { showToast('Save your changes first (💾 Save changes), then notify the employee.'); return; }
+  const note = prompt(
+    'Message for ' + atsName + ' — shown as a ⚠ note on their My Timesheet with their Submit button active:',
+    'Please review the hours entered for you and submit your timesheet.'
+  );
+  if (note === null || !note.trim()) return;
+  const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
+  const { error } = await db.rpc('reject_pay_period', { p_user_id: atsUserId, p_period_start: periodDate, p_note: note.trim() });
+  if (error) { showToast('Failed: ' + error.message); return; }
+  showToast('Sent — ' + atsName + ' will see the note on their My Timesheet.');
+  await atsLoad();
+  if (typeof renderPayPeriod === 'function') renderPayPeriod();
+  if (typeof renderDashboard === 'function') renderDashboard();
+}
+
 async function atsReject() {
+  if (atsDirty) { showToast('Save your changes first (💾 Save changes), then send back.'); return; }
   const note = prompt('Send this period back to the employee. Add a note explaining what needs to be fixed:');
   if (!note || !note.trim()) return;
   const periodDate = getPayPeriod(atsOffset).start.toISOString().slice(0, 10);
