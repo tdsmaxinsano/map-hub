@@ -444,28 +444,6 @@
     .hud-period-hrs { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 8px; }
     .hud-refresh { font-size: 11px; color: rgba(255,255,255,0.3); margin-top: 20px; text-align: center; }
 
-    /* Approvals */
-    .approval-card { background: var(--white); border-radius: 10px; padding: 18px 20px; margin-bottom: 12px; box-shadow: 0 2px 6px rgba(0,0,0,0.07); border-left: 4px solid var(--gold); }
-    .approval-who { font-size: 14px; font-weight: 800; color: var(--blue); margin-bottom: 10px; }
-    .approval-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
-    .approval-box { padding: 10px 14px; border-radius: 8px; font-size: 12px; }
-    .approval-box.before { background: var(--red-bg); border: 1px solid #FFCDD2; }
-    .approval-box.after  { background: var(--green-bg); border: 1px solid #C8E6C9; }
-    .approval-box-label  { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
-    .approval-box.before .approval-box-label { color: var(--red); }
-    .approval-box.after  .approval-box-label { color: var(--green); }
-    .approval-time { font-size: 15px; font-weight: 800; }
-    .approval-reason { font-size: 12px; color: var(--gray); margin-bottom: 12px; font-style: italic; }
-    .approval-btns { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .btn-approve { padding: 7px 18px; background: var(--green); border: none; color: var(--white); border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; }
-    .btn-reject  { padding: 7px 18px; background: var(--red-bg); border: 1.5px solid var(--red); color: var(--red); border-radius: 7px; font-size: 13px; font-weight: 700; cursor: pointer; }
-    .btn-approve:hover { opacity: 0.85; }
-    .btn-reject:hover  { background: var(--red); color: var(--white); }
-    .reject-note { padding: 6px 10px; border: 1.5px solid var(--border); border-radius: 6px; font-size: 12px; width: 200px; }
-    /* Pending badge on tab */
-    .tab-badge { display: inline-block; background: var(--red); color: var(--white); font-size: 10px; font-weight: 800; padding: 1px 6px; border-radius: 10px; margin-left: 5px; vertical-align: middle; }
-    /* Staff pending badge on shift */
-    .pending-badge { display: inline-block; background: var(--gold-light); color: var(--gold); font-size: 10px; font-weight: 800; padding: 2px 7px; border-radius: 4px; margin-left: 6px; }
     /* 10h warning banner */
     .hrs-warning { display: none; background: #FFF3CD; border-left: 4px solid var(--gold); color: #7B5800; padding: 10px 16px; border-radius: 8px; font-size: 13px; font-weight: 700; margin-bottom: 14px; }
     .hrs-warning.show { display: block; }
@@ -704,7 +682,6 @@
       <div class="tab-bar">
         <button class="tab-btn active" onclick="switchTab('dashboard')">Dashboard</button>
         <button class="tab-btn"        onclick="switchTab('hud')">🖥 HUD</button>
-        <button class="tab-btn"        onclick="switchTab('approvals')" id="tab-btn-approvals">Approvals</button>
         <button class="tab-btn"        onclick="switchTab('payperiod')">Pay Period</button>
         <button class="tab-btn"        onclick="switchTab('settings')">Settings</button>
       </div>
@@ -738,18 +715,6 @@
         </div>
       </div>
 
-      <!-- Approvals Tab -->
-      <div class="tab-panel" id="tab-approvals">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
-          <div>
-            <div class="section-hdr" style="margin-bottom:4px;">Pending Time Edit Requests</div>
-            <div style="font-size:13px; color:var(--gray);">Review before exporting payroll. Approve all if everything looks correct.</div>
-          </div>
-          <button class="btn-gold" onclick="approveAll()" id="approve-all-btn">✓ Approve All</button>
-        </div>
-        <div id="approvals-list"></div>
-      </div>
-
       <!-- Pay Period Tab -->
       <div class="tab-panel" id="tab-payperiod">
         <div class="export-bar">
@@ -760,7 +725,7 @@
             <div id="pp-debug" style="font-size:10.5px;color:var(--gray);margin-top:3px;font-family:ui-monospace,monospace;letter-spacing:0.2px;"></div>
           </div>
           <button class="btn-period" onclick="changePeriod(1)">Next ▶</button>
-          <button class="btn-gold" onclick="checkAndExportWise()" id="wise-export-btn">⬇ Export to Wise</button>
+          <button class="btn-gold" onclick="exportWiseCSV()" id="wise-export-btn">⬇ Export to Wise</button>
           <button class="btn-gold" onclick="openAdjModal()">+ Adjustment</button>
         </div>
 
@@ -928,31 +893,6 @@
     <div class="modal-btns">
       <button class="btn-cancel" onclick="closeModal('adj-modal')">Cancel</button>
       <button class="btn-confirm" onclick="saveAdjustment()">Save</button>
-    </div>
-  </div>
-</div>
-
-<!-- Request Edit Modal (Staff) -->
-<div class="modal-overlay" id="req-edit-modal">
-  <div class="modal">
-    <h2>Request Time Edit</h2>
-    <div style="font-size:12px; color:var(--gray); margin-bottom:16px;" id="req-edit-orig"></div>
-    <div class="form-group">
-      <label>Corrected Clock In (your local time)</label>
-      <input type="time" id="req-ci" />
-    </div>
-    <div class="form-group">
-      <label>Corrected Clock Out (your local time)</label>
-      <input type="time" id="req-co" />
-    </div>
-    <div class="form-group">
-      <label>Reason <span style="color:var(--red);">*</span></label>
-      <textarea id="req-reason" rows="2" placeholder="e.g. Forgot to clock in on time, system issue..."></textarea>
-    </div>
-    <div style="font-size:11px; color:var(--gray); margin-bottom:12px;">Your admin will review this request before payroll is processed.</div>
-    <div class="modal-btns">
-      <button class="btn-cancel" onclick="closeModal('req-edit-modal')">Cancel</button>
-      <button class="btn-confirm" onclick="submitEditRequest()">Submit Request</button>
     </div>
   </div>
 </div>
@@ -1959,13 +1899,10 @@ async function loadStaffView() {
   // 💸 My Expenses card (migration 42) — non-blocking.
   expensesLoad();
 
-  const [{ data: entries }, { data: myRequests }] = await Promise.all([
-    db.from('time_entries').select('*').eq('user_id', currentUser.id).order('clock_in', { ascending: false }),
-    db.from('time_edit_requests').select('*').eq('user_id', currentUser.id).eq('status', 'pending')
-  ]);
+  const { data: entries } = await db.from('time_entries')
+    .select('*').eq('user_id', currentUser.id).order('clock_in', { ascending: false });
 
   const allEntries = entries || [];
-  const pendingReqs = myRequests || [];
 
   clockedInEntry = allEntries.find(e => !e.clock_out) || null;
   updateClockUI(myTZ);
@@ -1998,22 +1935,18 @@ async function loadStaffView() {
     const dateStr = ci.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: myTZ });
     const inStr   = ci.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: myTZ });
     const outStr  = co.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: myTZ });
-    const pending = pendingReqs.find(r => r.entry_id === e.id);
-    const pendingBadge = pending ? `<span class="pending-badge">⏳ Edit Pending</span>` : '';
-    const editBtn = pending
-      ? `<button style="font-size:11px;padding:4px 10px;background:var(--gold-light);border:1px solid var(--gold);color:#7B5800;border-radius:5px;cursor:pointer;font-weight:700;" onclick="cancelEditRequest('${pending.id}')">Cancel Request</button>`
-      : `<button style="font-size:11px;padding:4px 10px;background:var(--blue-light);border:1px solid var(--blue);color:var(--blue);border-radius:5px;cursor:pointer;font-weight:700;" onclick="openEditRequest('${e.id}','${e.clock_in}','${e.clock_out}')">Request Edit</button>`;
+    // Old "Request Edit" button removed — staff correct hours by typing on
+    // My Timesheet (Auto vs override); admins edit shifts directly.
     return `
       <div class="entry-row" style="flex-direction:column; align-items:flex-start; gap:8px;">
         <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
           <div>
-            <div class="entry-date">${dateStr} ${pendingBadge}</div>
+            <div class="entry-date">${dateStr}</div>
             <div class="entry-times">${inStr} → ${outStr}</div>
             ${e.is_manual ? '<div class="entry-manual">Manual Entry</div>' : ''}
           </div>
           <div class="entry-hours">${fmtHrs(hrs)}h${overCap ? ` <span class="shift-cap-warn" title="Over the ${MAX_SHIFT_HOURS}h cap — likely a forgotten clock-out. Only ${MAX_SHIFT_HOURS}h counts toward pay; ask your admin to fix.">⚠</span>` : ''}</div>
         </div>
-        <div>${editBtn}</div>
       </div>`;
   }).join('');
 }
@@ -2624,205 +2557,13 @@ function startHardStopMonitor() {
   }, 30000); // check every 30 seconds
 }
 
-// ══════════════════════════════════════════════════════════════
-//  STAFF EDIT REQUESTS
-// ══════════════════════════════════════════════════════════════
-let editRequestContext = {};
-
-function openEditRequest(entryId, clockIn, clockOut) {
-  const myConfig = staffConfig.find(s => s.user_id === currentUser.id);
-  const myTZ     = myConfig?.timezone || 'Asia/Manila';
-  const ci = new Date(clockIn);
-  const co = clockOut ? new Date(clockOut) : null;
-
-  editRequestContext = { entryId, clockIn, clockOut, tz: myTZ };
-
-  const inStr  = ci.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: myTZ });
-  const outStr = co ? co.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: myTZ }) : '';
-  const dateStr = ci.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', timeZone: myTZ });
-
-  document.getElementById('req-edit-orig').textContent = `Original: ${dateStr}  |  In: ${inStr}  →  Out: ${outStr || '—'}`;
-  document.getElementById('req-ci').value     = inStr;
-  document.getElementById('req-co').value     = outStr;
-  document.getElementById('req-reason').value = '';
-  document.getElementById('req-edit-modal').classList.add('open');
-}
-
-async function submitEditRequest() {
-  const { entryId, clockIn, clockOut, tz } = editRequestContext;
-  const ciTime = document.getElementById('req-ci').value;
-  const coTime = document.getElementById('req-co').value;
-  const reason = document.getElementById('req-reason').value.trim();
-
-  if (!ciTime) { showToast('Please enter the corrected clock-in time.'); return; }
-  if (!reason) { showToast('Please enter a reason for the edit request.'); return; }
-
-  const origCi   = new Date(clockIn);
-  const date     = origCi.toLocaleDateString('en-CA', { timeZone: tz });
-  const newCiLoc = new Date(`${date}T${ciTime}:00`);
-  const newCoLoc = coTime ? new Date(`${date}T${coTime}:00`) : null;
-  const newCiUTC = new Date(newCiLoc.getTime() - getTZOffset(tz, newCiLoc) * 60000);
-  const newCoUTC = newCoLoc ? new Date(newCoLoc.getTime() - getTZOffset(tz, newCoLoc) * 60000) : null;
-
-  if (newCoUTC && newCoUTC <= newCiUTC) { showToast('Clock-out must be after clock-in.'); return; }
-
-  // Remove any existing pending request for this entry first
-  await db.from('time_edit_requests').delete()
-    .eq('entry_id', entryId).eq('user_id', currentUser.id).eq('status', 'pending');
-
-  const { error } = await db.from('time_edit_requests').insert({
-    entry_id: entryId, user_id: currentUser.id,
-    original_clock_in: clockIn, original_clock_out: clockOut || null,
-    requested_clock_in: newCiUTC.toISOString(),
-    requested_clock_out: newCoUTC ? newCoUTC.toISOString() : null,
-    reason
-  });
-
-  if (error) { showToast('Error submitting request: ' + error.message); return; }
-  showToast('Edit request submitted! Your admin will review it.');
-  closeModal('req-edit-modal');
-  await loadStaffView();
-}
-
-async function cancelEditRequest(requestId) {
-  if (!confirm('Cancel this edit request?')) return;
-  await db.from('time_edit_requests').delete().eq('id', requestId);
-  showToast('Request cancelled.');
-  await loadStaffView();
-}
-
-// ══════════════════════════════════════════════════════════════
-//  ADMIN APPROVALS
-// ══════════════════════════════════════════════════════════════
-async function renderApprovals() {
-  const list = document.getElementById('approvals-list');
-  list.innerHTML = '<div class="no-data">Loading...</div>';
-
-  const { data: requests, error } = await db.from('time_edit_requests')
-    .select('*').eq('status', 'pending').order('created_at', { ascending: true });
-
-  if (error) { list.innerHTML = '<div class="no-data">Error loading requests.</div>'; return; }
-  const all = requests || [];
-
-  updateApprovalBadge(all.length);
-
-  if (!all.length) {
-    document.getElementById('approve-all-btn').style.display = 'none';
-    list.innerHTML = '<div class="no-data" style="padding:40px; background:var(--white); border-radius:10px;">✅ No pending edit requests. All clear for payroll export.</div>';
-    return;
-  }
-
-  document.getElementById('approve-all-btn').style.display = '';
-
-  list.innerHTML = all.map(r => {
-    const sc      = staffConfig.find(s => s.user_id === r.user_id);
-    const name    = sc?.display_name || 'Unknown';
-    const tz      = ADMIN_TZ;
-    const fmtDT   = (ts) => ts ? new Date(ts).toLocaleString('en-US', { weekday:'short', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone: tz }) : '—';
-    const origIn  = fmtDT(r.original_clock_in);
-    const origOut = fmtDT(r.original_clock_out);
-    const reqIn   = fmtDT(r.requested_clock_in);
-    const reqOut  = fmtDT(r.requested_clock_out);
-    const origHrs = r.original_clock_out ? ((new Date(r.original_clock_out) - new Date(r.original_clock_in))/3600000).toFixed(2) : '—';
-    const reqHrs  = r.requested_clock_out ? ((new Date(r.requested_clock_out) - new Date(r.requested_clock_in))/3600000).toFixed(2) : '—';
-    const submitted = new Date(r.created_at).toLocaleDateString('en-US', { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', timeZone: tz });
-
-    return `
-      <div class="approval-card" id="appr-${r.id}">
-        <div class="approval-who">${name} <span style="font-size:12px; font-weight:400; color:var(--gray);">submitted ${submitted}</span></div>
-        <div class="approval-compare">
-          <div class="approval-box before">
-            <div class="approval-box-label">Original</div>
-            <div class="approval-time">In: ${origIn}</div>
-            <div class="approval-time">Out: ${origOut}</div>
-            <div style="margin-top:4px; font-size:11px; color:var(--gray);">${origHrs}h</div>
-          </div>
-          <div class="approval-box after">
-            <div class="approval-box-label">Requested Change</div>
-            <div class="approval-time">In: ${reqIn}</div>
-            <div class="approval-time">Out: ${reqOut}</div>
-            <div style="margin-top:4px; font-size:11px; color:var(--gray);">${reqHrs}h</div>
-          </div>
-        </div>
-        <div class="approval-reason">"${r.reason || 'No reason provided'}"</div>
-        <div class="approval-btns">
-          <button class="btn-approve" onclick="approveRequest('${r.id}', '${r.entry_id}', '${r.requested_clock_in}', '${r.requested_clock_out||''}')">✓ Approve</button>
-          <button class="btn-reject"  onclick="rejectRequest('${r.id}')">✕ Reject</button>
-          <input type="text" class="reject-note" id="note-${r.id}" placeholder="Rejection note (optional)" />
-        </div>
-      </div>`;
-  }).join('');
-}
-
-async function approveRequest(reqId, entryId, reqIn, reqOut) {
-  const update = { clock_in: reqIn, is_manual: true };
-  if (reqOut) update.clock_out = reqOut;
-
-  const { error: entryErr } = await db.from('time_entries').update(update).eq('id', entryId);
-  if (entryErr) { showToast('Error updating entry: ' + entryErr.message); return; }
-
-  const { error: reqErr } = await db.from('time_edit_requests').update({
-    status: 'approved', resolved_at: new Date().toISOString(), resolved_by: currentUser.id
-  }).eq('id', reqId);
-  if (reqErr) { showToast('Error updating request: ' + reqErr.message); return; }
-
-  showToast('Approved!');
-  document.getElementById(`appr-${reqId}`)?.remove();
-  await renderApprovals();
-  renderDashboard();
-}
-
-async function rejectRequest(reqId) {
-  const note = document.getElementById(`note-${reqId}`)?.value.trim() || null;
-  const { error } = await db.from('time_edit_requests').update({
-    status: 'rejected', admin_note: note,
-    resolved_at: new Date().toISOString(), resolved_by: currentUser.id
-  }).eq('id', reqId);
-  if (error) { showToast('Error: ' + error.message); return; }
-  showToast('Request rejected.');
-  await renderApprovals();
-}
-
-async function approveAll() {
-  if (!confirm('Approve ALL pending edit requests? This will update all affected time entries.')) return;
-  const { data: requests } = await db.from('time_edit_requests').select('*').eq('status','pending');
-  if (!requests?.length) { showToast('No pending requests.'); return; }
-
-  for (const r of requests) {
-    const update = { clock_in: r.requested_clock_in, is_manual: true };
-    if (r.requested_clock_out) update.clock_out = r.requested_clock_out;
-    await db.from('time_entries').update(update).eq('id', r.entry_id);
-    await db.from('time_edit_requests').update({
-      status: 'approved', resolved_at: new Date().toISOString(), resolved_by: currentUser.id
-    }).eq('id', r.id);
-  }
-  showToast(`${requests.length} request${requests.length > 1 ? 's' : ''} approved!`);
-  await renderApprovals();
-  renderDashboard();
-  renderPayPeriod();
-}
-
-function updateApprovalBadge(count) {
-  const btn = document.getElementById('tab-btn-approvals');
-  if (!btn) return;
-  const existing = btn.querySelector('.tab-badge');
-  if (existing) existing.remove();
-  if (count > 0) btn.innerHTML += `<span class="tab-badge">${count}</span>`;
-}
-
-async function checkAndExportWise() {
-  const { data: pending } = await db.from('time_edit_requests').select('id').eq('status','pending');
-  const count = pending?.length || 0;
-  if (count > 0) {
-    if (!confirm(`⚠️ There are ${count} pending edit request${count > 1 ? 's' : ''} waiting for approval.\n\nExporting now may not reflect the corrected hours.\n\nExport anyway?`)) return;
-  }
-  exportWiseCSV();
-}
-
-async function loadPendingBadge() {
-  const { data } = await db.from('time_edit_requests').select('id').eq('status','pending');
-  updateApprovalBadge(data?.length || 0);
-}
+// NOTE: the old "Request Edit" / Approvals-tab system (time_edit_requests)
+// was removed Sep 2026 — it predated the My Timesheet flow and its queue
+// was permanently empty. Staff correct hours by typing on My Timesheet
+// (Auto vs override redline); admins edit shifts in the Shifts modal /
+// admin timesheet editor; timesheet approval lives on the Pay Period rows
+// + 🗓 modal (pay_period_submissions). The time_edit_requests table stays
+// in the DB as a harmless orphan.
 
 // ══════════════════════════════════════════════════════════════
 //  ADMIN DASHBOARD
@@ -4952,7 +4693,7 @@ async function saveNewStaff() {
 //  UTILITIES
 // ══════════════════════════════════════════════════════════════
 function switchTab(name) {
-  const tabs = ['dashboard','hud','approvals','payperiod','settings'];
+  const tabs = ['dashboard','hud','payperiod','settings'];
   document.querySelectorAll('.tab-btn').forEach((b, i) => {
     b.classList.toggle('active', tabs[i] === name);
   });
@@ -4960,7 +4701,6 @@ function switchTab(name) {
   document.getElementById('tab-' + name).classList.add('active');
   if (name === 'hud')       startHUD();
   else                      stopHUD();
-  if (name === 'approvals') renderApprovals();
   if (name === 'settings') {
     // Pull fresh staff list — name/color/photo may have been changed in
     // Kanban → Manage Staff or directly in Supabase since this page first loaded.
