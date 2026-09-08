@@ -1819,8 +1819,8 @@
       <div id="iif-lines-recon" style="display:none;margin-top:12px;font-size:12.5px;"></div>
       <div id="iif-item-row" style="display:none;margin-top:8px;font-size:12.5px;align-items:center;gap:8px;">
         <label for="iif-item-input" style="font-weight:700;">QB Product/Service item:</label>
-        <input id="iif-item-input" type="text" placeholder="Services" style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;width:200px;" />
-        <span style="color:var(--muted);">SaaSant requires an item per line — use the same Product/Service your QB invoices already use (check any existing invoice in QB). Remembered for next time.</span>
+        <input id="iif-item-input" type="text" placeholder="Sales" style="padding:5px 9px;border:1px solid var(--border);border-radius:6px;font-size:12.5px;width:200px;" />
+        <span style="color:var(--muted);">SaaSant requires an item per line. Default <b>Sales</b> — the item your existing QB invoices post through (income routing follows the item). Change it only if you switch to a dedicated item in QB; remembered for next time.</span>
       </div>
 
       <div id="iif-preview-card" style="display:none;margin-top:14px;">
@@ -10580,7 +10580,19 @@ const IIF = (function() {
       itemRow.style.display = ready ? "flex" : "none";
       const inp = document.getElementById("iif-item-input");
       if (ready && inp && !inp.value) {
-        try { inp.value = localStorage.getItem("dcs_iif_qb_item") || ""; } catch (e) {}
+        try {
+          // v2 key — default flipped to "Sales" (Sep 2026): the existing QB
+          // invoices all post through the "Sales" item, so the lines must
+          // too for the income to land in the same account. A legacy stored
+          // "Services" was just the old shipped default (never a deliberate
+          // pick), so it does NOT carry over; any other custom value does.
+          let saved = localStorage.getItem("dcs_iif_qb_item_v2");
+          if (saved == null) {
+            const legacy = localStorage.getItem("dcs_iif_qb_item");
+            if (legacy && legacy !== "Services") saved = legacy;
+          }
+          inp.value = saved || "";
+        } catch (e) {}
       }
     }
     if (!ready) {
@@ -10608,18 +10620,20 @@ const IIF = (function() {
   }
 
   // The QB Product/Service item stamped on every line — SaaSant/QB require
-  // one. Admin sets it once (whatever item their QB invoices already use);
-  // remembered in localStorage.
+  // one. Default "Sales" = the item the existing QB invoices post through
+  // (verified on live invoices Sep 2026), so line revenue lands in the same
+  // income account as always. Editable + remembered in localStorage for the
+  // day a dedicated item is created in QB.
   function getQbItemName() {
     const el = document.getElementById("iif-item-input");
     const v = el ? String(el.value || "").trim() : "";
-    return v || "Services";
+    return v || "Sales";
   }
 
   async function downloadLinesXlsx() {
     const plan = cleanedRows.length && billsLines ? buildLinesPlan() : null;
     if (!plan || !plan.rows.length) { showToast("Load both the .iif and the Bills xlsx first.", "error"); return; }
-    try { localStorage.setItem("dcs_iif_qb_item", getQbItemName()); } catch (e) {}
+    try { localStorage.setItem("dcs_iif_qb_item_v2", getQbItemName()); } catch (e) {}
     // SaaSant invoice-with-lines shape. LESSON (learned live on the first
     // trial upload): the per-transaction-type dictionary strikes again —
     // Bank Deposits use "Line *" columns, but INVOICES use
