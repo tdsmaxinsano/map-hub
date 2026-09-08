@@ -10315,13 +10315,23 @@ const IIF = (function() {
 
       // Project to kept columns
       const projected = keepIdx.map(i => cells[i] != null ? cells[i] : "");
-      // Medicare → Medicare Part B. substitution on the Customer cell
+      // Medicare → Medicare Part B. substitution on the Customer cell.
+      // LESSON (Sep 2026, sibling of the #239 "Innova care" incident): raw
+      // IIF cells arrive wrapped in literal double quotes ("Medicare"), so
+      // the old exact match `v === "Medicare"` NEVER fired — the cleaned
+      // .iif and the beta lines XLSX both shipped customer "Medicare" and
+      // QB/SaaSant would post to (or create) a customer named Medicare
+      // instead of the real Medicare Part B. — compare quote-stripped,
+      // write back preserving the cell's original quoting style.
       if (customerKeptIdx >= 0) {
-        const v = String(projected[customerKeptIdx] || "").trim();
-        if (v === "Medicare") projected[customerKeptIdx] = "Medicare Part B.";
-      }
-      if (customerKeptIdx >= 0) {
-        const c = String(projected[customerKeptIdx] || "").trim();
+        const raw = String(projected[customerKeptIdx] || "").trim();
+        const wasQuoted = raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"');
+        const bare = wasQuoted ? raw.slice(1, -1).trim() : raw;
+        if (bare === "Medicare") {
+          projected[customerKeptIdx] = wasQuoted ? '"Medicare Part B."' : "Medicare Part B.";
+        }
+        // Customer count stat: count the quote-stripped final name
+        const c = String(projected[customerKeptIdx] || "").replace(/^"|"$/g, "").trim();
         if (c) seenCustomers.add(c);
       }
       out.push(projected);
