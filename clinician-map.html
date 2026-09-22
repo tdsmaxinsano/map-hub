@@ -8234,6 +8234,9 @@
           "\n  rows updated: " + updates.length +
           "\n  clinicians re-derived: " + clinIds.length +
           (sample.length ? "\n  sample:\n" + sample.join("\n") : ""));
+        // Rows were rewritten in place with no new batch, which the boot
+        // cache's stamp can't see — clear it so the next load refetches.
+        mapBootCacheDel(MAP_BOOT_CACHE_KEY);
         showToast("✓ Repaired " + updates.length + " row(s); re-dated " + clinIds.length + " clinician(s). Earliest dates restored — see console for samples.", "success", 9000);
       } catch (err) {
         console.error("[repair] completed-service date repair failed:", err);
@@ -11480,6 +11483,81 @@
       }
     }
 
+    // ---- Map boot cache (IndexedDB) ----------------------------------------
+    // The completed-services boot payload (rows + clinician assignments) is
+    // multi-MB and only changes when an import runs or 🛠 Fix Dates rewrites
+    // rows. Caching it in the browser avoids re-downloading the full 2-year
+    // window from Supabase on every map open — the structural half of the
+    // Disk IO Budget fix (migration 67's indexes are the other half).
+    // IndexedDB, not localStorage: the payload is far past the ~5MB quota.
+    // Every operation is wrapped so ANY failure (private windows, blocked
+    // site data, quota) silently falls through to the normal network path.
+    const MAP_BOOT_CACHE_DB = "dcs-map-cache";
+    const MAP_BOOT_CACHE_STORE = "boot";
+    const MAP_BOOT_CACHE_KEY = "completed-services-v1";
+    const MAP_BOOT_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+    function openMapBootCacheDb() {
+      return new Promise(function(resolve, reject) {
+        const request = indexedDB.open(MAP_BOOT_CACHE_DB, 1);
+        request.onupgradeneeded = function() {
+          const db = request.result;
+          if (!db.objectStoreNames.contains(MAP_BOOT_CACHE_STORE)) {
+            db.createObjectStore(MAP_BOOT_CACHE_STORE);
+          }
+        };
+        request.onsuccess = function() { resolve(request.result); };
+        request.onerror = function() { reject(request.error || new Error("IndexedDB open failed")); };
+        request.onblocked = function() { reject(new Error("IndexedDB open blocked")); };
+      });
+    }
+
+    async function mapBootCacheGet(key) {
+      try {
+        const db = await openMapBootCacheDb();
+        return await new Promise(function(resolve) {
+          const tx = db.transaction(MAP_BOOT_CACHE_STORE, "readonly");
+          const request = tx.objectStore(MAP_BOOT_CACHE_STORE).get(key);
+          request.onsuccess = function() { resolve(request.result || null); };
+          request.onerror = function() { resolve(null); };
+          tx.onabort = function() { resolve(null); };
+          tx.oncomplete = function() { db.close(); };
+        });
+      } catch (err) {
+        return null;
+      }
+    }
+
+    async function mapBootCachePut(key, value) {
+      try {
+        const db = await openMapBootCacheDb();
+        await new Promise(function(resolve, reject) {
+          const tx = db.transaction(MAP_BOOT_CACHE_STORE, "readwrite");
+          tx.objectStore(MAP_BOOT_CACHE_STORE).put(value, key);
+          tx.oncomplete = function() { db.close(); resolve(); };
+          tx.onerror = function() { db.close(); reject(tx.error || new Error("IndexedDB write failed")); };
+          tx.onabort = function() { db.close(); reject(tx.error || new Error("IndexedDB write aborted")); };
+        });
+      } catch (err) {
+        console.warn("[boot-cache] save skipped:", err);
+      }
+    }
+
+    async function mapBootCacheDel(key) {
+      try {
+        const db = await openMapBootCacheDb();
+        await new Promise(function(resolve, reject) {
+          const tx = db.transaction(MAP_BOOT_CACHE_STORE, "readwrite");
+          tx.objectStore(MAP_BOOT_CACHE_STORE).delete(key);
+          tx.oncomplete = function() { db.close(); resolve(); };
+          tx.onerror = function() { db.close(); reject(tx.error || new Error("IndexedDB delete failed")); };
+          tx.onabort = function() { db.close(); reject(tx.error || new Error("IndexedDB delete aborted")); };
+        });
+      } catch (err) {
+        console.warn("[boot-cache] clear skipped:", err);
+      }
+    }
+
     async function loadCompletedServiceSites(options) {
       const safeOptions = options || {};
       const forceAllYears = Boolean(safeOptions.forceAllYears);
@@ -11555,65 +11633,148 @@
         }
 
         const recentCutoffIsoDate = getCompletedServiceRecentCutoffIsoDate();
-        setCompletedServiceLoadProgress(
-          "Loading Service Rows",
-          forceAllYears
-            ? "Fetching completed-service rows across all available years..."
-            : "Fetching completed-service rows from the recent 2-year window...",
-          32
-        );
-        const rowsResponse = await fetchAllSupabaseRows(function(from, to) {
-          let query = supabaseClient
-            .from("therapy_boss_completed_service_import_rows")
-            .select("*")
-            .order("created_at", { ascending: true })
-            .order("row_number", { ascending: true });
 
-          if (!forceAllYears) {
-            query = query.or([
-              "last_visit_date.gte." + recentCutoffIsoDate,
-              "ended_date.gte." + recentCutoffIsoDate,
-              "start_of_episode.gte." + recentCutoffIsoDate,
-              "referral_date.gte." + recentCutoffIsoDate
-            ].join(","));
+        // Cache stamp: imports only ever INSERT (each upload creates a new
+        // batch; a failed upload deletes its batch again), so the latest
+        // batch id + batch count identify the table's data state. The cutoff
+        // is included because the 2-year window shifts every January. The one
+        // writer that changes rows WITHOUT a new batch — 🛠 Fix Dates — clears
+        // the cache explicitly when it completes.
+        const bootCacheStamp = "v1|" + latestBatch.id + "|" + batches.length + "|" + recentCutoffIsoDate;
+        let loadedRows = null;
+        let assignmentRows = null;
+        let loadedFromBootCache = false;
+
+        if (!forceAllYears) {
+          const cachedBoot = await mapBootCacheGet(MAP_BOOT_CACHE_KEY);
+          if (cachedBoot
+              && cachedBoot.stamp === bootCacheStamp
+              && Array.isArray(cachedBoot.rows)
+              && Array.isArray(cachedBoot.assignments)
+              && typeof cachedBoot.savedAt === "number"
+              && (Date.now() - cachedBoot.savedAt) < MAP_BOOT_CACHE_MAX_AGE_MS) {
+            loadedRows = cachedBoot.rows;
+            assignmentRows = cachedBoot.assignments;
+            loadedFromBootCache = true;
+            setCompletedServiceLoadProgress(
+              "Loading Service Rows",
+              loadedRows.length + " completed-service rows restored from this browser's cache — no re-download needed.",
+              58
+            );
           }
-
-          return query.range(from, to);
-        });
-
-        if (rowsResponse.error) {
-          throw new Error("Completed-service rows query failed: " + (rowsResponse.error.message || "Unknown Supabase error"));
         }
 
-        const loadedRows = rowsResponse.data || [];
-        setCompletedServiceLoadProgress(
-          "Loading Clinician Assignments",
-          loadedRows.length + " completed-service rows loaded. Fetching clinician assignments...",
-          58
-        );
-        const assignmentResponse = await fetchCompletedServiceAssignmentsForRowIds(loadedRows.map(function(row) {
-          return row.id;
-        }));
+        if (!loadedFromBootCache) {
+          setCompletedServiceLoadProgress(
+            "Loading Service Rows",
+            forceAllYears
+              ? "Fetching completed-service rows across all available years..."
+              : "Fetching completed-service rows from the recent 2-year window...",
+            32
+          );
+          const rowsResponse = await fetchAllSupabaseRows(function(from, to) {
+            let query = supabaseClient
+              .from("therapy_boss_completed_service_import_rows")
+              .select("*")
+              .order("created_at", { ascending: true })
+              .order("row_number", { ascending: true });
 
-        if (assignmentResponse.error) {
-          throw new Error("Completed-service clinicians query failed: " + (assignmentResponse.error.message || "Unknown Supabase error"));
+            if (!forceAllYears) {
+              query = query.or([
+                "last_visit_date.gte." + recentCutoffIsoDate,
+                "ended_date.gte." + recentCutoffIsoDate,
+                "start_of_episode.gte." + recentCutoffIsoDate,
+                "referral_date.gte." + recentCutoffIsoDate
+              ].join(","));
+            }
+
+            return query.range(from, to);
+          });
+
+          if (rowsResponse.error) {
+            throw new Error("Completed-service rows query failed: " + (rowsResponse.error.message || "Unknown Supabase error"));
+          }
+
+          loadedRows = rowsResponse.data || [];
+          setCompletedServiceLoadProgress(
+            "Loading Clinician Assignments",
+            loadedRows.length + " completed-service rows loaded. Fetching clinician assignments...",
+            58
+          );
+          const assignmentResponse = await fetchCompletedServiceAssignmentsForRowIds(loadedRows.map(function(row) {
+            return row.id;
+          }));
+
+          if (assignmentResponse.error) {
+            throw new Error("Completed-service clinicians query failed: " + (assignmentResponse.error.message || "Unknown Supabase error"));
+          }
+          assignmentRows = assignmentResponse.data || [];
+
+          if (!forceAllYears) {
+            // Fire-and-forget — the helper swallows its own errors, and a
+            // failed save just means the next boot re-downloads.
+            mapBootCachePut(MAP_BOOT_CACHE_KEY, {
+              stamp: bootCacheStamp,
+              savedAt: Date.now(),
+              rows: loadedRows,
+              assignments: assignmentRows
+            });
+          }
         }
 
         setCompletedServiceLoadProgress(
           "Loading Service Years",
-          (assignmentResponse.data || []).length + " clinician assignments loaded. Reading available service years...",
+          assignmentRows.length + " clinician assignments loaded. Reading available service years...",
           76
         );
-        const yearAvailabilityResponse = await fetchAllSupabaseRows(function(from, to) {
-          return supabaseClient
-            .from("therapy_boss_completed_service_import_rows")
-            .select("id, last_visit_date, ended_date, start_of_episode, referral_date")
-            .order("created_at", { ascending: true })
-            .range(from, to);
-        });
+        // Years come from a tiny RPC (migration 68) instead of paging id + the
+        // 4 date columns over EVERY row. If the migration hasn't been run yet
+        // the RPC errors → fall back to the legacy full pass.
+        let availableYears = null;
+        try {
+          const yearsRpcResponse = await supabaseClient.rpc("list_completed_service_years");
+          if (!yearsRpcResponse.error && Array.isArray(yearsRpcResponse.data)) {
+            availableYears = yearsRpcResponse.data.map(function(entry) {
+              const value = entry && typeof entry === "object" ? entry.service_year : entry;
+              return Number(value);
+            }).filter(function(year) {
+              return Number.isFinite(year) && year >= 2000;
+            }).sort(function(left, right) {
+              return right - left;
+            }).map(function(year) {
+              // getCompletedServiceRowYear returns years as strings — the
+              // year-filter Set and button lookups compare on that.
+              return String(year);
+            });
+          }
+        } catch (yearsRpcError) {
+          availableYears = null;
+        }
 
-        if (yearAvailabilityResponse.error) {
-          throw new Error("Completed-service year query failed: " + (yearAvailabilityResponse.error.message || "Unknown Supabase error"));
+        if (!availableYears) {
+          const yearAvailabilityResponse = await fetchAllSupabaseRows(function(from, to) {
+            return supabaseClient
+              .from("therapy_boss_completed_service_import_rows")
+              .select("id, last_visit_date, ended_date, start_of_episode, referral_date")
+              .order("created_at", { ascending: true })
+              .range(from, to);
+          });
+
+          if (yearAvailabilityResponse.error) {
+            throw new Error("Completed-service year query failed: " + (yearAvailabilityResponse.error.message || "Unknown Supabase error"));
+          }
+
+          const allYearRows = yearAvailabilityResponse.data || [];
+          availableYears = Array.from(new Set(allYearRows.map(function(row) {
+            return getCompletedServiceRowYear(row);
+          }).filter(function(year) {
+            // Floor at 2000 — no real completed service predates it. Keeps a
+            // stray corrupt date (e.g. a residual 1905 from a pre-fix import)
+            // from rendering a bogus year button.
+            return year && Number(year) >= 2000;
+          }))).sort(function(left, right) {
+            return Number(right) - Number(left);
+          });
         }
 
         setCompletedServiceLoadProgress(
@@ -11621,20 +11782,9 @@
           loadedRows.length + " rows loaded. Building service sites and clinician rollups...",
           88
         );
-        const allYearRows = yearAvailabilityResponse.data || [];
-        const availableYears = Array.from(new Set(allYearRows.map(function(row) {
-          return getCompletedServiceRowYear(row);
-        }).filter(function(year) {
-          // Floor at 2000 — no real completed service predates it. Keeps a
-          // stray corrupt date (e.g. a residual 1905 from a pre-fix import)
-          // from rendering a bogus year button.
-          return year && Number(year) >= 2000;
-        }))).sort(function(left, right) {
-          return Number(right) - Number(left);
-        });
 
         const assignmentsByServiceRowId = new Map();
-        (assignmentResponse.data || []).forEach(function(entry) {
+        (assignmentRows || []).forEach(function(entry) {
           const bucket = assignmentsByServiceRowId.get(entry.service_row_id) || [];
           bucket.push(entry);
           assignmentsByServiceRowId.set(entry.service_row_id, bucket);
