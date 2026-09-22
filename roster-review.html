@@ -150,6 +150,17 @@
      off-screen or hidden via the Columns picker. */
   .name-cell-stack { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
   .name-cell-stack .name-main { font-weight: 700; }
+  /* Name + 🧭 open the lightweight Territory Planner (per-clinician load);
+     the full Map is demoted to the small 🗺 icon so it can't be hit by habit. */
+  .name-cell-stack .name-links-row { display: inline-flex; gap: 8px; align-items: center; }
+  .territory-link {
+    font-size: 11px; font-weight: 700; color: #1a5fb4; text-decoration: none;
+    border: 1px solid #c9d8ee; border-radius: 999px; padding: 1px 8px;
+    background: #f4f8fd; white-space: nowrap;
+  }
+  .territory-link:hover { text-decoration: underline; }
+  .map-mini-link { font-size: 12px; text-decoration: none; opacity: .45; }
+  .map-mini-link:hover { opacity: 1; }
   .name-cell-stack .name-subline {
     display: inline-flex; align-items: center; gap: 5px;
     font-weight: 600;
@@ -1437,8 +1448,11 @@ function buildRow(r) {
     </td>`,
     name: `<td class="name-cell" data-col="name">
       <div class="name-cell-stack">
-        <a class="name-main" href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener">${escHtml(formatName(r.name))}</a>
-        <a href="territory-planner.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open Territory Planner" style="font-size:11px;text-decoration:none;">🧭 Territory</a>
+        <a class="name-main" href="territory-planner.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open Territory Planner">${escHtml(formatName(r.name))}</a>
+        <span class="name-links-row">
+          <a class="territory-link" href="territory-planner.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open Territory Planner">🧭 Territory</a>
+          <a class="map-mini-link" href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open on the full Map (loads the whole map — use Territory for roster work)">🗺</a>
+        </span>
         <span class="name-subline">
           <span class="disc-pill" style="background:${discColor};font-size:9.5px;padding:1px 6px;">${escHtml(r.discipline || "—")}</span>
           <span class="name-status-pill s-${r.status}">${escHtml(r.status)}</span>
