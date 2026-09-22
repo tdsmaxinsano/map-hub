@@ -78,6 +78,10 @@
   #tp-timeline[hidden] { display: none; }
   .tl-btn { min-width: 30px; padding: 4px 8px; border: 0; border-radius: 7px; background: #fff; color: #1e2d4a; font-weight: 800; font-size: 13px; cursor: pointer; }
   .tl-btn.tl-x { background: transparent; color: #cdd8ee; }
+  .tl-win { display: flex; gap: 3px; }
+  .tl-win button { border: 1px solid rgba(255,255,255,0.25); background: transparent; color: #cdd8ee; border-radius: 999px; padding: 2px 8px; font-size: 10.5px; font-weight: 800; cursor: pointer; white-space: nowrap; }
+  .tl-win button.on { background: #7c8ef8; border-color: #7c8ef8; color: #0f1932; }
+  @media (max-width: 720px) { .tl-win { display: none; } }
   .tl-track { position: relative; flex: 1; display: flex; align-items: center; min-width: 120px; }
   .tl-track input[type=range] { width: 100%; accent-color: #7c8ef8; cursor: pointer; }
   .tl-tick { position: absolute; top: -2px; width: 2px; height: 22px; background: #fbbf24; pointer-events: none; border-radius: 1px; }
@@ -247,6 +251,12 @@
                 <div id="tl-cutoff-tick" class="tl-tick" hidden></div>
               </div>
               <span id="tl-label"></span>
+              <span class="tl-win" id="tl-win" title="Active window — a site stays lit while it had a visit within this many trailing months">
+                <button type="button" data-mo="1">1m</button>
+                <button type="button" data-mo="3">3m</button>
+                <button type="button" data-mo="6">6m</button>
+                <button type="button" data-mo="12" class="on">12m</button>
+              </span>
               <button type="button" id="tl-close" class="tl-btn tl-x" title="Close timeline">✕</button>
             </div>
           </div>
@@ -2532,13 +2542,22 @@ function toggleMapLayer(key) {
 
 // ── 🎞 Timeline — animate the territory's evolution over time ────────
 // A scrubber overlaid on the map: sites are BLUE while they had activity
-// in the trailing 12 months at the scrub point, and fade to small grey
-// ghosts afterward — so a move reads as the old neighborhood dimming
-// while the new one lights up. ▶ plays month by month; the amber tick
-// on the track marks the Ignore-History-Before cutoff. Uses ALL dated
-// history (the whole point is seeing the pre-cutoff era too); excluded
-// locations stay out. ym = year*12 + (month-1).
+// in the trailing window at the scrub point (1/3/6/12 months — the 1m/3m/
+// 6m/12m chips on the bar; default 12, remembered per browser), and fade
+// to small grey ghosts afterward — so a move reads as the old neighborhood
+// dimming while the new one lights up. Tighter windows sharpen the story:
+// 1m shows only that month's actual visits, 12m shows the whole footprint.
+// ▶ plays month by month; the amber tick on the track marks the
+// Ignore-History-Before cutoff. Uses ALL dated history (the whole point is
+// seeing the pre-cutoff era too); excluded locations stay out.
+// ym = year*12 + (month-1).
 let tlActive = false, tlPlaying = false, tlTimer = null, tlIdx = 0;
+let tlWindow = (function() {
+  try {
+    const saved = Number(localStorage.getItem("dcs_tp_tl_window"));
+    return [1, 3, 6, 12].includes(saved) ? saved : 12;
+  } catch (e) { return 12; }
+})();
 let _tlCache = null;
 const TL_MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 
@@ -2628,9 +2647,15 @@ function toggleTimeline() {
     }
   }
   tlEnsureLayers();
+  tlSyncWindowChips(); // reflect the remembered 1m/3m/6m/12m choice
   applyMapLayerVisibility(); // hides the regular site layers while active
   tlRender();
   renderMapLayerChips();
+}
+function tlSyncWindowChips() {
+  document.querySelectorAll("#tl-win button").forEach(b => {
+    b.classList.toggle("on", Number(b.dataset.mo) === tlWindow);
+  });
 }
 function tlClose() {
   tlStop();
@@ -2652,7 +2677,7 @@ function tlRender() {
   const ym = d.startYm + tlIdx;
   const activeFeats = [], ghostFeats = [];
   d.sites.forEach(s => {
-    const isActive = s.spans.some(sp => sp[0] <= ym && sp[1] >= ym - 11);
+    const isActive = s.spans.some(sp => sp[0] <= ym && sp[1] >= ym - (tlWindow - 1));
     const feat = { type: "Feature", geometry: { type: "Point", coordinates: [s.lng, s.lat] }, properties: { visits: s.visits } };
     if (isActive) activeFeats.push(feat);
     else if (s.firstYm <= ym) ghostFeats.push(feat); // seen before → grey memory
@@ -2664,7 +2689,7 @@ function tlRender() {
     if (g) g.setData({ type: "FeatureCollection", features: ghostFeats });
   } catch (e) {}
   const label = document.getElementById("tl-label");
-  if (label) label.textContent = "🎞 " + tlYmLabel(ym) + " · " + activeFeats.length + " active site" + (activeFeats.length === 1 ? "" : "s") + " (last 12 mo)";
+  if (label) label.textContent = "🎞 " + tlYmLabel(ym) + " · " + activeFeats.length + " active site" + (activeFeats.length === 1 ? "" : "s") + " (last " + tlWindow + " mo)";
   const range = document.getElementById("tl-range");
   if (range && Number(range.value) !== tlIdx) range.value = String(tlIdx);
 }
@@ -3051,6 +3076,14 @@ document.getElementById("tl-close").addEventListener("click", tlClose);
 document.getElementById("tl-range").addEventListener("input", e => {
   tlIdx = Number(e.target.value) || 0;
   tlRender();
+});
+document.querySelectorAll("#tl-win button").forEach(b => {
+  b.addEventListener("click", () => {
+    tlWindow = Number(b.dataset.mo) || 12;
+    try { localStorage.setItem("dcs_tp_tl_window", String(tlWindow)); } catch (e) {}
+    tlSyncWindowChips();
+    tlRender(); // re-light the current frame with the new window — no restart
+  });
 });
 document.getElementById("picker-list").addEventListener("click", e => {
   const item = e.target.closest(".picker-item[data-cid]");
