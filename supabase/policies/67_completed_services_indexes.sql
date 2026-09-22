@@ -56,8 +56,16 @@ CREATE INDEX IF NOT EXISTS idx_tbcs_clin_matched_clinician_id
 
 COMMIT;
 
--- Refresh planner stats + visibility map so the covering index can serve
--- index-only scans right away.
+-- Refresh planner stats so the new indexes get picked up right away.
+-- (ANALYZE is transaction-safe, so it can run batched in the SQL editor.)
 ANALYZE public.therapy_boss_completed_service_import_rows;
 ANALYZE public.therapy_boss_completed_service_import_clinicians;
-VACUUM public.therapy_boss_completed_service_import_rows;
+
+-- OPTIONAL — must be run BY ITSELF in its own SQL-editor run (VACUUM
+-- errors with 25001 when batched with any other statement, because the
+-- editor wraps the whole run in one transaction). It freshens the
+-- visibility map so the covering index can serve index-only scans
+-- immediately; autovacuum does the same on its own soon anyway, so
+-- skipping it just delays that benefit slightly.
+--
+--   VACUUM public.therapy_boss_completed_service_import_rows;
