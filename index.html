@@ -682,9 +682,34 @@
     if (location.search !== desiredSearch) {
       history.pushState({ tab: tabId, qs: queryString || "" }, "", desiredSearch || location.pathname);
     }
+
+    // Map-only chat hiding (🧰 tool dock): re-apply on every tab change so
+    // leaving the Map brings the chat bubble back, returning re-hides it.
+    __shellActiveTab = tabId;
+    applyChatVisibility(0);
   }
   // Expose so iframes can call: parent.shellSwitchTab("kanban", "link_type=...")
   window.shellSwitchTab = shellSwitchTab;
+
+  // ── Team-chat visibility, map-only scope ─────────────────────────────
+  // The Map's 🧰 tool dock can hide the shared chat bubble, but only while
+  // the Map tab is showing — every other tab gets chat back. The map iframe
+  // calls parent.shellSetChatVisible(visible) (same-origin).
+  var __shellActiveTab = "home";
+  var chatHiddenByMap = false;
+  function applyChatVisibility(attempt) {
+    var chatEl = document.getElementById("dcs-chat-widget");
+    if (chatEl) {
+      chatEl.hidden = chatHiddenByMap && __shellActiveTab === "map";
+    } else if (chatHiddenByMap && (attempt || 0) < 40) {
+      // chat-widget.js injects itself only after auth — retry briefly.
+      setTimeout(function() { applyChatVisibility((attempt || 0) + 1); }, 500);
+    }
+  }
+  window.shellSetChatVisible = function(visible) {
+    chatHiddenByMap = !visible;
+    applyChatVisibility(0);
+  };
 
   window.addEventListener("popstate", function(e) {
     const params = new URLSearchParams(location.search);
