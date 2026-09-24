@@ -21117,29 +21117,50 @@
 
       function buildZipReport() {
         if (!changes.length && !unmatchedNames.size) return null;
+        const plural = function(n, word) { return n + " " + word + (n === 1 ? "" : "s"); };
         const parts = [];
+        // Lead with WHAT this run was and how to read the symbols, so the
+        // email stands on its own for someone who wasn't at the keyboard.
+        parts.push(
+          "<div style='font-size:12px;color:#33415e;background:#eef4ff;border-radius:8px;padding:10px 14px;margin-bottom:6px;line-height:1.65'>" +
+          "<strong>Task:</strong> ZIP Coverage import — a TherapyBoss “Zip coverage” export was uploaded on the Map, and each matched clinician's covered-ZIP list was replaced with the file's contents.<br>" +
+          "<strong>How to read it:</strong> " +
+          "<span style='color:#0c8a4f;font-weight:700'>+ Added</span> = ZIPs the clinician now covers &nbsp;·&nbsp; " +
+          "<span style='color:#b3261e;font-weight:700'>− Removed</span> = ZIPs they no longer cover &nbsp;·&nbsp; " +
+          "<span style='color:#9a7700;font-weight:700'>~ Memo</span> = coverage unchanged, only the ZIP's note changed" +
+          "</div>"
+        );
         if (changes.length) {
           parts.push(
-            "<h3 style='font-size:13px;margin:14px 0 6px;color:#1e2d4a'>ZIP Changes (" + changes.length + " clinicians)</h3>" +
+            "<h3 style='font-size:13px;margin:14px 0 6px;color:#1e2d4a'>ZIP Changes (" + plural(changes.length, "clinician") + ")</h3>" +
             changes.map(function(c) {
+              const meta = [];
+              if (c.added.length)   meta.push(plural(c.added.length, "ZIP") + " added");
+              if (c.removed.length) meta.push(plural(c.removed.length, "ZIP") + " removed");
+              if (c.changed.length) meta.push(plural(c.changed.length, "memo update"));
               const lines = [];
-              if (c.added.length)   lines.push("<span style='color:#0c8a4f'>+ " + c.added.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
-              if (c.removed.length) lines.push("<span style='color:#b3261e'>− " + c.removed.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
-              if (c.changed.length) lines.push("<span style='color:#9a7700'>~ memo: " + c.changed.map(function(x) { return escapeHtml(x.zip); }).join(", ") + "</span>");
+              if (c.added.length)   lines.push("<span style='color:#0c8a4f'><strong>+ Added — now covering:</strong> " + c.added.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
+              if (c.removed.length) lines.push("<span style='color:#b3261e'><strong>− Removed — no longer covering:</strong> " + c.removed.map(function(z) { return escapeHtml(formatZip(z)); }).join(", ") + "</span>");
+              if (c.changed.length) lines.push("<span style='color:#9a7700'><strong>~ Memo updated:</strong> " + c.changed.map(function(x) { return escapeHtml(x.zip + " (" + (x.oldMemo || "—") + " → " + (x.newMemo || "—") + ")"); }).join(", ") + "</span>");
               return "<div style='padding:8px 10px;border-radius:6px;background:#f8fafd;margin-bottom:5px'>" +
-                     "<strong>" + escapeHtml(c.name) + "</strong><br>" + lines.join("<br>") + "</div>";
+                     "<strong>" + escapeHtml(c.name) + "</strong>" +
+                     "<span style='color:#718096;font-size:12px'> — " + meta.join(" · ") + "</span><br>" +
+                     lines.join("<br>") + "</div>";
             }).join("")
           );
         }
         if (unmatchedNames.size) {
           parts.push(
-            "<h3 style='font-size:13px;margin:14px 0 6px;color:#9a7700'>Unmatched (skipped)</h3>" +
+            "<h3 style='font-size:13px;margin:14px 0 6px;color:#9a7700'>Unmatched names — skipped, no changes made (" + unmatchedNames.size + ")</h3>" +
+            "<div style='font-size:12px;color:#718096;margin-bottom:4px'>These names in the file didn't match any clinician on the Map roster. Fix the spelling or add the clinician, then re-run the import for them.</div>" +
             "<div style='font-size:13px'>" + Array.from(unmatchedNames).map(function(n) { return escapeHtml(n); }).join("<br>") + "</div>"
           );
         }
         return {
           reportType: "zip_coverage",
-          summary: "+" + totalAdded + " · −" + totalRemoved + " · ~" + totalChanged + " across " + changes.length + " clinicians",
+          summary: plural(totalAdded, "ZIP") + " added · " + plural(totalRemoved, "ZIP") + " removed · " + plural(totalChanged, "memo update")
+            + " — " + plural(changes.length, "clinician") + " updated"
+            + (unmatchedNames.size ? " · " + plural(unmatchedNames.size, "name") + " unmatched (skipped)" : ""),
           sectionsHtml: parts.join("")
         };
       }
