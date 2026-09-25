@@ -2253,14 +2253,17 @@ function renderMapLayerChips() {
   if (!host) return;
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
   const chips = [];
-  chips.push(`<button type="button" class="ml-chip${mapLayers.current ? " on" : ""}" onclick="toggleMapLayer('current')">🔵 Sites (${tpLayerCounts.current})</button>`);
+  // While the timeline is active it owns the site dots and hides the ZIP
+  // badges, so those chips are disabled (greyed) rather than silently inert.
+  const tlDis = tlActive ? " disabled" : "";
+  chips.push(`<button type="button" class="ml-chip${mapLayers.current ? " on" : ""}"${tlDis} onclick="toggleMapLayer('current')">🔵 Sites (${tpLayerCounts.current})</button>`);
   if (cutoff && tpLayerCounts.old) {
-    chips.push(`<button type="button" class="ml-chip${mapLayers.old ? " on" : ""}" onclick="toggleMapLayer('old')">👻 Pre-cutoff sites (${tpLayerCounts.old})</button>`);
+    chips.push(`<button type="button" class="ml-chip${mapLayers.old ? " on" : ""}"${tlDis} onclick="toggleMapLayer('old')">👻 Pre-cutoff sites (${tpLayerCounts.old})</button>`);
   }
   if (tpLayerCounts.excluded) {
-    chips.push(`<button type="button" class="ml-chip${mapLayers.excluded ? " on" : ""}" onclick="toggleMapLayer('excluded')">🚫 Excluded (${tpLayerCounts.excluded})</button>`);
+    chips.push(`<button type="button" class="ml-chip${mapLayers.excluded ? " on" : ""}"${tlDis} onclick="toggleMapLayer('excluded')">🚫 Excluded (${tpLayerCounts.excluded})</button>`);
   }
-  chips.push(`<button type="button" class="ml-chip${mapLayers.zips ? " on" : ""}" onclick="toggleMapLayer('zips')">🏷 ZIP badges</button>`);
+  chips.push(`<button type="button" class="ml-chip${mapLayers.zips ? " on" : ""}"${tlDis} onclick="toggleMapLayer('zips')">🏷 ZIP badges</button>`);
   chips.push(`<button type="button" class="ml-chip${mapLayers.pins ? " on" : ""}" onclick="toggleMapLayer('pins')">📍 Pins</button>`);
   // Measuring tools — portal-consistent Ruler + Lens + typical-reach preset.
   chips.push(`<span class="ml-divider"></span>`);
@@ -2725,7 +2728,12 @@ function applyMapLayerVisibility() {
       if (tpMap.getLayer("tp-sites-excluded")) tpMap.setLayoutProperty("tp-sites-excluded", "visibility", (!tlActive && mapLayers.excluded) ? "visible" : "none");
     } catch (e) { /* style not ready yet — init applies initial state */ }
   }
-  tpZipMarkers.forEach(el => { el.style.display = mapLayers.zips ? "" : "none"; });
+  // ZIP badges hide during the timeline too: they'd bury the animation, and
+  // their green/blue/amber classification describes TODAY's coverage — wrong
+  // while scrubbed into the past. They return per the chips on close.
+  // Pins (home + work center) stay: a couple of fixed anchors that make the
+  // territory's drift readable.
+  tpZipMarkers.forEach(el => { el.style.display = (!tlActive && mapLayers.zips) ? "" : "none"; });
   tpPinMarkers.forEach(el => { el.style.display = mapLayers.pins ? "" : "none"; });
 }
 
