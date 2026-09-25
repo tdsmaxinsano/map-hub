@@ -5535,6 +5535,20 @@
     }
     #tool-dock-panel input[type=checkbox] { width: 15px; height: 15px; accent-color: #2463eb; cursor: pointer; }
     #tool-dock-btn.active { background: #2463eb !important; color: #fff !important; }
+    /* First-run nudge bubble — tools default OFF, this points at the 🧰. */
+    #tool-dock-nudge {
+      position: absolute; right: 0; bottom: calc(100% + 8px);
+      width: 235px; background: #1c2742; color: #e6ecfa; border-radius: 10px;
+      padding: 11px 13px; text-align: left;
+      box-shadow: 0 14px 34px rgba(12, 22, 50, 0.3);
+      text-transform: none; letter-spacing: normal;
+      font-size: 12px; font-weight: 600; line-height: 1.5;
+    }
+    #tool-dock-nudge[hidden] { display: none !important; }
+    #tool-dock-nudge .tdn-actions { display: flex; gap: 8px; margin-top: 9px; }
+    #tool-dock-nudge button { border: 0; border-radius: 7px; padding: 5px 10px; font-size: 11.5px; font-weight: 800; cursor: pointer; }
+    #tool-dock-nudge .tdn-on { background: #2463eb; color: #fff; }
+    #tool-dock-nudge .tdn-later { background: rgba(255, 255, 255, 0.12); color: #cdd8ee; }
     /* Above the Assistant (z 20) and chat (z 21) so the popup stays clickable. */
     #version-indicator { z-index: 30; }
     /* The Assistant's ✕ sets panel.hidden, but .dc-assistant-panel's own
@@ -7256,6 +7270,13 @@
       <label><input type="checkbox" id="tool-dock-board"> 📋 Referral Board</label>
       <label><input type="checkbox" id="tool-dock-assistant"> 🤖 AI Assistant</label>
       <label><input type="checkbox" id="tool-dock-chat"> 💬 Team Chat</label>
+    </div>
+    <div id="tool-dock-nudge" hidden>
+      <div>🧰 Map tools are off to keep the map clear — the Referral Board, AI Assistant and Team Chat live in here.</div>
+      <div class="tdn-actions">
+        <button type="button" class="tdn-on" id="tool-dock-nudge-on">Turn all on</button>
+        <button type="button" class="tdn-later" id="tool-dock-nudge-later">Not now</button>
+      </div>
     </div>
   </div>
 
@@ -27295,7 +27316,8 @@
   // the widget injects into THIS document; inside the portal shell it belongs
   // to the parent window, so we ask the shell (shellSetChatVisible) to hide
   // it only while the Map tab is showing — other tabs get chat back.
-  window.toolDockPrefs = { board: true, assistant: true, chat: true };
+  // Tools default OFF (clean map); a one-time nudge bubble points at the 🧰.
+  window.toolDockPrefs = { board: false, assistant: false, chat: false };
   (function() {
     var STORE_KEY = "dependablecareToolDockPrefs";
     try {
@@ -27361,11 +27383,38 @@
       }
     }
 
+    // First-run nudge: tools default OFF, so suggest where to turn them on.
+    // Shown once (dismissal remembered); finding the 🧰 also dismisses it.
+    var NUDGE_KEY = "dependablecareToolDockNudgeDone";
+    function dismissNudge() {
+      var nudge = document.getElementById("tool-dock-nudge");
+      if (nudge) nudge.hidden = true;
+      try { localStorage.setItem(NUDGE_KEY, "1"); } catch (e) {}
+    }
+    function maybeShowNudge() {
+      try { if (localStorage.getItem(NUDGE_KEY)) return; } catch (e) {}
+      var allOn = window.toolDockPrefs.board && window.toolDockPrefs.assistant && window.toolDockPrefs.chat;
+      if (allOn) return; // nothing to suggest
+      // Don't nudge over the login screen — wait for a likely session.
+      if (typeof hasLikelySession === "function" && !hasLikelySession()) return;
+      var nudge = document.getElementById("tool-dock-nudge");
+      if (nudge) nudge.hidden = false;
+    }
+    setTimeout(maybeShowNudge, 3000); // after the boot splash has the stage
+
     var btn = document.getElementById("tool-dock-btn");
     var panel = document.getElementById("tool-dock-panel");
+    var nudgeOn = document.getElementById("tool-dock-nudge-on");
+    if (nudgeOn) nudgeOn.addEventListener("click", function() {
+      window.toolDockPrefs.board = window.toolDockPrefs.assistant = window.toolDockPrefs.chat = true;
+      persist(); syncChecks(); applyAll(true); dismissNudge();
+    });
+    var nudgeLater = document.getElementById("tool-dock-nudge-later");
+    if (nudgeLater) nudgeLater.addEventListener("click", dismissNudge);
     if (btn && panel) {
       btn.addEventListener("click", function(e) {
         e.stopPropagation();
+        dismissNudge(); // they found the dock — the hint has done its job
         panel.hidden = !panel.hidden;
         btn.classList.toggle("active", !panel.hidden);
         if (!panel.hidden) syncChecks();
