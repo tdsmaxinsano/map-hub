@@ -5512,6 +5512,35 @@
       transform: translateX(22px);
     }
 
+    /* 🧰 Tool dock — checklist popup on the corner zoom pill that shows/
+       hides the floating map tools (Referral Board / AI Assistant / Team
+       Chat) with an "All tools" master switch. Prefs persist per browser. */
+    #tool-dock-panel {
+      position: absolute; right: 0; bottom: calc(100% + 8px);
+      background: #fff; border: 1px solid #d7e0ef; border-radius: 10px;
+      padding: 10px 12px; width: 190px; text-align: left;
+      box-shadow: 0 14px 34px rgba(12, 22, 50, 0.18);
+      /* Undo the pill's uppercase/tracking styling inside the popup. */
+      text-transform: none; letter-spacing: normal;
+    }
+    #tool-dock-panel[hidden] { display: none !important; }
+    #tool-dock-panel label {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 12.5px; font-weight: 600; color: #1e2d4a;
+      padding: 4px 0; cursor: pointer; white-space: nowrap;
+    }
+    #tool-dock-panel label.tool-dock-all {
+      border-bottom: 1px solid #e7ecf5; padding-bottom: 8px;
+      margin-bottom: 4px; font-weight: 800;
+    }
+    #tool-dock-panel input[type=checkbox] { width: 15px; height: 15px; accent-color: #2463eb; cursor: pointer; }
+    #tool-dock-btn.active { background: #2463eb !important; color: #fff !important; }
+    /* Above the Assistant (z 20) and chat (z 21) so the popup stays clickable. */
+    #version-indicator { z-index: 30; }
+    /* The Assistant's ✕ sets panel.hidden, but .dc-assistant-panel's own
+       display:flex overrode the [hidden] attribute (same trap as
+       .field[hidden]) — restore real hiding so ✕ works. */
+    .dc-assistant-panel[hidden] { display: none !important; }
     .version-indicator {
       position: fixed;
       right: 18px;
@@ -7221,6 +7250,13 @@
     <button class="zoom-nudge" id="zoom-in" title="Zoom in (Ctrl + scroll)">+</button>
     <span class="zoom-rev">v1.0</span>
     <button id="tour-launch-btn" class="zoom-nudge tour-launch-btn" title="Feature tour">?</button>
+    <button id="tool-dock-btn" class="zoom-nudge" title="Show / hide map tools">🧰</button>
+    <div id="tool-dock-panel" hidden>
+      <label class="tool-dock-all"><input type="checkbox" id="tool-dock-all"> All tools</label>
+      <label><input type="checkbox" id="tool-dock-board"> 📋 Referral Board</label>
+      <label><input type="checkbox" id="tool-dock-assistant"> 🤖 AI Assistant</label>
+      <label><input type="checkbox" id="tool-dock-chat"> 💬 Team Chat</label>
+    </div>
   </div>
 
   <!-- ── AI Assistant Widget ── -->
@@ -25118,6 +25154,9 @@
   function showRefBoard() {
     var panel = document.getElementById("ref-jump-panel");
     if (!panel) return;
+    // Hidden via the 🧰 tool dock — boot / quick-add / TB-import re-shows
+    // must not resurrect it. Re-checking the dock box calls this again.
+    if (window.toolDockPrefs && window.toolDockPrefs.board === false) return;
     _refJumpOpen = true;
     populateReferralDropdown();
     panel.classList.toggle("collapsed", _refBoardCollapsed);
@@ -27247,6 +27286,113 @@
     }
   }
 
+  </script>
+  <script>
+  // ── 🧰 Tool dock — show/hide the floating map tools ──────────────────
+  // Checklist popup on the corner zoom pill: Referral Board / AI Assistant /
+  // Team Chat + an "All tools" master switch. Prefs persist per browser
+  // (dependablecareToolDockPrefs). Team Chat is the special case: standalone
+  // the widget injects into THIS document; inside the portal shell it belongs
+  // to the parent window, so we ask the shell (shellSetChatVisible) to hide
+  // it only while the Map tab is showing — other tabs get chat back.
+  window.toolDockPrefs = { board: true, assistant: true, chat: true };
+  (function() {
+    var STORE_KEY = "dependablecareToolDockPrefs";
+    try {
+      var saved = JSON.parse(localStorage.getItem(STORE_KEY) || "{}");
+      ["board", "assistant", "chat"].forEach(function(k) {
+        if (typeof saved[k] === "boolean") window.toolDockPrefs[k] = saved[k];
+      });
+    } catch (e) { /* corrupt pref — defaults stand */ }
+
+    function persist() {
+      try { localStorage.setItem(STORE_KEY, JSON.stringify(window.toolDockPrefs)); } catch (e) {}
+    }
+
+    function applyBoard(userToggled) {
+      var boardPanel = document.getElementById("ref-jump-panel");
+      if (!boardPanel) return;
+      if (!window.toolDockPrefs.board) {
+        boardPanel.style.display = "none";
+        window._refJumpOpen = false;
+      } else if (userToggled && typeof showRefBoard === "function") {
+        // Re-checked → bring it back now. The initial boot show stays
+        // runBootLoad's job (it must wait for auth + data).
+        showRefBoard();
+      }
+    }
+    function applyAssistant() {
+      var widget = document.getElementById("dc-assistant-widget");
+      // Inline display, not [hidden] — #dc-assistant-widget's display:flex
+      // rule would override the attribute.
+      if (widget) widget.style.display = window.toolDockPrefs.assistant ? "" : "none";
+    }
+    var chatRetryTimer = null;
+    function applyChat(attempt) {
+      if (document.documentElement.classList.contains("in-iframe-shell")) {
+        try {
+          if (window.parent && typeof window.parent.shellSetChatVisible === "function") {
+            window.parent.shellSetChatVisible(window.toolDockPrefs.chat);
+          }
+        } catch (e) { /* cross-frame hiccup or older cached shell — non-fatal */ }
+        return;
+      }
+      var chatEl = document.getElementById("dcs-chat-widget");
+      if (chatEl) { chatEl.hidden = !window.toolDockPrefs.chat; return; }
+      // chat-widget.js injects itself only once auth resolves — retry briefly
+      // when we actually need to hide it.
+      if (chatRetryTimer) clearTimeout(chatRetryTimer);
+      if (!window.toolDockPrefs.chat && (attempt || 0) < 40) {
+        chatRetryTimer = setTimeout(function() { applyChat((attempt || 0) + 1); }, 500);
+      }
+    }
+    function applyAll(userToggled) { applyBoard(userToggled); applyAssistant(); applyChat(0); }
+
+    function syncChecks() {
+      ["board", "assistant", "chat"].forEach(function(k) {
+        var box = document.getElementById("tool-dock-" + k);
+        if (box) box.checked = window.toolDockPrefs[k];
+      });
+      var all = document.getElementById("tool-dock-all");
+      if (all) {
+        var vals = [window.toolDockPrefs.board, window.toolDockPrefs.assistant, window.toolDockPrefs.chat];
+        all.checked = vals.every(function(v) { return v; });
+        all.indeterminate = !all.checked && vals.some(function(v) { return v; });
+      }
+    }
+
+    var btn = document.getElementById("tool-dock-btn");
+    var panel = document.getElementById("tool-dock-panel");
+    if (btn && panel) {
+      btn.addEventListener("click", function(e) {
+        e.stopPropagation();
+        panel.hidden = !panel.hidden;
+        btn.classList.toggle("active", !panel.hidden);
+        if (!panel.hidden) syncChecks();
+      });
+      document.addEventListener("click", function(e) {
+        if (!panel.hidden && !panel.contains(e.target) && e.target !== btn) {
+          panel.hidden = true;
+          btn.classList.remove("active");
+        }
+      });
+      ["board", "assistant", "chat"].forEach(function(k) {
+        var box = document.getElementById("tool-dock-" + k);
+        if (box) box.addEventListener("change", function() {
+          window.toolDockPrefs[k] = box.checked;
+          persist(); syncChecks(); applyAll(true);
+        });
+      });
+      var all = document.getElementById("tool-dock-all");
+      if (all) all.addEventListener("change", function() {
+        window.toolDockPrefs.board = window.toolDockPrefs.assistant = window.toolDockPrefs.chat = all.checked;
+        persist(); syncChecks(); applyAll(true);
+      });
+    }
+
+    syncChecks();
+    applyAll(false); // apply remembered prefs at load (hide-only for the board)
+  })();
   </script>
   <script src="chat-widget.js"></script>
 </body>
