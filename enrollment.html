@@ -114,6 +114,44 @@
   table.prog input:focus, table.prog select:focus { outline: none; border-color: var(--accent); background: #fff; }
   .status-pill { display: inline-block; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 2px 9px; }
 
+  /* Expanded document viewer + provider workbench */
+  #viewer-modal { display: none; position: fixed; inset: 0; z-index: 150; background: rgba(11,31,68,0.55); padding: 14px; }
+  #viewer-modal.open { display: flex; }
+  .viewer-box { background: var(--bg); border-radius: 14px; flex: 1; min-width: 0; display: grid; grid-template-rows: auto 1fr; overflow: hidden; box-shadow: 0 30px 80px rgba(0,0,0,0.45); }
+  .viewer-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; background: #fff; border-bottom: 1px solid var(--border); }
+  .viewer-head h3 { margin: 0; font-size: 16px; font-weight: 800; color: var(--blue); }
+  .viewer-sub { font-size: 11.5px; color: var(--muted); }
+  .viewer-zoom { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+  .viewer-zoom button { border: 1.5px solid var(--border); background: #fff; border-radius: 999px; padding: 6px 13px; font-size: 13px; font-weight: 800; cursor: pointer; }
+  .viewer-zoom button:hover { background: #f1f5f9; }
+  #viewer-zoom-pct { font-size: 12px; font-weight: 700; color: var(--muted); min-width: 42px; text-align: center; }
+  .viewer-zoom .close { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .viewer-body { display: grid; grid-template-columns: 200px minmax(0, 1fr) 340px; gap: 12px; padding: 12px; min-height: 0; }
+  .viewer-rail { overflow-y: auto; min-height: 0; }
+  .rail-card { border: 1.5px solid var(--border); border-radius: 10px; padding: 8px; background: #fff; cursor: pointer; margin-bottom: 10px; }
+  .rail-card:hover { border-color: #b9c8e4; }
+  .rail-card.active { border-color: var(--accent); background: #eef4ff; }
+  .rail-card.empty { opacity: .55; cursor: default; }
+  .rc-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .rc-title { font-size: 11.5px; font-weight: 800; }
+  .rc-badge { font-size: 9px; font-weight: 800; background: #e9f9ef; color: #166534; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+  .rc-badge.none { background: #eef2f7; color: var(--muted); }
+  .rc-thumb { margin-top: 6px; height: 74px; border-radius: 7px; background: #eef2f8; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+  .rc-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .rc-thumb .none { font-size: 20px; color: #c3cddd; }
+  .viewer-stage { overflow: auto; min-height: 0; background: #dfe6f0; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
+  #viewer-img { display: block; margin: 0 auto; box-shadow: 0 6px 22px rgba(0,0,0,0.25); border-radius: 4px; }
+  .viewer-bench { overflow-y: auto; min-height: 0; background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .viewer-bench h4 { margin: 0 0 4px; font-size: 14px; font-weight: 800; color: var(--blue); }
+  .bench-hint { font-size: 11px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
+  .bench-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  @media (max-width: 900px) {
+    .viewer-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(220px, 1fr) auto; }
+    .viewer-rail { display: flex; gap: 8px; overflow-x: auto; }
+    .rail-card { min-width: 130px; margin-bottom: 0; flex: 0 0 auto; }
+    .viewer-bench { max-height: 40vh; }
+  }
+
   /* Toast */
   .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 11px 22px; border-radius: 8px; font-size: 13px; font-weight: 700; z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
   .toast.show { opacity: 1; }
@@ -258,6 +296,35 @@
     </div>
   </div>
 
+</div>
+
+<!-- Expanded document viewer + provider workbench -->
+<div id="viewer-modal">
+  <div class="viewer-box">
+    <div class="viewer-head">
+      <div>
+        <h3 id="viewer-title">Document</h3>
+        <div class="viewer-sub">Expanded view for reading small details before you confirm the fields.</div>
+      </div>
+      <div class="viewer-zoom">
+        <button type="button" id="viewer-zoom-out" title="Zoom out">−</button>
+        <button type="button" id="viewer-zoom-fit" title="Fit to window">Fit</button>
+        <button type="button" id="viewer-zoom-in" title="Zoom in">＋</button>
+        <span id="viewer-zoom-pct">100%</span>
+        <button type="button" id="viewer-open-tab" title="Open the original in a new tab">↗</button>
+        <button type="button" id="viewer-close" class="close">Close</button>
+      </div>
+    </div>
+    <div class="viewer-body">
+      <div class="viewer-rail" id="viewer-rail"></div>
+      <div class="viewer-stage" id="viewer-stage"><img id="viewer-img" alt=""></div>
+      <div class="viewer-bench">
+        <h4>Provider Workbench</h4>
+        <p class="bench-hint">Edit here while you scroll the image tray and review the enlarged document. These fields stay synced with the main form and autosave.</p>
+        <div class="bench-grid" id="viewer-bench-grid"></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -625,6 +692,7 @@ function renderGrid(hostId, defs) {
 function renderForm() {
   renderGrid("field-grid", FIELD_DEFS);
   renderGrid("pecos-grid", PECOS_DEFS);
+  if (isViewerOpen()) renderViewerBench();
 }
 
 function collectFormValues() {
@@ -641,7 +709,7 @@ function renderDocSlots() {
     return '<div class="doc-slot" data-slot="' + slot.key + '">' +
       '<div class="ds-title">' + escHtml(slot.label) + "</div>" +
       '<div class="ds-req">' + (slot.required ? "required" : "optional") + " · drop / paste / pick</div>" +
-      '<div class="ds-thumb" data-act="view" title="' + (has ? "Open full size" : "No document yet") + '">' +
+      '<div class="ds-thumb" data-act="view" title="' + (has ? "Open expanded view" : "No document yet") + '">' +
         (has ? '<img data-thumb="' + slot.key + '" alt="">' : '<span class="none">🖼</span>') + "</div>" +
       '<div class="ds-actions">' +
         '<button type="button" data-act="pick">📁 Upload</button>' +
@@ -1094,6 +1162,151 @@ async function importBackupZip(file) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// EXPANDED VIEWER + PROVIDER WORKBENCH (port of the desktop pop-out:
+// doc-slot tray on the left, zoomable image center, synced fields right)
+// ══════════════════════════════════════════════════════════════════
+const viewerState = { slot: null, zoom: 1, fitMode: true, natW: 0, natH: 0 };
+
+function isViewerOpen() {
+  const m = document.getElementById("viewer-modal");
+  return !!(m && m.classList.contains("open"));
+}
+
+async function openViewer(slotKey) {
+  if (!docSlots[slotKey]) { showToast("No document uploaded in that slot yet."); return; }
+  collectFormValues();
+  viewerState.slot = slotKey;
+  document.getElementById("viewer-modal").classList.add("open");
+  renderViewerRail();
+  renderViewerBench();
+  await loadViewerImage(slotKey);
+}
+
+function closeViewer() {
+  document.getElementById("viewer-modal").classList.remove("open");
+  document.getElementById("viewer-img").removeAttribute("src");
+  viewerState.slot = null;
+}
+
+async function loadViewerImage(slotKey) {
+  const img = document.getElementById("viewer-img");
+  img.removeAttribute("src");
+  img.style.width = "";
+  viewerState.natW = 0; viewerState.natH = 0;
+  viewerState.fitMode = true;
+  const def = DOC_SLOTS.find(s => s.key === slotKey);
+  document.getElementById("viewer-title").textContent = def ? def.label : "Document";
+  document.getElementById("viewer-zoom-pct").textContent = "…";
+  try {
+    const url = await slotSignedUrl(slotKey);
+    if (url) img.src = url;
+  } catch (e) {
+    showToast("Couldn't load the document: " + (e.message || e), "err");
+  }
+}
+
+function renderViewerRail() {
+  document.getElementById("viewer-rail").innerHTML = DOC_SLOTS.map(slot => {
+    const has = !!docSlots[slot.key];
+    return '<div class="rail-card' + (slot.key === viewerState.slot ? " active" : "") + (has ? "" : " empty") +
+      '" data-vslot="' + slot.key + '">' +
+      '<div class="rc-top"><span class="rc-title">' + escHtml(slot.label) + "</span>" +
+      (has ? '<span class="rc-badge">Loaded</span>' : '<span class="rc-badge none">—</span>') + "</div>" +
+      '<div class="rc-thumb">' + (has ? '<img data-vthumb="' + slot.key + '" alt="">' : '<span class="none">🖼</span>') + "</div>" +
+    "</div>";
+  }).join("");
+  DOC_SLOTS.forEach(slot => {
+    if (!docSlots[slot.key]) return;
+    slotSignedUrl(slot.key).then(url => {
+      const img = document.querySelector('img[data-vthumb="' + slot.key + '"]');
+      if (img && url) img.src = url;
+    }).catch(() => { /* thumb stays empty */ });
+  });
+}
+
+// Same fields as the main Provider information grid (minus Status, which
+// isn't review work) — edits land in `values` + the main input + autosave.
+function renderViewerBench() {
+  const host = document.getElementById("viewer-bench-grid");
+  host.innerHTML = FIELD_DEFS.filter(d => d.key && d.key !== "progress_status").map(def => {
+    const val = values[def.key] == null ? "" : String(values[def.key]);
+    let input;
+    if (def.type === "select") {
+      input = '<select data-wkey="' + def.key + '">' + def.options.map(o =>
+        '<option value="' + escAttr(o) + '"' + (o === val ? " selected" : "") + ">" + escHtml(o) + "</option>").join("") + "</select>";
+    } else {
+      input = '<input type="text" data-wkey="' + def.key + '" value="' + escAttr(val) + '"' +
+        (def.ph ? ' placeholder="' + escAttr(def.ph) + '"' : "") + ">";
+    }
+    return '<div class="fld"><label>' + escHtml(def.label) + "</label>" + input + "</div>";
+  }).join("");
+}
+
+function onBenchInput(e) {
+  const el = e.target.closest("[data-wkey]");
+  if (!el) return;
+  const k = el.dataset.wkey;
+  values[k] = el.value;
+  // Mirror into the main form input (programmatic set fires no events → no loop).
+  const main = document.querySelector('[data-fkey="' + k + '"]');
+  if (main && main.value !== el.value) main.value = el.value;
+  queueAutosave();
+}
+
+function applyViewerZoom() {
+  if (!viewerState.natW) return;
+  const img = document.getElementById("viewer-img");
+  img.style.width = Math.round(viewerState.natW * viewerState.zoom) + "px";
+  document.getElementById("viewer-zoom-pct").textContent = Math.round(viewerState.zoom * 100) + "%";
+}
+
+function viewerFitZoom() {
+  if (!viewerState.natW || !viewerState.natH) return;
+  const stage = document.getElementById("viewer-stage");
+  const scale = Math.min((stage.clientWidth - 30) / viewerState.natW, (stage.clientHeight - 30) / viewerState.natH);
+  viewerState.zoom = Math.max(0.05, Math.min(scale, 4));
+  viewerState.fitMode = true;
+  applyViewerZoom();
+}
+
+document.getElementById("viewer-img").addEventListener("load", () => {
+  const img = document.getElementById("viewer-img");
+  viewerState.natW = img.naturalWidth;
+  viewerState.natH = img.naturalHeight;
+  if (viewerState.fitMode) viewerFitZoom(); else applyViewerZoom();
+});
+document.getElementById("viewer-zoom-in").addEventListener("click", () => {
+  viewerState.fitMode = false;
+  viewerState.zoom = Math.min(viewerState.zoom * 1.25, 8);
+  applyViewerZoom();
+});
+document.getElementById("viewer-zoom-out").addEventListener("click", () => {
+  viewerState.fitMode = false;
+  viewerState.zoom = Math.max(viewerState.zoom / 1.25, 0.05);
+  applyViewerZoom();
+});
+document.getElementById("viewer-zoom-fit").addEventListener("click", viewerFitZoom);
+document.getElementById("viewer-close").addEventListener("click", closeViewer);
+document.getElementById("viewer-open-tab").addEventListener("click", () => {
+  if (!viewerState.slot) return;
+  slotSignedUrl(viewerState.slot).then(url => { if (url) window.open(url, "_blank", "noopener"); })
+    .catch(err => showToast("Couldn't open: " + (err.message || err), "err"));
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape" && isViewerOpen()) closeViewer(); });
+document.getElementById("viewer-rail").addEventListener("click", e => {
+  const card = e.target.closest("[data-vslot]");
+  if (!card) return;
+  const key = card.dataset.vslot;
+  if (!docSlots[key] || key === viewerState.slot) return;
+  openViewer(key);
+});
+(function () {
+  const bench = document.getElementById("viewer-bench-grid");
+  bench.addEventListener("input", onBenchInput);
+  bench.addEventListener("change", onBenchInput);
+})();
+
+// ══════════════════════════════════════════════════════════════════
 // VIEW SWITCHING + WIRING
 // ══════════════════════════════════════════════════════════════════
 function switchView(view) {
@@ -1152,8 +1365,7 @@ document.getElementById("doc-grid").addEventListener("click", e => {
   } else if (act.dataset.act === "remove") {
     removeSlotFile(slotKey);
   } else if (act.dataset.act === "view" && docSlots[slotKey]) {
-    slotSignedUrl(slotKey).then(url => { if (url) window.open(url, "_blank", "noopener"); })
-      .catch(err => showToast("Couldn't open: " + (err.message || err), "err"));
+    openViewer(slotKey);
   }
 });
 document.getElementById("doc-file-input").addEventListener("change", e => {
