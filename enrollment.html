@@ -221,6 +221,7 @@
     <h2>📄 CMS-855I Enrollment</h2>
     <div style="display:flex;gap:8px;">
       <button class="btn-action" id="import-zip-btn" type="button" title="One-time migration from the desktop form-filler">📥 Import form-filler backup (zip)</button>
+      <button class="btn-action" id="dedupe-btn" type="button" title="Remove duplicate provider rows created by a repeated import — keeps the original copy of each person">🧹 Remove duplicates</button>
       <input type="file" id="import-zip-input" accept=".zip" style="display:none;">
     </div>
   </div>
@@ -1130,12 +1131,34 @@ async function importBackupZip(file) {
         + (tops ? ": " + tops : "") + "). Use the cms855i_form_filler_PRIVATE_WITH_CLINICIANS zip.", "err");
       return;
     }
-    if (!confirm("Import " + jsonEntries.length + " provider(s) + their documents from this backup?")) return;
-    let imported = 0;
+    // Pre-read every provider JSON so a re-import can skip people who are
+    // already in the portal (matched by normalized first + last name) —
+    // running the import twice must not create duplicates.
+    const nameKey = (fn, ln) => (String(fn || "").trim() + " " + String(ln || "").trim()).toLowerCase().replace(/\s+/g, " ").trim();
+    const existingKeys = new Set(providers.map(p => nameKey(p.first_name, p.last_name)).filter(Boolean));
+    const parsedEntries = [];
+    let skipped = 0;
     for (const entry of jsonEntries) {
       const stem = normZipName(entry).replace(/^.*\//, "").replace(/\.json$/i, "");
+      let payloadRaw;
+      try { payloadRaw = JSON.parse(await zip.files[entry].async("string")); }
+      catch (e) { console.warn("[import] unreadable JSON:", stem, e); showToast("Skipping " + stem + " — unreadable JSON.", "err"); continue; }
+      const key = nameKey(payloadRaw.first_name, payloadRaw.last_name);
+      if (key && existingKeys.has(key)) { skipped++; continue; }
+      if (key) existingKeys.add(key);
+      parsedEntries.push({ stem: stem, payloadRaw: payloadRaw });
+    }
+    if (!parsedEntries.length) {
+      showToast("All " + jsonEntries.length + " provider(s) in this zip are already in the portal — nothing to import.", "ok");
+      return;
+    }
+    if (!confirm("Import " + parsedEntries.length + " provider(s) + their documents from this backup?" +
+      (skipped ? "\n(" + skipped + " already in the portal will be skipped.)" : ""))) return;
+    let imported = 0;
+    for (const item of parsedEntries) {
+      const stem = item.stem;
       try {
-        const payloadRaw = JSON.parse(await zip.files[entry].async("string"));
+        const payloadRaw = item.payloadRaw;
         const payload = {};
         ALL_PAYLOAD_KEYS.forEach(k => { payload[k] = payloadRaw[k] != null ? String(payloadRaw[k]) : ""; });
         const row = {
@@ -1175,18 +1198,55 @@ async function importBackupZip(file) {
           await db.from("cms855i_providers").update({ doc_slots: slotPaths }).eq("id", newId);
         }
         imported++;
-        showToast("Imported " + (row.first_name + " " + row.last_name).trim() + " (" + imported + "/" + jsonEntries.length + ")");
+        showToast("Imported " + (row.first_name + " " + row.last_name).trim() + " (" + imported + "/" + parsedEntries.length + ")");
       } catch (e) {
         console.warn("[import] provider failed:", stem, e);
         showToast("Failed on " + stem + ": " + (e.message || e), "err");
       }
     }
     try { await db.rpc("log_import", { p_key: "enrollment_backup", p_label: "CMS-855I backup", p_area: "Enrollment", p_row_count: imported }); } catch (e) { console.warn("[log_import]", e && e.message); }
-    showToast("Imported " + imported + " provider(s).", "ok");
+    showToast("Imported " + imported + " provider(s)." + (skipped ? " Skipped " + skipped + " already in the portal." : ""), "ok");
     await loadProviders();
   } catch (e) {
     showToast("Import failed: " + (e.message || e), "err");
   }
+}
+
+// One-click repair for duplicate rows from a repeated backup import: for
+// each duplicated name, KEEP the oldest row (the original — it holds any
+// board edits made since) and delete the newer copies + their documents.
+async function cleanupDuplicateProviders() {
+  const nameKey = p => (String(p.first_name || "").trim() + " " + String(p.last_name || "").trim()).toLowerCase().replace(/\s+/g, " ").trim();
+  const groups = {};
+  providers.forEach(p => {
+    const key = nameKey(p);
+    if (!key) return; // unnamed rows are never auto-deleted
+    (groups[key] = groups[key] || []).push(p);
+  });
+  const dupes = [];
+  Object.values(groups).forEach(list => {
+    if (list.length < 2) return;
+    list.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+    dupes.push(...list.slice(1));
+  });
+  if (!dupes.length) { showToast("No duplicates found — every provider name is unique.", "ok"); return; }
+  const names = [...new Set(dupes.map(providerDisplayName))].join(", ");
+  if (!confirm("Remove " + dupes.length + " duplicate row(s)?\n\nThe ORIGINAL copy of each person is kept (it holds your edits). Removing duplicates of: " + names)) return;
+  let removed = 0;
+  for (const p of dupes) {
+    try {
+      const paths = Object.values(p.doc_slots || {}).filter(Boolean);
+      if (paths.length) { try { await db.storage.from(DOCS_BUCKET).remove(paths); } catch (e) { /* best effort */ } }
+      const { error } = await db.from("cms855i_providers").delete().eq("id", p.id);
+      if (error) throw error;
+      if (currentId === p.id) startNewProvider(false);
+      removed++;
+    } catch (e) {
+      showToast("Couldn't remove duplicate " + providerDisplayName(p) + ": " + (e.message || e), "err");
+    }
+  }
+  showToast("Removed " + removed + " duplicate(s).", "ok");
+  await loadProviders();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1466,7 +1526,8 @@ document.getElementById("prog-sort").addEventListener("change", e => {
   renderProgress();
 });
 
-// Backup zip import.
+// Backup zip import + duplicate cleanup.
+document.getElementById("dedupe-btn").addEventListener("click", cleanupDuplicateProviders);
 document.getElementById("import-zip-btn").addEventListener("click", () => document.getElementById("import-zip-input").click());
 document.getElementById("import-zip-input").addEventListener("change", e => {
   const file = e.target.files && e.target.files[0];
