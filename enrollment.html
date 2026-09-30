@@ -104,7 +104,7 @@
   .prog-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
   .prog-toolbar select { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
   .prog-wrap { overflow-x: auto; }
-  table.prog { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1200px; }
+  table.prog { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1520px; }
   table.prog th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); padding: 8px 8px; border-bottom: 2px solid var(--border); background: #f8fafd; position: sticky; top: 0; }
   table.prog td { padding: 6px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
   table.prog td:first-child, table.prog th:first-child { position: sticky; left: 0; background: #fff; min-width: 150px; font-weight: 700; }
@@ -288,6 +288,7 @@
             <th>Name</th><th>Disc</th><th>Status</th>
             <th>Mailed to Therapist</th><th>Signature Received</th><th>Mailed to PECOS</th>
             <th>Mail Tracking #</th><th>PECOS Status</th><th>PECOS App Tracking #</th>
+            <th>PTAN</th><th>PECOS Approved</th><th>Effective Date</th>
             <th>PECOS Rejection Reason</th><th>Last Updated</th><th>Private Notes</th><th></th>
           </tr></thead>
           <tbody id="prog-body"></tbody>
@@ -418,7 +419,7 @@ function buildAiPrompt(slotKey) {
 }
 
 // ── Form layout (same order as the original tool) ────────────────────
-const PROGRESS_STATUSES = ["New", "In Progress", "Waiting on Docs", "Ready to Generate", "Generated", "Submitted", "Hold"];
+const PROGRESS_STATUSES = ["New", "In Progress", "Waiting on Docs", "Ready to Generate", "Generated", "Submitted", "Credentialed", "Hold"];
 const PECOS_STATUSES = ["Pending", "In Progress", "Rejected", "Completed"];
 const FIELD_DEFS = [
   { sep: "Identity" },
@@ -446,6 +447,8 @@ const FIELD_DEFS = [
 const PECOS_DEFS = [
   { key: "pecos_status", label: "PECOS Status", type: "select", options: PECOS_STATUSES },
   { key: "pecos_tracking_number", label: "PECOS App Tracking #" },
+  { key: "pecos_approved_date", label: "PECOS Approved", ph: "mm/dd/yyyy" },
+  { key: "enrollment_effective_date", label: "Medicare Effective Date", ph: "mm/dd/yyyy" },
   { key: "pecos_rejection_reason", label: "PECOS Rejection Reason" },
   { key: "mailed_to_therapist_date", label: "Mailed to Therapist", ph: "mm/dd/yyyy" },
   { key: "signature_received_date", label: "Signature Received", ph: "mm/dd/yyyy" },
@@ -462,6 +465,7 @@ const ALL_PAYLOAD_KEYS = FIELD_DEFS.filter(d => d.key).map(d => d.key)
   .concat(PECOS_DEFS.map(d => d.key)).concat(HIDDEN_PAYLOAD_KEYS);
 const PROG_EDIT_KEYS = ["discipline", "progress_status", "mailed_to_therapist_date", "signature_received_date",
   "mailed_to_pecos_date", "mail_tracking_number", "pecos_status", "pecos_tracking_number",
+  "ptan", "pecos_approved_date", "enrollment_effective_date",
   "pecos_rejection_reason", "provider_notes"];
 
 // ══════════════════════════════════════════════════════════════════
@@ -998,7 +1002,8 @@ function statusPillHtml(status) {
   const colors = {
     "New": ["#eef2f7", "#475569"], "In Progress": ["#e0ecff", "#1e3a8a"],
     "Waiting on Docs": ["#fdf6e6", "#92400e"], "Ready to Generate": ["#e9f9ef", "#166534"],
-    "Generated": ["#e0f2fe", "#075985"], "Submitted": ["#ede9fe", "#5b21b6"], "Hold": ["#fdecec", "#991b1b"]
+    "Generated": ["#e0f2fe", "#075985"], "Submitted": ["#ede9fe", "#5b21b6"],
+    "Credentialed": ["#dcfce7", "#14532d"], "Hold": ["#fdecec", "#991b1b"]
   };
   const c = colors[status] || colors["New"];
   return '<span class="status-pill" style="background:' + c[0] + ";color:" + c[1] + ';">' + escHtml(status || "New") + "</span>";
@@ -1019,7 +1024,7 @@ function renderProgress() {
   document.getElementById("prog-count").textContent = rows.length + " provider" + (rows.length === 1 ? "" : "s");
   const body = document.getElementById("prog-body");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="13" style="color:var(--muted);font-style:italic;">No providers yet — start one on the Form Filler tab, or import the desktop backup zip.</td></tr>';
+    body.innerHTML = '<tr><td colspan="16" style="color:var(--muted);font-style:italic;">No providers yet — start one on the Form Filler tab, or import the desktop backup zip.</td></tr>';
     return;
   }
   const txt = (p, k) => escAttr((p.payload && p.payload[k]) || "");
@@ -1034,6 +1039,9 @@ function renderProgress() {
       "<td><input data-pk='mail_tracking_number' value='" + txt(p, "mail_tracking_number") + "'></td>" +
       "<td><select data-pk='pecos_status'>" + PECOS_STATUSES.map(o => "<option" + (o === (p.pecos_status || "Pending") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
       "<td><input data-pk='pecos_tracking_number' value='" + txt(p, "pecos_tracking_number") + "'></td>" +
+      "<td><input data-pk='ptan' value='" + txt(p, "ptan") + "' placeholder='PTAN'></td>" +
+      "<td><input data-pk='pecos_approved_date' value='" + txt(p, "pecos_approved_date") + "' placeholder='mm/dd/yyyy'></td>" +
+      "<td><input data-pk='enrollment_effective_date' value='" + txt(p, "enrollment_effective_date") + "' placeholder='mm/dd/yyyy'></td>" +
       "<td><input data-pk='pecos_rejection_reason' value='" + txt(p, "pecos_rejection_reason") + "'></td>" +
       "<td style='white-space:nowrap;color:var(--muted);font-size:11.5px;'>" + escHtml(fmtStamp(p.last_updated)) + "</td>" +
       "<td><input data-pk='provider_notes' value='" + txt(p, "provider_notes") + "'></td>" +
@@ -1062,6 +1070,15 @@ async function saveProgressRow(rowId) {
     if (k === "progress_status") row.progress_status = el.value;
     if (k === "pecos_status") row.pecos_status = el.value;
   });
+  // PECOS Completed = enrolled — auto-promote the pipeline status, same
+  // pattern as eval compliance auto-completing on sync.
+  if (row.pecos_status === "Completed" && row.progress_status !== "Credentialed") {
+    row.progress_status = "Credentialed";
+    payload.progress_status = "Credentialed";
+    const sel = tr.querySelector("select[data-pk='progress_status']");
+    if (sel) sel.value = "Credentialed";
+    showToast("PECOS Completed → status set to Credentialed", "ok");
+  }
   row.payload = payload;
   try {
     const { error } = await db.from("cms855i_providers").update(row).eq("id", rowId);
@@ -1348,6 +1365,16 @@ document.getElementById("generate-btn").addEventListener("click", generatePdf);
   const host = document.getElementById(id);
   host.addEventListener("input", () => { collectFormValues(); queueAutosave(); });
   host.addEventListener("change", () => { collectFormValues(); queueAutosave(); });
+});
+// PECOS Completed = enrolled — mirror the progress-board auto-promote.
+document.getElementById("pecos-grid").addEventListener("change", e => {
+  const el = e.target.closest("[data-fkey='pecos_status']");
+  if (!el || el.value !== "Completed" || values.progress_status === "Credentialed") return;
+  values.progress_status = "Credentialed";
+  const sel = document.querySelector("[data-fkey='progress_status']");
+  if (sel) sel.value = "Credentialed";
+  showToast("PECOS Completed → status set to Credentialed", "ok");
+  queueAutosave();
 });
 
 // Doc slot interactions (delegated).
