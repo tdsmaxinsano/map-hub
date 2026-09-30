@@ -78,6 +78,7 @@
   .fld input:focus, .fld select:focus, .fld textarea:focus { outline: none; border-color: var(--accent); }
   .fld.wide { grid-column: 1 / -1; }
   .src-badge { font-size: 9px; font-weight: 800; background: #e0ecff; color: #1e3a8a; border-radius: 999px; padding: 1px 7px; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+  .fnum { font-size: 9px; font-weight: 800; color: #64748b; background: #eef2f7; border-radius: 4px; padding: 1px 5px; letter-spacing: 0; white-space: nowrap; }
   .grid-sep { grid-column: 1 / -1; font-size: 12px; font-weight: 800; color: var(--blue); border-bottom: 1px solid var(--border); padding-bottom: 4px; margin-top: 6px; }
 
   /* Doc slots */
@@ -436,28 +437,42 @@ function buildAiPrompt(slotKey) {
 // ── Form layout (same order as the original tool) ────────────────────
 const PROGRESS_STATUSES = ["New", "In Progress", "Waiting on Docs", "Ready to Generate", "Generated", "Submitted", "Credentialed", "Hold"];
 const PECOS_STATUSES = ["Pending", "In Progress", "Rejected", "Completed"];
+// Ordered to match the printed CMS-855I: Section 5 top to bottom, then the
+// Section 24 signature block. `num` is the field's box number on the form,
+// shown as a small tag so the screen can be cross-checked against paper.
 const FIELD_DEFS = [
-  { sep: "Identity" },
+  { sep: "Packet setup" },
   { key: "discipline", label: "Discipline", type: "select", options: ["PT", "OT"] },
   { key: "progress_status", label: "Status", type: "select", options: PROGRESS_STATUSES },
-  { key: "first_name", label: "First Name" }, { key: "middle_initial", label: "Middle Initial" },
-  { key: "last_name", label: "Last Name" }, { key: "suffix", label: "Suffix" },
-  { key: "ssn", label: "SSN (manual only)" }, { key: "date_of_birth", label: "Date of Birth", ph: "mm/dd/yyyy" },
-  { key: "ptan", label: "PTAN" }, { key: "npi", label: "NPI" },
-  { sep: "License" },
-  { key: "license_number", label: "License Number" },
-  { key: "license_effective_date", label: "License Effective Date", ph: "mm/dd/yyyy" },
-  { key: "license_state", label: "License State" },
-  { sep: "Signature block" },
-  { key: "printed_first_name", label: "Printed First Name" }, { key: "printed_middle_initial", label: "Printed M.I." },
-  { key: "printed_last_name", label: "Printed Last Name" }, { key: "printed_suffix", label: "Printed Suffix" },
-  { key: "date_signed", label: "Date Signed", ph: "mm/dd/yyyy" },
-  { sep: "Education" },
-  { key: "training_institution", label: "Training Institution" }, { key: "graduation_year", label: "Graduation Year" },
+  { sep: "Name — Section 5" },
+  { key: "first_name", label: "First Name", num: "5-1" },
+  { key: "middle_initial", label: "Middle Initial", num: "5-2" },
+  { key: "last_name", label: "Last Name", num: "5-3" },
+  { key: "suffix", label: "Suffix", num: "5-4" },
   { sep: "Other name (former/maiden)" },
-  { key: "other_first_name", label: "Other First Name" }, { key: "other_middle_initial", label: "Other M.I." },
-  { key: "other_last_name", label: "Other Last Name" }, { key: "other_suffix", label: "Other Suffix" },
-  { key: "other_name_description", label: "Other Name Description" }
+  { key: "other_first_name", label: "Other First Name", num: "5-5" },
+  { key: "other_middle_initial", label: "Other M.I.", num: "5-6" },
+  { key: "other_last_name", label: "Other Last Name", num: "5-7" },
+  { key: "other_suffix", label: "Other Suffix", num: "5-8" },
+  { key: "other_name_description", label: "Other Name Description", num: "5-9" },
+  { sep: "Identifiers" },
+  { key: "ssn", label: "SSN (manual only)", num: "5-10" },
+  { key: "date_of_birth", label: "Date of Birth", ph: "mm/dd/yyyy", num: "5-11" },
+  { key: "ptan", label: "PTAN", num: "5-12" },
+  { key: "npi", label: "NPI", num: "5-13" },
+  { sep: "Education" },
+  { key: "training_institution", label: "Training Institution", num: "5-14" },
+  { key: "graduation_year", label: "Graduation Year", num: "5-15" },
+  { sep: "License" },
+  { key: "license_number", label: "License Number", num: "5-16" },
+  { key: "license_effective_date", label: "License Effective Date", ph: "mm/dd/yyyy", num: "5-17" },
+  { key: "license_state", label: "License State", num: "5-18" },
+  { sep: "Signature block — Section 24" },
+  { key: "printed_first_name", label: "Printed First Name", num: "24-1" },
+  { key: "printed_middle_initial", label: "Printed M.I.", num: "24-2" },
+  { key: "printed_last_name", label: "Printed Last Name", num: "24-3" },
+  { key: "printed_suffix", label: "Printed Suffix", num: "24-5" },
+  { key: "date_signed", label: "Date Signed", ph: "mm/dd/yyyy", num: "24-6" }
 ];
 const PECOS_DEFS = [
   { key: "pecos_status", label: "PECOS Status", type: "select", options: PECOS_STATUSES },
@@ -699,7 +714,8 @@ function fieldInputHtml(def) {
     input = '<input type="text" data-fkey="' + def.key + '" value="' + escAttr(val) + '"' +
       (def.ph ? ' placeholder="' + escAttr(def.ph) + '"' : "") + ">";
   }
-  return '<div class="fld' + (def.wide ? " wide" : "") + '"><label>' + escHtml(def.label) + src + "</label>" + input + "</div>";
+  const num = def.num ? ' <span class="fnum" title="Box ' + escAttr(def.num) + ' on the printed CMS-855I">' + escHtml(def.num) + "</span>" : "";
+  return '<div class="fld' + (def.wide ? " wide" : "") + '"><label>' + escHtml(def.label) + num + src + "</label>" + input + "</div>";
 }
 
 function renderGrid(hostId, defs) {
@@ -1391,7 +1407,8 @@ function renderViewerBench() {
       input = '<input type="text" data-wkey="' + def.key + '" value="' + escAttr(val) + '"' +
         (def.ph ? ' placeholder="' + escAttr(def.ph) + '"' : "") + ">";
     }
-    return '<div class="fld"><label>' + escHtml(def.label) + "</label>" + input + "</div>";
+    const num = def.num ? ' <span class="fnum">' + escHtml(def.num) + "</span>" : "";
+    return '<div class="fld"><label>' + escHtml(def.label) + num + "</label>" + input + "</div>";
   }).join("");
 }
 
