@@ -113,6 +113,11 @@
   table.prog input:hover, table.prog select:hover { border-color: var(--border); background: #fff; }
   table.prog input:focus, table.prog select:focus { outline: none; border-color: var(--accent); background: #fff; }
   .status-pill { display: inline-block; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 2px 9px; }
+  /* Finished providers (Credentialed / PECOS Completed) sink to the bottom, tinted red */
+  tr.prog-done td { background: #fdf2f2; }
+  tr.prog-done td:first-child { background: #fdf2f2; color: #991b1b; }
+  tr.prog-done input, tr.prog-done select { color: #9f6b6b; }
+  tr.prog-done input:focus, tr.prog-done select:focus { color: var(--text); }
 
   /* Expanded document viewer + provider workbench */
   #viewer-modal { display: none; position: fixed; inset: 0; z-index: 150; background: rgba(11,31,68,0.55); padding: 14px; }
@@ -1013,7 +1018,10 @@ function renderProgress() {
   const sortSel = document.getElementById("prog-sort");
   try { sortSel.value = localStorage.getItem(PROG_SORT_KEY) || "name"; } catch (e) {}
   const mode = sortSel.value;
-  const rows = providers.slice().sort((a, b) => {
+  // Finished providers (fully enrolled) sink below the active pipeline in
+  // every sort mode; within each group the chosen sort order is preserved.
+  const isDone = p => p.pecos_status === "Completed" || p.progress_status === "Credentialed";
+  const sorted = providers.slice().sort((a, b) => {
     if (mode === "updated") return String(b.last_updated || "").localeCompare(String(a.last_updated || ""));
     if (mode === "status") {
       return PROGRESS_STATUSES.indexOf(a.progress_status || "New") - PROGRESS_STATUSES.indexOf(b.progress_status || "New")
@@ -1021,7 +1029,10 @@ function renderProgress() {
     }
     return providerDisplayName(a).localeCompare(providerDisplayName(b));
   });
-  document.getElementById("prog-count").textContent = rows.length + " provider" + (rows.length === 1 ? "" : "s");
+  const rows = sorted.filter(p => !isDone(p)).concat(sorted.filter(isDone));
+  const doneCount = rows.filter(isDone).length;
+  document.getElementById("prog-count").textContent = rows.length + " provider" + (rows.length === 1 ? "" : "s")
+    + (doneCount ? " · " + doneCount + " completed" : "");
   const body = document.getElementById("prog-body");
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="16" style="color:var(--muted);font-style:italic;">No providers yet — start one on the Form Filler tab, or import the desktop backup zip.</td></tr>';
@@ -1029,7 +1040,7 @@ function renderProgress() {
   }
   const txt = (p, k) => escAttr((p.payload && p.payload[k]) || "");
   body.innerHTML = rows.map(p =>
-    "<tr data-rowid='" + escAttr(p.id) + "'>" +
+    "<tr data-rowid='" + escAttr(p.id) + "'" + (isDone(p) ? " class='prog-done'" : "") + ">" +
       "<td>" + escHtml(providerDisplayName(p)) + "</td>" +
       "<td><select data-pk='discipline'>" + ["PT", "OT"].map(o => "<option" + (o === (p.discipline || "PT") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
       "<td><select data-pk='progress_status'>" + PROGRESS_STATUSES.map(o => "<option" + (o === (p.progress_status || "New") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
