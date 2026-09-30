@@ -270,6 +270,8 @@
         <label><input type="checkbox" id="review-confirm"> I reviewed every field against the source documents</label>
         <button class="btn-primary" id="generate-btn" type="button">Generate Filled PDF ⬇</button>
         <button class="btn-action" id="save-btn" type="button">💾 Save Progress</button>
+        <button class="btn-action" id="install-template-btn" type="button" style="display:none;" title="One-time setup: store the SANITIZED blank CMS-855I template in the private documents bucket">📄 Install blank template</button>
+        <input type="file" id="template-file-input" accept=".pdf,application/pdf" style="display:none;">
       </div>
     </div>
 
@@ -348,6 +350,11 @@ const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
 });
 const DOCS_BUCKET = "cms855i-docs";
 const TEMPLATE_PDF = "Template New Enrollment CMS-855I-508C.pdf";
+// Canonical home of the blank template: the private admin-only bucket.
+// The portal deploys from git (Vercel) and the template PDF is kept out of
+// the repo on purpose, so it can't live next to the HTML — it's installed
+// once via the 📄 Install blank template button and fetched from storage.
+const TEMPLATE_STORAGE_PATH = "_template/cms855i-blank-template.pdf";
 
 // ── PDF field mapping (ported from cms855i_508c.py, verified against the
 // template: every name below exists in the blank PDF's AcroForm) ─────────
@@ -939,6 +946,55 @@ function buildPdfUpdates(createdDate) {
   return updates;
 }
 
+// The blank template: private bucket first (canonical), then a copy that
+// happens to be deployed next to the HTML (standalone/local hosting).
+async function fetchTemplateBytes() {
+  try {
+    const { data, error } = await db.storage.from(DOCS_BUCKET).download(TEMPLATE_STORAGE_PATH);
+    if (!error && data) return await data.arrayBuffer();
+  } catch (e) { /* not installed yet */ }
+  try {
+    const resp = await fetch(encodeURI(TEMPLATE_PDF));
+    if (resp.ok) return await resp.arrayBuffer();
+  } catch (e) { /* no local copy either */ }
+  return null;
+}
+
+// One-time install of the blank template into the private bucket. Refuses
+// any copy that still carries personal data (the desktop "blank" template
+// has a real SSN baked in — only the SANITIZED copy may ever be uploaded).
+async function installTemplateFile(file) {
+  if (!file) return;
+  const btn = document.getElementById("install-template-btn");
+  btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") throw new Error("Pick a PDF file.");
+    const bytes = await file.arrayBuffer();
+    let form;
+    try { form = (await PDFLib.PDFDocument.load(bytes)).getForm(); }
+    catch (e) { throw new Error("That file isn't a readable PDF."); }
+    if (!(form.getFieldMaybe && form.getFieldMaybe("5-1"))) {
+      throw new Error("That PDF doesn't look like the fillable CMS-855I template (field 5-1 missing).");
+    }
+    for (const name of ["5-10", "5-11", "5-13", "5-16", "24-1"]) {
+      const f = form.getFieldMaybe(name);
+      if (f && f instanceof PDFLib.PDFTextField && String(f.getText() || "").trim()) {
+        throw new Error("REFUSED — this copy still has personal data (field " + name + " is filled). Upload the SANITIZED template from the DEPLOY-THIS folder, never the original desktop one.");
+      }
+    }
+    btn.textContent = "Uploading…";
+    const { error } = await db.storage.from(DOCS_BUCKET)
+      .upload(TEMPLATE_STORAGE_PATH, new Blob([bytes], { type: "application/pdf" }), { contentType: "application/pdf", upsert: true });
+    if (error) throw error;
+    btn.style.display = "none";
+    showToast("Template installed — stored privately, used for every Generate from now on. Click Generate again.", "ok");
+  } catch (e) {
+    showToast("Template install failed: " + (e.message || e), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "📄 Install blank template";
+  }
+}
+
 async function generatePdf() {
   collectFormValues();
   if (!document.getElementById("review-confirm").checked) {
@@ -949,9 +1005,11 @@ async function generatePdf() {
   btn.disabled = true; btn.textContent = "Generating…";
   try {
     const createdDate = todayMdy();
-    const resp = await fetch(encodeURI(TEMPLATE_PDF));
-    if (!resp.ok) throw new Error("Couldn't load the blank template PDF (" + resp.status + ")");
-    const bytes = await resp.arrayBuffer();
+    const bytes = await fetchTemplateBytes();
+    if (!bytes) {
+      document.getElementById("install-template-btn").style.display = "";
+      throw new Error("the blank template isn't installed yet. Click 📄 Install blank template and pick the sanitized PDF from your DEPLOY-THIS folder (one-time setup).");
+    }
     const pdfDoc = await PDFLib.PDFDocument.load(bytes);
     const form = pdfDoc.getForm();
     const updates = buildPdfUpdates(createdDate);
@@ -1430,6 +1488,12 @@ document.getElementById("start-new-btn").addEventListener("click", () => startNe
 document.getElementById("delete-btn").addEventListener("click", deleteCurrentProvider);
 document.getElementById("save-btn").addEventListener("click", () => saveProvider(true));
 document.getElementById("generate-btn").addEventListener("click", generatePdf);
+document.getElementById("install-template-btn").addEventListener("click", () => document.getElementById("template-file-input").click());
+document.getElementById("template-file-input").addEventListener("change", e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (file) installTemplateFile(file);
+});
 
 // Form autosave (900ms debounce, only once the provider row exists).
 ["field-grid", "pecos-grid"].forEach(id => {
