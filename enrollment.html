@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMS-855I — DependableCare</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+  :root {
+    --blue: #0b1f44; --blue-mid: #163172; --gold: #c79a26; --accent: #2463eb;
+    --green: #22c55e; --amber: #eab308; --red: #ef4444;
+    --bg: #f4f6fa; --card: #ffffff; --border: #e2e8f0; --text: #1f2937; --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  /* Login overlay */
+  #login-screen { display: none; position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); }
+  .login-card { background: #fff; border-radius: 16px; padding: 36px 32px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .login-card h1 { margin: 0 0 4px; color: var(--blue); font-size: 22px; font-weight: 800; text-align: center; }
+  .login-card p  { margin: 0 0 22px; color: var(--gold); font-size: 13px; font-weight: 600; text-align: center; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .login-card button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  .login-err { color: #b91c1c; font-size: 12px; margin-top: 8px; min-height: 14px; text-align: center; }
+
+  /* Admin-only gate */
+  #admin-gate { display: none; position: fixed; inset: 0; z-index: 99; align-items: center; justify-content: center; background: rgba(11, 31, 68, 0.92); color: #fff; text-align: center; padding: 32px; }
+  #admin-gate .gate-card { background: #fff; color: var(--text); border-radius: 14px; padding: 36px 40px; max-width: 420px; box-shadow: 0 30px 80px rgba(0,0,0,0.4); }
+  #admin-gate h2 { margin: 0 0 8px; color: var(--blue); font-size: 22px; }
+  #admin-gate p { margin: 0 0 18px; color: var(--muted); font-size: 13px; line-height: 1.5; }
+  #admin-gate a { color: var(--accent); text-decoration: none; font-weight: 700; font-size: 13px; }
+
+  /* Header (hidden inside iframe shell) */
+  .header { background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); color: #fff; padding: 12px 22px; display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  .header-brand h1 { margin: 0; font-size: 18px; font-weight: 800; }
+  .header-brand p  { margin: 0; font-size: 11px; color: var(--gold); font-weight: 600; }
+  .header-nav { display: flex; gap: 4px; flex: 1; flex-wrap: wrap; }
+  .header-nav a { color: rgba(255,255,255,0.7); text-decoration: none; padding: 7px 11px; border-radius: 6px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .header-nav a:hover { color: #fff; background: rgba(255,255,255,0.1); }
+  .header-nav a.active { color: #fff; background: rgba(255,255,255,0.15); }
+  .header-user { font-size: 11px; color: rgba(255,255,255,0.85); }
+  .header-signout { background: rgba(255,255,255,0.12); color: #fff; border: none; border-radius: 6px; padding: 6px 12px; font-size: 12px; font-weight: 700; cursor: pointer; }
+  html.in-iframe-shell .header { display: none !important; }
+
+  /* Content */
+  .container { max-width: 1280px; margin: 0 auto; padding: 18px 22px 80px; }
+  .hero-row { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin-bottom: 6px; flex-wrap: wrap; }
+  .hero-row h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--blue); }
+  .hero-sub { font-size: 13px; color: var(--muted); margin: 0 0 14px; }
+  .btn-action { padding: 7px 13px; font-size: 12px; font-weight: 700; background: #fff; border: 1.5px solid var(--border); border-radius: 7px; color: var(--text); cursor: pointer; }
+  .btn-action:hover { background: #f1f5f9; }
+  .btn-primary { background: var(--accent); color: #fff; border: none; border-radius: 8px; padding: 10px 18px; font-size: 13px; font-weight: 800; cursor: pointer; }
+  .btn-primary:hover { background: #1d4fc4; }
+  .btn-primary:disabled { opacity: .5; cursor: default; }
+  .btn-danger { background: #fff; color: #b91c1c; border: 1.5px solid #f3c1c1; border-radius: 7px; padding: 7px 13px; font-size: 12px; font-weight: 700; cursor: pointer; }
+
+  /* Tabs */
+  .view-tabs { display: flex; gap: 6px; margin: 0 0 16px; }
+  .view-tab { padding: 8px 18px; font-size: 13px; font-weight: 800; border: 1.5px solid var(--border); border-radius: 999px; background: #fff; color: var(--muted); cursor: pointer; }
+  .view-tab.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+  /* Cards */
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 16px; }
+  .card h3 { margin: 0 0 10px; font-size: 15px; font-weight: 800; color: var(--blue); }
+  .card .hint { font-size: 12px; color: var(--muted); margin: -4px 0 12px; line-height: 1.5; }
+
+  /* Provider library row */
+  .lib-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .lib-row select { flex: 1; min-width: 220px; border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; font-size: 13px; background: #fff; }
+
+  /* Field grid */
+  .field-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px 12px; }
+  .fld label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .3px; margin-bottom: 3px; }
+  .fld input, .fld select, .fld textarea { width: 100%; border: 1px solid var(--border); border-radius: 7px; padding: 8px 9px; font-size: 13px; background: #fff; }
+  .fld input:focus, .fld select:focus, .fld textarea:focus { outline: none; border-color: var(--accent); }
+  .fld.wide { grid-column: 1 / -1; }
+  .src-badge { font-size: 9px; font-weight: 800; background: #e0ecff; color: #1e3a8a; border-radius: 999px; padding: 1px 7px; text-transform: none; letter-spacing: 0; white-space: nowrap; }
+  .grid-sep { grid-column: 1 / -1; font-size: 12px; font-weight: 800; color: var(--blue); border-bottom: 1px solid var(--border); padding-bottom: 4px; margin-top: 6px; }
+
+  /* Doc slots */
+  .doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .doc-slot { border: 1.5px dashed var(--border); border-radius: 10px; padding: 10px; text-align: center; background: #fafcff; }
+  .doc-slot.dragover { border-color: var(--accent); background: #eef4ff; }
+  .doc-slot .ds-title { font-size: 12px; font-weight: 800; color: var(--text); }
+  .doc-slot .ds-req { font-size: 10px; color: var(--muted); }
+  .doc-slot .ds-thumb { margin: 8px auto; width: 100%; height: 90px; border-radius: 7px; background: #eef2f8; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: pointer; }
+  .doc-slot .ds-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
+  .doc-slot .ds-thumb .none { font-size: 22px; color: #c3cddd; }
+  .doc-slot .ds-actions { display: flex; gap: 5px; justify-content: center; flex-wrap: wrap; }
+  .doc-slot .ds-actions button { font-size: 10.5px; font-weight: 700; border: 1px solid var(--border); background: #fff; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+  .doc-slot .ds-actions button.ai { color: #1e3a8a; border-color: #c3d9ff; background: #eef4ff; }
+  .doc-slot .ds-manual { font-size: 10px; color: #9a7700; font-weight: 700; margin-top: 5px; }
+  .doc-slot .ds-status { font-size: 10.5px; color: var(--muted); min-height: 13px; margin-top: 4px; }
+
+  /* Generate bar */
+  .gen-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .gen-bar label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  #autosave-note { font-size: 11.5px; color: var(--muted); }
+
+  /* Progress table */
+  .prog-toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+  .prog-toolbar select { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
+  .prog-wrap { overflow-x: auto; }
+  table.prog { width: 100%; border-collapse: collapse; font-size: 12.5px; min-width: 1200px; }
+  table.prog th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); padding: 8px 8px; border-bottom: 2px solid var(--border); background: #f8fafd; position: sticky; top: 0; }
+  table.prog td { padding: 6px 8px; border-bottom: 1px solid #eef2f7; vertical-align: middle; }
+  table.prog td:first-child, table.prog th:first-child { position: sticky; left: 0; background: #fff; min-width: 150px; font-weight: 700; }
+  table.prog th:first-child { background: #f8fafd; z-index: 2; }
+  table.prog input, table.prog select { width: 100%; min-width: 90px; border: 1px solid transparent; border-radius: 6px; padding: 5px 6px; font-size: 12px; background: transparent; }
+  table.prog input:hover, table.prog select:hover { border-color: var(--border); background: #fff; }
+  table.prog input:focus, table.prog select:focus { outline: none; border-color: var(--accent); background: #fff; }
+  .status-pill { display: inline-block; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 2px 9px; }
+
+  /* Toast */
+  .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 11px 22px; border-radius: 8px; font-size: 13px; font-weight: 700; z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+  .toast.show { opacity: 1; }
+  .toast.err { background: #b91c1c; }
+  .toast.ok  { background: #047857; }
+</style>
+<script>
+  if (window.self !== window.top) document.documentElement.classList.add("in-iframe-shell");
+</script>
+</head>
+<body>
+
+<!-- Login overlay -->
+<div id="login-screen">
+  <div class="login-card">
+    <h1>DependableCare</h1>
+    <p>CMS-855I Enrollment</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username" />
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password" />
+    <button id="login-btn" type="button">Sign in</button>
+    <div id="login-err" class="login-err"></div>
+  </div>
+</div>
+
+<!-- Admin-only gate -->
+<div id="admin-gate">
+  <div class="gate-card">
+    <h2>🔒 Admin only</h2>
+    <p>The CMS-855I Enrollment tool holds Social Security numbers, licenses, and enrollment documents — restricted to admin users. Ask an admin to upgrade your role from the 👥 Users panel on the Map page.</p>
+    <a href="index.html">← Back to portal home</a>
+  </div>
+</div>
+
+<!-- Header -->
+<header class="header" id="app-header" style="display:none;">
+  <div class="header-brand">
+    <h1>DependableCare</h1>
+    <p>CMS-855I Enrollment</p>
+  </div>
+  <nav class="header-nav">
+    <a href="index.html">🏠 Home</a>
+    <a href="clinician-map.html">🗺️ Map</a>
+    <a href="referrals.html">📋 Referrals</a>
+    <a href="time-tracker.html">⏱️ Time</a>
+    <a href="compliance.html">✅ Compliance</a>
+    <a href="kanban.html">🗂️ Kanban</a>
+    <a href="roster-review.html">📋 Roster</a>
+    <a href="agencies.html">🏢 Agencies</a>
+    <a href="finance.html">💰 Finance</a>
+    <a href="imports.html">📥 Imports</a>
+    <a href="enrollment.html" class="active">📄 CMS-855I</a>
+  </nav>
+  <span class="header-user" id="header-user"></span>
+  <button class="header-signout" id="signout-btn">Sign out</button>
+</header>
+
+<!-- Main content -->
+<div class="container" id="app-container" style="display:none;">
+  <div class="hero-row">
+    <h2>📄 CMS-855I Enrollment</h2>
+    <div style="display:flex;gap:8px;">
+      <button class="btn-action" id="import-zip-btn" type="button" title="One-time migration from the desktop form-filler">📥 Import form-filler backup (zip)</button>
+      <input type="file" id="import-zip-input" accept=".zip" style="display:none;">
+    </div>
+  </div>
+  <p class="hero-sub">Fill and download the Medicare CMS-855I enrollment packet for a PT/OT, track PECOS + mailing progress, and keep each provider's documents in one place. Everything here is admin-only.</p>
+
+  <div class="view-tabs">
+    <button class="view-tab active" data-view="filler" type="button">📝 Form Filler</button>
+    <button class="view-tab" data-view="progress" type="button">📊 Progress</button>
+  </div>
+
+  <!-- ══════════ FORM FILLER VIEW ══════════ -->
+  <div id="view-filler">
+
+    <div class="card">
+      <h3>👤 Provider</h3>
+      <div class="lib-row">
+        <select id="provider-select"><option value="">— Start a new provider or pick a saved one —</option></select>
+        <button class="btn-action" id="start-new-btn" type="button">＋ Start New</button>
+        <button class="btn-danger" id="delete-btn" type="button">🗑 Delete</button>
+        <span id="autosave-note"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>🗂 Required documents</h3>
+      <p class="hint">Upload or paste a screenshot/scan for each document, then use <b>🤖 Analyze</b> to prefill the form — the AI only fills fields that are still empty, and every prefilled field gets a source badge.
+      <b>Social Security cards are never sent to AI</b> — type the SSN yourself.</p>
+      <div class="doc-grid" id="doc-grid"></div>
+      <input type="file" id="doc-file-input" accept="image/*" style="display:none;">
+    </div>
+
+    <div class="card">
+      <h3>🧾 Provider information</h3>
+      <div class="field-grid" id="field-grid"></div>
+    </div>
+
+    <div class="card">
+      <h3>📬 PECOS / Mail tracking</h3>
+      <div class="field-grid" id="pecos-grid"></div>
+    </div>
+
+    <div class="card">
+      <h3>🖨 Generate</h3>
+      <p class="hint">The packet is built from the blank CMS-855I template + the office defaults (Dependable Care addresses, PTAN/NPI/TIN, contact person) + this provider's fields, then downloads as a PDF. Nothing is uploaded anywhere.</p>
+      <div class="gen-bar">
+        <label><input type="checkbox" id="review-confirm"> I reviewed every field against the source documents</label>
+        <button class="btn-primary" id="generate-btn" type="button">Generate Filled PDF ⬇</button>
+        <button class="btn-action" id="save-btn" type="button">💾 Save Progress</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════ PROGRESS VIEW ══════════ -->
+  <div id="view-progress" style="display:none;">
+    <div class="card">
+      <h3>📊 Enrollment progress</h3>
+      <div class="prog-toolbar">
+        <label style="font-size:12px;color:var(--muted);font-weight:700;">Sort</label>
+        <select id="prog-sort">
+          <option value="name">Name A–Z</option>
+          <option value="updated">Last updated</option>
+          <option value="status">Status</option>
+        </select>
+        <span style="font-size:12px;color:var(--muted);" id="prog-count"></span>
+      </div>
+      <div class="prog-wrap">
+        <table class="prog">
+          <thead><tr>
+            <th>Name</th><th>Disc</th><th>Status</th>
+            <th>Mailed to Therapist</th><th>Signature Received</th><th>Mailed to PECOS</th>
+            <th>Mail Tracking #</th><th>PECOS Status</th><th>PECOS App Tracking #</th>
+            <th>PECOS Rejection Reason</th><th>Last Updated</th><th>Private Notes</th><th></th>
+          </tr></thead>
+          <tbody id="prog-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIG
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+});
+const DOCS_BUCKET = "cms855i-docs";
+const TEMPLATE_PDF = "Template New Enrollment CMS-855I-508C.pdf";
+
+// ── PDF field mapping (ported from cms855i_508c.py, verified against the
+// template: every name below exists in the blank PDF's AcroForm) ─────────
+const SEMANTIC_FIELD_MAP = {
+  first_name: "5-1", middle_initial: "5-2", last_name: "5-3", suffix: "5-4",
+  other_first_name: "5-5", other_middle_initial: "5-6", other_last_name: "5-7",
+  other_suffix: "5-8", other_name_description: "5-9",
+  ssn: "5-10", date_of_birth: "5-11", ptan: "5-12", npi: "5-13",
+  training_institution: "5-14", graduation_year: "5-15",
+  license_number: "5-16", license_effective_date: "5-17", license_state: "5-18",
+  certification_number: "5-19", certification_effective_date: "5-20",
+  certification_entity: "5-21", certification_state: "5-22",
+  dea_number: "5-23", dea_effective_date: "5-24", dea_state: "5-25",
+  printed_first_name: "24-1", printed_middle_initial: "24-2",
+  printed_last_name: "24-3", printed_suffix: "24-5", date_signed: "24-6"
+};
+const DISCIPLINE_CHECKBOXES = { OT: "CheckBox35", PT: "CheckBox36" };
+// 24-11 is a second "Date Signed" the office leaves blank. The old web app
+// documented this in clear_fields but never actually applied it — fixed here.
+const CLEAR_FIELDS = ["24-11"];
+
+// Office defaults — the reusable Dependable Care block extracted from a
+// completed sample packet (dependablecare_defaults.json raw_fields, 1:1).
+// Date-shaped values (MM/DD/YYYY) are replaced with the packet's created
+// date at generate time, exactly like the original apply_created_date rule.
+const OFFICE_DEFAULTS = {
+  "16-10": "07/14/2025", "16-11": "DEPENDABLE CARE STAFFING, LLC",
+  "16-12": "821550424", "16-13": "F100954559", "16-14": "1316654635",
+  "17-2": "07/14/2025", "17-3": "DEPENDABLE CARE STAFFING, LLC",
+  "17-4": "9933 Lawler Ave", "17-5": "Suite 206B", "17-6": "SKOKIE",
+  "17-7": "IL", "17-8": "60077-3703", "17-9": "F100954559", "17-10": "1316654635",
+  "21-1": "07/14/2025", "21-2": "Elmer", "21-4": "Davila",
+  "21-6": "9933 Lawler Ave", "21-7": "STE 206B", "21-8": "SKOKIE", "21-9": "IL",
+  "21-10": "60077-3703", "21-11": "6303986806", "21-13": "EDAVILTRINITY67@GMAIL.COM",
+  "21-14": "HR Director",
+  "6-2": "enter clinician nam *****c/o Dependable Care Staffing, LLC",
+  "6-3": "9933 Lawler Ave, Suite 206B", "6-5": "SKOKIE", "6-6": "IL",
+  "6-7": "60077-3703", "6-8": "847 983-8417", "6-9": "8884013644",
+  "6-10": "info@dependablecarestaffing.com",
+  "CheckBox1": true, "CheckBox5-1": true, "CheckBox5-4": true, "CheckBox5-7": true,
+  "CheckBox5-8-2": true, "CheckBox5-10": true, "CheckBox5-11": true,
+  "CheckBox10-2": true, "CheckBox11-1": true, "CheckBox16-2-2": true,
+  "CheckBox17-2": true, "CheckBox21-3": true
+};
+
+// ── Document slots + AI scan config (ported from openai_doc_ai.py). The
+// social_security slot deliberately has NO AI — SSNs stay manual-only. ──
+const DOC_SLOTS = [
+  { key: "drivers_license",     label: "Driver's License",     required: true,  ai: true  },
+  { key: "social_security",     label: "Social Security Card", required: true,  ai: false },
+  { key: "professional_license",label: "Professional License", required: true,  ai: true  },
+  { key: "idfpr_lookup",        label: "IDFPR Lookup",         required: false, ai: true  },
+  { key: "npi_info",            label: "NPI Screenshot",       required: true,  ai: true  },
+  { key: "diploma",             label: "Diploma",              required: true,  ai: true  }
+];
+const DOC_LABELS = {
+  drivers_license: "driver's license", professional_license: "professional license",
+  idfpr_lookup: "IDFPR lookup", npi_info: "NPI lookup page", diploma: "diploma"
+};
+const AI_ALLOWED_FIELDS = {
+  drivers_license: ["first_name", "middle_initial", "last_name", "date_of_birth"],
+  professional_license: ["first_name", "middle_initial", "last_name", "license_number", "license_state", "license_effective_date"],
+  idfpr_lookup: ["first_name", "middle_initial", "last_name", "license_number", "license_state", "license_effective_date"],
+  npi_info: ["first_name", "middle_initial", "last_name", "other_first_name", "other_last_name", "other_name_description", "npi", "license_number", "license_state"],
+  diploma: ["first_name", "middle_initial", "last_name", "training_institution", "graduation_year"]
+};
+function buildAiPrompt(slotKey) {
+  const fieldList = AI_ALLOWED_FIELDS[slotKey].join(", ");
+  return "You are extracting provider enrollment data from a " + DOC_LABELS[slotKey] +
+    ". Return JSON only. Do not include markdown. Do not guess SSN or any hidden/redacted values. " +
+    "Only return these fields if clearly visible: " + fieldList + ". " +
+    'Use this JSON shape: {"fields": {"field_name": "value"}, "notes": ["short note"], "confidence": "high|medium|low"}. ' +
+    "For names, split into first_name, middle_initial, and last_name when possible. " +
+    "If a value is not clearly visible, omit that key from fields.";
+}
+
+// ── Form layout (same order as the original tool) ────────────────────
+const PROGRESS_STATUSES = ["New", "In Progress", "Waiting on Docs", "Ready to Generate", "Generated", "Submitted", "Hold"];
+const PECOS_STATUSES = ["Pending", "In Progress", "Rejected", "Completed"];
+const FIELD_DEFS = [
+  { sep: "Identity" },
+  { key: "discipline", label: "Discipline", type: "select", options: ["PT", "OT"] },
+  { key: "progress_status", label: "Status", type: "select", options: PROGRESS_STATUSES },
+  { key: "first_name", label: "First Name" }, { key: "middle_initial", label: "Middle Initial" },
+  { key: "last_name", label: "Last Name" }, { key: "suffix", label: "Suffix" },
+  { key: "ssn", label: "SSN (manual only)" }, { key: "date_of_birth", label: "Date of Birth", ph: "mm/dd/yyyy" },
+  { key: "ptan", label: "PTAN" }, { key: "npi", label: "NPI" },
+  { sep: "License" },
+  { key: "license_number", label: "License Number" },
+  { key: "license_effective_date", label: "License Effective Date", ph: "mm/dd/yyyy" },
+  { key: "license_state", label: "License State" },
+  { sep: "Signature block" },
+  { key: "printed_first_name", label: "Printed First Name" }, { key: "printed_middle_initial", label: "Printed M.I." },
+  { key: "printed_last_name", label: "Printed Last Name" }, { key: "printed_suffix", label: "Printed Suffix" },
+  { key: "date_signed", label: "Date Signed", ph: "mm/dd/yyyy" },
+  { sep: "Education" },
+  { key: "training_institution", label: "Training Institution" }, { key: "graduation_year", label: "Graduation Year" },
+  { sep: "Other name (former/maiden)" },
+  { key: "other_first_name", label: "Other First Name" }, { key: "other_middle_initial", label: "Other M.I." },
+  { key: "other_last_name", label: "Other Last Name" }, { key: "other_suffix", label: "Other Suffix" },
+  { key: "other_name_description", label: "Other Name Description" }
+];
+const PECOS_DEFS = [
+  { key: "pecos_status", label: "PECOS Status", type: "select", options: PECOS_STATUSES },
+  { key: "pecos_tracking_number", label: "PECOS App Tracking #" },
+  { key: "pecos_rejection_reason", label: "PECOS Rejection Reason" },
+  { key: "mailed_to_therapist_date", label: "Mailed to Therapist", ph: "mm/dd/yyyy" },
+  { key: "signature_received_date", label: "Signature Received", ph: "mm/dd/yyyy" },
+  { key: "mailed_to_pecos_date", label: "Mailed to PECOS", ph: "mm/dd/yyyy" },
+  { key: "mail_tracking_number", label: "Mail Tracking #" },
+  { key: "provider_notes", label: "Private Notes (never printed on the PDF)", type: "textarea", wide: true }
+];
+// Kept in the payload + PDF map but (like the original) given no inputs:
+const HIDDEN_PAYLOAD_KEYS = [
+  "certification_number", "certification_effective_date", "certification_entity",
+  "certification_state", "dea_number", "dea_effective_date", "dea_state"
+];
+const ALL_PAYLOAD_KEYS = FIELD_DEFS.filter(d => d.key).map(d => d.key)
+  .concat(PECOS_DEFS.map(d => d.key)).concat(HIDDEN_PAYLOAD_KEYS);
+const PROG_EDIT_KEYS = ["discipline", "progress_status", "mailed_to_therapist_date", "signature_received_date",
+  "mailed_to_pecos_date", "mail_tracking_number", "pecos_status", "pecos_tracking_number",
+  "pecos_rejection_reason", "provider_notes"];
+
+// ══════════════════════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════════════════════
+let currentUser = null;
+let currentRole = "readonly";
+let providers = [];            // rows from cms855i_providers
+let currentId = null;          // selected provider row id (null = unsaved new)
+let values = {};               // semantic field values for the open provider
+let docSlots = {};             // slot key -> storage path
+let fieldSources = {};         // field key -> "OpenAI AI - Driver's License"
+let autosaveTimer = null;
+let activeSlotForPick = null;  // slot key awaiting the hidden file input
+let slotUrlCache = {};         // slot key -> signed url (per open provider)
+
+// ══════════════════════════════════════════════════════════════════
+// AUTH + BOOT
+// ══════════════════════════════════════════════════════════════════
+async function checkSession() {
+  const { data } = await db.auth.getSession();
+  if (data && data.session && data.session.user) await launchApp(data.session.user);
+  else document.getElementById("login-screen").style.display = "flex";
+}
+async function doSignIn() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) { err.textContent = error.message || "Incorrect credentials."; return; }
+  await launchApp(data.session.user);
+}
+async function doSignOut() { await db.auth.signOut(); location.reload(); }
+
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+  try {
+    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    currentRole = (roleRow && roleRow.role) || "readonly";
+  } catch (e) { currentRole = "readonly"; }
+
+  if (currentRole !== "admin") {
+    document.getElementById("admin-gate").style.display = "flex";
+    return;
+  }
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("app-container").style.display = "block";
+  document.getElementById("header-user").textContent = user.email || "";
+  startNewProvider(false);
+  await loadProviders();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════════════════
+function tableMissing(error) {
+  const msg = String((error && error.message) || "");
+  return /find the table|does not exist|schema cache/i.test(msg);
+}
+
+async function loadProviders() {
+  try {
+    const { data, error } = await db.from("cms855i_providers")
+      .select("*").order("last_name", { ascending: true }).order("first_name", { ascending: true });
+    if (error) throw error;
+    providers = data || [];
+  } catch (e) {
+    providers = [];
+    if (tableMissing(e)) showToast("Run migration 69 (cms855i_providers) in the Supabase SQL editor first.", "err");
+    else showToast("Couldn't load providers: " + (e.message || e), "err");
+  }
+  renderLibrary();
+  renderProgress();
+}
+
+function providerDisplayName(p) {
+  const fn = (p.first_name || "").trim(), ln = (p.last_name || "").trim();
+  return (fn || ln) ? (fn + " " + ln).trim() : "(unnamed)";
+}
+
+function renderLibrary() {
+  const sel = document.getElementById("provider-select");
+  const keep = currentId || "";
+  sel.innerHTML = '<option value="">— Start a new provider or pick a saved one —</option>' +
+    providers.map(p =>
+      '<option value="' + escAttr(p.id) + '">' + escHtml(providerDisplayName(p)) +
+      " · " + escHtml(p.discipline || "") + " · " + escHtml(p.progress_status || "") + "</option>"
+    ).join("");
+  sel.value = keep;
+}
+
+function blankValues() {
+  const v = {};
+  ALL_PAYLOAD_KEYS.forEach(k => { v[k] = ""; });
+  v.discipline = "PT";
+  v.progress_status = "New";
+  v.pecos_status = "Pending";
+  return v;
+}
+
+function startNewProvider(confirmFirst) {
+  if (confirmFirst && currentId !== null && !confirm("Start a new provider? The current one stays saved.")) return;
+  currentId = null;
+  values = blankValues();
+  docSlots = {};
+  fieldSources = {};
+  slotUrlCache = {};
+  document.getElementById("provider-select").value = "";
+  document.getElementById("review-confirm").checked = false;
+  renderForm(); renderDocSlots();
+  setAutosaveNote("New provider — not saved yet (💾 Save creates it)");
+}
+
+function openProvider(id) {
+  const p = providers.find(x => x.id === id);
+  if (!p) return;
+  currentId = p.id;
+  values = Object.assign(blankValues(), p.payload || {});
+  values.discipline = p.discipline || values.discipline || "PT";
+  values.progress_status = p.progress_status || values.progress_status || "New";
+  values.pecos_status = p.pecos_status || values.pecos_status || "Pending";
+  docSlots = Object.assign({}, p.doc_slots || {});
+  fieldSources = {};
+  slotUrlCache = {};
+  document.getElementById("provider-select").value = p.id;
+  document.getElementById("review-confirm").checked = false;
+  renderForm(); renderDocSlots();
+  setAutosaveNote("Loaded " + providerDisplayName(p) + " — edits autosave");
+  switchView("filler");
+}
+
+function collectRowFields() {
+  return {
+    first_name: (values.first_name || "").trim(),
+    last_name: (values.last_name || "").trim(),
+    discipline: values.discipline || "PT",
+    progress_status: values.progress_status || "New",
+    pecos_status: values.pecos_status || "Pending",
+    payload: Object.assign({}, values),
+    doc_slots: Object.assign({}, docSlots),
+    last_updated: new Date().toISOString()
+  };
+}
+
+async function saveProvider(showMsg) {
+  collectFormValues();
+  const row = collectRowFields();
+  try {
+    if (currentId) {
+      const { error } = await db.from("cms855i_providers").update(row).eq("id", currentId);
+      if (error) throw error;
+    } else {
+      row.created_by = currentUser ? currentUser.id : null;
+      const { data, error } = await db.from("cms855i_providers").insert(row).select("id").single();
+      if (error) throw error;
+      currentId = data.id;
+    }
+    if (showMsg) showToast("Saved", "ok");
+    setAutosaveNote("Saved " + new Date().toLocaleTimeString());
+    await loadProviders();
+    document.getElementById("provider-select").value = currentId;
+    return true;
+  } catch (e) {
+    if (tableMissing(e)) showToast("Run migration 69 first — the cms855i_providers table is missing.", "err");
+    else showToast("Save failed: " + (e.message || e), "err");
+    return false;
+  }
+}
+
+function queueAutosave() {
+  if (!currentId) { setAutosaveNote("New provider — not saved yet (💾 Save creates it)"); return; }
+  setAutosaveNote("● Unsaved changes…");
+  clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => { saveProvider(false); }, 900);
+}
+
+async function deleteCurrentProvider() {
+  if (!currentId) { showToast("Nothing selected to delete."); return; }
+  const p = providers.find(x => x.id === currentId);
+  if (!confirm("Delete " + (p ? providerDisplayName(p) : "this provider") + " and their uploaded documents? This cannot be undone.")) return;
+  try {
+    const paths = Object.values(docSlots).filter(Boolean);
+    if (paths.length) { try { await db.storage.from(DOCS_BUCKET).remove(paths); } catch (e) { /* best effort */ } }
+    const { error } = await db.from("cms855i_providers").delete().eq("id", currentId);
+    if (error) throw error;
+    showToast("Deleted", "ok");
+    startNewProvider(false);
+    await loadProviders();
+  } catch (e) {
+    showToast("Delete failed: " + (e.message || e), "err");
+  }
+}
+
+function setAutosaveNote(msg) { document.getElementById("autosave-note").textContent = msg || ""; }
+
+// ══════════════════════════════════════════════════════════════════
+// FORM RENDER + COLLECT
+// ══════════════════════════════════════════════════════════════════
+function fieldInputHtml(def) {
+  const val = values[def.key] == null ? "" : String(values[def.key]);
+  const src = fieldSources[def.key]
+    ? ' <span class="src-badge" title="' + escAttr(fieldSources[def.key]) + '">' + escHtml(fieldSources[def.key].split(" - ")[0]) + "</span>"
+    : "";
+  let input;
+  if (def.type === "select") {
+    input = '<select data-fkey="' + def.key + '">' + def.options.map(o =>
+      '<option value="' + escAttr(o) + '"' + (o === val ? " selected" : "") + ">" + escHtml(o) + "</option>").join("") + "</select>";
+  } else if (def.type === "textarea") {
+    input = '<textarea data-fkey="' + def.key + '" rows="2">' + escHtml(val) + "</textarea>";
+  } else {
+    input = '<input type="text" data-fkey="' + def.key + '" value="' + escAttr(val) + '"' +
+      (def.ph ? ' placeholder="' + escAttr(def.ph) + '"' : "") + ">";
+  }
+  return '<div class="fld' + (def.wide ? " wide" : "") + '"><label>' + escHtml(def.label) + src + "</label>" + input + "</div>";
+}
+
+function renderGrid(hostId, defs) {
+  document.getElementById(hostId).innerHTML = defs.map(def =>
+    def.sep ? '<div class="grid-sep">' + escHtml(def.sep) + "</div>" : fieldInputHtml(def)
+  ).join("");
+}
+
+function renderForm() {
+  renderGrid("field-grid", FIELD_DEFS);
+  renderGrid("pecos-grid", PECOS_DEFS);
+}
+
+function collectFormValues() {
+  document.querySelectorAll("[data-fkey]").forEach(el => { values[el.dataset.fkey] = el.value; });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DOCUMENT SLOTS
+// ══════════════════════════════════════════════════════════════════
+function renderDocSlots() {
+  const host = document.getElementById("doc-grid");
+  host.innerHTML = DOC_SLOTS.map(slot => {
+    const has = !!docSlots[slot.key];
+    return '<div class="doc-slot" data-slot="' + slot.key + '">' +
+      '<div class="ds-title">' + escHtml(slot.label) + "</div>" +
+      '<div class="ds-req">' + (slot.required ? "required" : "optional") + " · drop / paste / pick</div>" +
+      '<div class="ds-thumb" data-act="view" title="' + (has ? "Open full size" : "No document yet") + '">' +
+        (has ? '<img data-thumb="' + slot.key + '" alt="">' : '<span class="none">🖼</span>') + "</div>" +
+      '<div class="ds-actions">' +
+        '<button type="button" data-act="pick">📁 Upload</button>' +
+        (slot.ai && has ? '<button type="button" class="ai" data-act="ai">🤖 Analyze</button>' : "") +
+        (has ? '<button type="button" data-act="remove">✕</button>' : "") +
+      "</div>" +
+      (slot.key === "social_security" ? '<div class="ds-manual">🔒 Never sent to AI — enter SSN manually</div>' : "") +
+      '<div class="ds-status" data-status="' + slot.key + '"></div>' +
+    "</div>";
+  }).join("");
+  DOC_SLOTS.forEach(slot => { if (docSlots[slot.key]) hydrateThumb(slot.key); });
+}
+
+async function slotSignedUrl(slotKey, seconds) {
+  const path = docSlots[slotKey];
+  if (!path) return null;
+  if (slotUrlCache[slotKey]) return slotUrlCache[slotKey];
+  const { data, error } = await db.storage.from(DOCS_BUCKET).createSignedUrl(path, seconds || 600);
+  if (error) throw error;
+  slotUrlCache[slotKey] = data.signedUrl;
+  return data.signedUrl;
+}
+
+async function hydrateThumb(slotKey) {
+  try {
+    const url = await slotSignedUrl(slotKey);
+    const img = document.querySelector('img[data-thumb="' + slotKey + '"]');
+    if (img && url) img.src = url;
+  } catch (e) { /* thumb stays empty */ }
+}
+
+function slotStatus(slotKey, msg) {
+  const el = document.querySelector('[data-status="' + slotKey + '"]');
+  if (el) el.textContent = msg || "";
+}
+
+function extFromType(type) {
+  if (type === "image/jpeg") return "jpg";
+  if (type === "image/webp") return "webp";
+  return "png";
+}
+
+// Big photos (phone shots of licenses) get downscaled client-side, same as
+// the original tool: > 8MB → longest side 2200px, JPEG q0.88.
+async function maybeDownscale(file) {
+  if (file.size <= 8 * 1024 * 1024) return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const scale = Math.min(1, 2200 / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d").drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.88));
+    return blob || file;
+  } catch (e) { return file; }
+}
+
+async function uploadSlotFile(slotKey, file) {
+  if (!file || !/^image\//.test(file.type || "")) { showToast("Please choose an image file.", "err"); return; }
+  // Docs live under the provider's row id — create the row first if needed.
+  if (!currentId) {
+    slotStatus(slotKey, "Saving provider first…");
+    const ok = await saveProvider(false);
+    if (!ok) { slotStatus(slotKey, ""); return; }
+  }
+  try {
+    slotStatus(slotKey, "Uploading…");
+    const prepared = await maybeDownscale(file);
+    const ext = extFromType(prepared.type || file.type);
+    const path = currentId + "/" + slotKey + "." + ext;
+    const oldPath = docSlots[slotKey];
+    const { error } = await db.storage.from(DOCS_BUCKET)
+      .upload(path, prepared, { contentType: prepared.type || file.type, upsert: true });
+    if (error) throw error;
+    if (oldPath && oldPath !== path) { try { await db.storage.from(DOCS_BUCKET).remove([oldPath]); } catch (e) {} }
+    docSlots[slotKey] = path;
+    delete slotUrlCache[slotKey];
+    await saveProvider(false);
+    renderDocSlots();
+    slotStatus(slotKey, "");
+    showToast("Uploaded " + slotKey.replace(/_/g, " "), "ok");
+  } catch (e) {
+    slotStatus(slotKey, "");
+    showToast("Upload failed: " + (e.message || e), "err");
+  }
+}
+
+async function removeSlotFile(slotKey) {
+  const path = docSlots[slotKey];
+  if (!path) return;
+  if (!confirm("Remove this document?")) return;
+  try { await db.storage.from(DOCS_BUCKET).remove([path]); } catch (e) { /* best effort */ }
+  delete docSlots[slotKey];
+  delete slotUrlCache[slotKey];
+  await saveProvider(false);
+  renderDocSlots();
+}
+
+// ══════════════════════════════════════════════════════════════════
+// AI ANALYZE (reuses the tb-scan-image Edge Function; SSN slot excluded)
+// ══════════════════════════════════════════════════════════════════
+async function analyzeSlot(slotKey) {
+  if (slotKey === "social_security") { showToast("Social Security cards stay manual-only.", "err"); return; }
+  if (!AI_ALLOWED_FIELDS[slotKey]) return;
+  if (!docSlots[slotKey]) { showToast("Upload the document first.", "err"); return; }
+  const slotDef = DOC_SLOTS.find(s => s.key === slotKey);
+  try {
+    slotStatus(slotKey, "🤖 Analyzing…");
+    const url = await slotSignedUrl(slotKey);
+    const blob = await (await fetch(url)).blob();
+    const dataUrl = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result);
+      r.onerror = rej;
+      r.readAsDataURL(blob);
+    });
+    const session = (await db.auth.getSession()).data.session;
+    const token = session ? session.access_token : SUPABASE_KEY;
+    const resp = await fetch(SUPABASE_URL + "/functions/v1/tb-scan-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token, "apikey": SUPABASE_KEY },
+      body: JSON.stringify({ imageBase64: dataUrl, prompt: buildAiPrompt(slotKey) })
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    const content = (data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    const jsonStr = content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+    let parsed;
+    try { parsed = JSON.parse(jsonStr); }
+    catch (e) {
+      const m = jsonStr.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error("AI returned no JSON");
+      parsed = JSON.parse(m[0]);
+    }
+    const fields = (parsed && parsed.fields) || {};
+    const filled = mergeScanFields(fields, slotKey, "AI - " + slotDef.label);
+    slotStatus(slotKey, "");
+    if (filled.length) showToast("Filled " + filled.length + " empty field(s) — review them.", "ok");
+    else showToast("Nothing new to fill (fields already had values).");
+  } catch (e) {
+    slotStatus(slotKey, "");
+    showToast("AI analyze failed: " + (e.message || e), "err");
+  }
+}
+
+// Fill-only-empty merge (port of merge_prefill_values), restricted to the
+// slot's allowed fields. Sources are recorded ONLY for fields actually
+// filled (the original credited AI for values it never wrote).
+function mergeScanFields(fields, slotKey, sourceLabel) {
+  collectFormValues();
+  const allowed = new Set(AI_ALLOWED_FIELDS[slotKey] || []);
+  const filled = [];
+  Object.keys(fields || {}).forEach(k => {
+    if (!allowed.has(k)) return;
+    const val = String(fields[k] == null ? "" : fields[k]).trim();
+    if (!val) return;
+    if (String(values[k] || "").trim()) return; // never overwrite
+    values[k] = val;
+    fieldSources[k] = sourceLabel;
+    filled.push(k);
+  });
+  // Copy names into the printed block when those are still empty.
+  [["first_name", "printed_first_name"], ["middle_initial", "printed_middle_initial"], ["last_name", "printed_last_name"]]
+    .forEach(pair => {
+      if (String(values[pair[0]] || "").trim() && !String(values[pair[1]] || "").trim()) {
+        values[pair[1]] = values[pair[0]];
+        if (filled.includes(pair[0])) fieldSources[pair[1]] = sourceLabel;
+      }
+    });
+  renderForm();
+  queueAutosave();
+  return filled;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PDF GENERATION (pdf-lib port of cms855i_508c.py)
+// ══════════════════════════════════════════════════════════════════
+function todayMdy() {
+  const d = new Date();
+  return String(d.getMonth() + 1).padStart(2, "0") + "/" + String(d.getDate()).padStart(2, "0") + "/" + d.getFullYear();
+}
+
+function buildOutputFilename(first, last, createdDate) {
+  const clean = s => String(s || "").replace(/[^A-Za-z]/g, "");
+  const f = clean(first) || "Provider";
+  const l = (clean(last) || "X").charAt(0).toUpperCase() + clean(last).slice(1);
+  const m = String(createdDate || "").match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  const mmddyy = m ? (m[1] + m[2] + m[3].slice(2)) : "";
+  return (f + " " + l + " CMS-855I-508C" + (mmddyy ? " " + mmddyy : "") + ".pdf").replace(/\s+/g, " ");
+}
+
+function buildPdfUpdates(createdDate) {
+  const updates = {};
+  // 1. Office defaults, with every MM/DD/YYYY-shaped value refreshed to the
+  //    packet date (covers 16-10 / 17-2 / 21-1, same as the original rule).
+  Object.keys(OFFICE_DEFAULTS).forEach(k => {
+    const v = OFFICE_DEFAULTS[k];
+    updates[k] = (typeof v === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(v)) ? createdDate : v;
+  });
+  // 2. Provider semantic fields.
+  Object.keys(SEMANTIC_FIELD_MAP).forEach(k => {
+    let v = values[k];
+    if (k === "date_signed" && !String(v || "").trim()) v = createdDate;
+    if (v == null) return;
+    updates[SEMANTIC_FIELD_MAP[k]] = String(v);
+  });
+  // 3. Discipline checkboxes — the chosen one on, the other off.
+  const disc = String(values.discipline || "").toUpperCase();
+  if (DISCIPLINE_CHECKBOXES[disc]) {
+    Object.keys(DISCIPLINE_CHECKBOXES).forEach(code => {
+      updates[DISCIPLINE_CHECKBOXES[code]] = (code === disc);
+    });
+  }
+  // 4. Fields the office leaves blank on purpose.
+  CLEAR_FIELDS.forEach(k => { updates[k] = ""; });
+  return updates;
+}
+
+async function generatePdf() {
+  collectFormValues();
+  if (!document.getElementById("review-confirm").checked) {
+    showToast("Confirm you reviewed every field first.", "err");
+    return;
+  }
+  const btn = document.getElementById("generate-btn");
+  btn.disabled = true; btn.textContent = "Generating…";
+  try {
+    const createdDate = todayMdy();
+    const resp = await fetch(encodeURI(TEMPLATE_PDF));
+    if (!resp.ok) throw new Error("Couldn't load the blank template PDF (" + resp.status + ")");
+    const bytes = await resp.arrayBuffer();
+    const pdfDoc = await PDFLib.PDFDocument.load(bytes);
+    const form = pdfDoc.getForm();
+    const updates = buildPdfUpdates(createdDate);
+    let applied = 0, skipped = [];
+    Object.keys(updates).forEach(name => {
+      const field = form.getFieldMaybe ? form.getFieldMaybe(name) : null;
+      if (!field) { skipped.push(name); return; }
+      const value = updates[name];
+      try {
+        if (field instanceof PDFLib.PDFCheckBox) {
+          if (value === true) field.check();
+          else if (value === false || String(value).trim() === "" || value === "/Off") field.uncheck();
+          else field.check();
+        } else if (field instanceof PDFLib.PDFTextField) {
+          field.setText(value == null ? "" : String(value));
+        } else {
+          skipped.push(name); return;
+        }
+        applied++;
+      } catch (e) { skipped.push(name); }
+    });
+    if (skipped.length) console.warn("[cms855i] fields skipped:", skipped);
+    form.updateFieldAppearances();
+    const out = await pdfDoc.save();
+    const blob = new Blob([out], { type: "application/pdf" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = buildOutputFilename(values.first_name, values.last_name, createdDate);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 30000);
+    showToast("Packet generated — " + applied + " fields filled.", "ok");
+    // Mark progress + persist (Generate always saves, like the original).
+    if (values.progress_status === "New" || values.progress_status === "Ready to Generate") {
+      values.progress_status = "Generated";
+      renderForm();
+    }
+    await saveProvider(false);
+  } catch (e) {
+    showToast("Generate failed: " + (e.message || e), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "Generate Filled PDF ⬇";
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// PROGRESS BOARD
+// ══════════════════════════════════════════════════════════════════
+const PROG_SORT_KEY = "dependablecareCms855iProgressSort";
+let progTimers = {};
+
+function statusPillHtml(status) {
+  const colors = {
+    "New": ["#eef2f7", "#475569"], "In Progress": ["#e0ecff", "#1e3a8a"],
+    "Waiting on Docs": ["#fdf6e6", "#92400e"], "Ready to Generate": ["#e9f9ef", "#166534"],
+    "Generated": ["#e0f2fe", "#075985"], "Submitted": ["#ede9fe", "#5b21b6"], "Hold": ["#fdecec", "#991b1b"]
+  };
+  const c = colors[status] || colors["New"];
+  return '<span class="status-pill" style="background:' + c[0] + ";color:" + c[1] + ';">' + escHtml(status || "New") + "</span>";
+}
+
+function renderProgress() {
+  const sortSel = document.getElementById("prog-sort");
+  try { sortSel.value = localStorage.getItem(PROG_SORT_KEY) || "name"; } catch (e) {}
+  const mode = sortSel.value;
+  const rows = providers.slice().sort((a, b) => {
+    if (mode === "updated") return String(b.last_updated || "").localeCompare(String(a.last_updated || ""));
+    if (mode === "status") {
+      return PROGRESS_STATUSES.indexOf(a.progress_status || "New") - PROGRESS_STATUSES.indexOf(b.progress_status || "New")
+        || providerDisplayName(a).localeCompare(providerDisplayName(b));
+    }
+    return providerDisplayName(a).localeCompare(providerDisplayName(b));
+  });
+  document.getElementById("prog-count").textContent = rows.length + " provider" + (rows.length === 1 ? "" : "s");
+  const body = document.getElementById("prog-body");
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="13" style="color:var(--muted);font-style:italic;">No providers yet — start one on the Form Filler tab, or import the desktop backup zip.</td></tr>';
+    return;
+  }
+  const txt = (p, k) => escAttr((p.payload && p.payload[k]) || "");
+  body.innerHTML = rows.map(p =>
+    "<tr data-rowid='" + escAttr(p.id) + "'>" +
+      "<td>" + escHtml(providerDisplayName(p)) + "</td>" +
+      "<td><select data-pk='discipline'>" + ["PT", "OT"].map(o => "<option" + (o === (p.discipline || "PT") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
+      "<td><select data-pk='progress_status'>" + PROGRESS_STATUSES.map(o => "<option" + (o === (p.progress_status || "New") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
+      "<td><input data-pk='mailed_to_therapist_date' value='" + txt(p, "mailed_to_therapist_date") + "' placeholder='mm/dd/yyyy'></td>" +
+      "<td><input data-pk='signature_received_date' value='" + txt(p, "signature_received_date") + "' placeholder='mm/dd/yyyy'></td>" +
+      "<td><input data-pk='mailed_to_pecos_date' value='" + txt(p, "mailed_to_pecos_date") + "' placeholder='mm/dd/yyyy'></td>" +
+      "<td><input data-pk='mail_tracking_number' value='" + txt(p, "mail_tracking_number") + "'></td>" +
+      "<td><select data-pk='pecos_status'>" + PECOS_STATUSES.map(o => "<option" + (o === (p.pecos_status || "Pending") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
+      "<td><input data-pk='pecos_tracking_number' value='" + txt(p, "pecos_tracking_number") + "'></td>" +
+      "<td><input data-pk='pecos_rejection_reason' value='" + txt(p, "pecos_rejection_reason") + "'></td>" +
+      "<td style='white-space:nowrap;color:var(--muted);font-size:11.5px;'>" + escHtml(fmtStamp(p.last_updated)) + "</td>" +
+      "<td><input data-pk='provider_notes' value='" + txt(p, "provider_notes") + "'></td>" +
+      "<td><button class='btn-action' data-open='" + escAttr(p.id) + "' type='button'>Open</button></td>" +
+    "</tr>"
+  ).join("");
+}
+
+function fmtStamp(iso) {
+  if (!iso) return "";
+  try { return new Date(iso).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }); }
+  catch (e) { return String(iso); }
+}
+
+async function saveProgressRow(rowId) {
+  const p = providers.find(x => x.id === rowId);
+  if (!p) return;
+  const tr = document.querySelector("tr[data-rowid='" + rowId + "']");
+  if (!tr) return;
+  const payload = Object.assign({}, p.payload || {});
+  const row = { last_updated: new Date().toISOString() };
+  tr.querySelectorAll("[data-pk]").forEach(el => {
+    const k = el.dataset.pk;
+    payload[k] = el.value;
+    if (k === "discipline") row.discipline = el.value;
+    if (k === "progress_status") row.progress_status = el.value;
+    if (k === "pecos_status") row.pecos_status = el.value;
+  });
+  row.payload = payload;
+  try {
+    const { error } = await db.from("cms855i_providers").update(row).eq("id", rowId);
+    if (error) throw error;
+    p.payload = payload;
+    if (row.discipline) p.discipline = row.discipline;
+    if (row.progress_status) p.progress_status = row.progress_status;
+    if (row.pecos_status) p.pecos_status = row.pecos_status;
+    p.last_updated = row.last_updated;
+    // If this provider is open in the Form Filler, keep it in sync.
+    if (currentId === rowId) {
+      PROG_EDIT_KEYS.forEach(k => { values[k] = payload[k] != null ? payload[k] : values[k]; });
+      renderForm();
+    }
+  } catch (e) {
+    showToast("Row save failed: " + (e.message || e), "err");
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// BACKUP ZIP IMPORT (one-time migration from the desktop tool)
+// ══════════════════════════════════════════════════════════════════
+async function importBackupZip(file) {
+  if (!window.JSZip) { showToast("Zip library missing.", "err"); return; }
+  showToast("Reading zip…");
+  try {
+    const zip = await JSZip.loadAsync(file);
+    // Provider JSONs live in saved_providers/*.json (not inside *_docs folders).
+    const jsonEntries = Object.keys(zip.files).filter(n =>
+      /(^|\/)saved_providers\/[^/]+\.json$/i.test(n) && !zip.files[n].dir);
+    if (!jsonEntries.length) { showToast("No saved_providers/*.json found in this zip.", "err"); return; }
+    if (!confirm("Import " + jsonEntries.length + " provider(s) + their documents from this backup?")) return;
+    let imported = 0;
+    for (const entry of jsonEntries) {
+      const stem = entry.replace(/^.*\//, "").replace(/\.json$/i, "");
+      try {
+        const payloadRaw = JSON.parse(await zip.files[entry].async("string"));
+        const payload = {};
+        ALL_PAYLOAD_KEYS.forEach(k => { payload[k] = payloadRaw[k] != null ? String(payloadRaw[k]) : ""; });
+        const row = {
+          first_name: String(payloadRaw.first_name || "").trim(),
+          last_name: String(payloadRaw.last_name || "").trim(),
+          discipline: String(payloadRaw.discipline || "PT").toUpperCase() === "OT" ? "OT" : "PT",
+          progress_status: PROGRESS_STATUSES.includes(payloadRaw.progress_status) ? payloadRaw.progress_status : "New",
+          pecos_status: PECOS_STATUSES.includes(payloadRaw.pecos_status) ? payloadRaw.pecos_status : "Pending",
+          payload: payload,
+          doc_slots: {},
+          last_updated: new Date().toISOString(),
+          created_by: currentUser ? currentUser.id : null
+        };
+        const { data: ins, error } = await db.from("cms855i_providers").insert(row).select("id").single();
+        if (error) throw error;
+        const newId = ins.id;
+        // Doc images: saved_providers/{stem}_docs/{slot}.{ext} — remap by
+        // folder name (same fallback the desktop tool used for moved paths).
+        const slotPaths = {};
+        const docPrefixRe = new RegExp("(^|\\/)saved_providers\\/" + stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "_docs\\/([^/]+)$", "i");
+        for (const name of Object.keys(zip.files)) {
+          const m = name.match(docPrefixRe);
+          if (!m || zip.files[name].dir) continue;
+          const fileName = m[2];
+          const slot = DOC_SLOTS.find(s => fileName.toLowerCase().startsWith(s.key));
+          if (!slot) continue;
+          const ext = (fileName.split(".").pop() || "png").toLowerCase();
+          const blob = await zip.files[name].async("blob");
+          const path = newId + "/" + slot.key + "." + ext;
+          const type = ext === "jpg" || ext === "jpeg" ? "image/jpeg" : ext === "webp" ? "image/webp" : "image/png";
+          const { error: upErr } = await db.storage.from(DOCS_BUCKET)
+            .upload(path, blob, { contentType: type, upsert: true });
+          if (upErr) { console.warn("[import] doc upload failed", name, upErr.message); continue; }
+          slotPaths[slot.key] = path;
+        }
+        if (Object.keys(slotPaths).length) {
+          await db.from("cms855i_providers").update({ doc_slots: slotPaths }).eq("id", newId);
+        }
+        imported++;
+        showToast("Imported " + (row.first_name + " " + row.last_name).trim() + " (" + imported + "/" + jsonEntries.length + ")");
+      } catch (e) {
+        console.warn("[import] provider failed:", stem, e);
+        showToast("Failed on " + stem + ": " + (e.message || e), "err");
+      }
+    }
+    try { await db.rpc("log_import", { p_key: "enrollment_backup", p_label: "CMS-855I backup", p_area: "Enrollment", p_row_count: imported }); } catch (e) { console.warn("[log_import]", e && e.message); }
+    showToast("Imported " + imported + " provider(s).", "ok");
+    await loadProviders();
+  } catch (e) {
+    showToast("Import failed: " + (e.message || e), "err");
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// VIEW SWITCHING + WIRING
+// ══════════════════════════════════════════════════════════════════
+function switchView(view) {
+  document.querySelectorAll(".view-tab").forEach(b => b.classList.toggle("active", b.dataset.view === view));
+  document.getElementById("view-filler").style.display = view === "filler" ? "" : "none";
+  document.getElementById("view-progress").style.display = view === "progress" ? "" : "none";
+  if (view === "progress") renderProgress();
+}
+
+let toastTimer = null;
+function showToast(msg, kind) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (kind === "err" ? " err" : kind === "ok" ? " ok" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, 3200);
+}
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function escAttr(s) { return escHtml(s); }
+
+document.getElementById("login-btn").addEventListener("click", doSignIn);
+document.getElementById("login-password").addEventListener("keydown", e => { if (e.key === "Enter") doSignIn(); });
+document.getElementById("signout-btn").addEventListener("click", doSignOut);
+
+document.querySelectorAll(".view-tab").forEach(b => b.addEventListener("click", () => switchView(b.dataset.view)));
+document.getElementById("provider-select").addEventListener("change", e => {
+  if (e.target.value) openProvider(e.target.value);
+  else startNewProvider(false);
+});
+document.getElementById("start-new-btn").addEventListener("click", () => startNewProvider(true));
+document.getElementById("delete-btn").addEventListener("click", deleteCurrentProvider);
+document.getElementById("save-btn").addEventListener("click", () => saveProvider(true));
+document.getElementById("generate-btn").addEventListener("click", generatePdf);
+
+// Form autosave (900ms debounce, only once the provider row exists).
+["field-grid", "pecos-grid"].forEach(id => {
+  const host = document.getElementById(id);
+  host.addEventListener("input", () => { collectFormValues(); queueAutosave(); });
+  host.addEventListener("change", () => { collectFormValues(); queueAutosave(); });
+});
+
+// Doc slot interactions (delegated).
+document.getElementById("doc-grid").addEventListener("click", e => {
+  const slotEl = e.target.closest(".doc-slot");
+  if (!slotEl) return;
+  const slotKey = slotEl.dataset.slot;
+  const act = e.target.closest("[data-act]");
+  if (!act) return;
+  if (act.dataset.act === "pick") {
+    activeSlotForPick = slotKey;
+    document.getElementById("doc-file-input").click();
+  } else if (act.dataset.act === "ai") {
+    analyzeSlot(slotKey);
+  } else if (act.dataset.act === "remove") {
+    removeSlotFile(slotKey);
+  } else if (act.dataset.act === "view" && docSlots[slotKey]) {
+    slotSignedUrl(slotKey).then(url => { if (url) window.open(url, "_blank", "noopener"); })
+      .catch(err => showToast("Couldn't open: " + (err.message || err), "err"));
+  }
+});
+document.getElementById("doc-file-input").addEventListener("change", e => {
+  const file = e.target.files && e.target.files[0];
+  const slot = activeSlotForPick;
+  e.target.value = "";
+  activeSlotForPick = null;
+  if (file && slot) uploadSlotFile(slot, file);
+});
+// Drag & drop onto a slot.
+document.getElementById("doc-grid").addEventListener("dragover", e => {
+  const slotEl = e.target.closest(".doc-slot");
+  if (slotEl) { e.preventDefault(); slotEl.classList.add("dragover"); }
+});
+document.getElementById("doc-grid").addEventListener("dragleave", e => {
+  const slotEl = e.target.closest(".doc-slot");
+  if (slotEl) slotEl.classList.remove("dragover");
+});
+document.getElementById("doc-grid").addEventListener("drop", e => {
+  const slotEl = e.target.closest(".doc-slot");
+  if (!slotEl) return;
+  e.preventDefault();
+  slotEl.classList.remove("dragover");
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) uploadSlotFile(slotEl.dataset.slot, file);
+});
+// Paste a screenshot while hovering a slot: paste goes to the slot under
+// the pointer, else the first empty slot.
+let hoveredSlot = null;
+document.getElementById("doc-grid").addEventListener("mouseover", e => {
+  const slotEl = e.target.closest(".doc-slot");
+  hoveredSlot = slotEl ? slotEl.dataset.slot : null;
+});
+document.addEventListener("paste", e => {
+  const items = (e.clipboardData && e.clipboardData.items) || [];
+  for (const item of items) {
+    if (item.type && item.type.startsWith("image/")) {
+      const file = item.getAsFile();
+      const target = hoveredSlot || (DOC_SLOTS.find(s => !docSlots[s.key]) || {}).key;
+      if (file && target) { uploadSlotFile(target, file); e.preventDefault(); }
+      return;
+    }
+  }
+});
+
+// Progress board wiring: per-row debounce save + Open + sort.
+document.getElementById("prog-body").addEventListener("input", e => {
+  const tr = e.target.closest("tr[data-rowid]");
+  if (!tr) return;
+  const id = tr.dataset.rowid;
+  clearTimeout(progTimers[id]);
+  progTimers[id] = setTimeout(() => saveProgressRow(id), 700);
+});
+document.getElementById("prog-body").addEventListener("click", e => {
+  const btn = e.target.closest("[data-open]");
+  if (btn) openProvider(btn.dataset.open);
+});
+document.getElementById("prog-sort").addEventListener("change", e => {
+  try { localStorage.setItem(PROG_SORT_KEY, e.target.value); } catch (err) {}
+  renderProgress();
+});
+
+// Backup zip import.
+document.getElementById("import-zip-btn").addEventListener("click", () => document.getElementById("import-zip-input").click());
+document.getElementById("import-zip-input").addEventListener("change", e => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (file) importBackupZip(file);
+});
+
+checkSession();
+</script>
+<script src="chat-widget.js"></script>
+</body>
+</html>

@@ -57,6 +57,9 @@
   .container { max-width: 1600px; margin: 0 auto; padding: 18px 22px 80px; }
   .hero-row { display: flex; align-items: baseline; justify-content: space-between; gap: 18px; margin-bottom: 14px; flex-wrap: wrap; }
   .hero-row h2 { margin: 0; font-size: 22px; font-weight: 800; color: var(--blue); }
+  /* 📄 Med B CR — opens the CMS-855I enrollment tool (enrollment.html). */
+  .medb-cr-btn { background: #fff; border: 1.5px solid #2463eb; color: #2463eb; border-radius: 999px; padding: 6px 14px; font-size: 12.5px; font-weight: 800; cursor: pointer; }
+  .medb-cr-btn:hover { background: #eef4ff; }
   .hero-counts { font-size: 13px; color: var(--muted); }
   .hero-counts strong { color: var(--text); font-weight: 700; }
 
@@ -595,7 +598,11 @@
 <!-- Main content -->
 <div class="container" id="app-container" style="display:none;">
   <div class="hero-row">
-    <h2>Roster Review</h2>
+    <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+      <h2>Roster Review</h2>
+      <button class="medb-cr-btn" id="medb-cr-btn" type="button" style="display:none;"
+        title="CMS-855I Medicare Part B enrollment — form filler, provider documents, and PECOS tracker (admin only)">📄 Med B CR</button>
+    </div>
     <div class="hero-counts" id="hero-counts">—</div>
   </div>
 
@@ -3308,6 +3315,12 @@ async function confirmBulkVisitsImport() {
   }
   var btn = document.getElementById("bulk-visits-btn");
   if (btn) btn.addEventListener("click", openBulkVisModal);
+  // 📄 Med B CR → the CMS-855I enrollment tool. Not a shell tab (same
+  // pattern as the Territory Planner) — opens directly in a new tab.
+  var medbBtn = document.getElementById("medb-cr-btn");
+  if (medbBtn) medbBtn.addEventListener("click", function() {
+    window.open("enrollment.html", "_blank", "noopener");
+  });
 })();
 
 // Reveal admin-only buttons (called after role is resolved). The CSV
@@ -3316,6 +3329,9 @@ function refreshBulkVisitsBtnVisibility() {
   var isAdmin = currentRole === "admin";
   var btn = document.getElementById("bulk-visits-btn");
   if (btn) btn.style.display = isAdmin ? "" : "none";
+  // Med B CR (CMS-855I enrollment) holds SSNs/licenses — admin only.
+  var medb = document.getElementById("medb-cr-btn");
+  if (medb) medb.style.display = isAdmin ? "" : "none";
   var csv = document.getElementById("csv-btn");
   if (csv) csv.style.display = isAdmin ? "" : "none";
   var bulkCsv = document.getElementById("bulk-csv");
