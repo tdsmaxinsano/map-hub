@@ -390,7 +390,9 @@ const OFFICE_DEFAULTS = {
   "21-6": "9933 Lawler Ave", "21-7": "STE 206B", "21-8": "SKOKIE", "21-9": "IL",
   "21-10": "60077-3703", "21-11": "6303986806", "21-13": "EDAVILTRINITY67@GMAIL.COM",
   "21-14": "HR Director",
-  "6-2": "enter clinician nam *****c/o Dependable Care Staffing, LLC",
+  // 6-2 (Correspondence "Attention" line) is built per provider at
+  // generate time — see buildPdfUpdates. This is only the fallback tail.
+  "6-2": "c/o Dependable Care Staffing, LLC",
   "6-3": "9933 Lawler Ave, Suite 206B", "6-5": "SKOKIE", "6-6": "IL",
   "6-7": "60077-3703", "6-8": "847 983-8417", "6-9": "8884013644",
   "6-10": "info@dependablecarestaffing.com",
@@ -927,21 +929,26 @@ function buildPdfUpdates(createdDate) {
     const v = OFFICE_DEFAULTS[k];
     updates[k] = (typeof v === "string" && /^\d{2}\/\d{2}\/\d{4}$/.test(v)) ? createdDate : v;
   });
-  // 2. Provider semantic fields.
+  // 2. Correspondence "Attention" line (6-2): the desktop tool shipped a
+  //    literal "enter clinician nam *****" placeholder here that had to be
+  //    hand-edited on every packet — build it from the provider's name.
+  const attn = (String(values.first_name || "").trim() + " " + String(values.last_name || "").trim()).trim();
+  updates["6-2"] = (attn ? attn + " " : "") + "c/o Dependable Care Staffing, LLC";
+  // 3. Provider semantic fields.
   Object.keys(SEMANTIC_FIELD_MAP).forEach(k => {
     let v = values[k];
     if (k === "date_signed" && !String(v || "").trim()) v = createdDate;
     if (v == null) return;
     updates[SEMANTIC_FIELD_MAP[k]] = String(v);
   });
-  // 3. Discipline checkboxes — the chosen one on, the other off.
+  // 4. Discipline checkboxes — the chosen one on, the other off.
   const disc = String(values.discipline || "").toUpperCase();
   if (DISCIPLINE_CHECKBOXES[disc]) {
     Object.keys(DISCIPLINE_CHECKBOXES).forEach(code => {
       updates[DISCIPLINE_CHECKBOXES[code]] = (code === disc);
     });
   }
-  // 4. Fields the office leaves blank on purpose.
+  // 5. Fields the office leaves blank on purpose.
   CLEAR_FIELDS.forEach(k => { updates[k] = ""; });
   return updates;
 }
