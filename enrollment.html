@@ -1022,13 +1022,22 @@ async function importBackupZip(file) {
   try {
     const zip = await JSZip.loadAsync(file);
     // Provider JSONs live in saved_providers/*.json (not inside *_docs folders).
-    const jsonEntries = Object.keys(zip.files).filter(n =>
-      /(^|\/)saved_providers\/[^/]+\.json$/i.test(n) && !zip.files[n].dir);
-    if (!jsonEntries.length) { showToast("No saved_providers/*.json found in this zip.", "err"); return; }
+    // Some Windows zip tools store entry names with backslashes — normalize first.
+    const allNames = Object.keys(zip.files);
+    const normZipName = n => n.replace(/\\/g, "/");
+    const jsonEntries = allNames.filter(n =>
+      /(^|\/)saved_providers\/[^/]+\.json$/i.test(normZipName(n)) && !zip.files[n].dir);
+    if (!jsonEntries.length) {
+      const tops = [...new Set(allNames.map(n => normZipName(n).split("/")[0]))].slice(0, 4).join(", ");
+      showToast("\"" + file.name + "\" isn't a form-filler backup — no saved_providers/*.json inside ("
+        + allNames.length + " entr" + (allNames.length === 1 ? "y" : "ies")
+        + (tops ? ": " + tops : "") + "). Use the cms855i_form_filler_PRIVATE_WITH_CLINICIANS zip.", "err");
+      return;
+    }
     if (!confirm("Import " + jsonEntries.length + " provider(s) + their documents from this backup?")) return;
     let imported = 0;
     for (const entry of jsonEntries) {
-      const stem = entry.replace(/^.*\//, "").replace(/\.json$/i, "");
+      const stem = normZipName(entry).replace(/^.*\//, "").replace(/\.json$/i, "");
       try {
         const payloadRaw = JSON.parse(await zip.files[entry].async("string"));
         const payload = {};
@@ -1051,8 +1060,8 @@ async function importBackupZip(file) {
         // folder name (same fallback the desktop tool used for moved paths).
         const slotPaths = {};
         const docPrefixRe = new RegExp("(^|\\/)saved_providers\\/" + stem.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "_docs\\/([^/]+)$", "i");
-        for (const name of Object.keys(zip.files)) {
-          const m = name.match(docPrefixRe);
+        for (const name of allNames) {
+          const m = normZipName(name).match(docPrefixRe);
           if (!m || zip.files[name].dir) continue;
           const fileName = m[2];
           const slot = DOC_SLOTS.find(s => fileName.toLowerCase().startsWith(s.key));
@@ -1100,7 +1109,7 @@ function showToast(msg, kind) {
   t.textContent = msg;
   t.className = "toast show" + (kind === "err" ? " err" : kind === "ok" ? " ok" : "");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { t.className = "toast"; }, 3200);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, kind === "err" ? 7000 : 3200);
 }
 function escHtml(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
