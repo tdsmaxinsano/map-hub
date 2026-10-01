@@ -592,6 +592,13 @@ function providerDisplayName(p) {
   return (fn || ln) ? (fn + " " + ln).trim() : "(unnamed)";
 }
 
+// One normalized identity for duplicate checks everywhere (create guard,
+// backup-import skip, 🧹 cleanup): lowercased first+last, whitespace
+// collapsed. Empty when the provider has no name yet.
+function providerNameKey(fn, ln) {
+  return (String(fn || "").trim() + " " + String(ln || "").trim()).toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 function renderLibrary() {
   const sel = document.getElementById("provider-select");
   const keep = currentId || "";
@@ -664,6 +671,29 @@ async function saveProvider(showMsg) {
       const { error } = await db.from("cms855i_providers").update(row).eq("id", currentId);
       if (error) throw error;
     } else {
+      // Duplicate guard on CREATE: check the live table (not just the
+      // cached list) so two people working at once can't both add the
+      // same provider. Offer to open the existing record instead.
+      const key = providerNameKey(row.first_name, row.last_name);
+      if (key) {
+        let pool = providers;
+        try {
+          const { data: fresh } = await db.from("cms855i_providers").select("id, first_name, last_name");
+          if (fresh) pool = fresh;
+        } catch (e) { /* fall back to the cached list */ }
+        const existing = pool.find(p => providerNameKey(p.first_name, p.last_name) === key);
+        if (existing) {
+          const openExisting = confirm(providerDisplayName(existing) + " is already in the portal.\n\n" +
+            "OK — open the existing record (entries typed here are discarded)\n" +
+            "Cancel — create a separate duplicate anyway");
+          if (openExisting) {
+            await loadProviders();
+            openProvider(existing.id);
+            showToast("Opened the existing " + providerDisplayName(existing) + ".");
+            return false;
+          }
+        }
+      }
       row.created_by = currentUser ? currentUser.id : null;
       const { data, error } = await db.from("cms855i_providers").insert(row).select("id").single();
       if (error) throw error;
@@ -1227,8 +1257,7 @@ async function importBackupZip(file) {
     // Pre-read every provider JSON so a re-import can skip people who are
     // already in the portal (matched by normalized first + last name) —
     // running the import twice must not create duplicates.
-    const nameKey = (fn, ln) => (String(fn || "").trim() + " " + String(ln || "").trim()).toLowerCase().replace(/\s+/g, " ").trim();
-    const existingKeys = new Set(providers.map(p => nameKey(p.first_name, p.last_name)).filter(Boolean));
+    const existingKeys = new Set(providers.map(p => providerNameKey(p.first_name, p.last_name)).filter(Boolean));
     const parsedEntries = [];
     let skipped = 0;
     for (const entry of jsonEntries) {
@@ -1236,7 +1265,7 @@ async function importBackupZip(file) {
       let payloadRaw;
       try { payloadRaw = JSON.parse(await zip.files[entry].async("string")); }
       catch (e) { console.warn("[import] unreadable JSON:", stem, e); showToast("Skipping " + stem + " — unreadable JSON.", "err"); continue; }
-      const key = nameKey(payloadRaw.first_name, payloadRaw.last_name);
+      const key = providerNameKey(payloadRaw.first_name, payloadRaw.last_name);
       if (key && existingKeys.has(key)) { skipped++; continue; }
       if (key) existingKeys.add(key);
       parsedEntries.push({ stem: stem, payloadRaw: payloadRaw });
@@ -1309,7 +1338,7 @@ async function importBackupZip(file) {
 // each duplicated name, KEEP the oldest row (the original — it holds any
 // board edits made since) and delete the newer copies + their documents.
 async function cleanupDuplicateProviders() {
-  const nameKey = p => (String(p.first_name || "").trim() + " " + String(p.last_name || "").trim()).toLowerCase().replace(/\s+/g, " ").trim();
+  const nameKey = p => providerNameKey(p.first_name, p.last_name);
   const groups = {};
   providers.forEach(p => {
     const key = nameKey(p);
