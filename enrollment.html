@@ -83,8 +83,13 @@
 
   /* Doc slots */
   .doc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
-  .doc-slot { border: 1.5px dashed var(--border); border-radius: 10px; padding: 10px; text-align: center; background: #fafcff; }
+  .doc-slot { border: 1.5px dashed var(--border); border-radius: 10px; padding: 10px; text-align: center; background: #fafcff; cursor: pointer; }
+  .doc-slot:hover { border-color: #b9c8e4; background: #f4f8ff; }
   .doc-slot.dragover { border-color: var(--accent); background: #eef4ff; }
+  /* Armed as the paste target (click the card): shaded + explicit Ctrl+V hint */
+  .doc-slot.paste-ready { border: 1.5px dashed var(--accent); background: #eef4ff; }
+  .doc-slot.paste-ready .ds-thumb { background: #dbe7fb; }
+  .doc-slot.paste-ready::after { content: "📋 Ready — press Ctrl+V to paste"; display: block; margin-top: 6px; font-size: 10.5px; font-weight: 800; color: var(--accent); }
   .doc-slot .ds-title { font-size: 12px; font-weight: 800; color: var(--text); }
   .doc-slot .ds-req { font-size: 10px; color: var(--muted); }
   .doc-slot .ds-src { display: inline-block; font-size: 10.5px; font-weight: 700; color: var(--accent); text-decoration: none; margin-top: 3px; }
@@ -252,6 +257,7 @@
     <div class="card">
       <h3>🗂 Required documents</h3>
       <p class="hint">Upload or paste a screenshot/scan for each document, then use <b>🤖 Analyze</b> to prefill the form — the AI only fills fields that are still empty, and every prefilled field gets a source badge.
+      <b>To paste a screenshot:</b> click a document box so it shades blue (📋 ready), then press <b>Ctrl+V</b>. Click again or press Esc to un-select.
       <b>Social Security cards are never sent to AI</b> — type the SSN yourself.</p>
       <div class="doc-grid" id="doc-grid"></div>
       <input type="file" id="doc-file-input" accept="image/*" style="display:none;">
@@ -520,6 +526,7 @@ let autosaveTimer = null;
 let activeSlotForPick = null;  // slot key awaiting the hidden file input
 let slotUrlCache = {};         // slot key -> signed url (per open provider)
 let rosterNames = {};          // clinician_id -> roster name (display-only label for linked requests)
+let armedSlot = null;          // doc slot armed as the paste target (click a card)
 
 // ══════════════════════════════════════════════════════════════════
 // AUTH + BOOT
@@ -905,7 +912,7 @@ function renderDocSlots() {
   const host = document.getElementById("doc-grid");
   host.innerHTML = DOC_SLOTS.map(slot => {
     const has = !!docSlots[slot.key];
-    return '<div class="doc-slot" data-slot="' + slot.key + '">' +
+    return '<div class="doc-slot' + (armedSlot === slot.key ? " paste-ready" : "") + '" data-slot="' + slot.key + '">' +
       '<div class="ds-title">' + escHtml(slot.label) + "</div>" +
       '<div class="ds-req">' + (slot.required ? "required" : "optional") + " · drop / paste / pick</div>" +
       (slot.src ? '<a class="ds-src" href="' + escAttr(slot.src.url) + '" target="_blank" rel="noopener" title="Opens in a new tab — grab the document there, then drop or paste it here">↗ ' + escHtml(slot.src.label) + "</a>" : "") +
@@ -1627,7 +1634,11 @@ document.getElementById("viewer-open-tab").addEventListener("click", () => {
   slotSignedUrl(viewerState.slot).then(url => { if (url) window.open(url, "_blank", "noopener"); })
     .catch(err => showToast("Couldn't open: " + (err.message || err), "err"));
 });
-document.addEventListener("keydown", e => { if (e.key === "Escape" && isViewerOpen()) closeViewer(); });
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (isViewerOpen()) closeViewer();
+  else disarmSlot();
+});
 document.getElementById("viewer-rail").addEventListener("click", e => {
   const card = e.target.closest("[data-vslot]");
   if (!card) return;
@@ -1707,23 +1718,35 @@ document.getElementById("pecos-grid").addEventListener("change", e => {
   queueAutosave();
 });
 
+// Paste-target arming: click a slot card to shade it + show the Ctrl+V
+// hint; paste lands there. Click again or press Esc to disarm.
+function armSlot(slotKey) {
+  armedSlot = armedSlot === slotKey ? null : slotKey;
+  document.querySelectorAll(".doc-slot").forEach(el =>
+    el.classList.toggle("paste-ready", el.dataset.slot === armedSlot));
+}
+function disarmSlot() {
+  armedSlot = null;
+  document.querySelectorAll(".doc-slot.paste-ready").forEach(el => el.classList.remove("paste-ready"));
+}
+
 // Doc slot interactions (delegated).
 document.getElementById("doc-grid").addEventListener("click", e => {
   const slotEl = e.target.closest(".doc-slot");
   if (!slotEl) return;
   const slotKey = slotEl.dataset.slot;
   const act = e.target.closest("[data-act]");
-  if (!act) return;
-  if (act.dataset.act === "pick") {
+  if (act && act.dataset.act === "pick") {
     activeSlotForPick = slotKey;
     document.getElementById("doc-file-input").click();
-  } else if (act.dataset.act === "ai") {
-    analyzeSlot(slotKey);
-  } else if (act.dataset.act === "remove") {
-    removeSlotFile(slotKey);
-  } else if (act.dataset.act === "view" && docSlots[slotKey]) {
-    openViewer(slotKey);
+    return;
   }
+  if (act && act.dataset.act === "ai") { analyzeSlot(slotKey); return; }
+  if (act && act.dataset.act === "remove") { removeSlotFile(slotKey); return; }
+  if (act && act.dataset.act === "view" && docSlots[slotKey]) { openViewer(slotKey); return; }
+  // Any other click on the card (including an empty thumbnail) arms it
+  // as the paste target.
+  armSlot(slotKey);
 });
 document.getElementById("doc-file-input").addEventListener("change", e => {
   const file = e.target.files && e.target.files[0];
@@ -1749,7 +1772,7 @@ document.getElementById("doc-grid").addEventListener("drop", e => {
   const file = e.dataTransfer.files && e.dataTransfer.files[0];
   if (file) uploadSlotFile(slotEl.dataset.slot, file);
 });
-// Paste a screenshot while hovering a slot: paste goes to the slot under
+// Paste a screenshot: the armed (clicked) slot wins, then the slot under
 // the pointer, else the first empty slot.
 let hoveredSlot = null;
 document.getElementById("doc-grid").addEventListener("mouseover", e => {
@@ -1761,8 +1784,12 @@ document.addEventListener("paste", e => {
   for (const item of items) {
     if (item.type && item.type.startsWith("image/")) {
       const file = item.getAsFile();
-      const target = hoveredSlot || (DOC_SLOTS.find(s => !docSlots[s.key]) || {}).key;
-      if (file && target) { uploadSlotFile(target, file); e.preventDefault(); }
+      const target = armedSlot || hoveredSlot || (DOC_SLOTS.find(s => !docSlots[s.key]) || {}).key;
+      if (file && target) {
+        disarmSlot();
+        uploadSlotFile(target, file);
+        e.preventDefault();
+      }
       return;
     }
   }
