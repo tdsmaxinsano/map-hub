@@ -3329,9 +3329,10 @@ function refreshBulkVisitsBtnVisibility() {
   var isAdmin = currentRole === "admin";
   var btn = document.getElementById("bulk-visits-btn");
   if (btn) btn.style.display = isAdmin ? "" : "none";
-  // Med B CR (CMS-855I enrollment) holds SSNs/licenses — admin only.
+  // Med B CR (CMS-855I enrollment) — admins + editors (migration 70
+  // widened the RLS; the tool's import/cleanup tools stay admin-only).
   var medb = document.getElementById("medb-cr-btn");
-  if (medb) medb.style.display = isAdmin ? "" : "none";
+  if (medb) medb.style.display = (isAdmin || currentRole === "editor") ? "" : "none";
   var csv = document.getElementById("csv-btn");
   if (csv) csv.style.display = isAdmin ? "" : "none";
   var bulkCsv = document.getElementById("bulk-csv");
