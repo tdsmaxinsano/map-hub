@@ -518,6 +518,7 @@ let fieldSources = {};         // field key -> "OpenAI AI - Driver's License"
 let autosaveTimer = null;
 let activeSlotForPick = null;  // slot key awaiting the hidden file input
 let slotUrlCache = {};         // slot key -> signed url (per open provider)
+let rosterNames = {};          // clinician_id -> roster name (display-only label for linked requests)
 
 // ══════════════════════════════════════════════════════════════════
 // AUTH + BOOT
@@ -585,13 +586,32 @@ async function loadProviders() {
     if (tableMissing(e)) showToast("Run migration 69 (cms855i_providers) in the Supabase SQL editor first.", "err");
     else showToast("Couldn't load providers: " + (e.message || e), "err");
   }
+  // Roster names for linked requests (migration 71) — a DISPLAY-ONLY label
+  // so an unnamed "Requested" record still says who it's for. Never copied
+  // into the form's name fields; the packet name comes from documents.
+  try {
+    const ids = [...new Set(providers.map(p => p.clinician_id).filter(Boolean))];
+    if (ids.length) {
+      const { data: clins } = await db.from("clinician_v2").select("id, name").in("id", ids);
+      (clins || []).forEach(c => { rosterNames[c.id] = c.name || ""; });
+    }
+  } catch (e) { /* label only — providers still render without it */ }
   renderLibrary();
   renderProgress();
 }
 
 function providerDisplayName(p) {
   const fn = (p.first_name || "").trim(), ln = (p.last_name || "").trim();
-  return (fn || ln) ? (fn + " " + ln).trim() : "(unnamed)";
+  if (fn || ln) return (fn + " " + ln).trim();
+  // Roster-linked request with no verified name yet: label it with who it's
+  // for, clearly marked as the roster reference. Once the ID documents fill
+  // the real name fields, the display switches to them automatically.
+  const ref = p.clinician_id ? String(rosterNames[p.clinician_id] || "").trim() : "";
+  if (ref) {
+    const titled = ref.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+    return titled + " (roster)";
+  }
+  return "(unnamed)";
 }
 
 // One normalized identity for duplicate checks everywhere (create guard,
