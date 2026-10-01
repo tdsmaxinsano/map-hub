@@ -246,6 +246,7 @@
         <button class="btn-danger" id="delete-btn" type="button">🗑 Delete</button>
         <span id="autosave-note"></span>
       </div>
+      <div id="roster-link-row" style="display:none; align-items:center; gap:8px; flex-wrap:wrap; margin-top:10px; font-size:12.5px;"></div>
     </div>
 
     <div class="card">
@@ -600,6 +601,10 @@ async function loadProviders() {
   renderProgress();
 }
 
+function titleCaseName(s) {
+  return String(s || "").toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
+}
+
 function providerDisplayName(p) {
   const fn = (p.first_name || "").trim(), ln = (p.last_name || "").trim();
   if (fn || ln) return (fn + " " + ln).trim();
@@ -607,10 +612,7 @@ function providerDisplayName(p) {
   // for, clearly marked as the roster reference. Once the ID documents fill
   // the real name fields, the display switches to them automatically.
   const ref = p.clinician_id ? String(rosterNames[p.clinician_id] || "").trim() : "";
-  if (ref) {
-    const titled = ref.toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase());
-    return titled + " (roster)";
-  }
+  if (ref) return titleCaseName(ref) + " (roster)";
   return "(unnamed)";
 }
 
@@ -650,7 +652,7 @@ function startNewProvider(confirmFirst) {
   slotUrlCache = {};
   document.getElementById("provider-select").value = "";
   document.getElementById("review-confirm").checked = false;
-  renderForm(); renderDocSlots();
+  renderForm(); renderDocSlots(); renderRosterLink();
   setAutosaveNote("New provider — not saved yet (💾 Save creates it)");
 }
 
@@ -667,7 +669,7 @@ function openProvider(id) {
   slotUrlCache = {};
   document.getElementById("provider-select").value = p.id;
   document.getElementById("review-confirm").checked = false;
-  renderForm(); renderDocSlots();
+  renderForm(); renderDocSlots(); renderRosterLink();
   setAutosaveNote("Loaded " + providerDisplayName(p) + " — edits autosave");
   switchView("filler");
 }
@@ -725,6 +727,7 @@ async function saveProvider(showMsg) {
     setAutosaveNote("Saved " + new Date().toLocaleTimeString());
     await loadProviders();
     document.getElementById("provider-select").value = currentId;
+    renderRosterLink();
     return true;
   } catch (e) {
     if (tableMissing(e)) showToast("Run migration 69 first — the cms855i_providers table is missing.", "err");
@@ -758,6 +761,104 @@ async function deleteCurrentProvider() {
 }
 
 function setAutosaveNote(msg) { document.getElementById("autosave-note").textContent = msg || ""; }
+
+// ══════════════════════════════════════════════════════════════════
+// ROSTER LINK (migration 71) — ties a record to a roster clinician so
+// Roster Review shows its status. The link never touches name fields.
+// ══════════════════════════════════════════════════════════════════
+let rosterList = null; // cached [{id, name, discipline}] from clinician_v2
+
+async function ensureRosterList() {
+  if (rosterList) return rosterList;
+  try {
+    const { data, error } = await db.from("clinician_v2").select("id, name, discipline").order("name");
+    if (error) throw error;
+    rosterList = data || [];
+  } catch (e) { rosterList = []; }
+  return rosterList;
+}
+
+function renderRosterLink() {
+  const host = document.getElementById("roster-link-row");
+  if (!currentId) { host.style.display = "none"; host.innerHTML = ""; return; }
+  const p = providers.find(x => x.id === currentId);
+  const linkedId = p && p.clinician_id;
+  if (linkedId) {
+    const nm = String(rosterNames[linkedId] || "").trim();
+    host.innerHTML = '🔗 Linked to roster: <b>' + escHtml(nm ? titleCaseName(nm) : "clinician") + '</b> <span style="color:#166534;font-weight:800;">✓</span>' +
+      ' <button class="btn-action" id="roster-unlink-btn" type="button" style="padding:3px 9px;font-size:11px;">✕ Unlink</button>';
+  } else {
+    host.innerHTML = '<button class="btn-action" id="roster-link-btn" type="button" style="padding:4px 11px;font-size:11.5px;">🔗 Link to roster</button>' +
+      '<span style="color:var(--muted);">ties this record to a clinician so the Roster shows its Med B status</span>';
+  }
+  host.style.display = "flex";
+}
+
+async function openRosterLinkPicker() {
+  const host = document.getElementById("roster-link-row");
+  host.innerHTML = '<span style="color:var(--muted);">Loading roster…</span>';
+  const list = await ensureRosterList();
+  if (!list.length) { showToast("Couldn't load the roster.", "err"); renderRosterLink(); return; }
+  collectFormValues();
+  // Pre-select the clinician whose roster name matches this record's name.
+  const key = providerNameKey(values.first_name, values.last_name);
+  const takenIds = new Set(providers.filter(x => x.clinician_id && x.id !== currentId).map(x => x.clinician_id));
+  let preselect = "";
+  if (key) {
+    const hit = list.find(c => !takenIds.has(c.id) && providerNameKey(c.name, "") === key);
+    if (hit) preselect = hit.id;
+  }
+  host.innerHTML = '🔗 <select id="roster-link-select" style="flex:1;min-width:220px;border:1px solid var(--border);border-radius:7px;padding:6px 8px;font-size:12.5px;">' +
+    '<option value="">— pick the roster clinician —</option>' +
+    list.map(c => '<option value="' + escAttr(c.id) + '"' + (c.id === preselect ? " selected" : "") +
+      (takenIds.has(c.id) ? " disabled" : "") + '>' + escHtml(titleCaseName(c.name)) + " · " + escHtml(c.discipline || "—") +
+      (takenIds.has(c.id) ? " (already linked)" : "") + "</option>").join("") +
+    "</select>" +
+    '<button class="btn-primary" id="roster-link-save" type="button" style="padding:6px 13px;font-size:12px;">Link</button>' +
+    '<button class="btn-action" id="roster-link-cancel" type="button" style="padding:5px 11px;font-size:12px;">Cancel</button>';
+  if (preselect) showToast("Matched by name — confirm with Link.");
+}
+
+async function saveRosterLink() {
+  const sel = document.getElementById("roster-link-select");
+  const cid = sel && sel.value;
+  if (!cid) { showToast("Pick a clinician first.", "err"); return; }
+  try {
+    // One record per clinician — check live, not just the cached list.
+    const { data: clash, error: clashErr } = await db.from("cms855i_providers")
+      .select("id").eq("clinician_id", cid).neq("id", currentId).limit(1);
+    if (clashErr) throw clashErr;
+    if (clash && clash.length) { showToast("Another Med B CR record is already linked to that clinician.", "err"); return; }
+    const { error } = await db.from("cms855i_providers").update({ clinician_id: cid }).eq("id", currentId);
+    if (error) throw error;
+    const p = providers.find(x => x.id === currentId);
+    if (p) p.clinician_id = cid;
+    const c = (rosterList || []).find(x => x.id === cid);
+    if (c) rosterNames[cid] = c.name || "";
+    renderLibrary();
+    renderProgress();
+    renderRosterLink();
+    showToast("Linked — the Roster now shows this record's status.", "ok");
+  } catch (e) {
+    showToast("Link failed: " + (e.message || e), "err");
+  }
+}
+
+async function unlinkRoster() {
+  if (!confirm("Unlink this record from the roster? The Roster pill for that clinician disappears.")) return;
+  try {
+    const { error } = await db.from("cms855i_providers").update({ clinician_id: null }).eq("id", currentId);
+    if (error) throw error;
+    const p = providers.find(x => x.id === currentId);
+    if (p) p.clinician_id = null;
+    renderLibrary();
+    renderProgress();
+    renderRosterLink();
+    showToast("Unlinked.", "ok");
+  } catch (e) {
+    showToast("Unlink failed: " + (e.message || e), "err");
+  }
+}
 
 // ══════════════════════════════════════════════════════════════════
 // FORM RENDER + COLLECT
@@ -1574,6 +1675,12 @@ document.getElementById("provider-select").addEventListener("change", e => {
 });
 document.getElementById("start-new-btn").addEventListener("click", () => startNewProvider(true));
 document.getElementById("delete-btn").addEventListener("click", deleteCurrentProvider);
+document.getElementById("roster-link-row").addEventListener("click", e => {
+  if (e.target.closest("#roster-link-btn")) openRosterLinkPicker();
+  else if (e.target.closest("#roster-link-save")) saveRosterLink();
+  else if (e.target.closest("#roster-link-cancel")) renderRosterLink();
+  else if (e.target.closest("#roster-unlink-btn")) unlinkRoster();
+});
 document.getElementById("save-btn").addEventListener("click", () => saveProvider(true));
 document.getElementById("generate-btn").addEventListener("click", generatePdf);
 document.getElementById("install-template-btn").addEventListener("click", () => document.getElementById("template-file-input").click());
