@@ -233,6 +233,9 @@
   .medb-send-btn { background: transparent; color: var(--accent); border: 1px dashed var(--accent); padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; cursor: pointer; }
   .medb-send-btn:hover { background: var(--accent); color: #fff; }
   .medb-sent-pill { font-size: 10px; font-weight: 800; color: #92400e; background: #fdf6e6; border-radius: 999px; padding: 1px 7px; cursor: pointer; white-space: nowrap; }
+  .medb-cred-pill { font-size: 10px; font-weight: 800; color: #166534; background: #e9f9ef; border-radius: 999px; padding: 1px 7px; cursor: pointer; white-space: nowrap; }
+  .medb-mark-btn { background: transparent; color: #166534; border: 1px dashed #22c55e; padding: 1px 6px; border-radius: 999px; font-size: 10px; font-weight: 800; cursor: pointer; }
+  .medb-mark-btn:hover { background: #22c55e; color: #fff; }
 
   .name-cell { font-weight: 700; }
   .name-cell a { color: var(--blue); text-decoration: none; }
@@ -3004,14 +3007,20 @@ document.getElementById("roster-body").addEventListener("click", e => {
     }
     return;
   }
-  // 📄 Med B: send a credentialing request / open the tool from the sent pill
+  // 📄 Med B: send a request / mark already credentialed / open from a pill
   const medbBtn = e.target.closest(".medb-send-btn[data-cid]");
   if (medbBtn) {
     e.preventDefault();
     sendToMedB(medbBtn.dataset.cid);
     return;
   }
-  if (e.target.closest(".medb-sent-pill")) {
+  const medbMark = e.target.closest(".medb-mark-btn[data-cid]");
+  if (medbMark) {
+    e.preventDefault();
+    markAlreadyCredentialed(medbMark.dataset.cid);
+    return;
+  }
+  if (e.target.closest(".medb-sent-pill, .medb-cred-pill")) {
     window.open("enrollment.html", "_blank", "noopener");
     return;
   }
@@ -3359,15 +3368,20 @@ function renderMedbAction(r, canEdit) {
   if (!canEdit || !medbPartBDiscipline(r.discipline)) return "";
   const rec = medbLookup.byId[r.id];
   if (rec) {
+    const capable = rec.progress_status === "Credentialed" || rec.pecos_status === "Completed";
+    if (capable) {
+      return `<span class="medb-cred-pill" title="Med B credentialed — enrolled in Medicare Part B · click to open Med B CR">🩺 Med B ✓</span>`;
+    }
     return `<span class="medb-sent-pill" title="Already in Med B CR — click to open the tool">📄 ${escHtml(rec.progress_status || "Requested")}</span>`;
   }
-  return `<button type="button" class="medb-send-btn" data-cid="${escAttr(r.id)}" title="Send to Med B credentialing (CMS-855I). The name is NOT copied — it gets filled from verified ID documents">📄 Med B</button>`;
+  return `<button type="button" class="medb-send-btn" data-cid="${escAttr(r.id)}" title="Send to Med B credentialing (CMS-855I). The name is NOT copied — it gets filled from verified ID documents">📄 Med B</button>` +
+    `<button type="button" class="medb-mark-btn" data-cid="${escAttr(r.id)}" title="Mark already credentialed — stores only the status, no paperwork">✓</button>`;
 }
 
 async function loadMedbLookup() {
   try {
     const { data, error } = await db.from("cms855i_providers")
-      .select("clinician_id, progress_status")
+      .select("clinician_id, progress_status, pecos_status")
       .not("clinician_id", "is", null);
     if (error) throw error;
     const byId = {};
@@ -3416,6 +3430,49 @@ async function sendToMedB(cid) {
     showToast("Sent " + display + " to Med B CR — shows as Requested");
   } catch (e) {
     showToast("Send failed: " + (e.message || e), "error");
+  }
+}
+
+// For therapists credentialed long ago: store ONLY the credentialed status
+// (no documents, no paperwork) so the roster shows the green Med B ✓ pill.
+async function markAlreadyCredentialed(cid) {
+  const r = getRow(cid);
+  if (!r) return;
+  const disc = medbPartBDiscipline(r.discipline);
+  if (!disc) { showToast("Med B enrollment applies to PT/OT supervisors only."); return; }
+  const display = formatName(r.name);
+  if (!confirm("Mark " + display + " as ALREADY Med B credentialed?\n\nStores only the credentialed status — no documents or paperwork. Use 📄 Med B instead to run a new enrollment.")) return;
+  try {
+    const { data: existing, error: exErr } = await db.from("cms855i_providers")
+      .select("id, progress_status").eq("clinician_id", cid).limit(1);
+    if (exErr) throw exErr;
+    if (existing && existing.length) {
+      medbLookup.byId[cid] = { clinician_id: cid, progress_status: existing[0].progress_status };
+      renderTable();
+      showToast("Already in Med B CR (status: " + (existing[0].progress_status || "Requested") + ")");
+      return;
+    }
+    const { data: au } = await db.auth.getUser();
+    const email = (au && au.user && au.user.email) || "";
+    const note = "Marked already credentialed from Roster Review for " + display + (email ? " by " + email : "") +
+      " on " + new Date().toLocaleDateString("en-US") + " — no enrollment paperwork on file.";
+    const { error } = await db.from("cms855i_providers").insert({
+      clinician_id: cid,
+      first_name: "", last_name: "", // name comes from verified documents, never the roster
+      discipline: disc,
+      progress_status: "Credentialed",
+      pecos_status: "Completed",
+      doc_slots: {},
+      last_updated: new Date().toISOString(),
+      created_by: (au && au.user && au.user.id) || null,
+      payload: { discipline: disc, progress_status: "Credentialed", pecos_status: "Completed", provider_notes: note }
+    });
+    if (error) throw error;
+    medbLookup.byId[cid] = { clinician_id: cid, progress_status: "Credentialed", pecos_status: "Completed" };
+    renderTable();
+    showToast("Marked " + display + " as Med B credentialed ✓");
+  } catch (e) {
+    showToast("Mark failed: " + (e.message || e), "error");
   }
 }
 
