@@ -440,7 +440,9 @@ function buildAiPrompt(slotKey) {
 }
 
 // ── Form layout (same order as the original tool) ────────────────────
-const PROGRESS_STATUSES = ["New", "In Progress", "Waiting on Docs", "Ready to Generate", "Generated", "Submitted", "Credentialed", "Hold"];
+// "Requested" = sent over from Roster Review's 📄 Med B action (record
+// arrives unnamed on purpose — the name comes from verified documents).
+const PROGRESS_STATUSES = ["Requested", "New", "In Progress", "Waiting on Docs", "Ready to Generate", "Generated", "Submitted", "Credentialed", "Hold"];
 const PECOS_STATUSES = ["Pending", "In Progress", "Rejected", "Completed"];
 // Ordered to match the printed CMS-855I: Section 5 top to bottom, then the
 // Section 24 signature block. `num` is the field's box number on the form,
@@ -1129,6 +1131,7 @@ let progTimers = {};
 
 function statusPillHtml(status) {
   const colors = {
+    "Requested": ["#fdf6e6", "#92400e"],
     "New": ["#eef2f7", "#475569"], "In Progress": ["#e0ecff", "#1e3a8a"],
     "Waiting on Docs": ["#fdf6e6", "#92400e"], "Ready to Generate": ["#e9f9ef", "#166534"],
     "Generated": ["#e0f2fe", "#075985"], "Submitted": ["#ede9fe", "#5b21b6"],
