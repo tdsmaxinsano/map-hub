@@ -229,6 +229,11 @@
     color: #fff;
   }
 
+  /* "📄 Med B" credentialing send button + already-sent status pill (name cell) */
+  .medb-send-btn { background: transparent; color: var(--accent); border: 1px dashed var(--accent); padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 700; cursor: pointer; }
+  .medb-send-btn:hover { background: var(--accent); color: #fff; }
+  .medb-sent-pill { font-size: 10px; font-weight: 800; color: #92400e; background: #fdf6e6; border-radius: 999px; padding: 1px 7px; cursor: pointer; white-space: nowrap; }
+
   .name-cell { font-weight: 700; }
   .name-cell a { color: var(--blue); text-decoration: none; }
   .name-cell a:hover { text-decoration: underline; }
@@ -850,6 +855,7 @@ let agenciesList = []; // [{id, name}] from home_health_agencies
 let vdrLookup    = { byId: {}, byName: {} }; // legacy VDR (Create-bills) aggregates
 let visitsLookup = { byId: {}, byName: {} }; // Patient Visits-derived aggregates (preferred)
 let covGapsLookup = { byId: {}, byName: {} }; // Territory coverage-gap flags (migration 60)
+let medbLookup = { byId: {} }; // CMS-855I records linked by clinician_id (migration 71)
 let sortState = { key: null, dir: 1, type: "str" }; // click-to-sort (agencies.html pattern)
 
 // ── Per-clinician metrics lookup ──
@@ -1096,6 +1102,8 @@ async function launchApp(user) {
   loadStaffDirectory();
   // Load VDR per-clinician aggregates (best-effort; non-blocking for the table)
   loadVdrSummary().then(() => { if (rosterRows.length) renderTable(); });
+  // Med B CR link state (best-effort — readonly users fail RLS and get no chips)
+  loadMedbLookup().then(() => { if (rosterRows.length) renderTable(); });
   // Build the column picker (uses current visibleCols from localStorage)
   renderColumnPicker();
   // Load the roster and render
@@ -1459,6 +1467,7 @@ function buildRow(r) {
         <span class="name-links-row">
           <a class="territory-link" href="territory-planner.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open Territory Planner">🧭 Territory</a>
           <a class="map-mini-link" href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open on the full Map (loads the whole map — use Territory for roster work)">🗺</a>
+          ${renderMedbAction(r, canEdit)}
         </span>
         <span class="name-subline">
           <span class="disc-pill" style="background:${discColor};font-size:9.5px;padding:1px 6px;">${escHtml(r.discipline || "—")}</span>
@@ -2995,6 +3004,17 @@ document.getElementById("roster-body").addEventListener("click", e => {
     }
     return;
   }
+  // 📄 Med B: send a credentialing request / open the tool from the sent pill
+  const medbBtn = e.target.closest(".medb-send-btn[data-cid]");
+  if (medbBtn) {
+    e.preventDefault();
+    sendToMedB(medbBtn.dataset.cid);
+    return;
+  }
+  if (e.target.closest(".medb-sent-pill")) {
+    window.open("enrollment.html", "_blank", "noopener");
+    return;
+  }
   const cell = e.target.closest("[data-edit]");
   if (!cell) return;
   const mode = cell.dataset.edit;
@@ -3322,6 +3342,82 @@ async function confirmBulkVisitsImport() {
     window.open("enrollment.html", "_blank", "noopener");
   });
 })();
+
+// ── 📄 Med B credentialing requests (CMS-855I, migration 71 link) ──
+// A send creates a "Requested" record in Med B CR WITHOUT copying the
+// roster name (TB names can be typed wrong — the packet name comes from
+// verified ID documents). The record is linked by clinician_id, which
+// powers duplicate prevention + the already-sent status pill here.
+function medbPartBDiscipline(disc) {
+  const d = String(disc || "").toUpperCase();
+  if (d === "PT" || d === "DPT") return "PT";
+  if (d === "OT" || d === "OTR") return "OT";
+  return null; // assistants + ST don't individually enroll in Part B
+}
+
+function renderMedbAction(r, canEdit) {
+  if (!canEdit || !medbPartBDiscipline(r.discipline)) return "";
+  const rec = medbLookup.byId[r.id];
+  if (rec) {
+    return `<span class="medb-sent-pill" title="Already in Med B CR — click to open the tool">📄 ${escHtml(rec.progress_status || "Requested")}</span>`;
+  }
+  return `<button type="button" class="medb-send-btn" data-cid="${escAttr(r.id)}" title="Send to Med B credentialing (CMS-855I). The name is NOT copied — it gets filled from verified ID documents">📄 Med B</button>`;
+}
+
+async function loadMedbLookup() {
+  try {
+    const { data, error } = await db.from("cms855i_providers")
+      .select("clinician_id, progress_status")
+      .not("clinician_id", "is", null);
+    if (error) throw error;
+    const byId = {};
+    (data || []).forEach(row => { if (row.clinician_id) byId[row.clinician_id] = row; });
+    medbLookup = { byId: byId };
+  } catch (e) { /* readonly users can't read the table — no chips, by design */ }
+}
+
+async function sendToMedB(cid) {
+  const r = getRow(cid);
+  if (!r) return;
+  const disc = medbPartBDiscipline(r.discipline);
+  if (!disc) { showToast("Med B enrollment applies to PT/OT supervisors only."); return; }
+  const display = formatName(r.name);
+  if (!confirm("Send " + display + " to Med B credentialing?\n\nThis creates a 'Requested' record in Med B CR. The name is NOT copied over — it gets filled in from their verified ID documents.")) return;
+  try {
+    // Live duplicate check by roster link (the request record has no name,
+    // so the enrollment tool's name-based guards can't catch a re-send).
+    const { data: existing, error: exErr } = await db.from("cms855i_providers")
+      .select("id, progress_status").eq("clinician_id", cid).limit(1);
+    if (exErr) throw exErr;
+    if (existing && existing.length) {
+      medbLookup.byId[cid] = { clinician_id: cid, progress_status: existing[0].progress_status };
+      renderTable();
+      showToast("Already in Med B CR (status: " + (existing[0].progress_status || "Requested") + ")");
+      return;
+    }
+    const { data: au } = await db.auth.getUser();
+    const email = (au && au.user && au.user.email) || "";
+    const note = "Requested from Roster Review for " + display + (email ? " by " + email : "") +
+      " on " + new Date().toLocaleDateString("en-US") + ".";
+    const { error } = await db.from("cms855i_providers").insert({
+      clinician_id: cid,
+      first_name: "", last_name: "", // name comes from verified documents, never the roster
+      discipline: disc,
+      progress_status: "Requested",
+      pecos_status: "Pending",
+      doc_slots: {},
+      last_updated: new Date().toISOString(),
+      created_by: (au && au.user && au.user.id) || null,
+      payload: { discipline: disc, progress_status: "Requested", pecos_status: "Pending", provider_notes: note }
+    });
+    if (error) throw error;
+    medbLookup.byId[cid] = { clinician_id: cid, progress_status: "Requested" };
+    renderTable();
+    showToast("Sent " + display + " to Med B CR — shows as Requested");
+  } catch (e) {
+    showToast("Send failed: " + (e.message || e), "error");
+  }
+}
 
 // Reveal admin-only buttons (called after role is resolved). The CSV
 // export carries phone/email/emergency-contact/notes data — admin only.
