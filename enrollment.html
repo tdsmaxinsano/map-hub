@@ -527,6 +527,8 @@ let activeSlotForPick = null;  // slot key awaiting the hidden file input
 let slotUrlCache = {};         // slot key -> signed url (per open provider)
 let rosterNames = {};          // clinician_id -> roster name (display-only label for linked requests)
 let armedSlot = null;          // doc slot armed as the paste target (click a card)
+let draftTimer = null;         // debounce for the unsaved-new-provider local draft
+const DRAFT_KEY = "dependablecareCms855iDraft";
 
 // ══════════════════════════════════════════════════════════════════
 // AUTH + BOOT
@@ -573,6 +575,7 @@ async function launchApp(user) {
   }
   startNewProvider(false);
   await loadProviders();
+  maybeRestoreDraft();
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -729,6 +732,7 @@ async function saveProvider(showMsg) {
       const { data, error } = await db.from("cms855i_providers").insert(row).select("id").single();
       if (error) throw error;
       currentId = data.id;
+      clearLocalDraft(); // the record exists now — database autosave takes over
     }
     if (showMsg) showToast("Saved", "ok");
     setAutosaveNote("Saved " + new Date().toLocaleTimeString());
@@ -744,11 +748,63 @@ async function saveProvider(showMsg) {
 }
 
 function queueAutosave() {
-  if (!currentId) { setAutosaveNote("New provider — not saved yet (💾 Save creates it)"); return; }
+  if (!currentId) {
+    // Not in the database yet — keep a local draft so a closed tab or
+    // crash can't lose the typing. Restored on next open (maybeRestoreDraft).
+    setAutosaveNote("Draft kept on this computer — 💾 Save creates the record");
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveLocalDraft, 400);
+    return;
+  }
   setAutosaveNote("● Unsaved changes…");
   clearTimeout(autosaveTimer);
   autosaveTimer = setTimeout(() => { saveProvider(false); }, 900);
 }
+
+function saveLocalDraft() {
+  if (currentId) return; // saved providers autosave to the database instead
+  collectFormValues();
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify({ values: values, savedAt: new Date().toISOString() })); }
+  catch (e) { /* storage blocked — the explicit 💾 Save still works */ }
+}
+
+function clearLocalDraft() {
+  try { localStorage.removeItem(DRAFT_KEY); } catch (e) {}
+}
+
+// Offer to bring back an unsaved new-provider draft from a previous visit.
+function maybeRestoreDraft() {
+  let draft = null;
+  try { draft = JSON.parse(localStorage.getItem(DRAFT_KEY) || "null"); } catch (e) {}
+  if (!draft || !draft.values) return;
+  // Ignore drafts that never got past the defaults.
+  const meaningful = Object.keys(draft.values).some(k =>
+    !["discipline", "progress_status", "pecos_status"].includes(k) && String(draft.values[k] || "").trim());
+  if (!meaningful) { clearLocalDraft(); return; }
+  const when = draft.savedAt ? new Date(draft.savedAt).toLocaleString() : "an earlier visit";
+  if (confirm("Restore the unsaved provider draft from " + when + "?\n\nOK — bring it back into the form\nCancel — discard the draft")) {
+    currentId = null;
+    values = Object.assign(blankValues(), draft.values);
+    docSlots = {};
+    fieldSources = {};
+    document.getElementById("provider-select").value = "";
+    renderForm(); renderDocSlots(); renderRosterLink();
+    setAutosaveNote("Draft restored — 💾 Save creates the record");
+  } else {
+    clearLocalDraft();
+  }
+}
+
+// If the tab is closed/hidden inside a debounce window, flush immediately
+// so the last keystrokes aren't lost.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState !== "hidden") return;
+  if (currentId) {
+    if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; saveProvider(false); }
+  } else if (draftTimer) {
+    clearTimeout(draftTimer); draftTimer = null; saveLocalDraft();
+  }
+});
 
 async function deleteCurrentProvider() {
   if (!currentId) { showToast("Nothing selected to delete."); return; }
