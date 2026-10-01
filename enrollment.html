@@ -189,8 +189,8 @@
 <!-- Admin-only gate -->
 <div id="admin-gate">
   <div class="gate-card">
-    <h2>🔒 Admin only</h2>
-    <p>The CMS-855I Enrollment tool holds Social Security numbers, licenses, and enrollment documents — restricted to admin users. Ask an admin to upgrade your role from the 👥 Users panel on the Map page.</p>
+    <h2>🔒 Admins &amp; editors only</h2>
+    <p>The CMS-855I Enrollment tool holds Social Security numbers, licenses, and enrollment documents — restricted to admin and editor users. Ask an admin to upgrade your role from the 👥 Users panel on the Map page.</p>
     <a href="index.html">← Back to portal home</a>
   </div>
 </div>
@@ -228,7 +228,7 @@
       <input type="file" id="import-zip-input" accept=".zip" style="display:none;">
     </div>
   </div>
-  <p class="hero-sub">Fill and download the Medicare CMS-855I enrollment packet for a PT/OT, track PECOS + mailing progress, and keep each provider's documents in one place. Everything here is admin-only.</p>
+  <p class="hero-sub">Fill and download the Medicare CMS-855I enrollment packet for a PT/OT, track PECOS + mailing progress, and keep each provider's documents in one place. For admins and editors; readonly users can't open it.</p>
 
   <div class="view-tabs">
     <button class="view-tab active" data-view="filler" type="button">📝 Form Filler</button>
@@ -547,13 +547,19 @@ async function launchApp(user) {
     currentRole = (roleRow && roleRow.role) || "readonly";
   } catch (e) { currentRole = "readonly"; }
 
-  if (currentRole !== "admin") {
+  if (currentRole !== "admin" && currentRole !== "editor") {
     document.getElementById("admin-gate").style.display = "flex";
     return;
   }
   document.getElementById("app-header").style.display = "flex";
   document.getElementById("app-container").style.display = "block";
   document.getElementById("header-user").textContent = user.email || "";
+  // Editors get full day-to-day use; the desktop-migration power tools
+  // (backup import + duplicate cleanup) stay admin-only.
+  if (currentRole !== "admin") {
+    document.getElementById("import-zip-btn").style.display = "none";
+    document.getElementById("dedupe-btn").style.display = "none";
+  }
   startNewProvider(false);
   await loadProviders();
 }
