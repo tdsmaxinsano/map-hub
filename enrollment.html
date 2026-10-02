@@ -103,6 +103,13 @@
   .doc-slot .ds-manual { font-size: 10px; color: #9a7700; font-weight: 700; margin-top: 5px; }
   .doc-slot .ds-status { font-size: 10.5px; color: var(--muted); min-height: 13px; margin-top: 4px; }
 
+  /* CMS form watch (revision detector) */
+  #form-watch .fw-line { font-size: 11.5px; color: var(--muted); margin-top: 10px; }
+  #form-watch .fw-line a { color: var(--accent); text-decoration: none; }
+  #form-watch .fw-banner { margin-top: 12px; background: #fdf6e6; border: 1.5px solid #f3d98b; color: #92400e; border-radius: 10px; padding: 10px 14px; font-size: 12.5px; line-height: 1.6; }
+  #form-watch .fw-actions { display: inline-flex; gap: 8px; margin-left: 8px; vertical-align: middle; }
+  #form-watch .fw-actions a { text-decoration: none; }
+
   /* Generate bar */
   .gen-bar { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
   .gen-bar label { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
@@ -283,6 +290,7 @@
         <button class="btn-action" id="install-template-btn" type="button" style="display:none;" title="One-time setup: store the SANITIZED blank CMS-855I template in the private documents bucket">📄 Install blank template</button>
         <input type="file" id="template-file-input" accept=".pdf,application/pdf" style="display:none;">
       </div>
+      <div id="form-watch" style="display:none;"></div>
     </div>
 
   </div>
@@ -576,6 +584,7 @@ async function launchApp(user) {
   startNewProvider(false);
   await loadProviders();
   maybeRestoreDraft();
+  checkFormWatch(); // fire-and-forget — CMS revision detector
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1146,6 +1155,75 @@ function mergeScanFields(fields, slotKey, sourceLabel) {
   renderForm();
   queueAutosave();
   return filled;
+}
+
+// ══════════════════════════════════════════════════════════════════
+// CMS FORM WATCH — flags when Medicare publishes a revised 855I.
+// The cms-form-watch Edge Function hashes the official CMS PDF at most
+// once per 6 days; this just renders the stored state (migration 73).
+// ══════════════════════════════════════════════════════════════════
+let formWatch = null;
+
+async function checkFormWatch() {
+  try {
+    const session = (await db.auth.getSession()).data.session;
+    const token = session ? session.access_token : SUPABASE_KEY;
+    const resp = await fetch(SUPABASE_URL + "/functions/v1/cms-form-watch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + token, "apikey": SUPABASE_KEY },
+      body: "{}"
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || resp.statusText);
+    renderFormWatch(data);
+  } catch (e) {
+    // Best-effort: the watch never blocks the tool.
+    console.warn("[form-watch]", e && e.message);
+  }
+}
+
+function renderFormWatch(row) {
+  const host = document.getElementById("form-watch");
+  if (!row || !row.url) { host.style.display = "none"; return; }
+  formWatch = row;
+  const changed = row.current_hash && row.acknowledged_hash && row.current_hash !== row.acknowledged_hash;
+  if (changed) {
+    host.innerHTML = '<div class="fw-banner">⚠ <b>Medicare appears to have revised the CMS-855I</b> (detected ' +
+      escHtml(fmtStamp(row.changed_detected_at) || "recently") + "). Packets may be on an outdated form. " +
+      "Download the new official PDF, update + sanitize the template, use 📄 Install blank template, then mark this handled." +
+      '<span class="fw-actions">' +
+      '<a class="btn-action" href="' + escAttr(row.url) + '" target="_blank" rel="noopener">↗ Open CMS form</a>' +
+      '<button class="btn-action" id="fw-ack-btn" type="button" title="Admin only — confirms the template matches the current CMS revision">✓ Mark current</button>' +
+      "</span></div>";
+  } else if (!row.current_hash) {
+    host.innerHTML = '<div class="fw-line" title="' + escAttr(row.last_error || "no check has run yet") + '">🛰 CMS form watch: no check completed yet.</div>';
+  } else {
+    host.innerHTML = '<div class="fw-line"' + (row.last_error ? ' title="last check failed: ' + escAttr(row.last_error) + '"' : "") +
+      '>🛰 CMS form watch: no new revision detected · CMS copy last modified ' + escHtml(row.current_last_modified || "—") +
+      " · checked " + escHtml(fmtStamp(row.last_checked_at)) +
+      ' · <a href="' + escAttr(row.url) + '" target="_blank" rel="noopener">CMS form ↗</a></div>';
+  }
+  host.style.display = "block";
+}
+
+async function markFormWatchCurrent() {
+  if (!formWatch || !formWatch.current_hash) return;
+  if (!confirm("Mark the current CMS copy as the revision your template matches?\n\nOnly do this after checking the CMS form and, if it really changed, updating + reinstalling the template.")) return;
+  try {
+    const { data, error } = await db.from("cms_form_watch")
+      .update({
+        acknowledged_hash: formWatch.current_hash,
+        acknowledged_at: new Date().toISOString(),
+        acknowledged_by: currentUser ? currentUser.id : null,
+        changed_detected_at: null
+      })
+      .eq("form_key", "cms855i").select().single();
+    if (error) throw error;
+    renderFormWatch(data);
+    showToast("Form watch baseline updated.", "ok");
+  } catch (e) {
+    showToast("Couldn't update the baseline (admin only): " + (e.message || e), "err");
+  }
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -1742,6 +1820,9 @@ document.getElementById("provider-select").addEventListener("change", e => {
 });
 document.getElementById("start-new-btn").addEventListener("click", () => startNewProvider(true));
 document.getElementById("delete-btn").addEventListener("click", deleteCurrentProvider);
+document.getElementById("form-watch").addEventListener("click", e => {
+  if (e.target.closest("#fw-ack-btn")) markFormWatchCurrent();
+});
 document.getElementById("roster-link-row").addEventListener("click", e => {
   if (e.target.closest("#roster-link-btn")) openRosterLinkPicker();
   else if (e.target.closest("#roster-link-save")) saveRosterLink();
