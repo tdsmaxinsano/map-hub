@@ -1638,7 +1638,9 @@ function expensesRender(rows) {
   list.innerHTML = rows.map(r => {
     const pending = r.status === 'pending';
     let pill;
-    if (r.status === 'approved') {
+    if (r.status === 'paid') {
+      pill = '<span style="background:#DBEAFE;color:#1E40AF;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Paid out' + (r.paid_at ? ' ' + String(r.paid_at).slice(0, 10) : '') + ' — reimbursement sent">💰 Paid</span>';
+    } else if (r.status === 'approved') {
       pill = '<span style="background:#E6F4EA;color:#1B5E20;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Approved — added to your pay as a reimbursement">✅ Approved</span>';
     } else if (r.status === 'declined') {
       pill = '<span style="background:#FDECEA;color:var(--red);font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="' + escAttr(r.decline_reason || 'Declined') + '">⛔ Declined</span>';
@@ -3368,16 +3370,21 @@ function atsExpRender(rows) {
   const list = document.getElementById('ats-exp-list');
   if (!list) return;
   const pendingCount = rows.filter(r => r.status === 'pending').length;
+  const toPayCount   = rows.filter(r => r.status === 'approved').length;
   document.getElementById('ats-exp-count').textContent =
-    rows.length ? rows.length + ' recent' + (pendingCount ? ' · ' + pendingCount + ' pending' : '') : '';
+    rows.length ? rows.length + ' recent' + (pendingCount ? ' · ' + pendingCount + ' pending' : '') +
+      (toPayCount ? ' · ' + toPayCount + ' to pay' : '') : '';
   if (!rows.length) {
     list.innerHTML = '<div style="color:var(--gray);font-size:12px;">No expenses submitted yet.</div>';
     return;
   }
   list.innerHTML = rows.map(r => {
-    // Same pills the employee sees on their card (expensesRender).
+    // Same pills the employee sees on their card (expensesRender), plus the
+    // admin-only 💰 Mark paid / undo affordances.
     let pill;
-    if (r.status === 'approved') {
+    if (r.status === 'paid') {
+      pill = '<span onclick="atsExpUnpay(\'' + r.id + '\')" style="background:#DBEAFE;color:#1E40AF;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;cursor:pointer;" title="Paid' + (r.paid_at ? ' ' + String(r.paid_at).slice(0, 10) : '') + ' — click to undo (back to Approved)">💰 Paid</span>';
+    } else if (r.status === 'approved') {
       pill = '<span style="background:#E6F4EA;color:#1B5E20;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Approved — added to their pay as a reimbursement">✅ Approved</span>';
     } else if (r.status === 'declined') {
       pill = '<span style="background:#FDECEA;color:var(--red);font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="' + escAttr(r.decline_reason || 'Declined') + '">⛔ Declined</span>';
@@ -3385,6 +3392,9 @@ function atsExpRender(rows) {
       pill = '<span style="background:#FFF4D6;color:#8a5a00;font-size:10px;font-weight:800;padding:1px 8px;border-radius:8px;" title="Approve from Pay Period → 💸 Expense Approvals">🟡 Pending</span>';
     }
     const receipt = expReceiptLinks(r, false);   // read-only links here
+    const markPaid = r.status === 'approved'
+      ? ' <button type="button" onclick="atsExpMarkPaid(\'' + r.id + '\')" title="Stamp this reimbursement as actually sent/paid" style="font-size:11px;padding:2px 8px;border:1px solid #93C5FD;border-radius:5px;background:#fff;color:#1E40AF;cursor:pointer;">💰 Mark paid</button>'
+      : '';
     const declineLine = r.status === 'declined' && r.decline_reason
       ? '<div style="flex-basis:100%;font-size:11px;color:var(--red);padding-left:88px;">Reason: ' + escAttr(r.decline_reason) + '</div>'
       : '';
@@ -3392,9 +3402,33 @@ function atsExpRender(rows) {
       '<span style="color:var(--gray);min-width:78px;">' + r.expense_date + '</span>' +
       '<span style="flex:1;min-width:140px;">' + escAttr(r.description) + '</span>' +
       '<strong style="min-width:90px;text-align:right;">' + expFmtAmt(r) + '</strong>' +
-      pill + receipt + declineLine +
+      pill + markPaid + receipt + declineLine +
     '</div>';
   }).join('');
+}
+
+// 💰 Paid lifecycle (migration 74): approved → paid is an admin stamp of the
+// money actually going out; the pill is click-to-undo. Both writes guard on
+// the current status so a double-click or stale view can't mis-flip a row.
+async function atsExpMarkPaid(id) {
+  const { error } = await db.from('staff_expenses')
+    .update({ status: 'paid', paid_at: new Date().toISOString(), paid_by: currentUser.id })
+    .eq('id', id).eq('status', 'approved');
+  if (error) {
+    showToast('Mark paid failed: ' + error.message +
+      (/staff_expenses_status|check constraint/i.test(error.message) ? ' — has migration 74 been run?' : ''));
+    return;
+  }
+  await atsExpLoad();
+}
+
+async function atsExpUnpay(id) {
+  if (!confirm('Undo — put this expense back to Approved (not yet paid)?')) return;
+  const { error } = await db.from('staff_expenses')
+    .update({ status: 'approved', paid_at: null, paid_by: null })
+    .eq('id', id).eq('status', 'paid');
+  if (error) { showToast('Undo failed: ' + error.message); return; }
+  await atsExpLoad();
 }
 
 // Upload a receipt under the VIEWED staffer's path (the reimbursement-
