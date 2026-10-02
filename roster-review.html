@@ -3381,6 +3381,24 @@ function renderMedbAction(r, canEdit) {
     `<button type="button" class="medb-mark-btn" data-cid="${escAttr(r.id)}" title="Mark already credentialed — stores only the status, no paperwork">✓</button>`;
 }
 
+// Guard for both roster actions: an UNLINKED Med B CR record whose name
+// matches this clinician (e.g. the desktop-imported six before their 🔗
+// Link step) means the right move is linking, not creating a second
+// record. Returns the matching record or null; errors return null.
+async function findUnlinkedMedbByName(rosterName) {
+  const key = String(rosterName || "").toLowerCase().replace(/\s+/g, " ").trim();
+  if (!key) return null;
+  try {
+    const { data, error } = await db.from("cms855i_providers")
+      .select("id, first_name, last_name, progress_status")
+      .is("clinician_id", null);
+    if (error) throw error;
+    return (data || []).find(p =>
+      (String(p.first_name || "").trim() + " " + String(p.last_name || "").trim())
+        .toLowerCase().replace(/\s+/g, " ").trim() === key) || null;
+  } catch (e) { return null; }
+}
+
 async function loadMedbLookup() {
   try {
     const { data, error } = await db.from("cms855i_providers")
@@ -3410,6 +3428,11 @@ async function sendToMedB(cid) {
       medbLookup.byId[cid] = { clinician_id: cid, progress_status: existing[0].progress_status };
       renderTable();
       showToast("Already in Med B CR (status: " + (existing[0].progress_status || "Requested") + ")");
+      return;
+    }
+    const unlinked = await findUnlinkedMedbByName(display);
+    if (unlinked) {
+      showToast("Med B CR already has a record named " + display + " (" + (unlinked.progress_status || "?") + ") with no roster link — open Med B CR and use 🔗 Link to roster instead.", "error");
       return;
     }
     const { data: au } = await db.auth.getUser();
@@ -3453,6 +3476,11 @@ async function markAlreadyCredentialed(cid) {
       medbLookup.byId[cid] = { clinician_id: cid, progress_status: existing[0].progress_status };
       renderTable();
       showToast("Already in Med B CR (status: " + (existing[0].progress_status || "Requested") + ")");
+      return;
+    }
+    const unlinked = await findUnlinkedMedbByName(display);
+    if (unlinked) {
+      showToast("Med B CR already has a record named " + display + " (" + (unlinked.progress_status || "?") + ") with no roster link — open Med B CR and use 🔗 Link to roster instead.", "error");
       return;
     }
     const { data: au } = await db.auth.getUser();
