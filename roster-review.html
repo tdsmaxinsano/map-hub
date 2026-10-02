@@ -811,16 +811,19 @@ const COLUMNS = [
 // First option (Check) is the default for every clinician.
 // Payment is two orthogonal axes (migration 25):
 //   payment_method   — billing type ('bill' | 'w2') — how QuickBooks records it
-//   payment_delivery — delivery     ('paper_check' | 'direct_deposit' | 'zelle') — how the money moves
+//   payment_delivery — delivery     ('paper_check' | 'office_pickup' | 'direct_deposit' | 'zelle') — how the money moves
 // A clinician can be e.g. (W-2 + DD) or (QB Bill + DD) — independent fields.
 const PAY_BILL_TYPES = [
   { value: "bill", icon: "📄", label: "QB Bill",     short: "Bill" },
   { value: "w2",   icon: "🧾", label: "W-2 Payroll", short: "W-2"  }
 ];
 const PAY_DELIVERIES = [
-  { value: "paper_check",    icon: "📭", label: "Paper Check",    short: "Check" },
-  { value: "direct_deposit", icon: "🏦", label: "Direct Deposit", short: "DD"    },
-  { value: "zelle",          icon: "💸", label: "Zelle",          short: "Zelle" }
+  // 'paper_check' keeps its stored value; only the label says "Mailed"
+  // now that office pickup exists as the other check kind.
+  { value: "paper_check",    icon: "📭", label: "Mailed Check",   short: "Mailed" },
+  { value: "office_pickup",  icon: "🏢", label: "Office Pickup",  short: "Pickup" },
+  { value: "direct_deposit", icon: "🏦", label: "Direct Deposit", short: "DD"     },
+  { value: "zelle",          icon: "💸", label: "Zelle",          short: "Zelle"  }
 ];
 
 // Pause-reason presets (dropdown options under the name when status=Paused).
