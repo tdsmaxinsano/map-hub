@@ -636,6 +636,9 @@
       <span class="chip preset" id="preset-paused-long">💤 Paused 30d+</span>
       <span class="chip preset" id="preset-cov-gaps">🧭 Has Gaps</span>
       <span class="chip preset" id="preset-no-visits" title="Clinicians with no visit data at all — loaded but never dispatched (or stale records)">📥 No visits yet</span>
+      <span class="chip preset" data-quiet="30" title="Had visits before, but none in the last 30+ days (latest completed-service date)">😴 30d+</span>
+      <span class="chip preset" data-quiet="60" title="Had visits before, but none in the last 60+ days (latest completed-service date)">😴 60d+</span>
+      <span class="chip preset" data-quiet="90" title="Had visits before, but none in the last 90+ days (latest completed-service date)">😴 90d+</span>
     </div>
     <input type="text" class="filter-search" id="search-input" placeholder="Search by name…" />
     <div class="col-picker-wrap">
@@ -659,6 +662,7 @@
           <th data-col="avgSync" data-sort="avgSync" data-sort-type="num" style="text-align:right;">Avg Sync Days</th>
           <th data-col="avgVisits" data-sort="avgVisits" data-sort-type="num" style="text-align:right;">Avg Visits/Run</th>
           <th data-col="avgVisitMins" data-sort="avgVisitMins" data-sort-type="num" style="text-align:right;">Avg Visit Time</th>
+          <th data-col="lastVisit" data-sort="lastVisit" data-sort-type="num" title="Latest completed-service visit (same data as the Map profile's ⚠ inactive flag) — ● under 30d · ⚠ 30/60/90d+ tiers. Click to sort: highest days first finds who's gone quiet.">Last Visit</th>
           <th data-col="covGaps" data-sort="covGaps" data-sort-type="num" title="Territory coverage gaps: ➕ ZIPs served but not declared in TB · 💤 declared but never served">Coverage Gaps</th>
           <th data-col="rating">Rating</th>
           <th data-col="hireDate">Hire Date</th>
@@ -678,7 +682,7 @@
         </tr>
       </thead>
       <tbody id="roster-body">
-        <tr class="loading-row"><td colspan="16">Loading…</td></tr>
+        <tr class="loading-row"><td colspan="17">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -772,6 +776,9 @@ const COLUMNS = [
   { key: "avgSync",      label: "Avg Sync Days",     defaultOn: true  },
   { key: "avgVisits",    label: "Avg Visits/Run",    defaultOn: true  },
   { key: "avgVisitMins", label: "Avg Visit Time",    defaultOn: true  },
+  // Last Visit — latest completed-service date (migration 75 RPC), the
+  // roster-wide version of the Map profile's ⚠ inactive flag.
+  { key: "lastVisit",    label: "Last Visit",        defaultOn: true  },
   // Territory coverage-gaps flag (migration 60 RPC) — ➕ served-but-not-
   // declared-in-TB / 💤 declared-but-never-served; links to the planner.
   { key: "covGaps",      label: "Coverage Gaps",     defaultOn: true  },
@@ -853,7 +860,8 @@ let filters = {
   returningSoon: false,
   pausedLong: false,
   covGaps: false,
-  noVisits: false
+  noVisits: false,
+  quietDays: 0   // 0 = off; 30 / 60 / 90 = hide anyone with a visit newer than that
 };
 let realtimeChannel = null;
 let visibleCols = loadVisibleCols(); // {key: bool}
@@ -862,6 +870,7 @@ let vdrLookup    = { byId: {}, byName: {} }; // legacy VDR (Create-bills) aggreg
 let visitsLookup = { byId: {}, byName: {} }; // Patient Visits-derived aggregates (preferred)
 let covGapsLookup = { byId: {}, byName: {} }; // Territory coverage-gap flags (migration 60)
 let medbLookup = { byId: {} }; // CMS-855I records linked by clinician_id (migration 71)
+let lastActivityLookup = { byId: {} }; // latest completed-service date per clinician (migration 75)
 let sortState = { key: null, dir: 1, type: "str" }; // click-to-sort (agencies.html pattern)
 
 // ── Per-clinician metrics lookup ──
@@ -886,14 +895,18 @@ async function loadVdrSummary() {
       return [];
     }
   }
-  const [vdrRows, visRows, gapRows] = await Promise.all([
+  const [vdrRows, visRows, gapRows, lastActRows] = await Promise.all([
     safeRpc("list_clinician_vdr_summary"),
     safeRpc("list_clinician_visit_summary"),
-    safeRpc("list_clinician_coverage_gaps")
+    safeRpc("list_clinician_coverage_gaps"),
+    safeRpc("list_clinician_last_activity")
   ]);
   vdrLookup     = buildMetricsLookup(vdrRows);
   visitsLookup  = buildMetricsLookup(visRows);
   covGapsLookup = buildMetricsLookup(gapRows);
+  const laById = {};
+  lastActRows.forEach(row => { if (row.clinician_id) laById[row.clinician_id] = row.last_activity; });
+  lastActivityLookup = { byId: laById };
 }
 
 // TB clinician names carry trailing discipline codes: "Leon Diaz PTA",
@@ -936,6 +949,20 @@ function getVdrMetricsFor(clinicianObj) {
 function getCovGapsFor(clinicianObj) {
   if (clinicianObj.id && covGapsLookup.byId[clinicianObj.id]) return covGapsLookup.byId[clinicianObj.id];
   return covGapsLookup.byName[clinLookupKey(clinicianObj.name)] || null;
+}
+
+// Latest completed-service date (migration 75 RPC) — the same signal the
+// Map profile's ⚠ inactive flag uses, roster-wide. null = no history.
+function getLastActivityFor(r) {
+  return (r.id && lastActivityLookup.byId[r.id]) || null;
+}
+function daysSinceLastActivity(r) {
+  const d = getLastActivityFor(r);
+  if (!d) return null;
+  const t = new Date(String(d).slice(0, 10) + "T00:00:00").getTime();
+  if (isNaN(t)) return null;
+  const days = Math.floor((Date.now() - t) / 86400000);
+  return days < 0 ? 0 : days;
 }
 
 function syncTimeTint(days) {
@@ -1302,6 +1329,13 @@ function passesFilters(r) {
     if (getVdrMetricsFor(r)) return false;
   }
 
+  if (filters.quietDays) {
+    // 😴 Quiet = HAD visits before but none in the chosen window. No-history
+    // clinicians are the 📥 No-visits chip's job, so they're excluded here.
+    const d = daysSinceLastActivity(r);
+    if (d == null || d < filters.quietDays) return false;
+  }
+
   return true;
 }
 
@@ -1311,6 +1345,9 @@ const SORT_DERIVED = {
   avgSync:      r => { const m = getVdrMetricsFor(r); return m ? m.avg_sync_days : null; },
   avgVisits:    r => { const m = getVdrMetricsFor(r); return m ? m.avg_visits_per_run : null; },
   avgVisitMins: r => { const m = getVdrMetricsFor(r); return m ? m.avg_visit_minutes : null; },
+  // Last Visit — sorts by days-since (desc = longest-quiet first); rows
+  // with no history sink in both directions like the other metrics.
+  lastVisit:    r => daysSinceLastActivity(r),
   // gapAdd dominates (the actionable "add to TB" signal); gapIdle breaks
   // ties. gap_idle_count can't approach 1000, so the composite is safe.
   covGaps:      r => {
@@ -1647,6 +1684,30 @@ function buildRow(r) {
       : `<td data-col="avgVisitMins" style="text-align:right;" title="${escAttr(sharedTip)}">
            <span class="vdr-cell-muted">—</span>
          </td>`;
+  }
+
+  // Last Visit cell — latest completed-service date with 30/60/90+ tiers
+  // (mirrors the Map profile's Field Intelligence "Last active" colors).
+  {
+    const laDate = getLastActivityFor(r);
+    const laDays = daysSinceLastActivity(r);
+    if (laDays == null) {
+      cells.lastVisit = `<td data-col="lastVisit" style="white-space:nowrap;">
+        <span class="vdr-cell-muted" title="No completed-service history imported for this clinician">—</span>
+      </td>`;
+    } else {
+      let color, icon, weight = "600";
+      if (laDays < 30)      { color = "#166534"; icon = "●"; }
+      else if (laDays < 60) { color = "#92400e"; icon = "⚠"; }
+      else if (laDays < 90) { color = "#c2410c"; icon = "⚠"; }
+      else                  { color = "#991b1b"; icon = "⚠"; weight = "800"; }
+      const dateLabel = new Date(String(laDate).slice(0, 10) + "T00:00:00")
+        .toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" });
+      const daysLabel = laDays === 0 ? "today" : laDays + "d";
+      cells.lastVisit = `<td data-col="lastVisit" style="white-space:nowrap;" title="${escAttr("Latest completed-service visit: " + laDate + " (" + laDays + " days ago)")}">
+        <span style="color:${color};font-weight:${weight};">${icon} ${escHtml(dateLabel)} · ${escHtml(daysLabel)}</span>
+      </td>`;
+    }
   }
 
   // Coverage-gaps cell — Territory Planner flag (migration 60 RPC).
@@ -2779,6 +2840,10 @@ function parseUrlFilters() {
   if (params.has("needReview")) filters.needReview = params.get("needReview") === "1";
   if (params.has("covGaps")) filters.covGaps = params.get("covGaps") === "1";
   if (params.has("noVisits")) filters.noVisits = params.get("noVisits") === "1";
+  if (params.has("quiet")) {
+    const q = parseInt(params.get("quiet"), 10);
+    filters.quietDays = [30, 60, 90].includes(q) ? q : 0;
+  }
   syncFilterUI();
   renderAll();
 }
@@ -2795,6 +2860,9 @@ function syncFilterUI() {
   document.getElementById("preset-paused-long").classList.toggle("active", filters.pausedLong);
   document.getElementById("preset-cov-gaps").classList.toggle("active", filters.covGaps);
   document.getElementById("preset-no-visits").classList.toggle("active", filters.noVisits);
+  document.querySelectorAll(".chip.preset[data-quiet]").forEach(c => {
+    c.classList.toggle("active", filters.quietDays === parseInt(c.dataset.quiet, 10));
+  });
 }
 
 function writeUrlFilters() {
@@ -2805,6 +2873,7 @@ function writeUrlFilters() {
   if (filters.needReview) params.set("needReview", "1");
   if (filters.covGaps) params.set("covGaps", "1");
   if (filters.noVisits) params.set("noVisits", "1");
+  if (filters.quietDays) params.set("quiet", String(filters.quietDays));
   const qs = params.toString();
   history.replaceState(null, "", qs ? "?" + qs : location.pathname);
 }
@@ -2855,6 +2924,19 @@ document.getElementById("preset-paused-long").addEventListener("click", () => {
 document.getElementById("preset-cov-gaps").addEventListener("click", () => {
   filters.covGaps = !filters.covGaps;
   syncFilterUI(); writeUrlFilters(); renderAll();
+});
+// 😴 Quiet chips are radio-like: picking one clears the others; clicking the
+// active one turns the filter off.
+document.querySelectorAll(".chip.preset[data-quiet]").forEach(chip => {
+  chip.addEventListener("click", () => {
+    const days = parseInt(chip.dataset.quiet, 10);
+    filters.quietDays = filters.quietDays === days ? 0 : days;
+    document.querySelectorAll(".chip.preset[data-quiet]").forEach(c => {
+      c.classList.toggle("active", filters.quietDays === parseInt(c.dataset.quiet, 10));
+    });
+    writeUrlFilters();
+    renderAll();
+  });
 });
 document.getElementById("preset-no-visits").addEventListener("click", () => {
   filters.noVisits = !filters.noVisits;
