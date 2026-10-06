@@ -990,6 +990,18 @@
     document.querySelectorAll(".admin-only-tab").forEach(btn => {
       btn.style.display = shellRole === "admin" ? "" : "none";
     });
+    // Agency viewer allowlist (migration 78): a granted non-admin gets
+    // JUST the 🏢 Agencies tab (the page runs in read-only mode there).
+    if (shellRole !== "admin") {
+      try {
+        const { data: av } = await db.from("agency_viewers")
+          .select("user_id").eq("user_id", user.id).maybeSingle();
+        if (av) {
+          const agBtn = document.querySelector('.admin-only-tab[data-tab="agencies"]');
+          if (agBtn) agBtn.style.display = "";
+        }
+      } catch (e) { /* table missing / no grant — tab stays hidden */ }
+    }
 
     Promise.all([
       loadOpenReferralsCount(),
