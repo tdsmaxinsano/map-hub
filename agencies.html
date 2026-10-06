@@ -146,6 +146,26 @@
   .ri-btn.ok { color: #065f46; font-weight: 700; }
   .eff-stack { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
 
+  /* Rate-increase tracker (stat card + drawer) */
+  .stat-card.ri-card { cursor: pointer; }
+  .stat-card.ri-card:hover { border-color: var(--accent); }
+  .stat-card.ri-hot { background: #fffbeb; border: 1.5px solid #f59e0b; }
+  .ri-entry { padding: 12px 0; border-bottom: 1px solid var(--border); }
+  .ri-entry-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-bottom: 4px; }
+  .ri-entry-name { font-weight: 700; font-size: 13px; color: var(--text); }
+  .ri-prop-line { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; padding: 2px 0; color: var(--text); }
+  .ri-prop-line .arrow { color: #92400e; font-weight: 700; white-space: nowrap; }
+  .ri-meta { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.6; }
+  .ri-note { font-size: 12px; color: var(--text); background: #f8fafc; border-radius: 6px; padding: 6px 8px; margin-top: 5px; }
+
+  /* Request-increase modal — current → proposed grid */
+  .ri-grid { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 14px; align-items: center; margin-bottom: 14px; }
+  .ri-grid .hdr { font-size: 10.5px; font-weight: 800; color: var(--muted); letter-spacing: 0.4px; text-transform: uppercase; }
+  .ri-grid .cur { font-size: 13px; color: var(--muted); text-align: right; min-width: 60px; }
+  .ri-grid .lbl2 { font-size: 12.5px; font-weight: 600; color: var(--text); }
+  .ri-grid input { width: 86px; border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; text-align: right; outline: none; }
+  .ri-grid input:focus { border-color: var(--accent); }
+
   /* Engagement cell (marketer outreach) */
   .engage-cell { min-width: 120px; cursor: pointer; }
   .engage-cell:hover { background: #f8fafc; }
@@ -656,6 +676,52 @@
   </div>
 </div>
 
+<!-- ⬆ Request rate increase — proposed rates + planned effective date -->
+<div class="modal-overlay" id="ri-modal">
+  <div class="modal-card" style="max-width:500px;">
+    <div class="modal-head">
+      <h3>⬆ Request rate increase</h3>
+      <button class="close-btn" data-close="ri-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <div style="font-size:12.5px;font-weight:700;color:var(--muted);margin-bottom:12px;" id="ri-agency-name">—</div>
+      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;">Fill in only the rates you're proposing to change — blank = unchanged. An admin approves the request, then the new rates arrive via <b>📥 Import TB Price List</b>.</p>
+      <div class="ri-grid" id="ri-rate-grid"></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;">
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Planned effective date (when it should be performed)
+          <input type="date" id="ri-target-date" style="border:1px solid var(--border);border-radius:7px;padding:7px 9px;font-size:13px;" />
+        </label>
+      </div>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Note (why / context)
+        <textarea id="ri-note" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;min-height:50px;resize:vertical;font-family:inherit;"></textarea>
+      </label>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-action" data-close="ri-modal">Cancel</button>
+      <button class="btn-action primary" id="ri-submit-btn">⬆ Submit request</button>
+    </div>
+  </div>
+</div>
+
+<!-- ⬆ Rate-increase tracker drawer — every pending request in one place -->
+<div class="drawer-overlay" id="ri-tracker-drawer">
+  <div class="drawer">
+    <div class="drawer-head">
+      <div>
+        <h3>⬆ Rate-increase tracker</h3>
+        <div class="agency-sub" id="ri-tracker-sub">—</div>
+      </div>
+      <button class="close-btn" data-close="ri-tracker-drawer">×</button>
+    </div>
+    <div class="drawer-body" id="ri-tracker-body">
+      <div style="color:var(--muted);font-size:12px;">Loading…</div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn-action" data-close="ri-tracker-drawer">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -823,6 +889,11 @@ function renderStats() {
   const pay = ratingBuckets("rating_payment");
   const com = ratingBuckets("rating_communication");
 
+  // Rate-increase tracker rollup (migration 81)
+  const riRequested = allRows.filter(r => r.rate_increase_status === "requested").length;
+  const riToImport  = allRows.filter(r => r.rate_increase_status === "approved" && !riImported(r)).length;
+  const riPending = riRequested + riToImport;
+
   document.getElementById("stats-strip").innerHTML = `
     <div class="stat-card">
       <div class="lbl">Agencies</div>
@@ -851,6 +922,15 @@ function renderStats() {
         <span style="color:#991b1b;margin-left:8px;">🔴 ${com.lo}</span>
       </div>
       <div class="sub">${com.unset} unrated</div>
+    </div>
+    <div class="stat-card ri-card ${riPending ? "ri-hot" : ""}" data-open-ri-tracker title="Open the rate-increase tracker — every request with its proposed rates and planned effective date">
+      <div class="lbl">⬆ Rate Increases</div>
+      <div class="val" style="font-size:14px;line-height:1.4;">
+        ${riPending
+          ? `<span style="color:#92400e;">⬆ ${riRequested} requested</span><span style="color:#991b1b;margin-left:8px;">⚠ ${riToImport} to import</span>`
+          : `<span style="color:var(--muted);font-weight:600;">None pending</span>`}
+      </div>
+      <div class="sub">click to open the tracker</div>
     </div>
   `;
 }
@@ -1097,34 +1177,51 @@ function renderLatestEffCell(r) {
   return `<div class="eff-stack">${date}${renderRateIncrease(r)}</div>`;
 }
 
-// Rate-increase workflow: request (admin/✏️edit) → approve (admin,
-// timestamped) → the agency carries an amber "import TB rates" flag until
-// a NEWER effective rate lands via the TB import (or it's cleared by hand).
+// Rate-increase workflow: request (admin/✏️edit, with proposed rates +
+// planned effective date) → approve (admin, timestamped) → the agency
+// carries an amber "import TB rates" flag until a NEWER effective rate
+// lands via the TB import (or it's cleared by hand). Tracker: stat card.
+const RI_BUCKETS = [
+  ["rate_pt_eval", "PT Eval"], ["rate_pt_assistant", "PTA"],
+  ["rate_ot_eval", "OT Eval"], ["rate_ot_assistant", "OTA"],
+  ["rate_st_eval", "ST Eval"], ["rate_st_other", "ST Other"]
+];
+// Approved AND a newer effective rate has landed since the approval.
+function riImported(r) {
+  return !!(r.rates_effective_date && r.rate_increase_approved_at &&
+    new Date(String(r.rates_effective_date) + "T23:59:59") > new Date(r.rate_increase_approved_at));
+}
+// "planned effective <date> · <note>" tooltip tail shared by the chips.
+function riDetailTitle(r) {
+  const bits = [];
+  if (r.rate_increase_target_date) bits.push("planned effective " + fmtHistDate(r.rate_increase_target_date));
+  if (r.rate_increase_note) bits.push(r.rate_increase_note);
+  return bits.length ? " · " + bits.join(" · ") : "";
+}
 function renderRateIncrease(r) {
   const aid = escapeAttr(r.agency_id);
   const st = r.rate_increase_status || "none";
   if (st === "requested") {
     const d = fmtShortDate(r.rate_increase_requested_at);
-    let html = `<span class="ri-chip req" title="Rate increase requested${d ? " " + d : ""} — waiting on admin approval">⬆ requested${d ? " " + escapeHtml(d) : ""}</span>`;
+    const eff = r.rate_increase_target_date ? " → eff " + fmtShortDate(r.rate_increase_target_date) : "";
+    let html = `<span class="ri-chip req" title="Rate increase requested${d ? " " + d : ""}${r.rate_increase_requested_by_email ? " by " + escapeAttr(r.rate_increase_requested_by_email) : ""} — waiting on admin approval${escapeAttr(riDetailTitle(r))}">⬆ requested${d ? " " + escapeHtml(d) : ""}${escapeHtml(eff)}</span>`;
     if (isAdmin())  html += `<button type="button" class="ri-btn ok" data-ri="${aid}" data-ri-action="approve" title="Approve the increase (timestamps now) — then run 📥 Import TB Price List">✓ approve</button>`;
     if (canEdit())  html += `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="clear" title="Withdraw the request">✕ clear</button>`;
     return html;
   }
   if (st === "approved") {
     const d = fmtShortDate(r.rate_increase_approved_at);
-    const imported = r.rates_effective_date && r.rate_increase_approved_at &&
-      new Date(String(r.rates_effective_date) + "T23:59:59") > new Date(r.rate_increase_approved_at);
-    if (imported) {
-      let html = `<span class="ri-chip done" title="Approved${d ? " " + d : ""} and newer TB rates have been imported">✓ TB rates imported</span>`;
+    if (riImported(r)) {
+      let html = `<span class="ri-chip done" title="Approved${d ? " " + d : ""} and newer TB rates have been imported${escapeAttr(riDetailTitle(r))}">✓ TB rates imported</span>`;
       if (canEdit()) html += `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="clear" title="Clear the flag">✕ clear</button>`;
       return html;
     }
-    let html = `<span class="ri-chip todo" title="Increase approved${d ? " " + d : ""} — run 📥 Import TB Price List to apply the new rates">⚠ approved${d ? " " + escapeHtml(d) : ""} — import TB rates</span>`;
+    let html = `<span class="ri-chip todo" title="Increase approved${d ? " " + d : ""} — run 📥 Import TB Price List to apply the new rates${escapeAttr(riDetailTitle(r))}">⚠ approved${d ? " " + escapeHtml(d) : ""} — import TB rates</span>`;
     if (canEdit()) html += `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="clear" title="Clear without importing">✕ clear</button>`;
     return html;
   }
   return canEdit()
-    ? `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="request" title="Flag this agency for a rate increase — admin approves, then the TB import applies it">⬆ request increase</button>`
+    ? `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="request" title="Propose a rate increase (which rates + when) — admin approves, then the TB import applies it">⬆ request increase</button>`
     : "";
 }
 
@@ -1369,37 +1466,145 @@ document.addEventListener("click", (e) => {
 });
 
 // ══════════════════════════════════════════════════════════════════
-// RATE-INCREASE WORKFLOW (migration 80) — request → approve → import
+// RATE-INCREASE WORKFLOW (migrations 80/81) — request (proposed rates +
+// planned date) → approve → import. Tracker drawer = every open request.
 // ══════════════════════════════════════════════════════════════════
+let riModalAgencyId = null;
+
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-ri]");
   if (!btn) return;
   const aid = btn.dataset.ri, action = btn.dataset.riAction;
+  if (action === "request") { openRiModal(aid); return; }   // modal gathers the details
   const { error } = await db.rpc("set_rate_increase", { p_agency_id: aid, p_action: action });
   if (error) { showToast("Rate-increase update failed: " + error.message, "err"); return; }
   const row = allRows.find(r => r.agency_id === aid);
   if (row) {
     const now = new Date().toISOString();
-    if (action === "request") {
-      row.rate_increase_status = "requested";
-      row.rate_increase_requested_at = now;
-      row.rate_increase_approved_at = null;
-    } else if (action === "approve") {
+    if (action === "approve") {
       row.rate_increase_status = "approved";
       row.rate_increase_approved_at = now;
     } else {
       row.rate_increase_status = "none";
       row.rate_increase_requested_at = null;
       row.rate_increase_approved_at = null;
+      row.rate_increase_proposed = null;
+      row.rate_increase_target_date = null;
+      row.rate_increase_note = null;
+      row.rate_increase_requested_by_email = null;
     }
     if (!row.contract_id) row.contract_id = "pending";
   }
-  renderTable();
+  renderAll();
+  if (document.getElementById("ri-tracker-drawer").classList.contains("open")) renderRiTracker();
   showToast(
-    action === "request" ? "Rate increase requested — an admin can now approve it." :
     action === "approve" ? "Approved ✓ — run 📥 Import TB Price List to apply the new rates." :
     "Rate-increase flag cleared.", "ok");
 });
+
+// ⬆ Request modal — current → proposed per bucket + planned date + note
+function openRiModal(aid) {
+  if (!canEdit()) return;
+  const r = allRows.find(x => x.agency_id === aid);
+  if (!r) return;
+  riModalAgencyId = aid;
+  document.getElementById("ri-agency-name").textContent = fmtAgencyName(r.agency_name) || "—";
+  document.getElementById("ri-rate-grid").innerHTML =
+    `<div class="hdr">Rate</div><div class="hdr" style="text-align:right;">Current</div><div class="hdr">Proposed</div>` +
+    RI_BUCKETS.map(([f, label]) =>
+      `<div class="lbl2">${label}</div>` +
+      `<div class="cur">${r[f] == null ? "—" : "$" + Number(r[f]).toFixed(2)}</div>` +
+      `<div><input type="number" step="0.50" min="0" placeholder="—" data-ri-bucket="${f}" /></div>`
+    ).join("");
+  document.getElementById("ri-target-date").value = "";
+  document.getElementById("ri-note").value = "";
+  document.getElementById("ri-modal").classList.add("open");
+}
+
+document.getElementById("ri-submit-btn").addEventListener("click", async () => {
+  if (!riModalAgencyId) return;
+  const proposal = {};
+  document.querySelectorAll("#ri-rate-grid [data-ri-bucket]").forEach(inp => {
+    const v = inp.value.trim();
+    if (v !== "" && !isNaN(parseFloat(v))) proposal[inp.dataset.riBucket] = parseFloat(v);
+  });
+  const target = document.getElementById("ri-target-date").value || null;
+  const note = document.getElementById("ri-note").value.trim() || null;
+  if (!Object.keys(proposal).length && !note) {
+    showToast("Propose at least one rate (or add a note).", "err");
+    return;
+  }
+  const { error } = await db.rpc("set_rate_increase", {
+    p_agency_id: riModalAgencyId, p_action: "request",
+    p_proposal: Object.keys(proposal).length ? proposal : null,
+    p_target_date: target, p_note: note
+  });
+  if (error) { showToast("Request failed: " + error.message + " — has migration 81 been run?", "err"); return; }
+  const row = allRows.find(r => r.agency_id === riModalAgencyId);
+  if (row) {
+    row.rate_increase_status = "requested";
+    row.rate_increase_requested_at = new Date().toISOString();
+    row.rate_increase_requested_by_email = currentUser && currentUser.email;
+    row.rate_increase_proposed = Object.keys(proposal).length ? proposal : null;
+    row.rate_increase_target_date = target;
+    row.rate_increase_note = note;
+    row.rate_increase_approved_at = null;
+    if (!row.contract_id) row.contract_id = "pending";
+  }
+  document.getElementById("ri-modal").classList.remove("open");
+  riModalAgencyId = null;
+  renderAll();
+  showToast("Rate increase requested — it's now in the ⬆ tracker for admin approval.", "ok");
+});
+
+// ⬆ Tracker drawer — opened from the stat card
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("[data-open-ri-tracker]")) return;
+  document.getElementById("ri-tracker-drawer").classList.add("open");
+  renderRiTracker();
+});
+
+function renderRiTracker() {
+  const entries = allRows.filter(r => (r.rate_increase_status || "none") !== "none");
+  const rank = (r) => r.rate_increase_status === "requested" ? 0 : (riImported(r) ? 2 : 1);
+  entries.sort((a, b) => rank(a) - rank(b) ||
+    String(a.agency_name || "").localeCompare(String(b.agency_name || ""), undefined, { sensitivity: "base" }));
+  document.getElementById("ri-tracker-sub").textContent =
+    entries.length ? `${entries.length} open request${entries.length === 1 ? "" : "s"}` : "No open requests";
+  const body = document.getElementById("ri-tracker-body");
+  if (!entries.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:12px;">Nothing pending — use <b>⬆ request increase</b> on an agency\'s Latest Eff. column to start one.</div>';
+    return;
+  }
+  body.innerHTML = entries.map(r => {
+    const aid = escapeAttr(r.agency_id);
+    const st = r.rate_increase_status;
+    const pill = st === "requested"
+      ? '<span class="ri-chip req">⬆ requested</span>'
+      : (riImported(r) ? '<span class="ri-chip done">✓ imported</span>' : '<span class="ri-chip todo">⚠ import TB rates</span>');
+    const prop = r.rate_increase_proposed || {};
+    const propLines = RI_BUCKETS.filter(([f]) => prop[f] != null).map(([f, label]) =>
+      `<div class="ri-prop-line"><span>${label}</span><span class="arrow">${r[f] == null ? "—" : "$" + Number(r[f]).toFixed(2)} → $${Number(prop[f]).toFixed(2)}</span></div>`
+    ).join("");
+    const meta = [];
+    if (r.rate_increase_target_date) meta.push("⏱ planned effective <b>" + escapeHtml(fmtHistDate(r.rate_increase_target_date)) + "</b>");
+    if (r.rate_increase_requested_at) meta.push("requested " + escapeHtml(fmtShortDate(r.rate_increase_requested_at)) +
+      (r.rate_increase_requested_by_email ? " by " + escapeHtml(r.rate_increase_requested_by_email) : ""));
+    if (r.rate_increase_approved_at) meta.push("approved " + escapeHtml(fmtShortDate(r.rate_increase_approved_at)));
+    let actions = "";
+    if (st === "requested" && isAdmin()) actions += `<button type="button" class="ri-btn ok" data-ri="${aid}" data-ri-action="approve" style="font-size:12px;">✓ approve</button>`;
+    if (canEdit()) actions += `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="clear" style="font-size:12px;">✕ clear</button>`;
+    return `<div class="ri-entry">
+      <div class="ri-entry-head">
+        <span class="ri-entry-name">${escapeHtml(fmtAgencyName(r.agency_name) || "(unnamed)")}</span>
+        <span style="display:flex;gap:8px;align-items:center;">${pill}${actions}</span>
+      </div>
+      ${propLines || '<div style="font-size:11.5px;color:var(--muted);">No specific rates proposed.</div>'}
+      ${meta.length ? `<div class="ri-meta">${meta.join(" · ")}</div>` : ""}
+      ${r.rate_increase_note ? `<div class="ri-note">${escapeHtml(r.rate_increase_note)}</div>` : ""}
+    </div>`;
+  }).join("");
+}
 
 // ══════════════════════════════════════════════════════════════════
 // ENGAGEMENT DRAWER — status/dates + outreach log (agencies & prospects)
@@ -1936,6 +2141,7 @@ document.querySelectorAll("[data-close]").forEach(btn => {
     if (id === "notes-drawer") notesDrawerAgencyId = null;
     if (id === "engagement-drawer") engageCtx = null;
     if (id === "link-modal") linkProspectId = null;
+    if (id === "ri-modal") riModalAgencyId = null;
   });
 });
 
