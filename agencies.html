@@ -136,6 +136,16 @@
   .rate-ro { display: inline-block; min-width: 52px; text-align: right; font-size: 13px; color: var(--text); white-space: nowrap; }
   .rate-ro.empty { color: #cbd5e1; }
 
+  /* Collapsible rate columns — start collapsed so the rest of the table
+     fits on screen; the 💲 stub column (range + caret) toggles them. */
+  table.ag.rates-collapsed .rate-col { display: none; }
+  table.ag.rates-collapsed .when-expanded { display: none; }
+  table.ag:not(.rates-collapsed) .when-collapsed { display: none; }
+  .rate-stub { cursor: pointer; white-space: nowrap; }
+  td.rate-stub { font-size: 11.5px; color: var(--muted); }
+  td.rate-stub:hover, th.rate-stub:hover { color: var(--accent); }
+  th.rate-stub .when-expanded, td.rate-stub .when-expanded { font-weight: 700; }
+
   /* Rate-increase workflow chip (stacked under the Latest Eff. date) */
   .ri-chip { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 800; white-space: nowrap; letter-spacing: 0.2px; }
   .ri-chip.req { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
@@ -421,17 +431,18 @@
 
   <!-- Table -->
   <div class="table-wrap">
-    <table class="ag">
+    <table class="ag rates-collapsed" id="ag-table">
       <thead>
         <tr>
           <th class="name-col" data-sort="agency_name" data-sort-type="str">Agency</th>
           <th data-sort="agency_active" data-sort-type="active">Active</th>
-          <th data-sort="rate_ot_eval" data-sort-type="num" title="OT Eval rate (OTF)">OT Eval</th>
-          <th data-sort="rate_ot_assistant" data-sort-type="num" title="OTA visit rate (OTFA)">OTA</th>
-          <th data-sort="rate_pt_eval" data-sort-type="num" title="PT Eval rate (PTF)">PT Eval</th>
-          <th data-sort="rate_pt_assistant" data-sort-type="num" title="PTA visit rate (PTFA)">PTA</th>
-          <th data-sort="rate_st_eval" data-sort-type="num" title="ST Eval rate (STE)">ST Eval</th>
-          <th data-sort="rate_st_other" data-sort-type="num" title="ST Other rate (STEO — recert/DC)">ST Other</th>
+          <th class="rate-stub" data-toggle-rates title="Show / hide the 6 rate columns"><span class="when-collapsed">💲 Rates ▸</span><span class="when-expanded">◂</span></th>
+          <th class="rate-col" data-sort="rate_ot_eval" data-sort-type="num" title="OT Eval rate (OTF)">OT Eval</th>
+          <th class="rate-col" data-sort="rate_ot_assistant" data-sort-type="num" title="OTA visit rate (OTFA)">OTA</th>
+          <th class="rate-col" data-sort="rate_pt_eval" data-sort-type="num" title="PT Eval rate (PTF)">PT Eval</th>
+          <th class="rate-col" data-sort="rate_pt_assistant" data-sort-type="num" title="PTA visit rate (PTFA)">PTA</th>
+          <th class="rate-col" data-sort="rate_st_eval" data-sort-type="num" title="ST Eval rate (STE)">ST Eval</th>
+          <th class="rate-col" data-sort="rate_st_other" data-sort-type="num" title="ST Other rate (STEO — recert/DC)">ST Other</th>
           <th data-sort="rating_payment" data-sort-type="num" title="Payment 1-5 (5=best)">💵 Pay</th>
           <th data-sort="rating_communication" data-sort-type="num" title="Communication 1-5 (5=best)">💬 Comm</th>
           <th data-sort="contract_location" data-sort-type="str">Contract Loc</th>
@@ -445,7 +456,7 @@
         </tr>
       </thead>
       <tbody id="rows-body">
-        <tr class="loading-row"><td colspan="18">Loading…</td></tr>
+        <tr class="loading-row"><td colspan="19">Loading…</td></tr>
       </tbody>
     </table>
   </div>
@@ -848,7 +859,7 @@ async function launchApp(user) {
 // DATA LOAD
 // ══════════════════════════════════════════════════════════════════
 async function loadContracts() {
-  document.getElementById("rows-body").innerHTML = '<tr class="loading-row"><td colspan="18">Loading…</td></tr>';
+  document.getElementById("rows-body").innerHTML = '<tr class="loading-row"><td colspan="19">Loading…</td></tr>';
   const { data, error } = await db.rpc("list_agency_contracts");
   if (error) { showToast("Failed to load: " + error.message, "err"); return; }
   allRows = data || [];
@@ -1012,7 +1023,7 @@ function renderTable() {
 
   if (!rows.length) {
     document.getElementById("rows-body").innerHTML =
-      '<tr class="loading-row"><td colspan="18">No agencies match these filters.</td></tr>';
+      '<tr class="loading-row"><td colspan="19">No agencies match these filters.</td></tr>';
     return;
   }
 
@@ -1060,12 +1071,13 @@ function renderRow(r) {
         <div class="agency-loc">${escapeHtml([fmtCityName(r.agency_city), r.agency_state].filter(Boolean).join(", ") || "—")}</div>
       </td>
       <td>${renderActivePill(r)}</td>
-      <td>${renderRateInput(r, "rate_ot_eval")}</td>
-      <td>${renderRateInput(r, "rate_ot_assistant")}</td>
-      <td>${renderRateInput(r, "rate_pt_eval")}</td>
-      <td>${renderRateInput(r, "rate_pt_assistant")}</td>
-      <td>${renderRateInput(r, "rate_st_eval")}</td>
-      <td>${renderRateInput(r, "rate_st_other")}</td>
+      ${renderRateStub(r)}
+      <td class="rate-col">${renderRateInput(r, "rate_ot_eval")}</td>
+      <td class="rate-col">${renderRateInput(r, "rate_ot_assistant")}</td>
+      <td class="rate-col">${renderRateInput(r, "rate_pt_eval")}</td>
+      <td class="rate-col">${renderRateInput(r, "rate_pt_assistant")}</td>
+      <td class="rate-col">${renderRateInput(r, "rate_st_eval")}</td>
+      <td class="rate-col">${renderRateInput(r, "rate_st_other")}</td>
       <td>${renderRatingChip(r, "rating_payment")}</td>
       <td>${renderRatingChip(r, "rating_communication")}</td>
       <td>${renderLocationCell(r)}</td>
@@ -1124,6 +1136,17 @@ function renderRateInput(r, field) {
   const v = r[field];
   if (v == null) return `<span class="rate-ro empty" title="Rates come from the TherapyBoss Price List import">—</span>`;
   return `<span class="rate-ro" title="Rates come from the TherapyBoss Price List import">$${Number(v).toFixed(2)}</span>`;
+}
+
+// Collapsed-rates stub cell: min–max range + caret; click toggles the
+// 6 rate columns (preference remembered per browser).
+function fmtRateShort(v) { return String(+Number(v).toFixed(2)); }
+function renderRateStub(r) {
+  const vals = RI_BUCKETS.map(b => r[b[0]]).filter(v => v != null).map(Number);
+  const range = vals.length
+    ? "$" + fmtRateShort(Math.min.apply(null, vals)) + "–" + fmtRateShort(Math.max.apply(null, vals))
+    : "—";
+  return `<td class="rate-stub" data-toggle-rates title="Rate range — click to expand the 6 rate columns"><span class="when-collapsed">${range} ▸</span><span class="when-expanded">◂</span></td>`;
 }
 
 function renderRatingChip(r, field) {
@@ -2019,6 +2042,22 @@ document.getElementById("search-input").addEventListener("input", (e) => {
 });
 
 document.getElementById("refresh-btn").addEventListener("click", () => loadContracts());
+
+// 💲 Rate columns start collapsed; the stub column toggles them and the
+// choice sticks per browser (display preference only — all roles).
+document.addEventListener("click", (e) => {
+  if (!e.target.closest("[data-toggle-rates]")) return;
+  const tbl = document.getElementById("ag-table");
+  tbl.classList.toggle("rates-collapsed");
+  try {
+    localStorage.setItem("agRatesCollapsed", tbl.classList.contains("rates-collapsed") ? "1" : "0");
+  } catch (err) { /* private mode — non-fatal */ }
+});
+try {
+  if (localStorage.getItem("agRatesCollapsed") === "0") {
+    document.getElementById("ag-table").classList.remove("rates-collapsed");
+  }
+} catch (err) { /* non-fatal */ }
 
 // ══════════════════════════════════════════════════════════════════
 // IMPORT MODAL
