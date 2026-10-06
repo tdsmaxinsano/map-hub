@@ -173,6 +173,16 @@
   .notes-preview:hover { background: #f8fafc; }
   .notes-preview.empty { color: #cbd5e1; font-style: italic; }
 
+  /* ── View-only mode (per-user viewer allowlist, migration 78) ──
+     Search, filters, sorting and the notes/history drawers stay usable;
+     every editing affordance is hidden or inert. */
+  body.view-only #import-btn, body.view-only #import-tb-btn { display: none !important; }
+  body.view-only table.ag input, body.view-only table.ag select { pointer-events: none; opacity: 0.8; }
+  body.view-only .rating-chip, body.view-only .active-pill { pointer-events: none; }
+  body.view-only .rating-chip:hover { transform: none; }
+  body.view-only .drawer-body textarea { pointer-events: none; background: #f8fafc; }
+  body.view-only .drawer button:not(.close-btn) { display: none !important; }
+
   /* ── Modal (import + notes drawer) ── */
   .modal-overlay {
     display: none; position: fixed; inset: 0; z-index: 90;
@@ -496,10 +506,24 @@ async function launchApp(user) {
     currentRole = (roleRow && roleRow.role) || "readonly";
   } catch (e) { currentRole = "readonly"; }
 
+  // Per-user viewer allowlist (migration 78): named non-admins get a
+  // READ-ONLY look at the Agencies table. Writes stay admin-only both in
+  // the UI (view-only mode) and server-side (write RPCs check admin).
+  let agencyViewer = false;
   if (currentRole !== "admin") {
+    try {
+      const { data: av } = await db.from("agency_viewers")
+        .select("user_id").eq("user_id", user.id).maybeSingle();
+      agencyViewer = !!av;
+    } catch (e) { /* table missing / no grant → gate below */ }
+  }
+
+  if (currentRole !== "admin" && !agencyViewer) {
     document.getElementById("admin-gate").style.display = "flex";
     return;
   }
+
+  if (currentRole !== "admin") document.body.classList.add("view-only");
 
   document.getElementById("app-header").style.display = "flex";
   document.getElementById("app-container").style.display = "block";
@@ -507,11 +531,14 @@ async function launchApp(user) {
 
   await loadContracts();
 
-  // Imports Hub deep-link: ?import=<key> auto-opens the matching import modal.
+  // Imports Hub deep-link: ?import=<key> auto-opens the matching import
+  // modal (admins only — viewers have no import affordances).
   try {
     var _imp = new URLSearchParams(location.search).get("import");
-    if (_imp === "agency_hh") openImportModal("hh");
-    else if (_imp === "agency_tb") openImportModal("tb");
+    if (currentRole === "admin") {
+      if (_imp === "agency_hh") openImportModal("hh");
+      else if (_imp === "agency_tb") openImportModal("tb");
+    }
   } catch (e) { /* non-fatal */ }
 }
 
@@ -859,6 +886,9 @@ function scheduleSave(agencyId, field, value, delay = 600) {
 }
 
 async function doSave(agencyId, field, value) {
+  // View-only grantees (migration 78) never save — the server would
+  // refuse anyway (write RPCs are admin-only); this keeps the UI quiet.
+  if (document.body.classList.contains("view-only")) return;
   // Normalize empty → null
   let v = value;
   if (typeof v === "string") {
