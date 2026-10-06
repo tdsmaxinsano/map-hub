@@ -131,10 +131,61 @@
   .active-pill.no  { background: #e5e7eb; color: #4b5563; }
   .active-pill.unset { background: #fef3c7; color: #92400e; }
 
-  /* Rate inputs */
-  .rate-input { width: 60px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; font-size: 13px; text-align: right; background: #fff; outline: none; }
-  .rate-input:focus { border-color: var(--accent); background: #f8fafc; }
-  .rate-input::placeholder { color: #cbd5e1; }
+  /* Rates — read-only since migration 80 (TB Price List import is the
+     single writer; hand-edits replaced by the rate-increase workflow) */
+  .rate-ro { display: inline-block; min-width: 52px; text-align: right; font-size: 13px; color: var(--text); white-space: nowrap; }
+  .rate-ro.empty { color: #cbd5e1; }
+
+  /* Rate-increase workflow chip (stacked under the Latest Eff. date) */
+  .ri-chip { display: inline-block; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 800; white-space: nowrap; letter-spacing: 0.2px; }
+  .ri-chip.req { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .ri-chip.todo { background: #fef3c7; color: #92400e; border: 1.5px solid #f59e0b; }
+  .ri-chip.done { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
+  .ri-btn { border: 0; background: none; cursor: pointer; font-size: 10px; color: var(--muted); padding: 0 2px; white-space: nowrap; }
+  .ri-btn:hover { color: var(--accent); text-decoration: underline; }
+  .ri-btn.ok { color: #065f46; font-weight: 700; }
+  .eff-stack { display: flex; flex-direction: column; gap: 3px; align-items: flex-start; }
+
+  /* Engagement cell (marketer outreach) */
+  .engage-cell { min-width: 120px; cursor: pointer; }
+  .engage-cell:hover { background: #f8fafc; }
+  .engage-chip { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .engage-chip.e-none { background: #f1f5f9; color: var(--muted); }
+  .engage-chip.e-out  { background: #e0ecff; color: #1e3a8a; }
+  .engage-chip.e-eng  { background: #d1fae5; color: #065f46; }
+  .engage-chip.e-dor  { background: #e5e7eb; color: #4b5563; }
+  .engage-sub { font-size: 10.5px; color: var(--muted); margin-top: 3px; white-space: nowrap; }
+  .engage-sub.overdue { color: #991b1b; font-weight: 700; }
+
+  /* Engagement drawer — fields + log */
+  .engage-fields { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+  .engage-fields label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; font-weight: 700; color: var(--muted); }
+  .engage-fields select, .engage-fields input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12.5px; background: #fff; outline: none; }
+  .engage-fields select:focus, .engage-fields input:focus { border-color: var(--accent); }
+  .log-entry { padding: 7px 0; border-bottom: 1px solid var(--border); font-size: 12.5px; }
+  .log-entry .log-meta { font-size: 10.5px; color: var(--muted); margin-bottom: 2px; }
+  .log-add { display: flex; gap: 8px; margin-top: 12px; align-items: flex-start; }
+  .log-add textarea { flex: 1; min-height: 54px; border: 1px solid var(--border); border-radius: 7px; padding: 8px 9px; font-size: 12.5px; resize: vertical; outline: none; font-family: inherit; }
+  .log-add textarea:focus { border-color: var(--accent); }
+
+  /* Hero view switcher — 🏢 Agencies / 🌱 Prospects */
+  .view-pills { display: inline-flex; gap: 6px; margin-left: 14px; }
+  .view-pill { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 5px 14px; font-size: 12.5px; font-weight: 700; color: var(--muted); cursor: pointer; }
+  .view-pill.active { background: var(--blue); border-color: var(--blue); color: #fff; }
+  .view-pill:not(.active):hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Prospects table extras (table itself reuses the .ag styles) */
+  .prospect-contact { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+  .prospect-contact b { color: var(--text); font-size: 12px; }
+  .log-preview { font-size: 11.5px; color: var(--muted); cursor: pointer; padding: 4px 6px; border-radius: 5px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .log-preview:hover { background: #f8fafc; }
+  .linked-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #d1fae5; color: #065f46; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .prospect-act-btn { border: 0; background: none; cursor: pointer; font-size: 12px; padding: 2px 4px; }
+  .prospect-act-btn:hover { text-decoration: underline; color: var(--accent); }
+  .prospect-act-btn.danger:hover { color: #991b1b; }
+  .date-input { width: 118px; border: 1px solid transparent; border-radius: 5px; padding: 4px 6px; font-size: 12px; background: transparent; outline: none; color: var(--text); }
+  .date-input:hover { background: #f8fafc; }
+  .date-input:focus { border-color: var(--accent); background: #fff; }
 
   /* Rating chips — click to cycle 1→2→3→4→5→null→1 */
   .rating-chip { display: inline-flex; align-items: center; justify-content: center; min-width: 38px; padding: 4px 10px; border-radius: 999px; font-size: 13px; font-weight: 800; cursor: pointer; user-select: none; transition: transform 0.1s; border: 1.5px solid transparent; }
@@ -182,6 +233,10 @@
   body.view-only .rating-chip:hover { transform: none; }
   body.view-only .drawer-body textarea { pointer-events: none; background: #f8fafc; }
   body.view-only .drawer button:not(.close-btn) { display: none !important; }
+  /* …extended for migration 80: prospects + engagement drawer + rate flow */
+  body.view-only #add-prospect-btn, body.view-only .ri-btn,
+  body.view-only [data-link-prospect], body.view-only [data-del-prospect] { display: none !important; }
+  body.view-only .drawer input, body.view-only .drawer select { pointer-events: none; background: #f8fafc; }
 
   /* ── Modal (import + notes drawer) ── */
   .modal-overlay {
@@ -313,9 +368,14 @@
 <div class="container" id="app-container" style="display:none;">
   <div class="hero-row">
     <h2>🏢 Agencies</h2>
+    <div class="view-pills">
+      <button type="button" class="view-pill active" data-view="agencies" id="view-pill-agencies">🏢 Agencies</button>
+      <button type="button" class="view-pill" data-view="prospects" id="view-pill-prospects" title="Potential agencies being marketed to — not in TherapyBoss yet">🌱 Prospects</button>
+    </div>
     <div class="hero-counts" id="hero-counts">—</div>
   </div>
 
+  <div id="agencies-section">
   <!-- Stats strip -->
   <div class="stats-strip" id="stats-strip"></div>
 
@@ -361,13 +421,48 @@
           <th data-sort="sent_via" data-sort-type="str">Sent Via</th>
           <th data-sort="collections_contact" data-sort-type="str">Collections Contact</th>
           <th data-sort="notes" data-sort-type="str">Notes</th>
+          <th data-sort="engagement_status" data-sort-type="str" title="Marketer outreach — status, last contact, next follow-up. Click a cell to update + log touches.">Engagement</th>
         </tr>
       </thead>
       <tbody id="rows-body">
-        <tr class="loading-row"><td colspan="17">Loading…</td></tr>
+        <tr class="loading-row"><td colspan="18">Loading…</td></tr>
       </tbody>
     </table>
   </div>
+  </div><!-- /#agencies-section -->
+
+  <!-- 🌱 Prospects — potential agencies being marketed to (migration 80) -->
+  <div id="prospects-section" style="display:none;">
+    <div class="filters">
+      <div class="filter-group">
+        <span class="lbl">Show</span>
+        <span class="chip active" data-prospect-filter="pipeline">Pipeline</span>
+        <span class="chip" data-prospect-filter="signed">Signed</span>
+        <span class="chip" data-prospect-filter="not_interested">Not interested</span>
+        <span class="chip" data-prospect-filter="all">All</span>
+      </div>
+      <input type="text" class="filter-search" id="prospect-search" placeholder="Search prospects by name / contact / notes…" />
+      <button class="btn-action primary" id="add-prospect-btn" title="Add a potential agency you're marketing to">＋ Add prospect</button>
+    </div>
+    <div class="table-wrap">
+      <table class="ag prospects">
+        <thead>
+          <tr>
+            <th class="name-col">Prospect</th>
+            <th>Contact</th>
+            <th>Status</th>
+            <th>Last Contact</th>
+            <th>Next Follow-up</th>
+            <th>Outreach Log</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="prospects-body">
+          <tr class="loading-row"><td colspan="7">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div><!-- /#prospects-section -->
 </div>
 
 <!-- Import modal -->
@@ -379,7 +474,7 @@
       <button class="close-btn" data-close="viewers-modal">×</button>
     </div>
     <div class="modal-body">
-      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;"><b>👁 View</b> opens this page read-only. <b>✏️ Edit</b> also unlocks the inline editors (rates, ratings, notes…). Imports stay admin-only either way. Admins always have full access and aren't listed here.</p>
+      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;"><b>👁 View</b> opens this page read-only. <b>✏️ Edit</b> also unlocks the inline editors (ratings, notes, engagement, prospects…). Rates are import-only and imports stay admin-only either way. Admins always have full access and aren't listed here.</p>
       <div id="viewers-list" style="margin-bottom:14px;"></div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <select id="viewer-add-select" style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;background:#fff;"></select>
@@ -462,6 +557,105 @@
   </div>
 </div>
 
+<!-- 📣 Engagement drawer — status/dates + outreach log (agencies & prospects) -->
+<div class="drawer-overlay" id="engagement-drawer">
+  <div class="drawer">
+    <div class="drawer-head">
+      <div>
+        <h3>📣 Engagement</h3>
+        <div class="agency-sub" id="engage-name">—</div>
+      </div>
+      <button class="close-btn" data-close="engagement-drawer">×</button>
+    </div>
+    <div class="drawer-body">
+      <div class="engage-fields" id="engage-fields">
+        <label>Status
+          <select id="engage-status" data-engage-field="engagement_status">
+            <option value="none">⚪ —</option>
+            <option value="reaching_out">📣 Reaching out</option>
+            <option value="engaged">🤝 Engaged</option>
+            <option value="dormant">💤 Dormant</option>
+          </select>
+        </label>
+        <label>Last contact
+          <input type="date" id="engage-last" data-engage-field="last_contact_date" />
+        </label>
+        <label>Next follow-up
+          <input type="date" id="engage-next" data-engage-field="next_followup_date" />
+        </label>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;">🕘 Outreach log</div>
+      <div id="engage-log-list"><div style="color:var(--muted);font-size:12px;">Loading…</div></div>
+      <div class="log-add">
+        <textarea id="engage-note-input" placeholder="Log a touch — call, email, visit, outcome…"></textarea>
+        <button class="btn-action primary" id="engage-log-btn" type="button">＋ Log touch</button>
+      </div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn-action" data-close="engagement-drawer">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ＋ Add prospect modal -->
+<div class="modal-overlay" id="prospect-modal">
+  <div class="modal-card" style="max-width:520px;">
+    <div class="modal-head">
+      <h3>🌱 Add prospect</h3>
+      <button class="close-btn" data-close="prospect-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;">A potential agency you're marketing to. Once the contract completes and the agency appears in the portal (TB import), use <b>🔗 Link</b> on its row — the outreach log moves with it.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Agency name *
+          <input type="text" id="prospect-name" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">City
+          <input type="text" id="prospect-city" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">State
+          <input type="text" id="prospect-state" maxlength="2" placeholder="IL" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;text-transform:uppercase;" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Contact name
+          <input type="text" id="prospect-contact-name" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
+        </label>
+        <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Phone
+          <input type="text" id="prospect-contact-phone" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
+        </label>
+        <label style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Email
+          <input type="text" id="prospect-contact-email" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
+        </label>
+        <label style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">First note (optional — becomes the first log entry)
+          <textarea id="prospect-first-note" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;min-height:54px;resize:vertical;font-family:inherit;"></textarea>
+        </label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-action" data-close="prospect-modal">Cancel</button>
+      <button class="btn-action primary" id="prospect-save-btn">Add prospect</button>
+    </div>
+  </div>
+</div>
+
+<!-- 🔗 Link prospect → portal agency (contract completed) -->
+<div class="modal-overlay" id="link-modal">
+  <div class="modal-card" style="max-width:480px;">
+    <div class="modal-head">
+      <h3>🔗 Link to portal agency</h3>
+      <button class="close-btn" data-close="link-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;">Contract completed and the agency now exists in the portal (after the TB import)? Pick it below — the prospect is marked <b>✅ Signed</b> and its outreach log moves onto the agency's Engagement history.</p>
+      <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;" id="link-prospect-name">—</div>
+      <select id="link-agency-select" style="width:100%;border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;background:#fff;"></select>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-action" data-close="link-modal">Cancel</button>
+      <button class="btn-action primary" id="link-confirm-btn">🔗 Link</button>
+    </div>
+  </div>
+</div>
+
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
@@ -492,6 +686,17 @@ let importResolutions = {};                // unmatchedName → agency_id select
 let notesDrawerAgencyId = null;
 let importMode = 'hh';                      // 'hh' (HH Ratings) | 'tb' (TherapyBoss Price list)
 let tbImportedAgencies = [];               // [{agency_name, lines:[{bucket,...}]}] for TB import
+
+// Migration 80 — engagement + prospects
+let agencyAccess = null;                   // 'admin' | 'edit' | 'view' (set in launchApp)
+let currentView = "agencies";              // 'agencies' | 'prospects'
+let allProspects = [];                     // full agency_prospects rows
+let prospectLogCounts = {};                // prospect_id → {n, latest}
+let prospectFilter = { status: "pipeline", q: "" };
+let engageCtx = null;                      // { kind:'agency'|'prospect', id } for the engagement drawer
+let linkProspectId = null;                 // prospect being 🔗-linked
+const canEdit  = () => agencyAccess === "admin" || agencyAccess === "edit";
+const isAdmin  = () => agencyAccess === "admin";
 
 // ══════════════════════════════════════════════════════════════════
 // AUTH
@@ -535,7 +740,7 @@ async function launchApp(user) {
   // the UI (view-only mode) and server-side (write RPCs check admin).
   // Per-user grants (migrations 78/79): 'view' = read-only page,
   // 'edit' = inline editors unlocked (imports stay admin-only).
-  let agencyAccess = currentRole === "admin" ? "admin" : null;
+  agencyAccess = currentRole === "admin" ? "admin" : null;
   if (!agencyAccess) {
     try {
       const { data: av } = await db.from("agency_viewers")
@@ -557,11 +762,15 @@ async function launchApp(user) {
   document.getElementById("header-user").textContent = user.email || "";
 
   await loadContracts();
+  loadProspects();   // fire-and-forget — prospects render when they arrive
 
-  // Imports Hub deep-link: ?import=<key> auto-opens the matching import
-  // modal (admins only — viewers have no import affordances).
+  // Deep-links: ?import=<key> auto-opens the matching import modal
+  // (admins only — viewers have no import affordances); ?view=prospects
+  // opens the 🌱 Prospects pipeline directly.
   try {
-    var _imp = new URLSearchParams(location.search).get("import");
+    const params = new URLSearchParams(location.search);
+    if (params.get("view") === "prospects") switchView("prospects");
+    var _imp = params.get("import");
     if (currentRole === "admin") {
       if (_imp === "agency_hh") openImportModal("hh");
       else if (_imp === "agency_tb") openImportModal("tb");
@@ -573,7 +782,7 @@ async function launchApp(user) {
 // DATA LOAD
 // ══════════════════════════════════════════════════════════════════
 async function loadContracts() {
-  document.getElementById("rows-body").innerHTML = '<tr class="loading-row"><td colspan="17">Loading…</td></tr>';
+  document.getElementById("rows-body").innerHTML = '<tr class="loading-row"><td colspan="18">Loading…</td></tr>';
   const { data, error } = await db.rpc("list_agency_contracts");
   if (error) { showToast("Failed to load: " + error.message, "err"); return; }
   allRows = data || [];
@@ -660,7 +869,8 @@ function filterRows() {
       const hay = [
         r.agency_name, r.agency_city, r.agency_state,
         r.collections_contact, r.notes,
-        r.preferred_payment_method, r.sent_via, r.contract_location
+        r.preferred_payment_method, r.sent_via, r.contract_location,
+        r.engagement_status
       ].filter(Boolean).join(" ").toLowerCase();
       if (!hay.includes(q)) return false;
     }
@@ -713,13 +923,16 @@ function syncSortIndicators() {
 
 function renderTable() {
   const rows = sortRows(filterRows());
-  document.getElementById("hero-counts").innerHTML =
-    `<strong>${rows.length}</strong> of <strong>${allRows.length}</strong> agencies shown`;
+  if (currentView === "agencies") {
+    document.getElementById("hero-counts").innerHTML =
+      `<strong>${rows.length}</strong> of <strong>${allRows.length}</strong> agencies shown`;
+  }
+  document.getElementById("view-pill-agencies").textContent = `🏢 Agencies (${allRows.length})`;
   syncSortIndicators();
 
   if (!rows.length) {
     document.getElementById("rows-body").innerHTML =
-      '<tr class="loading-row"><td colspan="17">No agencies match these filters.</td></tr>';
+      '<tr class="loading-row"><td colspan="18">No agencies match these filters.</td></tr>';
     return;
   }
 
@@ -784,8 +997,37 @@ function renderRow(r) {
       <td class="notes-cell" data-notes-cell="${aid}">
         <div class="notes-preview ${r.notes ? '' : 'empty'}">${r.notes ? escapeHtml(r.notes) : 'Click to add…'}</div>
       </td>
+      <td class="engage-cell" data-engage-cell="${aid}" title="Click to update engagement + log touches">${renderEngagementCell(r)}</td>
     </tr>
   `;
+}
+
+// Marketer outreach chip + "last / next" sub-line (migration 80).
+const ENGAGE_META = {
+  none:         { icon: "⚪", label: "—",            cls: "e-none" },
+  reaching_out: { icon: "📣", label: "Reaching out", cls: "e-out" },
+  engaged:      { icon: "🤝", label: "Engaged",      cls: "e-eng" },
+  dormant:      { icon: "💤", label: "Dormant",      cls: "e-dor" }
+};
+function renderEngagementCell(r) {
+  const m = ENGAGE_META[r.engagement_status] || ENGAGE_META.none;
+  const sub = [];
+  if (r.last_contact_date)  sub.push("📞 " + escapeHtml(fmtShortDate(r.last_contact_date)));
+  if (r.next_followup_date) sub.push("⏰ " + escapeHtml(fmtShortDate(r.next_followup_date)));
+  const overdue = r.next_followup_date && String(r.next_followup_date) < todayISO();
+  return `<span class="engage-chip ${m.cls}">${m.icon} ${m.label}</span>` +
+         (sub.length ? `<div class="engage-sub${overdue ? " overdue" : ""}">${sub.join(" · ")}</div>` : "");
+}
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// Short M/D for dates (DATE strings parsed as local, not UTC) & timestamps.
+function fmtShortDate(d) {
+  if (!d) return "";
+  const s = String(d);
+  const x = /^\d{4}-\d{2}-\d{2}$/.test(s) ? new Date(s + "T00:00:00") : new Date(s);
+  return isNaN(x.getTime()) ? "" : (x.getMonth() + 1) + "/" + x.getDate();
 }
 
 function renderActivePill(r) {
@@ -795,12 +1037,13 @@ function renderActivePill(r) {
     : `<span class="active-pill no" data-toggle-active="${escapeAttr(r.agency_id)}">INACTIVE</span>`;
 }
 
+// Rates are LOCKED (migration 80) — the TB Price List import is the only
+// writer. Hand corrections go through the ⬆ rate-increase workflow instead
+// (chips in the Latest Eff. column).
 function renderRateInput(r, field) {
   const v = r[field];
-  return `<input class="rate-input" type="number" step="0.50" min="0" placeholder="—"
-            value="${v == null ? '' : v}"
-            data-agency-id="${escapeAttr(r.agency_id)}"
-            data-field="${field}" />`;
+  if (v == null) return `<span class="rate-ro empty" title="Rates come from the TherapyBoss Price List import">—</span>`;
+  return `<span class="rate-ro" title="Rates come from the TherapyBoss Price List import">$${Number(v).toFixed(2)}</span>`;
 }
 
 function renderRatingChip(r, field) {
@@ -844,11 +1087,45 @@ function renderStartCell(r) {
 }
 
 // Latest Eff. = the most recent effective rate date (tracks the last rate
-// update). Clickable → the rate-history drawer.
+// update). Clickable → the rate-history drawer. The ⬆ rate-increase
+// workflow chip stacks underneath (migration 80).
 function renderLatestEffCell(r) {
-  if (!r.rates_effective_date) return `<span style="color:#cbd5e1;">—</span>`;
   const aid = escapeAttr(r.agency_id);
-  return `<button type="button" class="rate-date-link" data-history="${aid}" data-name="${escapeAttr(fmtAgencyName(r.agency_name) || '')}" title="Most recent effective rate — click for full history">${escapeHtml(fmtHistDate(r.rates_effective_date))}</button>`;
+  const date = r.rates_effective_date
+    ? `<button type="button" class="rate-date-link" data-history="${aid}" data-name="${escapeAttr(fmtAgencyName(r.agency_name) || '')}" title="Most recent effective rate — click for full history">${escapeHtml(fmtHistDate(r.rates_effective_date))}</button>`
+    : `<span style="color:#cbd5e1;">—</span>`;
+  return `<div class="eff-stack">${date}${renderRateIncrease(r)}</div>`;
+}
+
+// Rate-increase workflow: request (admin/✏️edit) → approve (admin,
+// timestamped) → the agency carries an amber "import TB rates" flag until
+// a NEWER effective rate lands via the TB import (or it's cleared by hand).
+function renderRateIncrease(r) {
+  const aid = escapeAttr(r.agency_id);
+  const st = r.rate_increase_status || "none";
+  if (st === "requested") {
+    const d = fmtShortDate(r.rate_increase_requested_at);
+    let html = `<span class="ri-chip req" title="Rate increase requested${d ? " " + d : ""} — waiting on admin approval">⬆ requested${d ? " " + escapeHtml(d) : ""}</span>`;
+    if (isAdmin())  html += `<button type="button" class="ri-btn ok" data-ri="${aid}" data-ri-action="approve" title="Approve the increase (timestamps now) — then run 📥 Import TB Price List">✓ approve</button>`;
+    if (canEdit())  html += `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="clear" title="Withdraw the request">✕ clear</button>`;
+    return html;
+  }
+  if (st === "approved") {
+    const d = fmtShortDate(r.rate_increase_approved_at);
+    const imported = r.rates_effective_date && r.rate_increase_approved_at &&
+      new Date(String(r.rates_effective_date) + "T23:59:59") > new Date(r.rate_increase_approved_at);
+    if (imported) {
+      let html = `<span class="ri-chip done" title="Approved${d ? " " + d : ""} and newer TB rates have been imported">✓ TB rates imported</span>`;
+      if (canEdit()) html += `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="clear" title="Clear the flag">✕ clear</button>`;
+      return html;
+    }
+    let html = `<span class="ri-chip todo" title="Increase approved${d ? " " + d : ""} — run 📥 Import TB Price List to apply the new rates">⚠ approved${d ? " " + escapeHtml(d) : ""} — import TB rates</span>`;
+    if (canEdit()) html += `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="clear" title="Clear without importing">✕ clear</button>`;
+    return html;
+  }
+  return canEdit()
+    ? `<button type="button" class="ri-btn" data-ri="${aid}" data-ri-action="request" title="Flag this agency for a rate increase — admin approves, then the TB import applies it">⬆ request increase</button>`
+    : "";
 }
 
 // ── Dropdown option pools — derived from the values already in the data
@@ -953,13 +1230,12 @@ document.addEventListener("click", (e) => {
   renderTable();
 });
 
-// Rate input → debounced save
+// Text/year input → save on change (rates are read-only — TB import only)
 document.addEventListener("change", (e) => {
   const t = e.target;
-  if (t.matches(".rate-input[data-field], .text-input[data-field], .year-input[data-field]")) {
+  if (t.matches(".text-input[data-field], .year-input[data-field]")) {
     let val = t.value;
-    if (t.classList.contains("rate-input")) val = val === "" ? null : parseFloat(val);
-    else if (t.classList.contains("year-input")) val = val === "" ? null : parseInt(val, 10);
+    if (t.classList.contains("year-input")) val = val === "" ? null : parseInt(val, 10);
     doSave(t.dataset.agencyId, t.dataset.field, val);
   }
 });
@@ -1090,6 +1366,401 @@ document.addEventListener("click", (e) => {
   } else {
     window.open("clinician-map.html?" + qs, "_blank", "noopener");
   }
+});
+
+// ══════════════════════════════════════════════════════════════════
+// RATE-INCREASE WORKFLOW (migration 80) — request → approve → import
+// ══════════════════════════════════════════════════════════════════
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-ri]");
+  if (!btn) return;
+  const aid = btn.dataset.ri, action = btn.dataset.riAction;
+  const { error } = await db.rpc("set_rate_increase", { p_agency_id: aid, p_action: action });
+  if (error) { showToast("Rate-increase update failed: " + error.message, "err"); return; }
+  const row = allRows.find(r => r.agency_id === aid);
+  if (row) {
+    const now = new Date().toISOString();
+    if (action === "request") {
+      row.rate_increase_status = "requested";
+      row.rate_increase_requested_at = now;
+      row.rate_increase_approved_at = null;
+    } else if (action === "approve") {
+      row.rate_increase_status = "approved";
+      row.rate_increase_approved_at = now;
+    } else {
+      row.rate_increase_status = "none";
+      row.rate_increase_requested_at = null;
+      row.rate_increase_approved_at = null;
+    }
+    if (!row.contract_id) row.contract_id = "pending";
+  }
+  renderTable();
+  showToast(
+    action === "request" ? "Rate increase requested — an admin can now approve it." :
+    action === "approve" ? "Approved ✓ — run 📥 Import TB Price List to apply the new rates." :
+    "Rate-increase flag cleared.", "ok");
+});
+
+// ══════════════════════════════════════════════════════════════════
+// ENGAGEMENT DRAWER — status/dates + outreach log (agencies & prospects)
+// ══════════════════════════════════════════════════════════════════
+async function openEngageDrawer(ctx) {
+  engageCtx = ctx;
+  const isAgency = ctx.kind === "agency";
+  document.getElementById("engage-fields").style.display = isAgency ? "" : "none";
+  let title = "—";
+  if (isAgency) {
+    const r = allRows.find(x => x.agency_id === ctx.id);
+    if (!r) return;
+    title = fmtAgencyName(r.agency_name) || "—";
+    document.getElementById("engage-status").value = r.engagement_status || "none";
+    document.getElementById("engage-last").value = r.last_contact_date || "";
+    document.getElementById("engage-next").value = r.next_followup_date || "";
+  } else {
+    const p = allProspects.find(x => x.id === ctx.id);
+    if (!p) return;
+    title = "🌱 " + p.name;
+  }
+  document.getElementById("engage-name").textContent = title;
+  document.getElementById("engage-note-input").value = "";
+  document.getElementById("engagement-drawer").classList.add("open");
+  await loadEngageLog();
+}
+
+document.addEventListener("click", (e) => {
+  const cell = e.target.closest("[data-engage-cell]");
+  if (cell) { openEngageDrawer({ kind: "agency", id: cell.dataset.engageCell }); return; }
+  const plog = e.target.closest("[data-engage-log]");
+  if (plog) openEngageDrawer({ kind: "prospect", id: plog.dataset.engageLog });
+});
+
+async function loadEngageLog() {
+  const list = document.getElementById("engage-log-list");
+  list.innerHTML = '<div style="color:var(--muted);font-size:12px;">Loading…</div>';
+  if (!engageCtx) return;
+  let q = db.from("agency_engagement_log").select("*").order("noted_at", { ascending: false }).limit(200);
+  q = engageCtx.kind === "agency" ? q.eq("agency_id", engageCtx.id) : q.eq("prospect_id", engageCtx.id);
+  const { data, error } = await q;
+  if (error) {
+    list.innerHTML = '<div style="color:var(--red);font-size:12px;">' + escapeHtml(error.message) + ' — has migration 80 been run?</div>';
+    return;
+  }
+  if (!data || !data.length) {
+    list.innerHTML = '<div style="color:var(--muted);font-size:12px;">No outreach logged yet.</div>';
+    return;
+  }
+  list.innerHTML = data.map(l => {
+    const d = new Date(l.noted_at);
+    const when = isNaN(d.getTime()) ? "" :
+      d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) + " " +
+      d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+    const who = l.noted_by_email ? " · " + escapeHtml(l.noted_by_email) : "";
+    return `<div class="log-entry"><div class="log-meta">${escapeHtml(when)}${who}</div>${escapeHtml(l.note)}</div>`;
+  }).join("");
+}
+
+document.getElementById("engage-log-btn").addEventListener("click", async () => {
+  if (!engageCtx || !canEdit()) return;
+  const note = document.getElementById("engage-note-input").value.trim();
+  if (!note) { showToast("Type the note first.", "err"); return; }
+  const row = { note, noted_by: currentUser && currentUser.id, noted_by_email: currentUser && currentUser.email };
+  if (engageCtx.kind === "agency") row.agency_id = engageCtx.id; else row.prospect_id = engageCtx.id;
+  const { error } = await db.from("agency_engagement_log").insert(row);
+  if (error) { showToast("Log failed: " + error.message, "err"); return; }
+  document.getElementById("engage-note-input").value = "";
+  await loadEngageLog();
+  if (engageCtx && engageCtx.kind === "prospect") loadProspects();   // refresh the preview column
+  showToast("Logged.", "ok");
+});
+
+// Drawer fields (agencies only) → the newly whitelisted contract columns
+document.getElementById("engage-fields").addEventListener("change", async (e) => {
+  const t = e.target.closest("[data-engage-field]");
+  if (!t || !engageCtx || engageCtx.kind !== "agency") return;
+  const field = t.dataset.engageField;
+  const val = t.value === "" ? null : t.value;
+  await doSave(engageCtx.id, field, val);
+  const r = allRows.find(x => x.agency_id === engageCtx.id);
+  if (r) r[field] = val;
+  renderTable();
+});
+
+// ══════════════════════════════════════════════════════════════════
+// VIEW SWITCHER — 🏢 Agencies / 🌱 Prospects
+// ══════════════════════════════════════════════════════════════════
+function switchView(view) {
+  currentView = view === "prospects" ? "prospects" : "agencies";
+  document.getElementById("agencies-section").style.display = currentView === "agencies" ? "" : "none";
+  document.getElementById("prospects-section").style.display = currentView === "prospects" ? "" : "none";
+  document.querySelectorAll(".view-pill").forEach(p => p.classList.toggle("active", p.dataset.view === currentView));
+  if (currentView === "prospects") renderProspects(); else renderTable();
+}
+document.querySelectorAll(".view-pill").forEach(p => p.addEventListener("click", () => switchView(p.dataset.view)));
+
+// ══════════════════════════════════════════════════════════════════
+// 🌱 PROSPECTS — pipeline of potential agencies (migration 80)
+// ══════════════════════════════════════════════════════════════════
+const PROSPECT_STATUS = [
+  ["new", "🆕 New"],
+  ["contacted", "📞 Contacted"],
+  ["in_discussions", "💬 In discussions"],
+  ["contract_sent", "📄 Contract sent"],
+  ["signed", "✅ Signed"],
+  ["not_interested", "🚫 Not interested"]
+];
+const PROSPECT_RANK = { new: 0, contacted: 1, in_discussions: 2, contract_sent: 3, signed: 4, not_interested: 5 };
+let prospectsLoadError = null;
+
+async function loadProspects() {
+  prospectsLoadError = null;
+  try {
+    const [res, logRes] = await Promise.all([
+      db.from("agency_prospects").select("*"),
+      db.from("agency_engagement_log").select("prospect_id, note, noted_at")
+        .not("prospect_id", "is", null).order("noted_at", { ascending: false })
+    ]);
+    if (res.error) throw res.error;
+    allProspects = res.data || [];
+    prospectLogCounts = {};
+    (logRes.data || []).forEach(l => {
+      const c = prospectLogCounts[l.prospect_id] || (prospectLogCounts[l.prospect_id] = { n: 0, latest: "" });
+      c.n++;
+      if (!c.latest) c.latest = l.note;   // rows arrive newest-first
+    });
+  } catch (e) {
+    allProspects = [];
+    prospectsLoadError = (e && e.message) || "load failed";
+  }
+  renderProspects();
+}
+
+function filterProspects() {
+  const q = prospectFilter.q.toLowerCase().trim();
+  return allProspects.filter(p => {
+    if (prospectFilter.status === "pipeline" && (p.status === "signed" || p.status === "not_interested")) return false;
+    if (prospectFilter.status === "signed" && p.status !== "signed") return false;
+    if (prospectFilter.status === "not_interested" && p.status !== "not_interested") return false;
+    if (q) {
+      const hay = [p.name, p.city, p.state, p.contact_name, p.contact_phone, p.contact_email, p.notes, p.status]
+        .filter(Boolean).join(" ").toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
+function renderProspects() {
+  document.getElementById("view-pill-prospects").textContent = `🌱 Prospects (${allProspects.length})`;
+  const body = document.getElementById("prospects-body");
+  const rows = filterProspects().slice().sort((a, b) => {
+    const ra = PROSPECT_RANK[a.status] === undefined ? 9 : PROSPECT_RANK[a.status];
+    const rb = PROSPECT_RANK[b.status] === undefined ? 9 : PROSPECT_RANK[b.status];
+    if (ra !== rb) return ra - rb;
+    return String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" });
+  });
+  if (currentView === "prospects") {
+    document.getElementById("hero-counts").innerHTML =
+      `<strong>${rows.length}</strong> of <strong>${allProspects.length}</strong> prospects shown`;
+  }
+  if (prospectsLoadError) {
+    body.innerHTML = `<tr class="loading-row"><td colspan="7">⚠ ${escapeHtml(prospectsLoadError)} — has migration 80 been run?</td></tr>`;
+    return;
+  }
+  if (!rows.length) {
+    body.innerHTML = `<tr class="loading-row"><td colspan="7">${allProspects.length ? "No prospects match these filters." : "No prospects yet — use ＋ Add prospect to start the pipeline."}</td></tr>`;
+    return;
+  }
+  body.innerHTML = rows.map(renderProspectRow).join("");
+}
+
+function renderProspectRow(p) {
+  const pid = escapeAttr(p.id);
+  const sunk = p.status === "signed" || p.status === "not_interested";
+  const contact = [
+    p.contact_name ? `<b>${escapeHtml(p.contact_name)}</b>` : "",
+    p.contact_phone ? escapeHtml(p.contact_phone) : "",
+    p.contact_email ? escapeHtml(p.contact_email) : ""
+  ].filter(Boolean).join("<br>") || '<span style="color:#cbd5e1;">—</span>';
+
+  let statusCell;
+  if (canEdit()) {
+    statusCell = `<select class="select-input" data-prospect-status="${pid}">` +
+      PROSPECT_STATUS.map(([v, l]) => `<option value="${v}"${v === p.status ? " selected" : ""}>${l}</option>`).join("") +
+      `</select>`;
+  } else {
+    const meta = PROSPECT_STATUS.find(s => s[0] === p.status);
+    statusCell = escapeHtml(meta ? meta[1] : (p.status || "—"));
+  }
+
+  const log = prospectLogCounts[p.id];
+  const logCell = `<div class="log-preview" data-engage-log="${pid}" title="Open the outreach log">${log ? `🕘 ${log.n} · ${escapeHtml(log.latest)}` : "＋ Log outreach…"}</div>`;
+
+  let actions = "";
+  if (p.linked_agency_id) {
+    const ag = allRows.find(r => r.agency_id === p.linked_agency_id);
+    actions = `<span class="linked-tag" data-goto-agency="${escapeAttr(p.linked_agency_id)}" title="Linked to the portal agency — click to open it in the Agencies view">🔗 ${escapeHtml(fmtAgencyName(ag ? ag.agency_name : "") || "Linked")}</span>`;
+  } else {
+    if (canEdit()) actions += `<button type="button" class="prospect-act-btn" data-link-prospect="${pid}" title="Contract completed — link to the portal agency (outreach log moves with it)">🔗 Link</button>`;
+    if (isAdmin()) actions += `<button type="button" class="prospect-act-btn danger" data-del-prospect="${pid}" title="Delete this prospect (and its log)">🗑</button>`;
+  }
+
+  const dateInput = (field, val) => canEdit()
+    ? `<input type="date" class="date-input" data-prospect-date="${pid}" data-field="${field}" value="${escapeAttr(val || "")}" />`
+    : (val ? escapeHtml(fmtHistDate(val)) : '<span style="color:#cbd5e1;">—</span>');
+  const overdue = p.next_followup_date && String(p.next_followup_date) < todayISO() && !sunk;
+
+  return `<tr class="${sunk ? "row-inactive" : ""}" data-prospect-id="${pid}">
+    <td class="name-col"><span style="font-weight:700;">${escapeHtml(p.name)}</span>
+      <div class="agency-loc">${escapeHtml([fmtCityName(p.city), p.state].filter(Boolean).join(", ") || "—")}</div></td>
+    <td><div class="prospect-contact">${contact}</div></td>
+    <td>${statusCell}</td>
+    <td>${dateInput("last_contact_date", p.last_contact_date)}</td>
+    <td>${overdue ? '<span class="engage-sub overdue" style="margin:0 4px 0 0;display:inline;">⚠</span>' : ""}${dateInput("next_followup_date", p.next_followup_date)}</td>
+    <td>${logCell}</td>
+    <td style="white-space:nowrap;">${actions}</td>
+  </tr>`;
+}
+
+async function updateProspect(pid, patch) {
+  if (!canEdit()) return false;
+  const { error } = await db.from("agency_prospects")
+    .update(Object.assign({}, patch, { updated_at: new Date().toISOString() })).eq("id", pid);
+  if (error) { showToast("Save failed: " + error.message, "err"); return false; }
+  const p = allProspects.find(x => x.id === pid);
+  if (p) Object.assign(p, patch);
+  return true;
+}
+
+// Inline status + date edits
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.matches("[data-prospect-status]")) {
+    if (await updateProspect(t.dataset.prospectStatus, { status: t.value })) renderProspects();
+  } else if (t.matches("[data-prospect-date]")) {
+    const patch = {};
+    patch[t.dataset.field] = t.value || null;
+    await updateProspect(t.dataset.prospectDate, patch);
+    renderProspects();
+  }
+});
+
+// ＋ Add prospect
+document.getElementById("add-prospect-btn").addEventListener("click", () => {
+  if (!canEdit()) return;
+  ["prospect-name", "prospect-city", "prospect-state", "prospect-contact-name",
+   "prospect-contact-phone", "prospect-contact-email", "prospect-first-note"]
+    .forEach(id => { document.getElementById(id).value = ""; });
+  document.getElementById("prospect-modal").classList.add("open");
+  setTimeout(() => document.getElementById("prospect-name").focus(), 50);
+});
+
+document.getElementById("prospect-save-btn").addEventListener("click", async () => {
+  const name = document.getElementById("prospect-name").value.trim();
+  if (!name) { showToast("Agency name is required.", "err"); return; }
+  const row = {
+    name,
+    city:          document.getElementById("prospect-city").value.trim() || null,
+    state:         document.getElementById("prospect-state").value.trim().toUpperCase() || null,
+    contact_name:  document.getElementById("prospect-contact-name").value.trim() || null,
+    contact_phone: document.getElementById("prospect-contact-phone").value.trim() || null,
+    contact_email: document.getElementById("prospect-contact-email").value.trim() || null,
+    status: "new",
+    created_by: currentUser && currentUser.id
+  };
+  const { data, error } = await db.from("agency_prospects").insert(row).select().single();
+  if (error) { showToast("Add failed: " + error.message, "err"); return; }
+  const note = document.getElementById("prospect-first-note").value.trim();
+  if (note && data) {
+    await db.from("agency_engagement_log").insert({
+      prospect_id: data.id, note,
+      noted_by: currentUser && currentUser.id,
+      noted_by_email: currentUser && currentUser.email
+    });
+  }
+  document.getElementById("prospect-modal").classList.remove("open");
+  showToast("Prospect added.", "ok");
+  await loadProspects();
+});
+
+// 🗑 Delete (admin, confirm)
+document.addEventListener("click", async (e) => {
+  const del = e.target.closest("[data-del-prospect]");
+  if (!del) return;
+  const pid = del.dataset.delProspect;
+  const p = allProspects.find(x => x.id === pid);
+  if (!p) return;
+  if (!window.confirm(`Delete prospect "${p.name}" and its outreach log?`)) return;
+  const { error } = await db.from("agency_prospects").delete().eq("id", pid);
+  if (error) { showToast("Delete failed: " + error.message, "err"); return; }
+  showToast("Prospect deleted.", "ok");
+  await loadProspects();
+});
+
+// 🔗 Link prospect → portal agency (contract completed)
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-link-prospect]");
+  if (!btn) return;
+  linkProspectId = btn.dataset.linkProspect;
+  const p = allProspects.find(x => x.id === linkProspectId);
+  document.getElementById("link-prospect-name").textContent = p ? "🌱 " + p.name : "—";
+  const sel = document.getElementById("link-agency-select");
+  const opts = allRows.slice().sort((a, b) =>
+    String(a.agency_name || "").localeCompare(String(b.agency_name || ""), undefined, { sensitivity: "base" }));
+  sel.innerHTML = '<option value="">— pick the portal agency —</option>' +
+    opts.map(r => `<option value="${escapeAttr(r.agency_id)}">${escapeHtml(fmtAgencyName(r.agency_name) || r.agency_id)}</option>`).join("");
+  // Preselect an exact name match when there is one
+  if (p) {
+    const m = opts.find(r => String(r.agency_name || "").trim().toLowerCase() === p.name.trim().toLowerCase());
+    if (m) sel.value = m.agency_id;
+  }
+  document.getElementById("link-modal").classList.add("open");
+});
+
+document.getElementById("link-confirm-btn").addEventListener("click", async () => {
+  const aid = document.getElementById("link-agency-select").value;
+  if (!aid || !linkProspectId) { showToast("Pick the portal agency first.", "err"); return; }
+  const pid = linkProspectId;
+  if (!(await updateProspect(pid, { linked_agency_id: aid, status: "signed" }))) return;
+  // Move the outreach history onto the agency so its 📣 drawer shows it.
+  const { error: logErr } = await db.from("agency_engagement_log")
+    .update({ agency_id: aid, prospect_id: null }).eq("prospect_id", pid);
+  if (logErr) showToast("Linked, but the log move failed: " + logErr.message, "err");
+  else showToast("Linked ✓ — outreach log moved to the agency.", "ok");
+  document.getElementById("link-modal").classList.remove("open");
+  linkProspectId = null;
+  await loadProspects();
+});
+
+// 🔗 Linked tag → jump to the agency in the Agencies view
+document.addEventListener("click", (e) => {
+  const tag = e.target.closest("[data-goto-agency]");
+  if (!tag) return;
+  const row = allRows.find(r => r.agency_id === tag.dataset.gotoAgency);
+  switchView("agencies");
+  const si = document.getElementById("search-input");
+  si.value = row ? (row.agency_name || "") : "";
+  filterState.q = si.value;
+  filterState.active = "all";
+  document.querySelectorAll("[data-active-filter]").forEach(c =>
+    c.classList.toggle("active", c.dataset.activeFilter === "all"));
+  renderTable();
+});
+
+// Prospect filters + search
+document.querySelectorAll("[data-prospect-filter]").forEach(chip => {
+  chip.addEventListener("click", () => {
+    prospectFilter.status = chip.dataset.prospectFilter;
+    document.querySelectorAll("[data-prospect-filter]").forEach(c => c.classList.toggle("active", c === chip));
+    renderProspects();
+  });
+});
+let prospectSearchTimer = null;
+document.getElementById("prospect-search").addEventListener("input", (e) => {
+  if (prospectSearchTimer) clearTimeout(prospectSearchTimer);
+  prospectSearchTimer = setTimeout(() => {
+    prospectFilter.q = e.target.value;
+    renderProspects();
+  }, 200);
 });
 
 // ══════════════════════════════════════════════════════════════════
@@ -1263,6 +1934,8 @@ document.querySelectorAll("[data-close]").forEach(btn => {
     const id = btn.dataset.close;
     document.getElementById(id).classList.remove("open");
     if (id === "notes-drawer") notesDrawerAgencyId = null;
+    if (id === "engagement-drawer") engageCtx = null;
+    if (id === "link-modal") linkProspectId = null;
   });
 });
 
