@@ -336,6 +336,7 @@
     <button class="btn-action primary" id="import-tb-btn" title="Import the official TherapyBoss Price list export (Private Home Health rates)">📥 Import TB Price List</button>
     <button class="btn-action" id="import-btn" title="Import the legacy hand-made HH RATINGS spreadsheet">📥 HH Ratings</button>
     <button class="btn-action" id="refresh-btn">↻ Refresh</button>
+    <button class="btn-action" id="viewers-btn" style="display:none;" title="Choose which non-admin users may access this page — 👁 view-only or ✏️ inline editing (imports stay admin-only)">👁 Access</button>
   </div>
 
   <!-- Table -->
@@ -370,6 +371,29 @@
 </div>
 
 <!-- Import modal -->
+<!-- 👁 Viewer manager (admin) — grants read-only access via agency_viewers -->
+<div class="modal-overlay" id="viewers-modal">
+  <div class="modal-card" style="max-width:540px;">
+    <div class="modal-head">
+      <h3>👁 Agency access</h3>
+      <button class="close-btn" data-close="viewers-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;"><b>👁 View</b> opens this page read-only. <b>✏️ Edit</b> also unlocks the inline editors (rates, ratings, notes…). Imports stay admin-only either way. Admins always have full access and aren't listed here.</p>
+      <div id="viewers-list" style="margin-bottom:14px;"></div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <select id="viewer-add-select" style="flex:1;min-width:180px;border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;background:#fff;"></select>
+        <select id="viewer-add-access" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;background:#fff;">
+          <option value="view">👁 View</option>
+          <option value="edit">✏️ Edit</option>
+        </select>
+        <button class="btn-action primary" id="viewer-add-btn" type="button">＋ Grant</button>
+      </div>
+      <p style="margin:10px 0 0;color:var(--muted);font-size:11.5px;">Newly granted people see the 🏢 Agencies tab after refreshing their portal; level changes and revokes apply the same way.</p>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="import-modal">
   <div class="modal-card">
     <div class="modal-head">
@@ -509,21 +533,24 @@ async function launchApp(user) {
   // Per-user viewer allowlist (migration 78): named non-admins get a
   // READ-ONLY look at the Agencies table. Writes stay admin-only both in
   // the UI (view-only mode) and server-side (write RPCs check admin).
-  let agencyViewer = false;
-  if (currentRole !== "admin") {
+  // Per-user grants (migrations 78/79): 'view' = read-only page,
+  // 'edit' = inline editors unlocked (imports stay admin-only).
+  let agencyAccess = currentRole === "admin" ? "admin" : null;
+  if (!agencyAccess) {
     try {
       const { data: av } = await db.from("agency_viewers")
-        .select("user_id").eq("user_id", user.id).maybeSingle();
-      agencyViewer = !!av;
+        .select("*").eq("user_id", user.id).maybeSingle();
+      if (av) agencyAccess = av.access === "edit" ? "edit" : "view";
     } catch (e) { /* table missing / no grant → gate below */ }
   }
 
-  if (currentRole !== "admin" && !agencyViewer) {
+  if (!agencyAccess) {
     document.getElementById("admin-gate").style.display = "flex";
     return;
   }
 
-  if (currentRole !== "admin") document.body.classList.add("view-only");
+  if (agencyAccess === "view") document.body.classList.add("view-only");
+  if (agencyAccess === "admin") document.getElementById("viewers-btn").style.display = "";
 
   document.getElementById("app-header").style.display = "flex";
   document.getElementById("app-container").style.display = "block";
@@ -1145,6 +1172,91 @@ function openImportModal(mode) {
 }
 document.getElementById("import-btn").addEventListener("click", () => openImportModal("hh"));
 document.getElementById("import-tb-btn").addEventListener("click", () => openImportModal("tb"));
+
+// ── 👁 Access manager (admin) — manages agency_viewers (migrations 78/79) ──
+let viewersStaffCache = null;
+
+async function openViewersModal() {
+  document.getElementById("viewers-modal").classList.add("open");
+  await renderViewersModal();
+}
+
+async function renderViewersModal() {
+  const list = document.getElementById("viewers-list");
+  list.innerHTML = '<div style="color:var(--muted);font-size:12px;">Loading…</div>';
+  try {
+    if (!viewersStaffCache) {
+      const { data: staff, error: sErr } = await db.rpc("list_staff");
+      if (sErr) throw sErr;
+      viewersStaffCache = staff || [];
+    }
+    const { data: grants, error: gErr } = await db.from("agency_viewers").select("*");
+    if (gErr) throw gErr;
+    const byId = {};
+    viewersStaffCache.forEach(s => { byId[s.user_id] = s; });
+    const rows = (grants || []).map(g => {
+      const s = byId[g.user_id] || {};
+      const label = (s.display_name || (s.email || "user").split("@")[0]) + (s.email ? " · " + s.email : "");
+      const acc = g.access === "edit" ? "edit" : "view";
+      return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px;flex-wrap:wrap;">' +
+        '<span style="flex:1;min-width:160px;">' + escapeHtml(label) + '</span>' +
+        '<select data-viewer-access="' + escapeAttr(g.user_id) + '" style="border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px;background:#fff;">' +
+          '<option value="view"' + (acc === "view" ? " selected" : "") + '>👁 View</option>' +
+          '<option value="edit"' + (acc === "edit" ? " selected" : "") + '>✏️ Edit</option>' +
+        '</select>' +
+        '<button class="btn-action" data-revoke-viewer="' + escapeAttr(g.user_id) + '" type="button" style="padding:3px 9px;font-size:11px;color:#b91c1c;border-color:#f3c1c1;">✕ Revoke</button>' +
+      '</div>';
+    });
+    list.innerHTML = rows.length ? rows.join("") : '<div style="color:var(--muted);font-size:12px;">No one granted yet.</div>';
+    // Candidates: everyone who isn't an admin and isn't already granted.
+    const granted = new Set((grants || []).map(g => g.user_id));
+    const sel = document.getElementById("viewer-add-select");
+    const candidates = viewersStaffCache
+      .filter(s => s.role !== "admin" && !granted.has(s.user_id))
+      .sort((a, b) => String(a.display_name || a.email || "").localeCompare(String(b.display_name || b.email || "")));
+    sel.innerHTML = '<option value="">— pick a user to grant access —</option>' +
+      candidates.map(s => '<option value="' + escapeAttr(s.user_id) + '">' +
+        escapeHtml((s.display_name || s.email || "user") + (s.email ? " · " + s.email : "") + (s.role ? " · " + s.role : "")) + "</option>").join("");
+  } catch (e) {
+    list.innerHTML = '<div style="color:#b91c1c;font-size:12px;">Couldn\'t load — have migrations 78/79 been run? ' + escapeHtml(e.message || "") + '</div>';
+  }
+}
+
+async function addViewer() {
+  const uid = document.getElementById("viewer-add-select").value;
+  const access = document.getElementById("viewer-add-access").value === "edit" ? "edit" : "view";
+  if (!uid) { showToast("Pick a user first."); return; }
+  const { error } = await db.from("agency_viewers").insert({ user_id: uid, granted_by: currentUser.id, access: access });
+  if (error) { showToast("Grant failed: " + error.message); return; }
+  showToast("Granted (" + access + ") — they'll see the 🏢 tab after refreshing their portal.");
+  await renderViewersModal();
+}
+
+async function setViewerAccess(uid, access) {
+  const { error } = await db.from("agency_viewers")
+    .update({ access: access === "edit" ? "edit" : "view" }).eq("user_id", uid);
+  if (error) { showToast("Change failed: " + error.message); renderViewersModal(); return; }
+  showToast("Access set to " + access + " — applies on their next page refresh.");
+}
+
+async function removeViewer(uid) {
+  if (!confirm("Revoke this person's access to Agencies?")) return;
+  const { error } = await db.from("agency_viewers").delete().eq("user_id", uid);
+  if (error) { showToast("Revoke failed: " + error.message); return; }
+  showToast("Revoked.");
+  await renderViewersModal();
+}
+
+document.getElementById("viewers-btn").addEventListener("click", openViewersModal);
+document.getElementById("viewer-add-btn").addEventListener("click", addViewer);
+document.getElementById("viewers-list").addEventListener("click", e => {
+  const btn = e.target.closest("[data-revoke-viewer]");
+  if (btn) removeViewer(btn.dataset.revokeViewer);
+});
+document.getElementById("viewers-list").addEventListener("change", e => {
+  const sel = e.target.closest("select[data-viewer-access]");
+  if (sel) setViewerAccess(sel.dataset.viewerAccess, sel.value);
+});
 
 document.querySelectorAll("[data-close]").forEach(btn => {
   btn.addEventListener("click", () => {
