@@ -414,10 +414,19 @@ const OFFICE_DEFAULTS = {
   "6-3": "9933 Lawler Ave, Suite 206B", "6-5": "SKOKIE", "6-6": "IL",
   "6-7": "60077-3703", "6-8": "847 983-8417", "6-9": "8884013644",
   "6-10": "info@dependablecarestaffing.com",
-  "CheckBox1": true, "CheckBox5-1": true, "CheckBox5-4": true, "CheckBox5-7": true,
+  // NOTE: CheckBox5-1 (Former or Maiden Name) is deliberately NOT here —
+  // the Type-of-Other-Name boxes are data-driven in buildPdfUpdates and
+  // only check when an Other Name is actually filled in.
+  "CheckBox1": true, "CheckBox5-4": true, "CheckBox5-7": true,
   "CheckBox5-8-2": true, "CheckBox5-10": true, "CheckBox5-11": true,
   "CheckBox10-2": true, "CheckBox11-1": true, "CheckBox16-2-2": true,
   "CheckBox17-2": true, "CheckBox21-3": true
+};
+// Type of Other Name (Section 2A) — the select's label → its checkbox.
+const OTHER_NAME_TYPE_CHECKBOXES = {
+  "Former or Maiden Name": "CheckBox5-1",
+  "Professional Name":     "CheckBox5-2",
+  "Other":                 "CheckBox5-3"
 };
 
 // ── Document slots + AI scan config (ported from openai_doc_ai.py). The
@@ -471,12 +480,16 @@ const FIELD_DEFS = [
   { key: "middle_initial", label: "Middle Initial", num: "5-2" },
   { key: "last_name", label: "Last Name", num: "5-3" },
   { key: "suffix", label: "Suffix", num: "5-4" },
-  { sep: "Other name (former/maiden)" },
+  { sep: "Other name (former / maiden / professional)" },
   { key: "other_first_name", label: "Other First Name", num: "5-5" },
   { key: "other_middle_initial", label: "Other M.I.", num: "5-6" },
   { key: "other_last_name", label: "Other Last Name", num: "5-7" },
   { key: "other_suffix", label: "Other Suffix", num: "5-8" },
-  { key: "other_name_description", label: "Other Name Description", num: "5-9" },
+  // Drives CheckBox5-1/5-2/5-3 — ONLY when an other name is filled in.
+  // Blank = auto: Former/Maiden when a name exists, nothing otherwise.
+  { key: "other_name_type", label: "Type of Other Name (blank = Former/Maiden when filled)", type: "select",
+    options: ["", "Former or Maiden Name", "Professional Name", "Other"] },
+  { key: "other_name_description", label: "Other — describe (only with type Other)", num: "5-9" },
   { sep: "Identifiers" },
   { key: "ssn", label: "SSN (manual only)", num: "5-10" },
   { key: "date_of_birth", label: "Date of Birth", ph: "mm/dd/yyyy", num: "5-11" },
@@ -1270,7 +1283,19 @@ function buildPdfUpdates(createdDate) {
       updates[DISCIPLINE_CHECKBOXES[code]] = (code === disc);
     });
   }
-  // 5. Fields the office leaves blank on purpose.
+  // 5. Type of Other Name — checked ONLY when an Other Name is filled in
+  //    (the template ships with 5-1 pre-checked, so all three are set
+  //    explicitly every time). Blank type = Former/Maiden, the common case.
+  const hasOtherName = !!(String(values.other_first_name || "").trim() ||
+                          String(values.other_last_name || "").trim());
+  const otherType = String(values.other_name_type || "").trim() || "Former or Maiden Name";
+  Object.keys(OTHER_NAME_TYPE_CHECKBOXES).forEach(label => {
+    updates[OTHER_NAME_TYPE_CHECKBOXES[label]] = hasOtherName && label === otherType;
+  });
+  // 5-9 ("Other — describe") belongs to the Other checkbox alone; never
+  // let a stray description print without it (old records carry "MAIDEN").
+  if (!hasOtherName || otherType !== "Other") updates["5-9"] = "";
+  // 6. Fields the office leaves blank on purpose.
   CLEAR_FIELDS.forEach(k => { updates[k] = ""; });
   return updates;
 }
@@ -1299,8 +1324,8 @@ async function installTemplateFile(file) {
   try {
     if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") throw new Error("Pick a PDF file.");
     const bytes = await file.arrayBuffer();
-    let form;
-    try { form = (await PDFLib.PDFDocument.load(bytes)).getForm(); }
+    let doc, form;
+    try { doc = await PDFLib.PDFDocument.load(bytes); form = doc.getForm(); }
     catch (e) { throw new Error("That file isn't a readable PDF."); }
     if (!(form.getFieldMaybe && form.getFieldMaybe("5-1"))) {
       throw new Error("That PDF doesn't look like the fillable CMS-855I template (field 5-1 missing).");
@@ -1311,9 +1336,16 @@ async function installTemplateFile(file) {
         throw new Error("REFUSED — this copy still has personal data (field " + name + " is filled). Upload the SANITIZED template from the DEPLOY-THIS folder, never the original desktop one.");
       }
     }
+    // Sanitize leftover CHECKBOXES too — the "blank" template came from a
+    // completed packet and still had boxes ticked (e.g. 5-1 Former/Maiden).
+    // Store a genuinely blank copy; Generate re-checks what it needs.
+    form.getFields().forEach(f => {
+      if (f instanceof PDFLib.PDFCheckBox) { try { f.uncheck(); } catch (e) { /* non-fatal */ } }
+    });
+    const cleanBytes = await doc.save();
     btn.textContent = "Uploading…";
     const { error } = await db.storage.from(DOCS_BUCKET)
-      .upload(TEMPLATE_STORAGE_PATH, new Blob([bytes], { type: "application/pdf" }), { contentType: "application/pdf", upsert: true });
+      .upload(TEMPLATE_STORAGE_PATH, new Blob([cleanBytes], { type: "application/pdf" }), { contentType: "application/pdf", upsert: true });
     if (error) throw error;
     btn.style.display = "none";
     showToast("Template installed — stored privately, used for every Generate from now on. Click Generate again.", "ok");
@@ -1341,6 +1373,13 @@ async function generatePdf() {
     }
     const pdfDoc = await PDFLib.PDFDocument.load(bytes);
     const form = pdfDoc.getForm();
+    // Wipe EVERY checkbox before filling. The "blank" template was made
+    // from a completed packet and still carries checked boxes (e.g. 5-1
+    // Former/Maiden); every intended check is re-applied explicitly from
+    // the updates map, so template leftovers can never leak into output.
+    form.getFields().forEach(f => {
+      if (f instanceof PDFLib.PDFCheckBox) { try { f.uncheck(); } catch (e) { /* non-fatal */ } }
+    });
     const updates = buildPdfUpdates(createdDate);
     let applied = 0, skipped = [];
     Object.keys(updates).forEach(name => {
