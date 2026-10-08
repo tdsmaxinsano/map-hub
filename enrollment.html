@@ -387,12 +387,12 @@ const SEMANTIC_FIELD_MAP = {
   certification_entity: "5-21", certification_state: "5-22",
   dea_number: "5-23", dea_effective_date: "5-24", dea_state: "5-25",
   printed_first_name: "24-1", printed_middle_initial: "24-2",
-  printed_last_name: "24-3", printed_suffix: "24-5", date_signed: "24-6"
+  printed_last_name: "24-3", printed_suffix: "24-5"
 };
 const DISCIPLINE_CHECKBOXES = { OT: "CheckBox35", PT: "CheckBox36" };
-// 24-11 is a second "Date Signed" the office leaves blank. The old web app
-// documented this in clear_fields but never actually applied it — fixed here.
-const CLEAR_FIELDS = ["24-11"];
+// Both "Date Signed" boxes (24-6 practitioner, 24-11 official) stay blank —
+// they're dated by hand at signing, next to the wet signature.
+const CLEAR_FIELDS = ["24-6", "24-11"];
 
 // Office defaults — the reusable Dependable Care block extracted from a
 // completed sample packet (dependablecare_defaults.json raw_fields, 1:1).
@@ -506,8 +506,7 @@ const FIELD_DEFS = [
   { key: "printed_first_name", label: "Printed First Name", num: "24-1" },
   { key: "printed_middle_initial", label: "Printed M.I.", num: "24-2" },
   { key: "printed_last_name", label: "Printed Last Name", num: "24-3" },
-  { key: "printed_suffix", label: "Printed Suffix", num: "24-5" },
-  { key: "date_signed", label: "Date Signed", ph: "mm/dd/yyyy", num: "24-6" }
+  { key: "printed_suffix", label: "Printed Suffix", num: "24-5" }
 ];
 const PECOS_DEFS = [
   { key: "pecos_status", label: "PECOS Status", type: "select", options: PECOS_STATUSES },
@@ -1272,7 +1271,6 @@ function buildPdfUpdates(createdDate) {
   // 3. Provider semantic fields.
   Object.keys(SEMANTIC_FIELD_MAP).forEach(k => {
     let v = values[k];
-    if (k === "date_signed" && !String(v || "").trim()) v = createdDate;
     if (v == null) return;
     updates[SEMANTIC_FIELD_MAP[k]] = String(v);
   });
