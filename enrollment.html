@@ -102,6 +102,16 @@
   .doc-slot .ds-actions button.ai { color: #1e3a8a; border-color: #c3d9ff; background: #eef4ff; }
   .doc-slot .ds-manual { font-size: 10px; color: #9a7700; font-weight: 700; margin-top: 5px; }
   .doc-slot .ds-status { font-size: 10.5px; color: var(--muted); min-height: 13px; margin-top: 4px; }
+  /* Missing-docs awareness: amber outline on required-but-empty slots,
+     summary chip in the card header, compact badge on the progress board */
+  .doc-slot.missing-req { border-color: #f0c36d; background: #fffdf5; }
+  .doc-slot.missing-req .ds-req { color: #92400e; font-weight: 800; }
+  #doc-missing-summary { font-size: 11.5px; font-weight: 800; margin-left: 10px; padding: 3px 10px; border-radius: 999px; vertical-align: 2px; }
+  #doc-missing-summary.ok { background: #d1fae5; color: #065f46; }
+  #doc-missing-summary.miss { background: #fdf6e6; color: #92400e; }
+  .doc-badge { display: inline-block; margin-left: 7px; padding: 1px 7px; border-radius: 999px; font-size: 10px; font-weight: 800; white-space: nowrap; cursor: default; }
+  .doc-badge.ok { background: #d1fae5; color: #065f46; }
+  .doc-badge.miss { background: #fdf6e6; color: #92400e; border: 1px solid #f0c36d; }
 
   /* CMS form watch (revision detector) */
   #form-watch .fw-line { font-size: 11.5px; color: var(--muted); margin-top: 10px; }
@@ -262,7 +272,7 @@
     </div>
 
     <div class="card">
-      <h3>🗂 Required documents</h3>
+      <h3>🗂 Required documents <span id="doc-missing-summary"></span></h3>
       <p class="hint">Upload or paste a screenshot/scan for each document, then use <b>🤖 Analyze</b> to prefill the form — the AI only fills fields that are still empty, and every prefilled field gets a source badge.
       <b>To paste a screenshot:</b> click a document box so it shades blue (📋 ready), then press <b>Ctrl+V</b>. Click again or press Esc to un-select.
       <b>Social Security cards are never sent to AI</b> — type the SSN yourself.</p>
@@ -442,6 +452,11 @@ const DOC_SLOTS = [
     src: { url: "https://npiregistry.cms.hhs.gov/search", label: "NPI Registry search" } },
   { key: "diploma",             label: "Diploma",              required: true,  ai: true  }
 ];
+// Which REQUIRED slots are still empty. `slots` is a doc_slots map —
+// p.doc_slots for a board row, the docSlots global for the open provider.
+function missingRequiredDocs(slots) {
+  return DOC_SLOTS.filter(s => s.required && !((slots || {})[s.key]));
+}
 const DOC_LABELS = {
   drivers_license: "driver's license", professional_license: "professional license",
   idfpr_lookup: "IDFPR lookup", npi_info: "NPI lookup page", diploma: "diploma"
@@ -989,7 +1004,8 @@ function renderDocSlots() {
   const host = document.getElementById("doc-grid");
   host.innerHTML = DOC_SLOTS.map(slot => {
     const has = !!docSlots[slot.key];
-    return '<div class="doc-slot' + (armedSlot === slot.key ? " paste-ready" : "") + '" data-slot="' + slot.key + '">' +
+    return '<div class="doc-slot' + (armedSlot === slot.key ? " paste-ready" : "") +
+      (slot.required && !has ? " missing-req" : "") + '" data-slot="' + slot.key + '">' +
       '<div class="ds-title">' + escHtml(slot.label) + "</div>" +
       '<div class="ds-req">' + (slot.required ? "required" : "optional") + " · drop / paste / pick</div>" +
       (slot.src ? '<a class="ds-src" href="' + escAttr(slot.src.url) + '" target="_blank" rel="noopener" title="Opens in a new tab — grab the document there, then drop or paste it here">↗ ' + escHtml(slot.src.label) + "</a>" : "") +
@@ -1005,6 +1021,19 @@ function renderDocSlots() {
     "</div>";
   }).join("");
   DOC_SLOTS.forEach(slot => { if (docSlots[slot.key]) hydrateThumb(slot.key); });
+  // Header summary — live count of what this provider still owes.
+  const summary = document.getElementById("doc-missing-summary");
+  if (summary) {
+    const missing = missingRequiredDocs(docSlots);
+    const reqTotal = DOC_SLOTS.filter(s => s.required).length;
+    if (missing.length) {
+      summary.className = "miss";
+      summary.textContent = "Missing: " + missing.map(s => s.label).join(", ");
+    } else {
+      summary.className = "ok";
+      summary.textContent = "✓ All " + reqTotal + " required uploaded";
+    }
+  }
 }
 
 async function slotSignedUrl(slotKey, seconds) {
@@ -1360,6 +1389,13 @@ async function generatePdf() {
     showToast("Confirm you reviewed every field first.", "err");
     return;
   }
+  // Warn (never block) when required documents are still missing.
+  const missingDocs = missingRequiredDocs(docSlots);
+  if (missingDocs.length && !window.confirm(
+    "Missing required documents:\n• " + missingDocs.map(s => s.label).join("\n• ") +
+    "\n\nGenerate the packet anyway?")) {
+    return;
+  }
   const btn = document.getElementById("generate-btn");
   btn.disabled = true; btn.textContent = "Generating…";
   try {
@@ -1465,9 +1501,17 @@ function renderProgress() {
     return;
   }
   const txt = (p, k) => escAttr((p.payload && p.payload[k]) || "");
+  // Missing-docs badge next to the name — skipped for finished providers.
+  const docBadge = (p) => {
+    if (isDone(p)) return "";
+    const missing = missingRequiredDocs(p.doc_slots);
+    return missing.length
+      ? "<span class='doc-badge miss' title='Missing: " + escAttr(missing.map(s => s.label).join(", ")) + "'>📎 " + missing.length + " missing</span>"
+      : "<span class='doc-badge ok' title='All required documents uploaded'>📎 ✓</span>";
+  };
   body.innerHTML = rows.map(p =>
     "<tr data-rowid='" + escAttr(p.id) + "'" + (isDone(p) ? " class='prog-done'" : "") + ">" +
-      "<td>" + escHtml(providerDisplayName(p)) + "</td>" +
+      "<td>" + escHtml(providerDisplayName(p)) + docBadge(p) + "</td>" +
       "<td><select data-pk='discipline'>" + ["PT", "OT"].map(o => "<option" + (o === (p.discipline || "PT") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
       "<td><select data-pk='progress_status'>" + PROGRESS_STATUSES.map(o => "<option" + (o === (p.progress_status || "New") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
       "<td><input data-pk='mailed_to_therapist_date' value='" + txt(p, "mailed_to_therapist_date") + "' placeholder='mm/dd/yyyy'></td>" +
