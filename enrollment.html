@@ -672,10 +672,18 @@ function providerNameKey(fn, ln) {
 function renderLibrary() {
   const sel = document.getElementById("provider-select");
   const keep = currentId || "";
+  // Same missing-docs tag as the progress-board badge; finished providers
+  // (credentialed / PECOS complete) owe nothing, so no tag for them.
+  const docTag = (p) => {
+    if (p.pecos_status === "Completed" || p.progress_status === "Credentialed") return "";
+    const missing = missingRequiredDocs(p.doc_slots);
+    return missing.length ? " · 📎 " + missing.length + " missing" : " · 📎 ✓";
+  };
   sel.innerHTML = '<option value="">— Start a new provider or pick a saved one —</option>' +
     providers.map(p =>
       '<option value="' + escAttr(p.id) + '">' + escHtml(providerDisplayName(p)) +
-      " · " + escHtml(p.discipline || "") + " · " + escHtml(p.progress_status || "") + "</option>"
+      " · " + escHtml(p.discipline || "") + " · " + escHtml(p.progress_status || "") +
+      escHtml(docTag(p)) + "</option>"
     ).join("");
   sel.value = keep;
 }
