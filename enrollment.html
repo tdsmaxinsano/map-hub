@@ -316,7 +316,7 @@
         <label><input type="checkbox" id="review-confirm"> I reviewed every field against the source documents</label>
         <button class="btn-primary" id="generate-btn" type="button">Generate Filled PDF ⬇</button>
         <button class="btn-action" id="save-btn" type="button">💾 Save Progress</button>
-        <button class="btn-action" id="print-packet-btn" type="button" title="Print the Professional License, Driver's License and Diploma — one per page — to send with the packet">🖨 Print packet docs</button>
+        <button class="btn-action" id="print-packet-btn" type="button" title="Print the Driver's License, Professional License and Diploma — one per page — to send with the packet">🖨 Print packet docs</button>
         <button class="btn-action" id="install-template-btn" type="button" style="display:none;" title="One-time setup: store the SANITIZED blank CMS-855I template in the private documents bucket">📄 Install blank template</button>
         <input type="file" id="template-file-input" accept=".pdf,application/pdf" style="display:none;">
       </div>
@@ -1918,7 +1918,7 @@ function applyViewerZoom() {
 }
 
 // ── Print: supporting docs that go out with the 855I packet ──
-const PACKET_PRINT_SLOTS = ["professional_license", "drivers_license", "diploma"];
+const PACKET_PRINT_SLOTS = ["drivers_license", "professional_license", "diploma"]; // print order
 
 // One document per Letter page, scaled to fit, honoring any viewer rotation.
 // Printed from a hidden iframe so the portal page itself isn't touched.
