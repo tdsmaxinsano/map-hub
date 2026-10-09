@@ -7,8 +7,10 @@
 -- are deliberately skipped.
 --
 -- For each row:
---   • Existing provider (match by payload npi, else first+last name)
+--   • Existing provider (match by payload npi, else first+last name, else
+--     a nameless Roster Review record linked to the same-named clinician)
 --       → progress_status 'Credentialed', pecos_status 'Completed';
+--         blank name filled in;
 --         payload npi / enrollment_effective_date filled only if empty;
 --         payload pecos_medicare_id always set.
 --   • No match → INSERT a new credentialed record.
@@ -73,14 +75,25 @@ BEGIN
         AND lower(trim(p.last_name))  = lower(r.last_name)
       LIMIT 1;
     END IF;
+    -- Then a nameless Roster Review record (📄 Med B / ✓) linked to this
+    -- clinician — otherwise we'd create a duplicate (see migration 81).
+    IF pid IS NULL AND cid IS NOT NULL THEN
+      SELECT p.id INTO pid FROM public.cms855i_providers p
+      WHERE p.clinician_id = cid LIMIT 1;
+    END IF;
 
     IF pid IS NOT NULL THEN
       UPDATE public.cms855i_providers p SET
+        first_name = CASE WHEN trim(p.first_name) = '' THEN r.first_name ELSE p.first_name END,
+        last_name  = CASE WHEN trim(p.last_name)  = '' THEN r.last_name  ELSE p.last_name  END,
         progress_status = 'Credentialed',
         pecos_status    = 'Completed',
         payload = p.payload
           || jsonb_build_object('progress_status', 'Credentialed', 'pecos_status', 'Completed',
                                 'pecos_medicare_id', r.medicare_id)
+          || CASE WHEN coalesce(p.payload->>'first_name', '') = '' AND coalesce(p.payload->>'last_name', '') = ''
+                  THEN jsonb_build_object('first_name', r.first_name, 'middle_initial', r.mi, 'last_name', r.last_name)
+                  ELSE '{}'::jsonb END
           || CASE WHEN coalesce(p.payload->>'npi', '') = ''
                   THEN jsonb_build_object('npi', r.npi) ELSE '{}'::jsonb END
           || CASE WHEN coalesce(p.payload->>'enrollment_effective_date', '') = ''
