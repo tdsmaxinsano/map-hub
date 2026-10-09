@@ -170,7 +170,10 @@
   .rc-thumb img { max-width: 100%; max-height: 100%; object-fit: contain; }
   .rc-thumb .none { font-size: 20px; color: #c3cddd; }
   .viewer-stage { overflow: auto; min-height: 0; background: #dfe6f0; border: 1px solid var(--border); border-radius: 10px; padding: 14px; }
-  #viewer-img { display: block; margin: 0 auto; box-shadow: 0 6px 22px rgba(0,0,0,0.25); border-radius: 4px; }
+  /* #viewer-rot is sized to the ROTATED footprint so the stage scrolls correctly;
+     the image sits centered inside it and is rotated with a transform. */
+  #viewer-rot { position: relative; margin: 0 auto; }
+  #viewer-img { position: absolute; left: 50%; top: 50%; max-width: none; transform: translate(-50%, -50%); box-shadow: 0 6px 22px rgba(0,0,0,0.25); border-radius: 4px; }
   .viewer-bench { overflow-y: auto; min-height: 0; background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
   .viewer-bench h4 { margin: 0 0 4px; font-size: 14px; font-weight: 800; color: var(--blue); }
   .bench-hint { font-size: 11px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
@@ -348,13 +351,15 @@
         <button type="button" id="viewer-zoom-fit" title="Fit to window">Fit</button>
         <button type="button" id="viewer-zoom-in" title="Zoom in">＋</button>
         <span id="viewer-zoom-pct">100%</span>
+        <button type="button" id="viewer-rot-ccw" title="Rotate 90° counter-clockwise">⟲</button>
+        <button type="button" id="viewer-rot-cw" title="Rotate 90° clockwise">⟳</button>
         <button type="button" id="viewer-open-tab" title="Open the original in a new tab">↗</button>
         <button type="button" id="viewer-close" class="close">Close</button>
       </div>
     </div>
     <div class="viewer-body">
       <div class="viewer-rail" id="viewer-rail"></div>
-      <div class="viewer-stage" id="viewer-stage"><img id="viewer-img" alt=""></div>
+      <div class="viewer-stage" id="viewer-stage"><div id="viewer-rot"><img id="viewer-img" alt=""></div></div>
       <div class="viewer-bench">
         <h4>Provider Workbench</h4>
         <p class="bench-hint">Edit here while you scroll the image tray and review the enlarged document. These fields stay synced with the main form and autosave.</p>
@@ -1729,7 +1734,9 @@ async function cleanupDuplicateProviders() {
 // EXPANDED VIEWER + PROVIDER WORKBENCH (port of the desktop pop-out:
 // doc-slot tray on the left, zoomable image center, synced fields right)
 // ══════════════════════════════════════════════════════════════════
-const viewerState = { slot: null, zoom: 1, fitMode: true, natW: 0, natH: 0 };
+// rot = 0/90/180/270 (clockwise). rotBySlot remembers each slot's rotation for
+// this session so flipping between rail cards keeps a sideways scan upright.
+const viewerState = { slot: null, zoom: 1, fitMode: true, natW: 0, natH: 0, rot: 0, rotBySlot: {} };
 
 function isViewerOpen() {
   const m = document.getElementById("viewer-modal");
@@ -1755,9 +1762,12 @@ function closeViewer() {
 async function loadViewerImage(slotKey) {
   const img = document.getElementById("viewer-img");
   img.removeAttribute("src");
-  img.style.width = "";
+  img.style.width = ""; img.style.height = "";
+  const rotBox = document.getElementById("viewer-rot");
+  rotBox.style.width = ""; rotBox.style.height = "";
   viewerState.natW = 0; viewerState.natH = 0;
   viewerState.fitMode = true;
+  viewerState.rot = viewerState.rotBySlot[slotKey] || 0;
   const def = DOC_SLOTS.find(s => s.key === slotKey);
   document.getElementById("viewer-title").textContent = def ? def.label : "Document";
   document.getElementById("viewer-zoom-pct").textContent = "…";
@@ -1821,14 +1831,33 @@ function onBenchInput(e) {
 function applyViewerZoom() {
   if (!viewerState.natW) return;
   const img = document.getElementById("viewer-img");
-  img.style.width = Math.round(viewerState.natW * viewerState.zoom) + "px";
+  const w = Math.round(viewerState.natW * viewerState.zoom);
+  const h = Math.round(viewerState.natH * viewerState.zoom);
+  img.style.width = w + "px";
+  img.style.height = h + "px";
+  img.style.transform = "translate(-50%, -50%) rotate(" + viewerState.rot + "deg)";
+  // The wrapper takes the rotated footprint so the stage's scrollbars match what's shown.
+  const sideways = viewerState.rot % 180 !== 0;
+  const rotBox = document.getElementById("viewer-rot");
+  rotBox.style.width = (sideways ? h : w) + "px";
+  rotBox.style.height = (sideways ? w : h) + "px";
   document.getElementById("viewer-zoom-pct").textContent = Math.round(viewerState.zoom * 100) + "%";
+}
+
+function rotateViewer(delta) {
+  if (!viewerState.slot) return;
+  viewerState.rot = (viewerState.rot + delta + 360) % 360;
+  viewerState.rotBySlot[viewerState.slot] = viewerState.rot;
+  if (viewerState.fitMode) viewerFitZoom(); else applyViewerZoom();
 }
 
 function viewerFitZoom() {
   if (!viewerState.natW || !viewerState.natH) return;
   const stage = document.getElementById("viewer-stage");
-  const scale = Math.min((stage.clientWidth - 30) / viewerState.natW, (stage.clientHeight - 30) / viewerState.natH);
+  const sideways = viewerState.rot % 180 !== 0;
+  const boxW = sideways ? viewerState.natH : viewerState.natW;
+  const boxH = sideways ? viewerState.natW : viewerState.natH;
+  const scale = Math.min((stage.clientWidth - 30) / boxW, (stage.clientHeight - 30) / boxH);
   viewerState.zoom = Math.max(0.05, Math.min(scale, 4));
   viewerState.fitMode = true;
   applyViewerZoom();
@@ -1851,6 +1880,8 @@ document.getElementById("viewer-zoom-out").addEventListener("click", () => {
   applyViewerZoom();
 });
 document.getElementById("viewer-zoom-fit").addEventListener("click", viewerFitZoom);
+document.getElementById("viewer-rot-ccw").addEventListener("click", () => rotateViewer(-90));
+document.getElementById("viewer-rot-cw").addEventListener("click", () => rotateViewer(90));
 document.getElementById("viewer-close").addEventListener("click", closeViewer);
 document.getElementById("viewer-open-tab").addEventListener("click", () => {
   if (!viewerState.slot) return;
