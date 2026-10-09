@@ -1936,7 +1936,9 @@ async function printDocSlots(keys) {
     showToast("Couldn't load documents for printing: " + (e.message || e), "err");
     return;
   }
-  // Printable area on Letter with 0.5in margins = 7.5in x 10in. A sideways
+  // @page margin is 0 so the browser has nowhere to print its header/footer
+  // (portal title/URL, date + time); the 0.5in white border is padding inside
+  // each page instead. Image box = 7.5in x 10in. A sideways
   // image is laid out with swapped bounds, then rotated into the page.
   // object-fit:contain scales small screenshots UP as well as big scans down.
   const pageHtml = pages.map(pg => {
@@ -1950,9 +1952,10 @@ async function printDocSlots(keys) {
   document.body.appendChild(frame);
   const doc = frame.contentDocument;
   doc.open();
-  doc.write('<!doctype html><html><head><meta charset="utf-8"><title>Packet documents</title><style>' +
-    "@page{size:letter;margin:0.5in}html,body{margin:0}" +
-    ".pg{width:7.5in;height:10in;display:flex;align-items:center;justify-content:center;overflow:hidden;break-after:page}" +
+  doc.write('<!doctype html><html><head><meta charset="utf-8"><title></title><style>' +
+    "@page{size:letter;margin:0}html,body{margin:0}" +
+    // 10.95in (not 11in) so rounding can't spill a blank page after each document.
+    ".pg{box-sizing:border-box;width:8.5in;height:10.95in;padding:0.5in;display:flex;align-items:center;justify-content:center;overflow:hidden;break-after:page}" +
     ".pg:last-child{break-after:auto}img{display:block;flex:none;object-fit:contain}" +
     "</style></head><body>" + pageHtml + "</body></html>");
   doc.close();
