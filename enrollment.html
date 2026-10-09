@@ -178,6 +178,22 @@
   .viewer-bench h4 { margin: 0 0 4px; font-size: 14px; font-weight: 800; color: var(--blue); }
   .bench-hint { font-size: 11px; color: var(--muted); margin: 0 0 12px; line-height: 1.5; }
   .bench-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 12px; }
+  /* Review marks ("highlighter"): click a workbench label → ✓ checked → ⚑ flag → clear.
+     Stored in values.review_marks; the main form shows the same tints. */
+  .bench-grid .fld label { cursor: pointer; user-select: none; border-radius: 4px; }
+  .bench-grid .fld label:hover { background: #f1f5f9; }
+  .fld.mk-ok label { background: #dcfce7; color: #166534; }
+  .fld.mk-ok label::before { content: "✓"; font-weight: 900; }
+  .fld.mk-ok input, .fld.mk-ok select, .fld.mk-ok textarea { border-color: #4ade80; }
+  .fld.mk-flag label { background: #fef08a; color: #854d0e; }
+  .fld.mk-flag label::before { content: "⚑"; font-weight: 900; }
+  .fld.mk-flag input, .fld.mk-flag select, .fld.mk-flag textarea { border-color: #f59e0b; background: #fffbeb; }
+  .bench-grid .fld.mk-ok label:hover { background: #bbf7d0; }
+  .bench-grid .fld.mk-flag label:hover { background: #fde047; }
+  .mark-bar { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: #f8fafc; font-size: 12px; font-weight: 700; }
+  .mark-bar .mb-ok { color: #166534; }
+  .mark-bar .mb-flag { color: #854d0e; }
+  .mark-bar button { margin-left: auto; border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 3px 10px; font-size: 11px; font-weight: 700; cursor: pointer; }
   @media (max-width: 900px) {
     .viewer-body { grid-template-columns: 1fr; grid-template-rows: auto minmax(220px, 1fr) auto; }
     .viewer-rail { display: flex; gap: 8px; overflow-x: auto; }
@@ -364,7 +380,9 @@
       <div class="viewer-stage" id="viewer-stage"><div id="viewer-rot"><img id="viewer-img" alt=""></div></div>
       <div class="viewer-bench">
         <h4>Provider Workbench</h4>
-        <p class="bench-hint">Edit here while you scroll the image tray and review the enlarged document. These fields stay synced with the main form and autosave.</p>
+        <p class="bench-hint">Edit here while you scroll the image tray and review the enlarged document. These fields stay synced with the main form and autosave.
+          <b>Double-checking?</b> Click a field's label to mark it: ✓ checked → ⚑ flag → clear.</p>
+        <div class="mark-bar" id="mark-bar"></div>
         <div class="bench-grid" id="viewer-bench-grid"></div>
       </div>
     </div>
@@ -725,6 +743,7 @@ function openProvider(id) {
   values.discipline = p.discipline || values.discipline || "PT";
   values.progress_status = p.progress_status || values.progress_status || "New";
   values.pecos_status = p.pecos_status || values.pecos_status || "Pending";
+  values.review_marks = Object.assign({}, values.review_marks || {}); // own copy, not the cached row's
   docSlots = Object.assign({}, p.doc_slots || {});
   fieldSources = {};
   slotUrlCache = {};
@@ -830,7 +849,7 @@ function maybeRestoreDraft() {
   if (!draft || !draft.values) return;
   // Ignore drafts that never got past the defaults.
   const meaningful = Object.keys(draft.values).some(k =>
-    !["discipline", "progress_status", "pecos_status"].includes(k) && String(draft.values[k] || "").trim());
+    !["discipline", "progress_status", "pecos_status", "review_marks"].includes(k) && String(draft.values[k] || "").trim());
   if (!meaningful) { clearLocalDraft(); return; }
   const when = draft.savedAt ? new Date(draft.savedAt).toLocaleString() : "an earlier visit";
   if (confirm("Restore the unsaved provider draft from " + when + "?\n\nOK — bring it back into the form\nCancel — discard the draft")) {
@@ -993,7 +1012,43 @@ function fieldInputHtml(def) {
       (def.ph ? ' placeholder="' + escAttr(def.ph) + '"' : "") + ">";
   }
   const num = def.num ? ' <span class="fnum" title="Box ' + escAttr(def.num) + ' on the printed CMS-855I">' + escHtml(def.num) + "</span>" : "";
-  return '<div class="fld' + (def.wide ? " wide" : "") + '"><label>' + escHtml(def.label) + num + src + "</label>" + input + "</div>";
+  return '<div class="fld' + (def.wide ? " wide" : "") + markClass(def.key) + '" data-mkfld="' + def.key + '"><label>' +
+    escHtml(def.label) + num + src + "</label>" + input + "</div>";
+}
+
+// ── Review marks: { fieldKey: "ok" | "flag" } kept in values.review_marks so it
+// saves with the provider payload (and the local draft) like any field.
+function reviewMarks() {
+  if (!values.review_marks || typeof values.review_marks !== "object") values.review_marks = {};
+  return values.review_marks;
+}
+function markClass(key) {
+  const m = (values.review_marks || {})[key];
+  return m === "ok" ? " mk-ok" : m === "flag" ? " mk-flag" : "";
+}
+function setMark(key, mark) {
+  const marks = reviewMarks();
+  if (mark) marks[key] = mark; else delete marks[key];
+  // Update every rendering of the field (workbench + main form) in place — no re-render, no focus loss.
+  document.querySelectorAll('[data-mkfld="' + key + '"]').forEach(el => {
+    el.classList.toggle("mk-ok", mark === "ok");
+    el.classList.toggle("mk-flag", mark === "flag");
+  });
+  renderMarkBar();
+}
+function benchMarkKeys() {
+  return FIELD_DEFS.filter(d => d.key && d.key !== "progress_status").map(d => d.key);
+}
+function renderMarkBar() {
+  const bar = document.getElementById("mark-bar");
+  if (!bar) return;
+  const marks = values.review_marks || {};
+  const keys = benchMarkKeys();
+  const ok = keys.filter(k => marks[k] === "ok").length;
+  const flag = keys.filter(k => marks[k] === "flag").length;
+  bar.innerHTML = '<span class="mb-ok">✓ ' + ok + " of " + keys.length + " checked</span>" +
+    (flag ? '<span class="mb-flag">· ⚑ ' + flag + " flagged</span>" : "") +
+    (ok || flag ? '<button type="button" id="mark-clear">Clear marks</button>' : "");
 }
 
 function renderGrid(hostId, defs) {
@@ -1816,8 +1871,21 @@ function renderViewerBench() {
         (def.ph ? ' placeholder="' + escAttr(def.ph) + '"' : "") + ">";
     }
     const num = def.num ? ' <span class="fnum">' + escHtml(def.num) + "</span>" : "";
-    return '<div class="fld"><label>' + escHtml(def.label) + num + "</label>" + input + "</div>";
+    return '<div class="fld' + markClass(def.key) + '" data-mkfld="' + def.key + '"><label data-mark="' + def.key +
+      '" title="Click: ✓ checked → ⚑ flag → clear">' + escHtml(def.label) + num + "</label>" + input + "</div>";
   }).join("");
+  renderMarkBar();
+}
+
+// Label click cycles the mark; the Clear button wipes them all.
+function onBenchMarkClick(e) {
+  const lbl = e.target.closest("label[data-mark]");
+  if (!lbl) return;
+  e.preventDefault(); // don't focus the input — this click is a review mark
+  const k = lbl.dataset.mark;
+  const cur = (values.review_marks || {})[k];
+  setMark(k, cur === "ok" ? "flag" : cur === "flag" ? null : "ok");
+  queueAutosave();
 }
 
 function onBenchInput(e) {
@@ -1825,6 +1893,8 @@ function onBenchInput(e) {
   if (!el) return;
   const k = el.dataset.wkey;
   values[k] = el.value;
+  // A ✓ check no longer holds once the value changes; ⚑ flags stay until cleared.
+  if ((values.review_marks || {})[k] === "ok") setMark(k, null);
   // Mirror into the main form input (programmatic set fires no events → no loop).
   const main = document.querySelector('[data-fkey="' + k + '"]');
   if (main && main.value !== el.value) main.value = el.value;
@@ -1956,6 +2026,13 @@ document.getElementById("viewer-rail").addEventListener("click", e => {
   const bench = document.getElementById("viewer-bench-grid");
   bench.addEventListener("input", onBenchInput);
   bench.addEventListener("change", onBenchInput);
+  bench.addEventListener("click", onBenchMarkClick);
+  document.getElementById("mark-bar").addEventListener("click", e => {
+    if (!e.target.closest("#mark-clear")) return;
+    if (!confirm("Clear all ✓ checked / ⚑ flagged marks for this provider?")) return;
+    Object.keys(reviewMarks()).forEach(k => setMark(k, null));
+    queueAutosave();
+  });
 })();
 
 // ══════════════════════════════════════════════════════════════════
@@ -2014,8 +2091,15 @@ document.getElementById("template-file-input").addEventListener("change", e => {
 // Form autosave (900ms debounce, only once the provider row exists).
 ["field-grid", "pecos-grid"].forEach(id => {
   const host = document.getElementById(id);
-  host.addEventListener("input", () => { collectFormValues(); queueAutosave(); });
-  host.addEventListener("change", () => { collectFormValues(); queueAutosave(); });
+  const onEdit = e => {
+    collectFormValues();
+    // Same rule as the workbench: editing a ✓ checked field un-checks it.
+    const el = e.target.closest("[data-fkey]");
+    if (el && (values.review_marks || {})[el.dataset.fkey] === "ok") setMark(el.dataset.fkey, null);
+    queueAutosave();
+  };
+  host.addEventListener("input", onEdit);
+  host.addEventListener("change", onEdit);
 });
 // PECOS Completed = enrolled — mirror the progress-board auto-promote.
 document.getElementById("pecos-grid").addEventListener("change", e => {
