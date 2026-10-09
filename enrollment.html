@@ -346,7 +346,7 @@
             <th>Name</th><th>Disc</th><th>Status</th>
             <th>Mailed to Therapist</th><th>Signature Received</th><th>Mailed to PECOS</th>
             <th>Mail Tracking #</th><th>PECOS Status</th><th>PECOS App Tracking #</th>
-            <th>PTAN</th><th>PECOS Approved</th><th>Effective Date</th>
+            <th>Medicare ID (PECOS)</th><th>PECOS Approved</th><th>Effective Date</th>
             <th>PECOS Rejection Reason</th><th>Last Updated</th><th>Private Notes</th><th></th>
           </tr></thead>
           <tbody id="prog-body"></tbody>
@@ -358,17 +358,17 @@
   <div id="view-credentialed" style="display:none;">
     <div class="card">
       <h3>✅ Credentialed providers</h3>
-      <p class="hint">Enrolled with Medicare and reassigning to Dependable Care. Providers land here once a PTAN is entered
+      <p class="hint">Enrolled with Medicare and reassigning to Dependable Care. Providers land here once their Medicare ID (PECOS, F4…) is entered
         (or the status is Credentialed / PECOS Completed), and leave the Form Filler pull-down + Progress board.
         <b>↩ Reprocess</b> puts one back into the pipeline (e.g. a re-application).</p>
       <div class="prog-toolbar">
-        <input id="cred-search" type="search" placeholder="Search name, NPI, PTAN…" style="border:1px solid var(--border);border-radius:7px;padding:6px 9px;font-size:12px;min-width:240px;">
+        <input id="cred-search" type="search" placeholder="Search name, NPI, Medicare ID…" style="border:1px solid var(--border);border-radius:7px;padding:6px 9px;font-size:12px;min-width:240px;">
         <span style="font-size:12px;color:var(--muted);" id="cred-count"></span>
       </div>
       <div class="prog-wrap">
         <table class="prog cred">
           <thead><tr>
-            <th>Name</th><th>Disc</th><th>NPI</th><th>PTAN</th><th>Medicare ID (PECOS)</th>
+            <th>Name</th><th>Disc</th><th>NPI</th><th>Medicare ID (PECOS)</th>
             <th>Effective Date</th><th>Private Notes</th><th></th>
           </tr></thead>
           <tbody id="cred-body"></tbody>
@@ -1623,7 +1623,7 @@ function renderProgress() {
       "<td><input data-pk='mail_tracking_number' value='" + txt(p, "mail_tracking_number") + "'></td>" +
       "<td><select data-pk='pecos_status'>" + PECOS_STATUSES.map(o => "<option" + (o === (p.pecos_status || "Pending") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
       "<td><input data-pk='pecos_tracking_number' value='" + txt(p, "pecos_tracking_number") + "'></td>" +
-      "<td><input data-pk='ptan' value='" + txt(p, "ptan") + "' placeholder='PTAN'></td>" +
+      "<td><input data-pk='pecos_medicare_id' value='" + txt(p, "pecos_medicare_id") + "' placeholder='F4…'></td>" +
       "<td><input data-pk='pecos_approved_date' value='" + txt(p, "pecos_approved_date") + "' placeholder='mm/dd/yyyy'></td>" +
       "<td><input data-pk='enrollment_effective_date' value='" + txt(p, "enrollment_effective_date") + "' placeholder='mm/dd/yyyy'></td>" +
       "<td><input data-pk='pecos_rejection_reason' value='" + txt(p, "pecos_rejection_reason") + "'></td>" +
@@ -1663,15 +1663,16 @@ async function saveProgressRow(rowId) {
     if (sel) sel.value = "Credentialed";
     showToast("PECOS Completed → status set to Credentialed", "ok");
   }
-  // PTAN in = credentialed. Only on the empty → filled transition, so a
-  // ↩ Reprocessed provider that still carries its old PTAN stays in the pipeline.
-  const hadPtan = String((p.payload || {}).ptan || "").trim();
-  if (!hadPtan && String(payload.ptan || "").trim() && (row.progress_status || p.progress_status) !== "Credentialed") {
+  // Medicare ID in = credentialed. (The PTAN is Dependable Care's own, so it
+  // can't signal anything per provider.) Only on the empty → filled transition,
+  // so a ↩ Reprocessed provider keeping its old ID stays in the pipeline.
+  const hadMid = String((p.payload || {}).pecos_medicare_id || "").trim();
+  if (!hadMid && String(payload.pecos_medicare_id || "").trim() && (row.progress_status || p.progress_status) !== "Credentialed") {
     row.progress_status = "Credentialed";
     payload.progress_status = "Credentialed";
     const sel = tr.querySelector("select[data-pk='progress_status']");
     if (sel) sel.value = "Credentialed";
-    showToast("PTAN entered → moved to the ✅ Credentialed tab", "ok");
+    showToast("Medicare ID entered → moved to the ✅ Credentialed tab", "ok");
   }
   const wasCred = isCredentialed(p);
   row.payload = payload;
@@ -1722,15 +1723,15 @@ function renderCredentialed() {
   const all = providers.filter(isCredentialed)
     .sort((a, b) => providerDisplayName(a).localeCompare(providerDisplayName(b)));
   const rows = q ? all.filter(p =>
-    [providerDisplayName(p), pl(p).npi, pl(p).ptan, pl(p).pecos_medicare_id]
+    [providerDisplayName(p), pl(p).npi, pl(p).pecos_medicare_id]
       .some(v => String(v || "").toLowerCase().includes(q))) : all;
-  const noPtan = all.filter(p => !String(pl(p).ptan || "").trim()).length;
+  const noMid = all.filter(p => !String(pl(p).pecos_medicare_id || "").trim()).length;
   document.getElementById("cred-count").textContent = all.length + " credentialed" +
-    (noPtan ? " · " + noPtan + " still need a PTAN entered" : "") +
+    (noMid ? " · " + noMid + " missing a Medicare ID" : "") +
     (q ? " · showing " + rows.length : "");
   if (!rows.length) {
     body.innerHTML = '<tr><td colspan="8" style="color:var(--muted);font-style:italic;">' +
-      (all.length ? "No match." : "No credentialed providers yet — entering a PTAN moves a provider here.") + "</td></tr>";
+      (all.length ? "No match." : "No credentialed providers yet — entering a Medicare ID moves a provider here.") + "</td></tr>";
     return;
   }
   const txt = (p, k) => escAttr(pl(p)[k] || "");
@@ -1739,9 +1740,8 @@ function renderCredentialed() {
       "<td>" + escHtml(providerDisplayName(p)) + (p.clinician_id ? " <span title='Linked to roster'>🔗</span>" : "") + "</td>" +
       "<td><select data-pk='discipline'>" + ["PT", "OT"].map(o => "<option" + (o === (p.discipline || "PT") ? " selected" : "") + ">" + o + "</option>").join("") + "</select></td>" +
       "<td style='font-variant-numeric:tabular-nums;'>" + escHtml(pl(p).npi || "—") + "</td>" +
-      "<td><input data-pk='ptan' value='" + txt(p, "ptan") + "' placeholder='enter PTAN'" +
-        (String(pl(p).ptan || "").trim() ? "" : " style='border-color:#f59e0b;background:#fffbeb;'") + "></td>" +
-      "<td><input data-pk='pecos_medicare_id' value='" + txt(p, "pecos_medicare_id") + "' placeholder='F4…'></td>" +
+      "<td><input data-pk='pecos_medicare_id' value='" + txt(p, "pecos_medicare_id") + "' placeholder='F4…'" +
+        (String(pl(p).pecos_medicare_id || "").trim() ? "" : " style='border-color:#f59e0b;background:#fffbeb;'") + "></td>" +
       "<td><input data-pk='enrollment_effective_date' value='" + txt(p, "enrollment_effective_date") + "' placeholder='mm/dd/yyyy'></td>" +
       "<td><input data-pk='provider_notes' value='" + txt(p, "provider_notes") + "'></td>" +
       "<td style='white-space:nowrap;'><button class='btn-action' data-open='" + escAttr(p.id) + "' type='button'>Open</button> " +
@@ -1754,7 +1754,7 @@ async function reprocessProvider(id) {
   const p = providers.find(x => x.id === id);
   if (!p) return;
   if (!confirm("Reprocess " + providerDisplayName(p) + "?\n\nMoves them back into the Form Filler pull-down and Progress board " +
-    "(status In Progress, PECOS In Progress). Their saved data, documents and PTAN are kept.")) return;
+    "(status In Progress, PECOS In Progress). Their saved data, documents and Medicare ID are kept.")) return;
   const payload = Object.assign({}, p.payload || {}, { progress_status: "In Progress", pecos_status: "In Progress" });
   const row = { progress_status: "In Progress", pecos_status: "In Progress", payload, last_updated: new Date().toISOString() };
   try {
@@ -2230,17 +2230,17 @@ document.getElementById("template-file-input").addEventListener("change", e => {
   host.addEventListener("input", onEdit);
   host.addEventListener("change", onEdit);
 });
-// PTAN in = credentialed (Form Filler side of the progress-board rule). The
-// provider stays open; it just leaves the pull-down/Progress for the ✅ tab.
-document.getElementById("field-grid").addEventListener("change", e => {
-  const el = e.target.closest("[data-fkey='ptan']");
+// Medicare ID in = credentialed (Form Filler side of the progress-board rule).
+// The provider stays open; it just leaves the pull-down/Progress for the ✅ tab.
+document.getElementById("pecos-grid").addEventListener("change", e => {
+  const el = e.target.closest("[data-fkey='pecos_medicare_id']");
   if (!el || !el.value.trim() || values.progress_status === "Credentialed") return;
   const p = providers.find(x => x.id === currentId);
-  if (p && String((p.payload || {}).ptan || "").trim()) return; // had one already (e.g. reprocessed)
+  if (p && String((p.payload || {}).pecos_medicare_id || "").trim()) return; // had one already (e.g. reprocessed)
   values.progress_status = "Credentialed";
   const sel = document.querySelector("[data-fkey='progress_status']");
   if (sel) sel.value = "Credentialed";
-  showToast("PTAN entered → status set to Credentialed (✅ Credentialed tab)", "ok");
+  showToast("Medicare ID entered → status set to Credentialed (✅ Credentialed tab)", "ok");
   queueAutosave();
 });
 // PECOS Completed = enrolled — mirror the progress-board auto-promote.
