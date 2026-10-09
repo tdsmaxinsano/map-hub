@@ -300,6 +300,7 @@
         <label><input type="checkbox" id="review-confirm"> I reviewed every field against the source documents</label>
         <button class="btn-primary" id="generate-btn" type="button">Generate Filled PDF ⬇</button>
         <button class="btn-action" id="save-btn" type="button">💾 Save Progress</button>
+        <button class="btn-action" id="print-packet-btn" type="button" title="Print the Professional License, Driver's License and Diploma — one per page — to send with the packet">🖨 Print packet docs</button>
         <button class="btn-action" id="install-template-btn" type="button" style="display:none;" title="One-time setup: store the SANITIZED blank CMS-855I template in the private documents bucket">📄 Install blank template</button>
         <input type="file" id="template-file-input" accept=".pdf,application/pdf" style="display:none;">
       </div>
@@ -353,6 +354,7 @@
         <span id="viewer-zoom-pct">100%</span>
         <button type="button" id="viewer-rot-ccw" title="Rotate 90° counter-clockwise">⟲</button>
         <button type="button" id="viewer-rot-cw" title="Rotate 90° clockwise">⟳</button>
+        <button type="button" id="viewer-print" title="Print this document (uses the current rotation)">🖨</button>
         <button type="button" id="viewer-open-tab" title="Open the original in a new tab">↗</button>
         <button type="button" id="viewer-close" class="close">Close</button>
       </div>
@@ -1734,9 +1736,10 @@ async function cleanupDuplicateProviders() {
 // EXPANDED VIEWER + PROVIDER WORKBENCH (port of the desktop pop-out:
 // doc-slot tray on the left, zoomable image center, synced fields right)
 // ══════════════════════════════════════════════════════════════════
-// rot = 0/90/180/270 (clockwise). rotBySlot remembers each slot's rotation for
-// this session so flipping between rail cards keeps a sideways scan upright.
-const viewerState = { slot: null, zoom: 1, fitMode: true, natW: 0, natH: 0, rot: 0, rotBySlot: {} };
+// rot = 0/90/180/270 (clockwise). rotByPath remembers each uploaded file's
+// rotation for this session (keyed by storage path, so it never leaks to another
+// provider or a re-upload) — the viewer and 🖨 Print packet docs both honor it.
+const viewerState = { slot: null, zoom: 1, fitMode: true, natW: 0, natH: 0, rot: 0, rotByPath: {} };
 
 function isViewerOpen() {
   const m = document.getElementById("viewer-modal");
@@ -1767,7 +1770,7 @@ async function loadViewerImage(slotKey) {
   rotBox.style.width = ""; rotBox.style.height = "";
   viewerState.natW = 0; viewerState.natH = 0;
   viewerState.fitMode = true;
-  viewerState.rot = viewerState.rotBySlot[slotKey] || 0;
+  viewerState.rot = viewerState.rotByPath[docSlots[slotKey]] || 0;
   const def = DOC_SLOTS.find(s => s.key === slotKey);
   document.getElementById("viewer-title").textContent = def ? def.label : "Document";
   document.getElementById("viewer-zoom-pct").textContent = "…";
@@ -1844,10 +1847,58 @@ function applyViewerZoom() {
   document.getElementById("viewer-zoom-pct").textContent = Math.round(viewerState.zoom * 100) + "%";
 }
 
+// ── Print: supporting docs that go out with the 855I packet ──
+const PACKET_PRINT_SLOTS = ["professional_license", "drivers_license", "diploma"];
+
+// One document per Letter page, scaled to fit, honoring any viewer rotation.
+// Printed from a hidden iframe so the portal page itself isn't touched.
+async function printDocSlots(keys) {
+  const have = keys.filter(k => docSlots[k]);
+  const missing = keys.filter(k => !docSlots[k]);
+  const label = k => (DOC_SLOTS.find(s => s.key === k) || {}).label || k;
+  if (!have.length) { showToast("Nothing to print — none of these documents are uploaded yet.", "err"); return; }
+  if (missing.length && !window.confirm(
+    "Not uploaded yet (will be skipped):\n• " + missing.map(label).join("\n• ") + "\n\nPrint the rest anyway?")) return;
+  let pages;
+  try {
+    pages = await Promise.all(have.map(async k => ({ url: await slotSignedUrl(k), rot: viewerState.rotByPath[docSlots[k]] || 0 })));
+  } catch (e) {
+    showToast("Couldn't load documents for printing: " + (e.message || e), "err");
+    return;
+  }
+  // Printable area on Letter with 0.5in margins = 7.5in x 10in. A sideways
+  // image is laid out with swapped bounds, then rotated into the page.
+  // object-fit:contain scales small screenshots UP as well as big scans down.
+  const pageHtml = pages.map(pg => {
+    const sideways = pg.rot % 180 !== 0;
+    const style = "width:" + (sideways ? "10in" : "7.5in") + ";height:" + (sideways ? "7.5in" : "10in") +
+      (pg.rot ? ";transform:rotate(" + pg.rot + "deg)" : "");
+    return '<div class="pg"><img src="' + escAttr(pg.url) + '" style="' + style + '"></div>';
+  }).join("");
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  document.body.appendChild(frame);
+  const doc = frame.contentDocument;
+  doc.open();
+  doc.write('<!doctype html><html><head><meta charset="utf-8"><title>Packet documents</title><style>' +
+    "@page{size:letter;margin:0.5in}html,body{margin:0}" +
+    ".pg{width:7.5in;height:10in;display:flex;align-items:center;justify-content:center;overflow:hidden;break-after:page}" +
+    ".pg:last-child{break-after:auto}img{display:block;flex:none;object-fit:contain}" +
+    "</style></head><body>" + pageHtml + "</body></html>");
+  doc.close();
+  const imgs = [...doc.images];
+  await Promise.all(imgs.map(im => im.complete ? null : new Promise(r => { im.onload = im.onerror = r; })));
+  if (imgs.some(im => !im.naturalWidth)) showToast("One or more documents failed to load — check the preview before printing.", "err");
+  frame.contentWindow.focus();
+  frame.contentWindow.print();
+  // print() blocks until the dialog closes in Chrome/Edge; give others a moment.
+  setTimeout(() => frame.remove(), 1000);
+}
+
 function rotateViewer(delta) {
   if (!viewerState.slot) return;
   viewerState.rot = (viewerState.rot + delta + 360) % 360;
-  viewerState.rotBySlot[viewerState.slot] = viewerState.rot;
+  viewerState.rotByPath[docSlots[viewerState.slot]] = viewerState.rot;
   if (viewerState.fitMode) viewerFitZoom(); else applyViewerZoom();
 }
 
@@ -1882,6 +1933,7 @@ document.getElementById("viewer-zoom-out").addEventListener("click", () => {
 document.getElementById("viewer-zoom-fit").addEventListener("click", viewerFitZoom);
 document.getElementById("viewer-rot-ccw").addEventListener("click", () => rotateViewer(-90));
 document.getElementById("viewer-rot-cw").addEventListener("click", () => rotateViewer(90));
+document.getElementById("viewer-print").addEventListener("click", () => { if (viewerState.slot) printDocSlots([viewerState.slot]); });
 document.getElementById("viewer-close").addEventListener("click", closeViewer);
 document.getElementById("viewer-open-tab").addEventListener("click", () => {
   if (!viewerState.slot) return;
@@ -1950,6 +2002,7 @@ document.getElementById("roster-link-row").addEventListener("click", e => {
   else if (e.target.closest("#roster-unlink-btn")) unlinkRoster();
 });
 document.getElementById("save-btn").addEventListener("click", () => saveProvider(true));
+document.getElementById("print-packet-btn").addEventListener("click", () => printDocSlots(PACKET_PRINT_SLOTS));
 document.getElementById("generate-btn").addEventListener("click", generatePdf);
 document.getElementById("install-template-btn").addEventListener("click", () => document.getElementById("template-file-input").click());
 document.getElementById("template-file-input").addEventListener("change", e => {
