@@ -319,6 +319,7 @@
         <button class="btn-primary" id="generate-btn" type="button">Generate Filled PDF ⬇</button>
         <button class="btn-action" id="save-btn" type="button">💾 Save Progress</button>
         <button class="btn-action" id="print-packet-btn" type="button" title="Print the Driver's License, Professional License and Diploma — one per page — to send with the packet">🖨 Print packet docs</button>
+        <button class="btn-action" id="print-therapist-btn" type="button" title="Cover letter + sheet 5 (review) + sheet 24 ×2 (sign Section 15)">🖨 Print therapist pages</button>
         <button class="btn-action" id="install-template-btn" type="button" style="display:none;" title="One-time setup: store the SANITIZED blank CMS-855I template in the private documents bucket">📄 Install blank template</button>
         <input type="file" id="template-file-input" accept=".pdf,application/pdf" style="display:none;">
       </div>
@@ -1486,6 +1487,48 @@ async function installTemplateFile(file) {
   }
 }
 
+// Template + this provider's fields → a filled (still editable) pdf-lib
+// document. Shared by Generate (full packet download) and 🖨 Print
+// therapist pages (sheets 5 + 24 only).
+async function buildFilledPacket(createdDate) {
+  const bytes = await fetchTemplateBytes();
+  if (!bytes) {
+    document.getElementById("install-template-btn").style.display = "";
+    throw new Error("the blank template isn't installed yet. Click 📄 Install blank template and pick the sanitized PDF from your DEPLOY-THIS folder (one-time setup).");
+  }
+  const pdfDoc = await PDFLib.PDFDocument.load(bytes);
+  const form = pdfDoc.getForm();
+  // Wipe EVERY checkbox before filling. The "blank" template was made
+  // from a completed packet and still carries checked boxes (e.g. 5-1
+  // Former/Maiden); every intended check is re-applied explicitly from
+  // the updates map, so template leftovers can never leak into output.
+  form.getFields().forEach(f => {
+    if (f instanceof PDFLib.PDFCheckBox) { try { f.uncheck(); } catch (e) { /* non-fatal */ } }
+  });
+  const updates = buildPdfUpdates(createdDate);
+  let applied = 0, skipped = [];
+  Object.keys(updates).forEach(name => {
+    const field = form.getFieldMaybe ? form.getFieldMaybe(name) : null;
+    if (!field) { skipped.push(name); return; }
+    const value = updates[name];
+    try {
+      if (field instanceof PDFLib.PDFCheckBox) {
+        if (value === true) field.check();
+        else if (value === false || String(value).trim() === "" || value === "/Off") field.uncheck();
+        else field.check();
+      } else if (field instanceof PDFLib.PDFTextField) {
+        field.setText(value == null ? "" : String(value));
+      } else {
+        skipped.push(name); return;
+      }
+      applied++;
+    } catch (e) { skipped.push(name); }
+  });
+  if (skipped.length) console.warn("[cms855i] fields skipped:", skipped);
+  form.updateFieldAppearances();
+  return { pdfDoc, applied };
+}
+
 async function generatePdf() {
   collectFormValues();
   if (!document.getElementById("review-confirm").checked) {
@@ -1503,41 +1546,7 @@ async function generatePdf() {
   btn.disabled = true; btn.textContent = "Generating…";
   try {
     const createdDate = todayMdy();
-    const bytes = await fetchTemplateBytes();
-    if (!bytes) {
-      document.getElementById("install-template-btn").style.display = "";
-      throw new Error("the blank template isn't installed yet. Click 📄 Install blank template and pick the sanitized PDF from your DEPLOY-THIS folder (one-time setup).");
-    }
-    const pdfDoc = await PDFLib.PDFDocument.load(bytes);
-    const form = pdfDoc.getForm();
-    // Wipe EVERY checkbox before filling. The "blank" template was made
-    // from a completed packet and still carries checked boxes (e.g. 5-1
-    // Former/Maiden); every intended check is re-applied explicitly from
-    // the updates map, so template leftovers can never leak into output.
-    form.getFields().forEach(f => {
-      if (f instanceof PDFLib.PDFCheckBox) { try { f.uncheck(); } catch (e) { /* non-fatal */ } }
-    });
-    const updates = buildPdfUpdates(createdDate);
-    let applied = 0, skipped = [];
-    Object.keys(updates).forEach(name => {
-      const field = form.getFieldMaybe ? form.getFieldMaybe(name) : null;
-      if (!field) { skipped.push(name); return; }
-      const value = updates[name];
-      try {
-        if (field instanceof PDFLib.PDFCheckBox) {
-          if (value === true) field.check();
-          else if (value === false || String(value).trim() === "" || value === "/Off") field.uncheck();
-          else field.check();
-        } else if (field instanceof PDFLib.PDFTextField) {
-          field.setText(value == null ? "" : String(value));
-        } else {
-          skipped.push(name); return;
-        }
-        applied++;
-      } catch (e) { skipped.push(name); }
-    });
-    if (skipped.length) console.warn("[cms855i] fields skipped:", skipped);
-    form.updateFieldAppearances();
+    const { pdfDoc, applied } = await buildFilledPacket(createdDate);
     const out = await pdfDoc.save();
     const blob = new Blob([out], { type: "application/pdf" });
     const a = document.createElement("a");
@@ -1558,6 +1567,110 @@ async function generatePdf() {
     showToast("Generate failed: " + (e.message || e), "err");
   } finally {
     btn.disabled = false; btn.textContent = "Generate Filled PDF ⬇";
+  }
+}
+
+// ── 🖨 Print therapist pages: cover letter + sheet 5 (review) + sheet 24 ×2
+// (sign Section 15). Template field names carry their page number ("5-1" is
+// on page 5, "24-1" on page 24), so the pages are found by field prefix.
+// No date anywhere — the office writes it in by hand.
+function pageIndexesForFieldPrefix(pdfDoc, prefix) {
+  const re = new RegExp("^" + prefix + "-\\d");
+  const widgetDicts = new Set();
+  pdfDoc.getForm().getFields().forEach(f => {
+    if (!re.test(String(f.getName()).split(".").pop())) return;
+    f.acroField.getWidgets().forEach(w => widgetDicts.add(w.dict));
+  });
+  const out = [];
+  pdfDoc.getPages().forEach((page, i) => {
+    const annots = page.node.Annots();
+    if (!annots) return;
+    for (let j = 0; j < annots.size(); j++) {
+      if (widgetDicts.has(pdfDoc.context.lookup(annots.get(j)))) { out.push(i); return; }
+    }
+  });
+  return out;
+}
+
+async function drawTherapistLetter(doc) {
+  const font = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
+  const bold = await doc.embedFont(PDFLib.StandardFonts.HelveticaBold);
+  const page = doc.addPage([612, 792]); // US Letter
+  const left = 72, maxW = 612 - 144, size = 12, lead = 18;
+  let y = 792 - 96;
+  // Helvetica only encodes WinAnsi — drop anything else from the name.
+  const clean = s => String(s || "").replace(/[^\x20-\x7E -ÿ]/g, "").trim();
+  const name = (clean(values.first_name) + " " + clean(values.last_name)).trim();
+  const wrap = (text, f, indent) => {
+    const words = text.split(/\s+/);
+    let line = "";
+    words.forEach(w => {
+      const t = line ? line + " " + w : w;
+      if (f.widthOfTextAtSize(t, size) > maxW - indent && line) {
+        page.drawText(line, { x: left + indent, y, size, font: f }); y -= lead; line = w;
+      } else line = t;
+    });
+    if (line) { page.drawText(line, { x: left + indent, y, size, font: f }); y -= lead; }
+  };
+  page.drawText("Dependable Care Staffing, LLC", { x: left, y, size: 15, font: bold }); y -= lead * 2.5;
+  wrap("Dear " + (name || "Therapist") + ",", font, 0); y -= lead * 0.5;
+  wrap("We are completing your Medicare enrollment (CMS-855I) so your services can be reassigned to Dependable Care Staffing, LLC. Please take a moment with the enclosed pages:", font, 0);
+  y -= lead * 0.5;
+  [
+    ["1.", "Please review sheet 5 (your personal information). If anything is wrong, just write the correction right over it."],
+    ["2.", "Sign Section 15 on BOTH copies of the signature sheet. We have marked where with flags."],
+    ["3.", "Return all pages to our office."]
+  ].forEach(([n, t]) => {
+    page.drawText(n, { x: left, y, size, font: bold });
+    wrap(t, font, 22);
+    y -= lead * 0.4;
+  });
+  y -= lead;
+  wrap("Thank you,", font, 0); y -= lead * 0.5;
+  wrap("Dependable Care Staffing, LLC — Credentialing", bold, 0);
+}
+
+let therapistPrintFrame = null;
+async function printTherapistPages() {
+  collectFormValues();
+  if (!document.getElementById("review-confirm").checked) {
+    showToast("Confirm you reviewed every field first.", "err");
+    return;
+  }
+  const btn = document.getElementById("print-therapist-btn");
+  btn.disabled = true; btn.textContent = "Preparing…";
+  try {
+    const { pdfDoc } = await buildFilledPacket(todayMdy());
+    const sheet5 = pageIndexesForFieldPrefix(pdfDoc, "5");
+    const sheet24 = pageIndexesForFieldPrefix(pdfDoc, "24");
+    if (!sheet5.length || !sheet24.length) throw new Error("couldn't find sheet " + (!sheet5.length ? "5" : "24") + " in the template.");
+    // Bake the values into the page so they print as plain text.
+    try { pdfDoc.getForm().flatten(); } catch (e) { console.warn("[cms855i] flatten failed — printing live fields", e); }
+    const out = await PDFLib.PDFDocument.create();
+    await drawTherapistLetter(out);
+    const pages = await out.copyPages(pdfDoc, sheet5.concat(sheet24, sheet24));
+    pages.forEach(p => out.addPage(p));
+    const url = URL.createObjectURL(new Blob([await out.save()], { type: "application/pdf" }));
+    setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+    // Print from a hidden iframe (the PDF viewer adds no portal header/footer);
+    // fall back to a new tab where the browser won't script its PDF viewer.
+    if (therapistPrintFrame) therapistPrintFrame.remove();
+    const frame = therapistPrintFrame = document.createElement("iframe");
+    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+    frame.onload = () => {
+      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+      catch (e) {
+        window.open(url, "_blank");
+        showToast("Opened in a new tab — print from there.");
+      }
+    };
+    frame.src = url;
+    document.body.appendChild(frame);
+    showToast("Letter + sheet 5 + sheet 24 ×2 — " + (1 + sheet5.length + sheet24.length * 2) + " pages.", "ok");
+  } catch (e) {
+    showToast("Print failed: " + (e.message || e), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "🖨 Print therapist pages";
   }
 }
 
@@ -2210,6 +2323,7 @@ document.getElementById("roster-link-row").addEventListener("click", e => {
 document.getElementById("save-btn").addEventListener("click", () => saveProvider(true));
 document.getElementById("print-packet-btn").addEventListener("click", () => printDocSlots(PACKET_PRINT_SLOTS));
 document.getElementById("generate-btn").addEventListener("click", generatePdf);
+document.getElementById("print-therapist-btn").addEventListener("click", printTherapistPages);
 document.getElementById("install-template-btn").addEventListener("click", () => document.getElementById("template-file-input").click());
 document.getElementById("template-file-input").addEventListener("change", e => {
   const file = e.target.files && e.target.files[0];
