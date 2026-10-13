@@ -210,6 +210,8 @@
   .log-preview { font-size: 11.5px; color: var(--muted); cursor: pointer; padding: 4px 6px; border-radius: 5px; max-width: 220px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .log-preview:hover { background: #f8fafc; }
   .linked-tag { display: inline-block; padding: 2px 8px; border-radius: 999px; background: #d1fae5; color: #065f46; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .site-link { display: inline-block; font-size: 11px; font-weight: 700; color: var(--accent); text-decoration: none; margin-top: 2px; }
+  .site-link:hover { text-decoration: underline; }
   .prospect-act-btn { border: 0; background: none; cursor: pointer; font-size: 12px; padding: 2px 4px; }
   .prospect-act-btn:hover { text-decoration: underline; color: var(--accent); }
   .prospect-act-btn.danger:hover { color: #991b1b; }
@@ -265,7 +267,8 @@
   body.view-only .drawer button:not(.close-btn) { display: none !important; }
   /* …extended for migration 80: prospects + engagement drawer + rate flow */
   body.view-only #add-prospect-btn, body.view-only .ri-btn,
-  body.view-only [data-link-prospect], body.view-only [data-del-prospect] { display: none !important; }
+  body.view-only [data-link-prospect], body.view-only [data-del-prospect],
+  body.view-only [data-edit-prospect] { display: none !important; }
   body.view-only .drawer input, body.view-only .drawer select { pointer-events: none; background: #f8fafc; }
 
   /* ── Modal (import + notes drawer) ── */
@@ -632,7 +635,7 @@
 <div class="modal-overlay" id="prospect-modal">
   <div class="modal-card" style="max-width:520px;">
     <div class="modal-head">
-      <h3>🌱 Add prospect</h3>
+      <h3 id="prospect-modal-title">🌱 Add prospect</h3>
       <button class="close-btn" data-close="prospect-modal">×</button>
     </div>
     <div class="modal-body">
@@ -656,7 +659,10 @@
         <label style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Email
           <input type="text" id="prospect-contact-email" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
         </label>
-        <label style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">First note (optional — becomes the first log entry)
+        <label style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Website
+          <input type="text" id="prospect-website" placeholder="https://…" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
+        </label>
+        <label id="prospect-first-note-wrap" style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">First note (optional — becomes the first log entry)
           <textarea id="prospect-first-note" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;min-height:54px;resize:vertical;font-family:inherit;"></textarea>
         </label>
       </div>
@@ -772,6 +778,7 @@ let prospectLogCounts = {};                // prospect_id → {n, latest}
 let prospectFilter = { status: "pipeline", q: "" };
 let engageCtx = null;                      // { kind:'agency'|'prospect', id } for the engagement drawer
 let linkProspectId = null;                 // prospect being 🔗-linked
+let editProspectId = null;                 // prospect open in the ✏️ edit modal (null = add mode)
 const canEdit  = () => agencyAccess === "admin" || agencyAccess === "edit";
 const isAdmin  = () => agencyAccess === "admin";
 
@@ -1771,7 +1778,7 @@ function filterProspects() {
     if (prospectFilter.status === "signed" && p.status !== "signed") return false;
     if (prospectFilter.status === "not_interested" && p.status !== "not_interested") return false;
     if (q) {
-      const hay = [p.name, p.city, p.state, p.contact_name, p.contact_phone, p.contact_email, p.notes, p.status]
+      const hay = [p.name, p.city, p.state, p.contact_name, p.contact_phone, p.contact_email, p.notes, p.status, p.website]
         .filter(Boolean).join(" ").toLowerCase();
       if (!hay.includes(q)) return false;
     }
@@ -1832,6 +1839,7 @@ function renderProspectRow(p) {
   if (p.linked_agency_id) {
     const ag = allRows.find(r => r.agency_id === p.linked_agency_id);
     actions = `<span class="linked-tag" data-goto-agency="${escapeAttr(p.linked_agency_id)}" title="Linked to the portal agency — click to open it in the Agencies view">🔗 ${escapeHtml(fmtAgencyName(ag ? ag.agency_name : "") || "Linked")}</span>`;
+    if (canEdit()) actions += `<button type="button" class="prospect-act-btn" data-edit-prospect="${pid}" title="Edit name / contact / website">✏️</button>`;
   } else {
     // The 🔗 link only makes sense once the contract is ✅ Signed — it
     // connects the prospect to the real agency AFTER the TB import
@@ -1840,6 +1848,7 @@ function renderProspectRow(p) {
       actions += `<span class="engage-sub" style="margin-right:6px;">⏳ awaiting TB import</span>`;
       if (canEdit()) actions += `<button type="button" class="prospect-act-btn" data-link-prospect="${pid}" title="Signed ✓ — once this agency arrives via 📥 Import TB Price List, link it here (status + outreach log move onto the portal agency)">🔗 Link to portal agency</button>`;
     }
+    if (canEdit()) actions += `<button type="button" class="prospect-act-btn" data-edit-prospect="${pid}" title="Edit name / contact / website">✏️</button>`;
     if (isAdmin()) actions += `<button type="button" class="prospect-act-btn danger" data-del-prospect="${pid}" title="Delete this prospect (and its log)">🗑</button>`;
   }
 
@@ -1848,9 +1857,13 @@ function renderProspectRow(p) {
     : (val ? escapeHtml(fmtHistDate(val)) : '<span style="color:#cbd5e1;">—</span>');
   const overdue = p.next_followup_date && String(p.next_followup_date) < todayISO() && !sunk;
 
+  // 🌐 website link under the name (protocol added when missing)
+  const site = String(p.website || "").trim();
+  const siteHref = site ? (/^https?:\/\//i.test(site) ? site : "https://" + site) : "";
   return `<tr class="${sunk ? "row-inactive" : ""}" data-prospect-id="${pid}">
     <td class="name-col"><span style="font-weight:700;">${escapeHtml(p.name)}</span>
-      <div class="agency-loc">${escapeHtml([fmtCityName(p.city), p.state].filter(Boolean).join(", ") || "—")}</div></td>
+      <div class="agency-loc">${escapeHtml([fmtCityName(p.city), p.state].filter(Boolean).join(", ") || "—")}</div>
+      ${siteHref ? `<a class="site-link" href="${escapeAttr(siteHref)}" target="_blank" rel="noopener" title="${escapeAttr(site)}">🌐 website ↗</a>` : ""}</td>
     <td><div class="prospect-contact">${contact}</div></td>
     <td>${statusCell}</td>
     <td>${dateInput("last_contact_date", p.last_contact_date)}</td>
@@ -1889,31 +1902,56 @@ document.addEventListener("change", async (e) => {
   }
 });
 
-// ＋ Add prospect
-document.getElementById("add-prospect-btn").addEventListener("click", () => {
+// ＋ Add prospect / ✏️ Edit prospect — one modal, two modes.
+function openProspectModal(p) {
   if (!canEdit()) return;
-  ["prospect-name", "prospect-city", "prospect-state", "prospect-contact-name",
-   "prospect-contact-phone", "prospect-contact-email", "prospect-first-note"]
-    .forEach(id => { document.getElementById(id).value = ""; });
+  editProspectId = p ? p.id : null;
+  document.getElementById("prospect-modal-title").textContent = p ? "✏️ Edit prospect" : "🌱 Add prospect";
+  document.getElementById("prospect-save-btn").textContent = p ? "Save changes" : "Add prospect";
+  // The first-note field only applies when creating (it seeds the log).
+  document.getElementById("prospect-first-note-wrap").style.display = p ? "none" : "";
+  document.getElementById("prospect-name").value          = p ? (p.name || "") : "";
+  document.getElementById("prospect-city").value          = p ? (p.city || "") : "";
+  document.getElementById("prospect-state").value         = p ? (p.state || "") : "";
+  document.getElementById("prospect-contact-name").value  = p ? (p.contact_name || "") : "";
+  document.getElementById("prospect-contact-phone").value = p ? (p.contact_phone || "") : "";
+  document.getElementById("prospect-contact-email").value = p ? (p.contact_email || "") : "";
+  document.getElementById("prospect-website").value       = p ? (p.website || "") : "";
+  document.getElementById("prospect-first-note").value = "";
   document.getElementById("prospect-modal").classList.add("open");
   setTimeout(() => document.getElementById("prospect-name").focus(), 50);
+}
+document.getElementById("add-prospect-btn").addEventListener("click", () => openProspectModal(null));
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-edit-prospect]");
+  if (!btn) return;
+  const p = allProspects.find(x => x.id === btn.dataset.editProspect);
+  if (p) openProspectModal(p);
 });
 
 document.getElementById("prospect-save-btn").addEventListener("click", async () => {
   const name = document.getElementById("prospect-name").value.trim();
   if (!name) { showToast("Agency name is required.", "err"); return; }
-  const row = {
+  const fields = {
     name,
     city:          document.getElementById("prospect-city").value.trim() || null,
     state:         document.getElementById("prospect-state").value.trim().toUpperCase() || null,
     contact_name:  document.getElementById("prospect-contact-name").value.trim() || null,
     contact_phone: document.getElementById("prospect-contact-phone").value.trim() || null,
     contact_email: document.getElementById("prospect-contact-email").value.trim() || null,
-    status: "new",
-    created_by: currentUser && currentUser.id
+    website:       document.getElementById("prospect-website").value.trim() || null
   };
+  if (editProspectId) {
+    if (!(await updateProspect(editProspectId, fields))) return;
+    document.getElementById("prospect-modal").classList.remove("open");
+    editProspectId = null;
+    showToast("Prospect updated.", "ok");
+    renderProspects();
+    return;
+  }
+  const row = Object.assign({ status: "new", created_by: currentUser && currentUser.id }, fields);
   const { data, error } = await db.from("agency_prospects").insert(row).select().single();
-  if (error) { showToast("Add failed: " + error.message, "err"); return; }
+  if (error) { showToast("Add failed: " + error.message + (/website/.test(error.message) ? " — has migration 82 been run?" : ""), "err"); return; }
   const note = document.getElementById("prospect-first-note").value.trim();
   if (note && data) {
     await db.from("agency_engagement_log").insert({
@@ -2198,6 +2236,7 @@ document.querySelectorAll("[data-close]").forEach(btn => {
     if (id === "engagement-drawer") engageCtx = null;
     if (id === "link-modal") linkProspectId = null;
     if (id === "ri-modal") riModalAgencyId = null;
+    if (id === "prospect-modal") editProspectId = null;
   });
 });
 
