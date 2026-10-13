@@ -636,7 +636,7 @@
       <button class="close-btn" data-close="prospect-modal">×</button>
     </div>
     <div class="modal-body">
-      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;">A potential agency you're marketing to. Once the contract completes and the agency appears in the portal (TB import), use <b>🔗 Link</b> on its row — the outreach log moves with it.</p>
+      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;">A potential agency you're marketing to. When the contract completes, set its status to <b>✅ Signed</b> — a <b>🔗 Link to portal agency</b> button then appears on the row, for connecting it once the agency arrives via the TB import (the outreach log moves with it).</p>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <label style="grid-column:1 / -1;display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">Agency name *
           <input type="text" id="prospect-name" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;" />
@@ -1765,7 +1765,9 @@ async function loadProspects() {
 function filterProspects() {
   const q = prospectFilter.q.toLowerCase().trim();
   return allProspects.filter(p => {
-    if (prospectFilter.status === "pipeline" && (p.status === "signed" || p.status === "not_interested")) return false;
+    // Pipeline = still being worked: a ✅ Signed prospect stays visible
+    // until it's actually 🔗 linked to the imported portal agency.
+    if (prospectFilter.status === "pipeline" && (p.linked_agency_id || p.status === "not_interested")) return false;
     if (prospectFilter.status === "signed" && p.status !== "signed") return false;
     if (prospectFilter.status === "not_interested" && p.status !== "not_interested") return false;
     if (q) {
@@ -1803,7 +1805,10 @@ function renderProspects() {
 
 function renderProspectRow(p) {
   const pid = escapeAttr(p.id);
-  const sunk = p.status === "signed" || p.status === "not_interested";
+  // Rows sink/tint only when truly finished: linked to the portal agency
+  // or not interested. Signed-but-unlinked still has work left (TB import
+  // → 🔗 link), so it stays prominent.
+  const sunk = !!p.linked_agency_id || p.status === "not_interested";
   const contact = [
     p.contact_name ? `<b>${escapeHtml(p.contact_name)}</b>` : "",
     p.contact_phone ? escapeHtml(p.contact_phone) : "",
@@ -1828,7 +1833,13 @@ function renderProspectRow(p) {
     const ag = allRows.find(r => r.agency_id === p.linked_agency_id);
     actions = `<span class="linked-tag" data-goto-agency="${escapeAttr(p.linked_agency_id)}" title="Linked to the portal agency — click to open it in the Agencies view">🔗 ${escapeHtml(fmtAgencyName(ag ? ag.agency_name : "") || "Linked")}</span>`;
   } else {
-    if (canEdit()) actions += `<button type="button" class="prospect-act-btn" data-link-prospect="${pid}" title="Contract completed — link to the portal agency (outreach log moves with it)">🔗 Link</button>`;
+    // The 🔗 link only makes sense once the contract is ✅ Signed — it
+    // connects the prospect to the real agency AFTER the TB import
+    // creates it. Before that, the button would just invite mistakes.
+    if (p.status === "signed") {
+      actions += `<span class="engage-sub" style="margin-right:6px;">⏳ awaiting TB import</span>`;
+      if (canEdit()) actions += `<button type="button" class="prospect-act-btn" data-link-prospect="${pid}" title="Signed ✓ — once this agency arrives via 📥 Import TB Price List, link it here (status + outreach log move onto the portal agency)">🔗 Link to portal agency</button>`;
+    }
     if (isAdmin()) actions += `<button type="button" class="prospect-act-btn danger" data-del-prospect="${pid}" title="Delete this prospect (and its log)">🗑</button>`;
   }
 
@@ -1863,7 +1874,13 @@ async function updateProspect(pid, patch) {
 document.addEventListener("change", async (e) => {
   const t = e.target;
   if (t.matches("[data-prospect-status]")) {
-    if (await updateProspect(t.dataset.prospectStatus, { status: t.value })) renderProspects();
+    if (await updateProspect(t.dataset.prospectStatus, { status: t.value })) {
+      renderProspects();
+      const p = allProspects.find(x => x.id === t.dataset.prospectStatus);
+      if (t.value === "signed" && p && !p.linked_agency_id) {
+        showToast("Marked ✅ Signed — after the agency arrives via 📥 Import TB Price List, use 🔗 Link on this row to connect it (outreach log moves over).", "ok");
+      }
+    }
   } else if (t.matches("[data-prospect-date]")) {
     const patch = {};
     patch[t.dataset.field] = t.value || null;
