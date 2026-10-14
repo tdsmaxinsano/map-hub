@@ -1558,10 +1558,15 @@ function renderMoveCard() {
   // the import ran, not when they moved.
   if (addrChanges.length) {
     const ac = addrChanges[0];
+    // source 'portal' = entered via map → 🏠 Change address (the move date
+    // was asked for there); otherwise a Sync Update import detected it.
+    const fromPortal = ac.source === "portal";
     html += `<div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-size:12px;line-height:1.5">` +
-      `🏠 <b>Address change detected ${esc(fmtDate(ac.detected_at))}:</b> ` +
+      `🏠 <b>Address ${fromPortal ? "changed in the portal" : "change detected"} ${esc(fmtDate(ac.detected_at))}:</b> ` +
       `${esc(fmtAddr(ac.old_address) || "—")} → ${esc(fmtAddr(ac.new_address) || "—")}. ` +
-      `TB doesn't say when they moved — enter the move date below, then stage the new ZIPs.` +
+      (fromPortal
+        ? `The clinician still has to update TherapyBoss. Confirm the move date below, then stage the new ZIPs.`
+        : `TB doesn't say when they moved — enter the move date below, then stage the new ZIPs.`) +
       (canEdit ? ` <button type="button" class="mv-btn" style="margin-left:6px" onclick="dismissAddrChange()">✕ Not a move</button>` : "") +
       `</div>`;
   }
