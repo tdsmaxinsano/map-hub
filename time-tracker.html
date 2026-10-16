@@ -727,6 +727,7 @@
           <button class="btn-period" onclick="changePeriod(1)">Next ▶</button>
           <button class="btn-gold" onclick="exportWiseCSV()" id="wise-export-btn">⬇ Export to Wise</button>
           <button class="btn-gold" onclick="openAdjModal()">+ Adjustment</button>
+          <button class="btn-secondary" onclick="printPeriodTimesheets()" id="print-ts-btn" title="Print every SUBMITTED or APPROVED timesheet in the shown pay period — one page per person">🖨 Print Timesheets</button>
         </div>
 
         <!-- Wise / PHP Settings Bar -->
@@ -4135,6 +4136,132 @@ function onWiseMemoCopy(e) {
 function changePeriod(dir) {
   periodOffset += dir;
   renderPayPeriod(true);   // navigation — use the cache for instant Prev/Next
+}
+
+// ── 🖨 Print all SUBMITTED + APPROVED timesheets for the shown period ──
+// One page per person, built with the SAME day-grid rules as the admin
+// timesheet modal (atsLoad): a Timesheet| override replaces its day,
+// closed shifts sum otherwise, every shift capped at MAX_SHIFT_HOURS —
+// so the printed totals always match the pay table. Draft / sent-back /
+// no-submission staff are left out on purpose.
+async function printPeriodTimesheets() {
+  const period = getPayPeriod(periodOffset);
+  const periodDate = period.start.toISOString().slice(0, 10);
+  const tz = ADMIN_TZ;
+  showToast('Building printable timesheets…');
+  // Fresh fetch (not the tab cache): all-staff entries + submissions.
+  const bufStart = new Date(period.start.getTime() - 86400000).toISOString();
+  const bufEnd   = new Date(period.end.getTime()   + 86400000).toISOString();
+  const [entries, subsRes] = await Promise.all([
+    fetchTimeEntriesInRange(bufStart, bufEnd),
+    db.rpc('list_pay_period_submissions', { p_period_start: periodDate })
+  ]);
+  const subs = (subsRes.data || []).filter(s => s.status === 'submitted' || s.status === 'approved');
+  if (!subs.length) { showToast('No submitted or approved timesheets in this period.'); return; }
+
+  const w = window.open('', '_blank');
+  if (!w) { showToast('Popup blocked — allow popups for this site and try again.'); return; }
+
+  const stampFmt = iso => iso ? new Date(iso).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short', timeZone: tz }) : '';
+  const sheets = subs
+    .map(sub => {
+      const staff = (staffConfig || []).find(x => x.user_id === sub.user_id);
+      return { sub, name: (staff && staff.display_name) || 'Unknown staff' };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(({ sub, name }) => {
+      const mine = entries.filter(e => e.user_id === sub.user_id);
+      // 14-day grid — mirrors atsLoad exactly.
+      const rows = [];
+      for (let i = 0; i < 14; i++) {
+        const day = new Date(period.start.getTime() + i * 86400000);
+        const dayLabel = day.toLocaleDateString('en-US', { weekday: 'short', timeZone: tz });
+        rows.push({
+          dayKey: day.toLocaleDateString('en-US', { timeZone: tz }),
+          dayLabel,
+          dateLabel: day.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric', timeZone: tz }),
+          weekend: dayLabel === 'Sat' || dayLabel === 'Sun',
+          hrs: 0, autoHrs: 0, note: '', absenceKind: '', hasOverride: false, flagged: false
+        });
+      }
+      const byKey = new Map(rows.map(r => [r.dayKey, r]));
+      mine.forEach(e => {
+        const row = byKey.get(new Date(e.clock_in).toLocaleDateString('en-US', { timeZone: tz }));
+        if (!row) return;
+        if (isTimesheetOverride(e)) {
+          const d = shiftDuration(e.clock_in, e.clock_out);
+          row.hrs = d.capped; row.hasOverride = true;
+          row.note = String(e.manual_note || '').slice('Timesheet|'.length);
+          row.absenceKind = e.absence_kind || '';
+          if (d.flagged) row.flagged = true;
+        } else if (e.clock_out) {
+          const d = shiftDuration(e.clock_in, e.clock_out);
+          row.autoHrs += d.capped;
+          if (d.flagged) row.flagged = true;
+        }
+      });
+      rows.forEach(r => { if (!r.hasOverride) r.hrs = r.autoHrs; });
+      const total = hoursInPeriod(mine, period);
+      const pl = paidLeaveHoursInPeriod(mine, period);
+      const body = rows.map(r =>
+        `<tr class="${r.weekend ? 'we' : ''}">` +
+          `<td>${r.dayLabel}</td><td>${r.dateLabel}</td>` +
+          `<td class="num">${r.hrs > 0 ? fmtHrs(r.hrs) : '—'}</td>` +
+          `<td>${escAttr(absenceLabel(r.absenceKind))}</td>` +
+          `<td>${escAttr(r.note)}${r.flagged ? ' <b class="flag">⚠ capped at ' + MAX_SHIFT_HOURS + 'h</b>' : ''}</td>` +
+        `</tr>`).join('');
+      const statusLine = sub.status === 'approved'
+        ? 'APPROVED ' + stampFmt(sub.approved_at)
+        : 'SUBMITTED ' + stampFmt(sub.submitted_at);
+      return `
+      <section class="sheet">
+        <div class="head">
+          <div>
+            <div class="co">Dependable Care Staffing, LLC — Time Sheet</div>
+            <h2>${escAttr(name)}</h2>
+            <div class="sub">Pay period ${fmtPeriod(period, tz)} (${periodDate})</div>
+          </div>
+          <div class="right">
+            <div class="status ${sub.status}">${statusLine}</div>
+            <div class="total">Total: <b>${fmtHrs(total)} h</b>${pl > 0 ? ' · 🌴 ' + fmtHrs(pl) + ' h paid leave' : ''}</div>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th>Day</th><th>Date</th><th class="num">Hours</th><th>Absence</th><th>Note</th></tr></thead>
+          <tbody>${body}</tbody>
+          <tfoot><tr><td colspan="2">Total</td><td class="num">${fmtHrs(total)}</td><td colspan="2"></td></tr></tfoot>
+        </table>
+      </section>`;
+    }).join('');
+
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Timesheets ' +
+    escAttr(fmtPeriod(period, tz)) + '</title><style>' +
+    "body { font-family: 'Segoe UI', system-ui, sans-serif; color: #1a2433; margin: 24px; }" +
+    '.print-btn { position: fixed; top: 14px; right: 14px; background: #1E3A5F; color: #fff; border: 0; border-radius: 8px; padding: 10px 18px; font-size: 14px; font-weight: 700; cursor: pointer; }' +
+    '.sheet { page-break-after: always; break-after: page; padding-bottom: 18px; }' +
+    '.sheet:last-child { page-break-after: auto; break-after: auto; }' +
+    '.head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; border-bottom: 3px solid #1E3A5F; padding-bottom: 8px; margin-bottom: 10px; }' +
+    '.co { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #C8960C; }' +
+    'h2 { margin: 2px 0; font-size: 20px; }' +
+    '.sub { font-size: 12px; color: #55657a; }' +
+    '.right { text-align: right; }' +
+    '.status { display: inline-block; font-size: 11px; font-weight: 800; letter-spacing: 0.5px; padding: 3px 10px; border-radius: 999px; }' +
+    '.status.approved  { background: #d1fae5; color: #065f46; }' +
+    '.status.submitted { background: #fdf6e6; color: #92400e; }' +
+    '.total { font-size: 13px; margin-top: 6px; }' +
+    'table { width: 100%; border-collapse: collapse; font-size: 12px; }' +
+    'th, td { border: 1px solid #c9d4e0; padding: 4px 8px; text-align: left; }' +
+    'th { background: #eef2f7; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.5px; }' +
+    '.num { text-align: right; font-variant-numeric: tabular-nums; }' +
+    'tr.we td { background: #f6f8fb; color: #7a8798; }' +
+    'tfoot td { font-weight: 800; background: #eef2f7; }' +
+    '.flag { color: #b4542f; font-size: 10.5px; }' +
+    '@media print { .print-btn { display: none; } body { margin: 0; } }' +
+    '</style></head><body>' +
+    '<button class="print-btn" onclick="window.print()">🖨 Print</button>' +
+    sheets + '</body></html>');
+  w.document.close();
+  showToast(subs.length + ' timesheet' + (subs.length === 1 ? '' : 's') + ' ready — use the 🖨 button in the new tab.');
 }
 
 function exportWiseCSV() {
