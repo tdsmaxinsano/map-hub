@@ -1037,7 +1037,12 @@
     // Address-change review queue (migration 62 — plain table SELECT, not an
     // RPC). A Sync Update import detected a move; TB doesn't say when, so a
     // human sets the territory cutoff in the planner.
-    address_change_pending: { icon: "🏠", tint: "amber", verb: "moved" }
+    address_change_pending: { icon: "🏠", tint: "amber", verb: "moved" },
+    // A move entered in the portal (map → 🏠 Change address) that the last
+    // TherapyBoss import still shows the OLD address for. TB wins on import,
+    // so someone has to nudge the clinician to update TB. Read from
+    // clinician_profiles.tags.addressPendingTb (no migration).
+    address_tb_not_updated: { icon: "🏠⚠", tint: "red", verb: "address not updated in TherapyBoss" }
   };
 
   function fmtDateShort(d) {
@@ -1071,6 +1076,7 @@
     if (alert.alert_type === "renewal_due_today")       return "DUE TODAY";
     if (alert.alert_type === "renewal_due_soon")        return "in " + o + (o === 1 ? " day" : " days");
     if (alert.alert_type === "address_change_pending")  return o === 0 ? "TODAY" : o + (o === 1 ? " day ago" : " days ago");
+    if (alert.alert_type === "address_tb_not_updated")  return "NOTIFY";
     return "";
   }
 
@@ -1101,6 +1107,7 @@
       case "renewal_due_today": return `filing due today — file + pay to avoid the late penalty`;
       case "renewal_due_soon":  return `filing due ${fmtDateShort(alert.due_date)}`;
       case "address_change_pending": return `${meta.verb} · ${alert.old_address || "—"} → ${alert.new_address || "—"} — set their territory cutoff`;
+      case "address_tb_not_updated": return `${meta.verb} — please notify clinician (portal: ${alert.new_address || "—"} · TB still: ${alert.old_address || "—"})`;
       default: return reason;
     }
   }
@@ -1264,7 +1271,7 @@
       catch (e) { console.warn("[alerts]", label, "failed:", e && e.message); return []; }
     }
     try {
-      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, renewalRows, addrChangeRaw] = await Promise.all([
+      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, renewalRows, addrChangeRaw, tbPendingRaw] = await Promise.all([
         safeRpc("list_pause_alerts"),
         safeRpc("list_birthday_alerts"),
         safeRpc("list_staff_birthday_alerts"),
@@ -1273,8 +1280,25 @@
         safeSelect("clinician_address_changes", db.from("clinician_address_changes")
           .select("clinician_id, clinician_name, discipline, old_address, new_address, detected_at")
           .eq("status", "pending")
-          .order("detected_at", { ascending: false }))
+          .order("detected_at", { ascending: false })),
+        safeSelect("tb_not_updated", db.from("clinician_profiles")
+          .select("clinician_id, tags")
+          .eq("tags->addressPendingTb->>tb_still_old", "true"))
       ]);
+      // Portal moves the last TB import didn't reflect → "notify clinician".
+      let tbRows = [];
+      if (tbPendingRaw && tbPendingRaw.length) {
+        const ids = tbPendingRaw.map(function(r) { return r.clinician_id; });
+        const names = await safeSelect("tb_not_updated names", db.from("clinician_v2").select("id, name, discipline").in("id", ids));
+        const byId = new Map((names || []).map(function(c) { return [c.id, c]; }));
+        tbRows = tbPendingRaw.map(function(r) {
+          const p = (r.tags && r.tags.addressPendingTb) || {};
+          const c = byId.get(r.clinician_id) || {};
+          return { alert_type: "address_tb_not_updated", clinician_id: r.clinician_id,
+            clinician_name: c.name || "—", discipline: c.discipline || "",
+            new_address: p.address || "", old_address: p.old_address || "", days_offset: 0 };
+        });
+      }
       // Shape queue rows to the board's alert vocabulary; days_offset = age
       // of the detection in days (0 = detected today).
       const addrRows = (addrChangeRaw || []).map(function(r) {
@@ -1290,7 +1314,7 @@
       // never sinks as detections age.
       function alertSortKey(a) {
         if (a.alert_type === "renewal_overdue") return -2;
-        if (a.alert_type === "address_change_pending") return -1;
+        if (a.alert_type === "address_change_pending" || a.alert_type === "address_tb_not_updated") return -1;
         const o = a.days_offset != null ? a.days_offset : (a.days_until != null ? a.days_until : 99);
         return o === 0 ? -1 : Math.abs(o);
       }
@@ -1300,6 +1324,7 @@
         .concat(staffVacRows)
         .concat(renewalRows)
         .concat(addrRows)
+        .concat(tbRows)
         .sort(function(a, b) { return alertSortKey(a) - alertSortKey(b); });
       if (!rows.length) {
         list.innerHTML = "";
