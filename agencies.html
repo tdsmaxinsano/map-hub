@@ -430,6 +430,7 @@
     <button class="btn-action" id="import-btn" title="Import the legacy hand-made HH RATINGS spreadsheet">📥 HH Ratings</button>
     <button class="btn-action" id="refresh-btn">↻ Refresh</button>
     <button class="btn-action" id="viewers-btn" style="display:none;" title="Choose which non-admin users may access this page — 👁 view-only or ✏️ inline editing (imports stay admin-only)">👁 Access</button>
+    <button class="btn-action" id="merge-btn" style="display:none;" title="Fold a duplicate agency row into the real one — moves ratings, notes, engagement, outreach log, rate history and prospect links, then deletes the duplicate">🔀 Merge</button>
   </div>
 
   <!-- Table -->
@@ -693,6 +694,31 @@
   </div>
 </div>
 
+<!-- 🔀 Merge duplicate agencies (admin) — e.g. an agency moved, the import
+     minted a second row for the new address -->
+<div class="modal-overlay" id="merge-modal">
+  <div class="modal-card" style="max-width:520px;">
+    <div class="modal-head">
+      <h3>🔀 Merge duplicate agencies</h3>
+      <button class="close-btn" data-close="merge-modal">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="margin:0 0 12px;color:var(--muted);font-size:12.5px;line-height:1.5;">When an agency moves (new address in TherapyBoss), the import creates a second row. Pick the row to <b>keep</b> (the current address) — the duplicate's ratings, notes, engagement, outreach log, rate history and prospect links all move onto it, then the duplicate is deleted everywhere, map included.</p>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:10px;">✅ Keep (the agency going forward)
+        <select id="merge-keep" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;background:#fff;"></select>
+      </label>
+      <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">🗑 Remove &amp; fold into it (the duplicate)
+        <select id="merge-remove" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;background:#fff;"></select>
+      </label>
+      <p style="margin:12px 0 0;color:var(--muted);font-size:11.5px;">Heads-up: if a future HH Agencies import still contains the OLD address, the duplicate row will reappear (ids come from the address) — just merge again.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-action" data-close="merge-modal">Cancel</button>
+      <button class="btn-action primary" id="merge-confirm-btn">🔀 Merge</button>
+    </div>
+  </div>
+</div>
+
 <!-- ⬆ Request rate increase — proposed rates + planned effective date -->
 <div class="modal-overlay" id="ri-modal">
   <div class="modal-card" style="max-width:500px;">
@@ -839,7 +865,10 @@ async function launchApp(user) {
   }
 
   if (agencyAccess === "view") document.body.classList.add("view-only");
-  if (agencyAccess === "admin") document.getElementById("viewers-btn").style.display = "";
+  if (agencyAccess === "admin") {
+    document.getElementById("viewers-btn").style.display = "";
+    document.getElementById("merge-btn").style.display = "";
+  }
 
   document.getElementById("app-header").style.display = "flex";
   document.getElementById("app-container").style.display = "block";
@@ -2218,6 +2247,51 @@ async function removeViewer(uid) {
 }
 
 document.getElementById("viewers-btn").addEventListener("click", openViewersModal);
+
+// ── 🔀 Merge duplicate agencies (admin, migration 83) ────────────────
+document.getElementById("merge-btn").addEventListener("click", () => {
+  if (!isAdmin()) return;
+  const opts = allRows.slice().sort((a, b) =>
+    String(a.agency_name || "").localeCompare(String(b.agency_name || ""), undefined, { sensitivity: "base" }));
+  const optionHtml = opts.map(r =>
+    `<option value="${escapeAttr(r.agency_id)}">${escapeHtml(fmtAgencyName(r.agency_name) || r.agency_id)} — ${escapeHtml([fmtCityName(r.agency_city), r.agency_state].filter(Boolean).join(", ") || "?")}</option>`).join("");
+  const keep = document.getElementById("merge-keep");
+  const rem  = document.getElementById("merge-remove");
+  keep.innerHTML = '<option value="">— pick the row to keep —</option>' + optionHtml;
+  rem.innerHTML  = '<option value="">— pick the duplicate to remove —</option>' + optionHtml;
+  // Smart prefill: when the table currently shows exactly two rows (a
+  // searched duplicate pair), keep = newer effective rates, remove = older.
+  const visible = sortRows(filterRows());
+  if (visible.length === 2) {
+    const [a, b] = visible;
+    const newer = String(a.rates_effective_date || "") >= String(b.rates_effective_date || "") ? a : b;
+    const older = newer === a ? b : a;
+    keep.value = newer.agency_id;
+    rem.value  = older.agency_id;
+  }
+  document.getElementById("merge-modal").classList.add("open");
+});
+
+document.getElementById("merge-confirm-btn").addEventListener("click", async () => {
+  const keepId = document.getElementById("merge-keep").value;
+  const remId  = document.getElementById("merge-remove").value;
+  if (!keepId || !remId) { showToast("Pick both rows first.", "err"); return; }
+  if (keepId === remId)  { showToast("Those are the same row — pick two different ones.", "err"); return; }
+  const nameOf = id => {
+    const r = allRows.find(x => x.agency_id === id);
+    return r ? (fmtAgencyName(r.agency_name) || id) + " (" + ([fmtCityName(r.agency_city), r.agency_state].filter(Boolean).join(", ") || "?") + ")" : id;
+  };
+  if (!window.confirm("Merge:\n\n🗑 REMOVE " + nameOf(remId) + "\n→ fold into ✅ " + nameOf(keepId) + "\n\nThe removed row disappears everywhere (map included). Continue?")) return;
+  const btn = document.getElementById("merge-confirm-btn");
+  btn.disabled = true; btn.textContent = "Merging…";
+  const { error } = await db.rpc("merge_agencies", { p_loser_id: remId, p_survivor_id: keepId });
+  btn.disabled = false; btn.textContent = "🔀 Merge";
+  if (error) { showToast("Merge failed: " + error.message + " — has migration 83 been run?", "err"); return; }
+  document.getElementById("merge-modal").classList.remove("open");
+  showToast("Merged ✓ — ratings, history and logs now live on the kept row.", "ok");
+  await loadContracts();
+  loadProspects();
+});
 document.getElementById("viewer-add-btn").addEventListener("click", addViewer);
 document.getElementById("viewers-list").addEventListener("click", e => {
   const btn = e.target.closest("[data-revoke-viewer]");
