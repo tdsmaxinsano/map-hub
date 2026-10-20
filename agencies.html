@@ -710,7 +710,7 @@
       <label style="display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:700;color:var(--muted);">🗑 Remove &amp; fold into it (the duplicate)
         <select id="merge-remove" style="border:1px solid var(--border);border-radius:7px;padding:8px 9px;font-size:13px;background:#fff;"></select>
       </label>
-      <p style="margin:12px 0 0;color:var(--muted);font-size:11.5px;">Heads-up: if a future HH Agencies import still contains the OLD address, the duplicate row will reappear (ids come from the address) — just merge again.</p>
+      <p style="margin:12px 0 0;color:var(--muted);font-size:11.5px;">Merges are permanent: future imports skip this duplicate automatically, and an agency that simply moved gets its address updated in place instead of creating a new row.</p>
     </div>
     <div class="modal-foot">
       <button class="btn-action" data-close="merge-modal">Cancel</button>
@@ -2260,17 +2260,39 @@ document.getElementById("merge-btn").addEventListener("click", () => {
   keep.innerHTML = '<option value="">— pick the row to keep —</option>' + optionHtml;
   rem.innerHTML  = '<option value="">— pick the duplicate to remove —</option>' + optionHtml;
   // Smart prefill: when the table currently shows exactly two rows (a
-  // searched duplicate pair), keep = newer effective rates, remove = older.
+  // searched duplicate pair), keep = newer effective rates.
   const visible = sortRows(filterRows());
   if (visible.length === 2) {
     const [a, b] = visible;
     const newer = String(a.rates_effective_date || "") >= String(b.rates_effective_date || "") ? a : b;
-    const older = newer === a ? b : a;
     keep.value = newer.agency_id;
-    rem.value  = older.agency_id;
   }
+  mergeSuggestRemove();
   document.getElementById("merge-modal").classList.add("open");
 });
+
+// When a Keep is picked, the duplicate is almost always the OTHER row with
+// the same name — surface those first and auto-select a single twin.
+function mergeSuggestRemove() {
+  const keepId = document.getElementById("merge-keep").value;
+  const rem = document.getElementById("merge-remove");
+  const mergeOptLabel = r =>
+    `${escapeHtml(fmtAgencyName(r.agency_name) || r.agency_id)} — ${escapeHtml([fmtCityName(r.agency_city), r.agency_state].filter(Boolean).join(", ") || "?")}`;
+  const byName = (a, b) =>
+    String(a.agency_name || "").localeCompare(String(b.agency_name || ""), undefined, { sensitivity: "base" });
+  const keepRow = allRows.find(r => r.agency_id === keepId);
+  if (!keepRow) return;   // nothing picked yet — leave the full list as is
+  const key = importNormalizeName(keepRow.agency_name || "");
+  const twins  = allRows.filter(r => r.agency_id !== keepId && key && importNormalizeName(r.agency_name || "") === key).sort(byName);
+  const others = allRows.filter(r => r.agency_id !== keepId && !twins.includes(r)).sort(byName);
+  rem.innerHTML = '<option value="">— pick the duplicate to remove —</option>' +
+    (twins.length
+      ? `<optgroup label="⚠ Same name — likely the duplicate">${twins.map(r => `<option value="${escapeAttr(r.agency_id)}">${mergeOptLabel(r)}</option>`).join("")}</optgroup>`
+      : "") +
+    `<optgroup label="All other agencies">${others.map(r => `<option value="${escapeAttr(r.agency_id)}">${mergeOptLabel(r)}</option>`).join("")}</optgroup>`;
+  if (twins.length === 1) rem.value = twins[0].agency_id;
+}
+document.getElementById("merge-keep").addEventListener("change", mergeSuggestRemove);
 
 document.getElementById("merge-confirm-btn").addEventListener("click", async () => {
   const keepId = document.getElementById("merge-keep").value;

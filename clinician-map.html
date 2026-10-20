@@ -9271,6 +9271,19 @@
       return "hha-" + namePart + "-" + locationPart;
     }
 
+    // Name key for the import's moved-agency detection — mirrors the SQL
+    // normalize_agency_name (migration 30) / agencies.html importNormalizeName:
+    // lowercased, punctuation stripped, corporate suffixes dropped.
+    function normalizeAgencyNameKey(value) {
+      return String(value ?? "")
+        .toLowerCase()
+        .replace(/[.,'"]/g, " ")
+        .replace(/\b(inc|incorporated|llc|ltd|corp|corporation|co|company|pc|services|service)\b/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    }
+
     function getDefaultAgencyDraft(baseAgency) {
       const base = baseAgency || {};
       return {
@@ -20065,8 +20078,56 @@
 
     async function uploadHomeHealthAgencyImportToSupabase() {
       const normalizedRows = normalizeImportRowsForUpload();
-      const rowsToUpsert = normalizedRows.filter(function(row) {
+      let rowsToUpsert = normalizedRows.filter(function(row) {
         return row.name;
+      });
+
+      // ── Move-aware matching (migration 84) ──────────────────────────
+      // Ids are address-derived, so without this (a) a 🔀-merged duplicate
+      // reappears whenever a file still carries the old address, and (b) an
+      // agency that MOVED (address updated in TherapyBoss) mints a fresh
+      // duplicate instead of updating its row.
+
+      // (a) Merged duplicates stay dead: skip unmatched rows whose built id
+      //     was folded into another agency by 🔀 Merge.
+      let aliasLosers = new Set();
+      try {
+        const aliasResp = await supabaseClient.from("agency_merge_aliases").select("loser_id");
+        aliasLosers = new Set((aliasResp.data || []).map(function(a) { return a.loser_id; }));
+      } catch (e) { /* migration 84 not run yet → behave as before */ }
+      let skippedMerged = 0;
+      rowsToUpsert = rowsToUpsert.filter(function(row) {
+        if (!row.matched_agency_id && aliasLosers.has(row.id)) { skippedMerged += 1; return false; }
+        return true;
+      });
+
+      // (b) A move is an UPDATE, not a new row: when the built id is unknown
+      //     but exactly one existing agency shares the (normalized) name —
+      //     and this file also has only one row with that name, so it isn't
+      //     a multi-branch agency — reuse the existing id. lat/lng reset so
+      //     the pin re-geocodes at the new address.
+      const fileNameCounts = new Map();
+      rowsToUpsert.forEach(function(row) {
+        const key = normalizeAgencyNameKey(row.name);
+        fileNameCounts.set(key, (fileNameCounts.get(key) || 0) + 1);
+      });
+      const portalByNameKey = new Map();
+      (appState.agencies || []).forEach(function(agency) {
+        const key = normalizeAgencyNameKey(agency.name);
+        if (!key) return;
+        portalByNameKey.set(key, portalByNameKey.has(key) ? "MULTI" : agency);
+      });
+      let movedCount = 0;
+      rowsToUpsert.forEach(function(row) {
+        if (row.matched_agency_id) return;                  // exact id match already
+        const key = normalizeAgencyNameKey(row.name);
+        const existing = portalByNameKey.get(key);
+        if (!existing || existing === "MULTI") return;      // none or ambiguous → create as before
+        if ((fileNameCounts.get(key) || 0) !== 1) return;   // true branches in the file → create as before
+        row.id = existing.id;
+        row.matched_agency_id = existing.id;
+        row._moved = true;
+        movedCount += 1;
       });
 
       let updatedCount = 0;
@@ -20082,7 +20143,9 @@
           } else {
             createdCount += 1;
           }
-          return buildHomeHealthAgencyImportSupabasePayload(row, existingAgency);
+          const p = buildHomeHealthAgencyImportSupabasePayload(row, existingAgency);
+          if (row._moved) { p.lat = null; p.lng = null; }   // old pin is wrong now
+          return p;
         });
 
         setImportStatus("Upserting home health agencies " + Math.min(createdCount + updatedCount, rowsToUpsert.length) + " of " + rowsToUpsert.length + "...");
@@ -20094,7 +20157,9 @@
       }
 
       setImportStatus(
-        "Home health agency import complete. " + createdCount + " created, " + updatedCount + " updated.",
+        "Home health agency import complete. " + createdCount + " created, " + updatedCount + " updated."
+          + (movedCount ? " " + movedCount + " moved (address change — updated in place)." : "")
+          + (skippedMerged ? " " + skippedMerged + " merged duplicate" + (skippedMerged === 1 ? "" : "s") + " skipped." : ""),
         "success"
       );
       try { await supabaseClient.rpc("log_import", { p_key: "map_agencies", p_label: "HH agencies", p_area: "Map", p_row_count: createdCount + updatedCount }); } catch (e) { console.warn("[log_import]", e && e.message); }
