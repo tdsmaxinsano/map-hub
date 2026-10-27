@@ -154,6 +154,12 @@
   .vh-filters input, .vh-filters select { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
   .vh-chip { border: 1px solid var(--border); background: #fff; border-radius: 999px; padding: 3px 11px; font-size: 11.5px; font-weight: 700; color: var(--muted); cursor: pointer; }
   .vh-chip.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+  /* Visit rows fly the territory map to their site; selected row + pulse */
+  #vh-body tr[data-vh-addr] { cursor: pointer; }
+  #vh-body tr[data-vh-addr]:hover { background: #f4f8ff; }
+  #vh-body tr.vh-sel { background: #e8f0fe; box-shadow: inset 3px 0 0 #1e4d8c; }
+  .vh-site-pulse { width: 26px; height: 26px; border-radius: 50%; border: 3px solid #1e4d8c; background: rgba(30,77,140,0.15); animation: vhPulse 1.4s ease-out infinite; pointer-events: none; }
+  @keyframes vhPulse { 0% { transform: scale(0.6); opacity: 1; } 100% { transform: scale(1.5); opacity: 0.15; } }
   .vh-totals { font-size: 12px; color: var(--muted); margin-left: auto; }
   .vh-wrap { overflow-x: auto; }
   table.vh { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -3002,6 +3008,41 @@ function vhRowValue(row, key) {
     default: return "";
   }
 }
+// ── Visit row → fly the territory map to that site and pulse it ──────
+let vhHighlightMarker = null;
+function flyToVisitSite(encAddr, rowEl) {
+  const addr = decodeURIComponent(encAddr);
+  const key = siteAddrKey(addr);
+  const site = buildSites().find(s => siteAddrKey(s.address) === key);
+  if (!site || site.lat == null || site.lng == null) { showToast("No mapped location for this address yet"); return; }
+  if (!tpMap) { showToast("Territory map is still loading — try again in a moment"); return; }
+
+  // Row selection highlight
+  document.querySelectorAll("#vh-body tr.vh-sel").forEach(tr => tr.classList.remove("vh-sel"));
+  if (rowEl) rowEl.classList.add("vh-sel");
+
+  // Bring the map into view, drop a pulsing ring, fly in.
+  const mapEl = document.getElementById("tp-map");
+  if (mapEl) mapEl.scrollIntoView({ behavior: "smooth", block: "center" });
+  if (vhHighlightMarker) { try { vhHighlightMarker.remove(); } catch (e) {} vhHighlightMarker = null; }
+  const el = document.createElement("div");
+  el.className = "vh-site-pulse";
+  vhHighlightMarker = new mapboxgl.Marker({ element: el }).setLngLat([site.lng, site.lat]).addTo(tpMap);
+  tpMap.flyTo({ center: [site.lng, site.lat], zoom: Math.max(tpMap.getZoom(), 13), speed: 1.2, essential: true });
+
+  // Same privacy rule as the dot popups: 🧭 Territory logins get ZIP only.
+  const zipOnly = (addr.match(/\b(\d{5})\b/) || [])[1] || "";
+  const title = phiSafeView
+    ? "Service site" + (zipOnly ? " · " + esc(zipOnly) : "")
+    : esc(site.address);
+  new mapboxgl.Popup({ offset: 14 })
+    .setLngLat([site.lng, site.lat])
+    .setHTML("<div style='font:12px -apple-system,Segoe UI,Roboto,sans-serif;max-width:230px'><b>" + title + "</b><br>" +
+      site.totalVisits + " visits · " + site.rows.length + " episode(s)" +
+      (site.latest ? "<br>Latest: " + esc(fmtDate(site.latest)) : "") + "</div>")
+    .addTo(tpMap);
+}
+
 function renderVisitTable(rebuildFilters) {
   const rows = historyRows.slice();
 
@@ -3060,7 +3101,7 @@ function renderVisitTable(rebuildFilters) {
     const phiCells = phiSafeView ? "" :
       `<td style="font-weight:700">${esc(fmtName(r.patient_name))}</td>
       <td>${excl ? "🚫 " : ""}${esc(r.full_address || [r.street, r.city, r.state].filter(Boolean).join(", ") || "—")}</td>`;
-    return `<tr${excl ? ` style="opacity:.5" title="🚫 Location excluded from territory math"` : ""}>
+    return `<tr data-vh-addr="${encSiteAddr(rowAddr(r))}"${excl ? ` style="opacity:.5" title="🚫 Location excluded from territory math"` : ` title="Click to fly the territory map to this site"`}>
       <td style="white-space:nowrap">${esc(fmtDate(anchorDate(r)))}</td>
       ${phiCells}
       <td>${phiSafeView && excl ? "🚫 " : ""}${esc(normZip(r.zip_code) || "—")}</td>
@@ -3079,6 +3120,11 @@ document.getElementById("login-btn").addEventListener("click", doSignIn);
 document.getElementById("login-password").addEventListener("keydown", e => { if (e.key === "Enter") doSignIn(); });
 document.getElementById("signout-btn").addEventListener("click", doSignOut);
 document.getElementById("picker-search").addEventListener("input", renderPicker);
+document.getElementById("vh-body").addEventListener("click", e => {
+  if (e.target.closest("a, button")) return;   // don't hijack real controls
+  const tr = e.target.closest("tr[data-vh-addr]");
+  if (tr) flyToVisitSite(tr.dataset.vhAddr, tr);
+});
 document.getElementById("tl-play").addEventListener("click", tlPlayToggle);
 document.getElementById("tl-close").addEventListener("click", tlClose);
 document.getElementById("tl-range").addEventListener("input", e => {
