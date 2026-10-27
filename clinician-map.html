@@ -19887,6 +19887,26 @@
       return geocodeLookup;
     }
 
+    // ZIP centroids for import-time geocode validation — one Mapbox call
+    // per distinct ZIP, cached for the session.
+    const importZipCentroidCache = new Map();
+    async function getImportZipCentroid(zip) {
+      const z = String(zip || "").trim().slice(0, 5);
+      if (!/^\d{5}$/.test(z)) return null;
+      if (importZipCentroidCache.has(z)) return importZipCentroidCache.get(z);
+      let out = null;
+      try {
+        const payload = await geocodeMapboxQuery(z, 1);
+        const c = payload && payload.features && payload.features[0] && payload.features[0].center;
+        if (Array.isArray(c) && c.length >= 2) out = { lat: Number(c[1]), lng: Number(c[0]) };
+      } catch (error) { /* validation is best-effort */ }
+      importZipCentroidCache.set(z, out);
+      return out;
+    }
+    // A street-level hit in the wrong town plots ~20-40 mi away; real
+    // addresses sit within a few miles of their own ZIP's centroid.
+    const GEOCODE_ZIP_SANITY_MILES = 15;
+
     async function resolveAddressEntryGeocodes(addressEntries, progressLabel) {
       const uniqueAddressEntries = Array.from(addressEntries.reduce(function(map, entry) {
         if (!entry.normalized_address || map.has(entry.normalized_address)) return map;
@@ -19905,8 +19925,31 @@
         setImportStatus(progressLabel + " " + (index + 1) + " of " + missingEntries.length + "...");
 
         try {
-          const payload = await geocodeMapboxQuery(entry.full_address);
-          const feature = payload && payload.features && payload.features[0];
+          // With a ZIP on the row, fetch several candidates and keep the
+          // first that actually lands near that ZIP — "Lakeshore Dr" must
+          // not match another town's Lakeshore Dr 33 miles away. No
+          // candidate qualifies → pin the ZIP centroid (approximate but
+          // in the right place) instead of a precise wrong-town point.
+          const payload = await geocodeMapboxQuery(entry.full_address, entry.zip ? 5 : 1);
+          const features = (payload && payload.features) || [];
+          let feature = features[0];
+          let quality = feature && feature.place_type && feature.place_type[0] ? feature.place_type[0] : null;
+          if (entry.zip) {
+            const centroid = await getImportZipCentroid(entry.zip);
+            if (centroid) {
+              const near = features.find(function(f) {
+                return f && f.center && f.center.length >= 2 &&
+                  haversineMiles(centroid.lat, centroid.lng, Number(f.center[1]), Number(f.center[0])) <= GEOCODE_ZIP_SANITY_MILES;
+              });
+              if (near) {
+                feature = near;
+                quality = near.place_type && near.place_type[0] ? near.place_type[0] : null;
+              } else {
+                feature = { center: [centroid.lng, centroid.lat] };
+                quality = "zip_fallback";
+              }
+            }
+          }
           if (!feature || !feature.center || feature.center.length < 2) {
             continue;
           }
@@ -19923,7 +19966,7 @@
             lat: geocode.lat,
             lng: geocode.lng,
             provider: "mapbox",
-            quality: feature.place_type && feature.place_type[0] ? feature.place_type[0] : null,
+            quality: quality,
             updated_at: new Date().toISOString()
           });
         } catch (error) {
@@ -19950,7 +19993,8 @@
         return {
           row_number: row.row_number,
           full_address: row.full_address,
-          normalized_address: normalizeGeocodeAddressKey(row.full_address)
+          normalized_address: normalizeGeocodeAddressKey(row.full_address),
+          zip: row.zip_code || null
         };
       }).filter(function(entry) {
         return entry.full_address && entry.normalized_address;
@@ -19972,7 +20016,8 @@
         return {
           row_number: row.row_number,
           full_address: row.full_address,
-          normalized_address: normalizeGeocodeAddressKey(row.full_address)
+          normalized_address: normalizeGeocodeAddressKey(row.full_address),
+          zip: row.zip || null
         };
       }).filter(function(entry) {
         return entry.full_address && entry.normalized_address;
@@ -21815,12 +21860,12 @@
       await updateClinician(clinicianId, newAddress, newRadius, newPreferredZips);
     }
 
-    async function geocodeMapboxQuery(query) {
+    async function geocodeMapboxQuery(query, limit) {
       const endpoint = "https://api.mapbox.com/geocoding/v5/mapbox.places/"
         + encodeURIComponent(query)
         + ".json?access_token="
         + encodeURIComponent(mapboxgl.accessToken)
-        + "&limit=1&country=US";
+        + "&limit=" + (Number(limit) >= 1 ? Math.min(Number(limit), 10) : 1) + "&country=US";
 
       try {
         const response = await fetch(endpoint);
