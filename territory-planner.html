@@ -168,6 +168,7 @@
   /* ⛔ No-go zone corner handles (numbered, draggable) */
   .nogo-vertex { width: 19px; height: 19px; border-radius: 50%; background: #c22a20; color: #fff; border: 2px solid #fff; box-shadow: 0 1px 5px rgba(0,0,0,0.4); font: 800 10px -apple-system, "Segoe UI", Roboto, sans-serif; display: flex; align-items: center; justify-content: center; cursor: grab; user-select: none; }
   .nogo-vertex:active { cursor: grabbing; }
+  .nogo-vertex.zactive { box-shadow: 0 0 0 3px rgba(199,154,38,0.85), 0 1px 5px rgba(0,0,0,0.4); }
   .vh-totals { font-size: 12px; color: var(--muted); margin-left: auto; }
   .vh-wrap { overflow-x: auto; }
   table.vh { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -429,10 +430,13 @@ let vhState = { year: "", service: "", zip: "", search: "", sortKey: "anchor", s
 // hand-set ones, so re-accepts never touch manual exclusions).
 const NO_GO_NOTE = "No-go zone";
 const NO_GO_MAX_POINTS = 6;
-let noGoPoints = [];        // [{lat,lng}] working polygon (saved + edits)
-let noGoDirty = false;      // corners changed since last Accept
+let noGoZones = [];         // [{id|null, points:[{lat,lng}]}] — multiple zones (migration 87)
+let noGoActive = 0;         // which zone new corners go into
+let noGoDeletedIds = [];    // persisted zones removed locally — applied on Accept
+let noGoDirty = false;      // anything changed since last Accept
 let noGoMarkers = [];       // draggable corner markers (edit mode only)
 let noGoTableMissing = false;
+let noGoNeeds87 = false;    // rows came back without an id → run migration 87
 
 // ── Small helpers (ported from clinician-map.html so numbers match) ──
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -768,7 +772,7 @@ async function openWorkspace(clinicianId) {
       db.from("clinician_zip_coverage_revisions").select("*").eq("clinician_id", clinicianId).order("changed_at", { ascending: false }).limit(20),
       db.from("clinician_site_exclusions").select("*").eq("clinician_id", clinicianId).order("created_at"),
       db.from("clinician_address_changes").select("*").eq("clinician_id", clinicianId).eq("status", "pending").order("detected_at", { ascending: false }),
-      db.from("clinician_no_go_zones").select("*").eq("clinician_id", clinicianId).maybeSingle()
+      db.from("clinician_no_go_zones").select("*").eq("clinician_id", clinicianId).order("updated_at", { ascending: true })
     ]);
     if (cRes.error) throw cRes.error;
     if (!cRes.data) { throw new Error("Clinician not found."); }
@@ -781,10 +785,15 @@ async function openWorkspace(clinicianId) {
     // Won't-serve table may predate migration 56 — same tolerance.
     zipExclusions = (exRes && !exRes.error && exRes.data) ? exRes.data : [];
     exclTableMissing = !!(exRes && exRes.error);
-    // No-go zone table may predate migration 86 — same tolerance.
-    const ngRow = (ngRes && !ngRes.error && ngRes.data) ? ngRes.data : null;
+    // No-go zone table may predate migration 86/87 — same tolerance.
+    const ngRows = (ngRes && !ngRes.error && Array.isArray(ngRes.data)) ? ngRes.data : [];
     noGoTableMissing = !!(ngRes && ngRes.error);
-    noGoPoints = (ngRow && Array.isArray(ngRow.points)) ? ngRow.points.slice(0, NO_GO_MAX_POINTS) : [];
+    noGoZones = ngRows
+      .map(r => ({ id: r.id || null, points: Array.isArray(r.points) ? r.points.slice(0, NO_GO_MAX_POINTS) : [] }))
+      .filter(z => z.points.length);
+    noGoNeeds87 = ngRows.some(r => !r.id);   // 86-era single-zone schema
+    noGoActive = noGoZones.length ? noGoZones.length - 1 : 0;
+    noGoDeletedIds = [];
     noGoDirty = false;
     noGoMarkers = [];
     // Requested-areas table may predate migration 57 — same tolerance.
@@ -2423,11 +2432,16 @@ function renderMapLayerChips() {
   chips.push(`<button type="button" class="ml-chip${tlActive ? " armed" : ""}" onclick="toggleTimeline()">🎞 Timeline</button>`);
   if (canEditPlan()) {
     chips.push(`<button type="button" class="ml-chip" title="Flag every site plotted more than 15 mi from its own ZIP (a wrong-town geocode) and re-pin them in one pass" onclick="verifySiteLocations()">🧭 Verify locations</button>`);
-    chips.push(`<button type="button" class="ml-chip${toolMode === "nogo" ? " armed" : ""}"${tlDis} title="Draw a hard no-go boundary (up to ${NO_GO_MAX_POINTS} draggable corners) — Accept marks every ZIP inside it won't-serve, portal-wide" onclick="toggleTool('nogo')">⛔ No-go zone${noGoPoints.length ? " (" + noGoPoints.length + ")" : ""}</button>`);
+    chips.push(`<button type="button" class="ml-chip${toolMode === "nogo" ? " armed" : ""}"${tlDis} title="Draw hard no-go boundaries (several zones, up to ${NO_GO_MAX_POINTS} draggable corners each) — Accept marks every ZIP inside them won't-serve, portal-wide" onclick="toggleTool('nogo')">⛔ No-go zones${noGoZones.length ? " (" + noGoZones.length + ")" : ""}</button>`);
     if (toolMode === "nogo") {
+      const zoneBtns = noGoZones.map((z, i) =>
+        `<button type="button" class="tstep" style="width:auto;padding:0 8px;${i === noGoActive ? "font-weight:800;color:#c22a20;border-color:#c22a20" : ""}" onclick="noGoSelectZone(${i})" title="Edit zone ${i + 1} (${z.points.length} corners)">Z${i + 1}·${z.points.length}</button>`).join("");
+      const canAccept = noGoDirty || noGoDeletedIds.length || noGoZones.some(z => z.points.length >= 3);
       chips.push(`<span class="tp-tool-controls">` +
-        `<button type="button" class="tstep" style="width:auto;padding:0 10px;color:#047857;font-weight:800" ${noGoPoints.length < 3 ? "disabled" : ""} onclick="noGoAccept()" title="Save the zone and mark every ZIP inside it won't-serve (Suggest, referrals and the main map all respect it)">✓ Accept</button>` +
-        `<button type="button" class="tstep" style="width:auto;padding:0 10px;color:#b3261e" ${noGoPoints.length ? "" : "disabled"} onclick="noGoClear()" title="Delete the zone and release its zone-derived won't-serve ZIPs (hand-set ones stay)">🗑 Clear</button>` +
+        zoneBtns +
+        `<button type="button" class="tstep" style="width:auto;padding:0 8px" onclick="noGoNewZone()" title="Start another zone (up to ${NO_GO_MAX_POINTS} corners each)">＋ Zone</button>` +
+        `<button type="button" class="tstep" style="width:auto;padding:0 8px;color:#b3261e" ${noGoZones.length ? "" : "disabled"} onclick="noGoDeleteActive()" title="Remove the active zone (apply with ✓ Accept — its ZIPs are released then)">✕ Zone</button>` +
+        `<button type="button" class="tstep" style="width:auto;padding:0 10px;color:#047857;font-weight:800" ${canAccept ? "" : "disabled"} onclick="noGoAccept()" title="Save all zones and sync won't-serve ZIPs to them (Suggest, referrals and the main map all respect it)">✓ Accept</button>` +
         `</span>`);
     }
   }
@@ -2646,20 +2660,22 @@ function updateLensVisuals() {
     lensCenterMarker.setLngLat([lensCenter.lng, lensCenter.lat]);
   }
 }
-// ── ⛔ No-go zone drawing (migration 86) ─────────────────────────────
+// ── ⛔ No-go zones drawing (migrations 86/87 — multiple per clinician) ─
 function updateNoGoVisuals() {
   if (!tpMap) return;
   ensureToolLayers();
   const src = tpMap.getSource("tp-nogo");
   if (!src) return;
   const feats = [];
-  if (noGoPoints.length >= 3) {
-    const ring = noGoPoints.map(p => [p.lng, p.lat]);
-    ring.push(ring[0]);
-    feats.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: {} });
-  } else if (noGoPoints.length === 2) {
-    feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: noGoPoints.map(p => [p.lng, p.lat]) }, properties: {} });
-  }
+  noGoZones.forEach(z => {
+    if (z.points.length >= 3) {
+      const ring = z.points.map(p => [p.lng, p.lat]);
+      ring.push(ring[0]);
+      feats.push({ type: "Feature", geometry: { type: "Polygon", coordinates: [ring] }, properties: {} });
+    } else if (z.points.length === 2) {
+      feats.push({ type: "Feature", geometry: { type: "LineString", coordinates: z.points.map(p => [p.lng, p.lat]) }, properties: {} });
+    }
+  });
   src.setData({ type: "FeatureCollection", features: feats });
 }
 function noGoDisarm() {
@@ -2669,34 +2685,45 @@ function noGoDisarm() {
 function noGoRenderMarkers() {
   noGoDisarm();
   if (!tpMap) return;
-  noGoPoints.forEach((p, i) => {
-    const el = document.createElement("div");
-    el.className = "nogo-vertex";
-    el.textContent = i + 1;
-    el.title = "Corner " + (i + 1) + " — drag to move · right-click to delete";
-    el.addEventListener("contextmenu", ev => {
-      ev.preventDefault();
-      noGoPoints.splice(i, 1);
-      noGoDirty = true;
-      noGoRenderMarkers();
-      updateNoGoVisuals();
-      renderMapLayerChips();
-      renderToolStatus();
+  const multi = noGoZones.length > 1;
+  noGoZones.forEach((z, zi) => {
+    z.points.forEach((p, pi) => {
+      const el = document.createElement("div");
+      el.className = "nogo-vertex" + (zi === noGoActive ? " zactive" : "");
+      el.textContent = multi ? (zi + 1) + "·" + (pi + 1) : String(pi + 1);
+      el.title = "Zone " + (zi + 1) + ", corner " + (pi + 1) + " — drag to move · right-click to delete · click to make zone " + (zi + 1) + " active";
+      el.addEventListener("click", ev => {
+        ev.stopPropagation();
+        if (noGoActive !== zi) { noGoActive = zi; noGoRenderMarkers(); renderMapLayerChips(); renderToolStatus(); }
+      });
+      el.addEventListener("contextmenu", ev => {
+        ev.preventDefault();
+        z.points.splice(pi, 1);
+        if (!z.points.length) {
+          if (z.id) noGoDeletedIds.push(z.id);
+          noGoZones.splice(zi, 1);
+          if (noGoActive >= noGoZones.length) noGoActive = Math.max(0, noGoZones.length - 1);
+        }
+        noGoDirty = true;
+        noGoRenderMarkers();
+        updateNoGoVisuals();
+        renderMapLayerChips();
+        renderToolStatus();
+      });
+      const marker = new mapboxgl.Marker({ element: el, draggable: true, anchor: "center" })
+        .setLngLat([p.lng, p.lat]).addTo(tpMap);
+      marker.on("drag", () => {
+        const ll = marker.getLngLat();
+        z.points[pi] = { lat: ll.lat, lng: ll.lng };
+        updateNoGoVisuals();
+      });
+      marker.on("dragend", () => { noGoDirty = true; renderToolStatus(); });
+      noGoMarkers.push(marker);
     });
-    const marker = new mapboxgl.Marker({ element: el, draggable: true, anchor: "center" })
-      .setLngLat([p.lng, p.lat]).addTo(tpMap);
-    marker.on("drag", () => {
-      const ll = marker.getLngLat();
-      noGoPoints[i] = { lat: ll.lat, lng: ll.lng };
-      updateNoGoVisuals();
-    });
-    marker.on("dragend", () => { noGoDirty = true; renderToolStatus(); });
-    noGoMarkers.push(marker);
   });
 }
-// Ray-casting point-in-polygon over the drawn corners.
-function pointInNoGo(lat, lng) {
-  const pts = noGoPoints;
+// Ray-casting point-in-polygon.
+function pointInPoly(pts, lat, lng) {
   if (pts.length < 3) return false;
   let inside = false;
   for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
@@ -2705,6 +2732,41 @@ function pointInNoGo(lat, lng) {
   }
   return inside;
 }
+function pointInAnyNoGo(lat, lng) {
+  return noGoZones.some(z => pointInPoly(z.points, lat, lng));
+}
+function noGoSelectZone(i) {
+  noGoActive = Math.max(0, Math.min(i, noGoZones.length - 1));
+  noGoRenderMarkers();
+  renderMapLayerChips();
+  renderToolStatus();
+}
+function noGoNewZone() {
+  if (!canEditPlan()) return;
+  const last = noGoZones[noGoZones.length - 1];
+  if (last && !last.points.length) { noGoActive = noGoZones.length - 1; renderToolStatus(); return; }
+  noGoZones.push({ id: null, points: [] });
+  noGoActive = noGoZones.length - 1;
+  noGoDirty = true;
+  noGoRenderMarkers();
+  renderMapLayerChips();
+  renderToolStatus();
+}
+// ✕ Zone: remove the ACTIVE zone locally — ✓ Accept applies it (one
+// write path, and the confirm lists every ZIP change before writing).
+function noGoDeleteActive() {
+  if (!canEditPlan() || !noGoZones.length) return;
+  const z = noGoZones[noGoActive];
+  if (!confirm("Remove zone " + (noGoActive + 1) + " (" + z.points.length + " corners)?\n\nPress ✓ Accept afterwards to apply — its ZIPs are released then.")) return;
+  if (z.id) noGoDeletedIds.push(z.id);
+  noGoZones.splice(noGoActive, 1);
+  noGoActive = Math.max(0, noGoZones.length - 1);
+  noGoDirty = true;
+  noGoRenderMarkers();
+  updateNoGoVisuals();
+  renderMapLayerChips();
+  renderToolStatus();
+}
 // ✓ Accept: save the polygon, then route the ZIPs inside it through the
 // EXISTING won't-serve pipeline (planner badges, main-map 🔎 Suggest,
 // suggest RPCs and referral dispatch all read that table live). Rows we
@@ -2712,10 +2774,16 @@ function pointInNoGo(lat, lng) {
 // moving a corner + re-accepting releases ZIPs that left the zone.
 async function noGoAccept() {
   if (!canEditPlan()) { showToast("Editor or admin role required"); return; }
-  if (noGoTableMissing) { showToast("⚠ Run migration 86 first (clinician_no_go_zones table missing)"); return; }
+  if (noGoTableMissing) { showToast("⚠ Run migration 86/87 first (clinician_no_go_zones table missing)"); return; }
+  if (noGoNeeds87) { showToast("⚠ Run migration 87 first (multi-zone upgrade)"); return; }
   if (exclTableMissing) { showToast("⚠ Run migration 56 first (won't-serve table missing)"); return; }
-  if (noGoPoints.length < 3) { showToast("Place at least 3 corners first"); return; }
-  showToast("Checking which ZIPs fall inside the zone…");
+  const halfBaked = noGoZones.findIndex(z => z.points.length > 0 && z.points.length < 3);
+  if (halfBaked !== -1) {
+    showToast("Zone " + (halfBaked + 1) + " has only " + noGoZones[halfBaked].points.length + " corner(s) — add to 3, or right-click its corners away");
+    return;
+  }
+  const liveZones = noGoZones.filter(z => z.points.length >= 3);
+  showToast("Checking which ZIPs fall inside the zone" + (liveZones.length === 1 ? "" : "s") + "…");
   const candidates = new Set([
     ...declaredZipSet(),
     ...Object.keys(servedZipCounts()),
@@ -2725,33 +2793,49 @@ async function noGoAccept() {
   const inside = [];
   for (const z of candidates) {
     const c = await getZipCentroid(z);
-    if (c && pointInNoGo(c.lat, c.lng)) inside.push(z);
+    if (c && pointInAnyNoGo(c.lat, c.lng)) inside.push(z);
   }
   inside.sort();
   const excludedNow = excludedZipSet();
   const zoneRows = zipExclusions.filter(r => r.note === NO_GO_NOTE).map(r => normZip(r.zip_code));
   const toAdd = inside.filter(z => !excludedNow.has(z));
   const toRemove = zoneRows.filter(z => !inside.includes(z));
-  const msg = "⛔ No-go zone — " + noGoPoints.length + " corners\n\n" +
-    (inside.length ? "ZIPs inside the zone: " + inside.join(", ") : "No known ZIP centroids fall inside the zone (it still saves as a visual boundary).") +
+  const msg = "⛔ " + liveZones.length + " no-go zone" + (liveZones.length === 1 ? "" : "s") +
+    (noGoDeletedIds.length ? " (" + noGoDeletedIds.length + " removed)" : "") + "\n\n" +
+    (inside.length ? "ZIPs inside: " + inside.join(", ") : "No known ZIP centroids fall inside (zones still save as visual boundaries).") +
     (toAdd.length ? "\n\nWill mark won't-serve: " + toAdd.join(", ") : "") +
-    (toRemove.length ? "\nWill release (left the zone): " + toRemove.join(", ") : "") +
+    (toRemove.length ? "\nWill release (left the zones): " + toRemove.join(", ") : "") +
     "\n\nHand-set won't-serve ZIPs are never touched. Apply?";
   if (!confirm(msg)) return;
-  const { error: zerr } = await db.from("clinician_no_go_zones").upsert({
-    clinician_id: clinician.id,
-    points: noGoPoints,
-    updated_at: new Date().toISOString(),
-    updated_by_email: (currentUser && currentUser.email) || null
-  }, { onConflict: "clinician_id" });
-  if (zerr) { showToast("Couldn't save zone: " + zerr.message); return; }
+  // 1. Persist zones: update existing by id, insert new, delete removed.
+  const email = (currentUser && currentUser.email) || null;
+  const now = new Date().toISOString();
+  const updates = liveZones.filter(z => z.id).map(z => ({
+    id: z.id, clinician_id: clinician.id, points: z.points, updated_at: now, updated_by_email: email
+  }));
+  if (updates.length) {
+    const { error } = await db.from("clinician_no_go_zones").upsert(updates, { onConflict: "id" });
+    if (error) { showToast("Couldn't save zones: " + error.message); return; }
+  }
+  for (const z of liveZones.filter(z => !z.id)) {
+    const { data, error } = await db.from("clinician_no_go_zones")
+      .insert({ clinician_id: clinician.id, points: z.points, updated_at: now, updated_by_email: email })
+      .select().single();
+    if (error) { showToast("Couldn't save a new zone: " + error.message); return; }
+    if (data) z.id = data.id;
+  }
+  if (noGoDeletedIds.length) {
+    const { error } = await db.from("clinician_no_go_zones").delete().in("id", noGoDeletedIds);
+    if (error) { showToast("Couldn't remove deleted zones: " + error.message); return; }
+    noGoDeletedIds = [];
+  }
+  // 2. Sync zone-derived won't-serve rows to the union of all zones.
   if (toAdd.length) {
     const rows = toAdd.map(z => ({
-      clinician_id: clinician.id, zip_code: z,
-      note: NO_GO_NOTE, set_by_email: (currentUser && currentUser.email) || null
+      clinician_id: clinician.id, zip_code: z, note: NO_GO_NOTE, set_by_email: email
     }));
     const { error } = await db.from("clinician_zip_exclusions").upsert(rows, { onConflict: "clinician_id,zip_code" });
-    if (error) { showToast("Zone saved, but marking ZIPs failed: " + error.message); return; }
+    if (error) { showToast("Zones saved, but marking ZIPs failed: " + error.message); return; }
   }
   if (toRemove.length) {
     const { error } = await db.from("clinician_zip_exclusions").delete()
@@ -2759,30 +2843,8 @@ async function noGoAccept() {
     if (error) showToast("Released-ZIP cleanup failed: " + error.message);
   }
   noGoDirty = false;
-  showToast("⛔ Zone applied — " + inside.length + " ZIP" + (inside.length === 1 ? "" : "s") + " inside; won't-serve updated portal-wide");
-  reloadExclusions();   // re-selects + rebuilds the map (zone re-renders from state)
-}
-// 🗑 Clear: delete the zone AND release only its zone-derived ZIPs.
-async function noGoClear() {
-  if (!canEditPlan()) { showToast("Editor or admin role required"); return; }
-  if (!noGoPoints.length) { showToast("No zone to clear"); return; }
-  const zoneRows = zipExclusions.filter(r => r.note === NO_GO_NOTE).map(r => normZip(r.zip_code));
-  if (!confirm("Delete the no-go zone?" + (zoneRows.length ? "\n\nIts won't-serve ZIPs will be released: " + zoneRows.join(", ") : "") + "\n\nHand-set won't-serve ZIPs stay.")) return;
-  if (!noGoTableMissing) {
-    const { error } = await db.from("clinician_no_go_zones").delete().eq("clinician_id", clinician.id);
-    if (error) { showToast("Couldn't delete zone: " + error.message); return; }
-  }
-  if (zoneRows.length && !exclTableMissing) {
-    const { error } = await db.from("clinician_zip_exclusions").delete()
-      .eq("clinician_id", clinician.id).eq("note", NO_GO_NOTE);
-    if (error) showToast("Zone deleted, but releasing ZIPs failed: " + error.message);
-  }
-  noGoPoints = [];
-  noGoDirty = false;
-  noGoDisarm();
-  updateNoGoVisuals();
-  showToast("🗑 No-go zone removed — its ZIPs released");
-  reloadExclusions();
+  showToast("⛔ Applied — " + liveZones.length + " zone" + (liveZones.length === 1 ? "" : "s") + ", " + inside.length + " ZIP" + (inside.length === 1 ? "" : "s") + " inside; won't-serve updated portal-wide");
+  reloadExclusions();   // re-selects + rebuilds the map (zones re-render from state)
 }
 
 function renderToolStatus() {
@@ -2800,11 +2862,13 @@ function renderToolStatus() {
     return;
   }
   if (toolMode === "nogo") {
-    el.textContent = "⛔ No-go zone: " + noGoPoints.length + " of " + NO_GO_MAX_POINTS + " corners" +
-      (noGoPoints.length < 3 ? " — click the map to add corners (3 minimum)." :
-        " — drag corners to adjust, right-click one to delete, click to add" +
-        (noGoPoints.length >= NO_GO_MAX_POINTS ? " (full)" : "") + ".") +
-      (noGoDirty ? " Unsaved changes — press ✓ Accept to apply." : (noGoPoints.length >= 3 ? " ✓ Accept saves it and marks the ZIPs inside won't-serve." : ""));
+    const az = noGoZones[noGoActive];
+    const n = az ? az.points.length : 0;
+    el.textContent = "⛔ " + (noGoZones.length || "No") + " zone" + (noGoZones.length === 1 ? "" : "s") +
+      (noGoZones.length ? " · editing zone " + (noGoActive + 1) + " (" + n + "/" + NO_GO_MAX_POINTS + " corners)" : "") +
+      " — click the map to add corners" + (n >= NO_GO_MAX_POINTS ? " (zone full — ＋ Zone for another)" : "") +
+      ", drag to move, right-click to delete, click a numbered corner to switch zones." +
+      (noGoDirty ? " Unsaved changes — press ✓ Accept to apply." : (noGoZones.length ? " ✓ Accept saves and marks the ZIPs inside won't-serve." : ""));
     return;
   }
   if (lensCenter) {
@@ -3255,11 +3319,13 @@ function initTerritoryMap() {
         renderToolStatus();
       } else if (toolMode === "nogo") {
         if (!canEditPlan()) return;
-        if (noGoPoints.length >= NO_GO_MAX_POINTS) {
-          showToast("Max " + NO_GO_MAX_POINTS + " corners — drag one to adjust, or right-click a corner to delete it");
+        if (!noGoZones.length) { noGoZones.push({ id: null, points: [] }); noGoActive = 0; }
+        const az = noGoZones[noGoActive];
+        if (az.points.length >= NO_GO_MAX_POINTS) {
+          showToast("Zone " + (noGoActive + 1) + " is full (" + NO_GO_MAX_POINTS + " corners) — press ＋ Zone to start another, or adjust its corners");
           return;
         }
-        noGoPoints.push(pt);
+        az.points.push(pt);
         noGoDirty = true;
         noGoRenderMarkers();
         updateNoGoVisuals();
