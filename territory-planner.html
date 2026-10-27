@@ -158,7 +158,12 @@
   #vh-body tr[data-vh-addr] { cursor: pointer; }
   #vh-body tr[data-vh-addr]:hover { background: #f4f8ff; }
   #vh-body tr.vh-sel { background: #e8f0fe; box-shadow: inset 3px 0 0 #1e4d8c; }
-  .vh-site-pulse { width: 26px; height: 26px; border-radius: 50%; border: 3px solid #1e4d8c; background: rgba(30,77,140,0.15); animation: vhPulse 1.4s ease-out infinite; pointer-events: none; }
+  /* The OUTER element is positioned by Mapbox via inline transform, so it
+     must never be animated — the CSS animation would override the inline
+     translate and strand the ring at the map's top-left corner. The pulse
+     lives on an inner child instead. */
+  .vh-site-pulse-wrap { width: 26px; height: 26px; pointer-events: none; }
+  .vh-site-pulse { width: 100%; height: 100%; border-radius: 50%; border: 3px solid #1e4d8c; background: rgba(30,77,140,0.15); animation: vhPulse 1.4s ease-out infinite; }
   @keyframes vhPulse { 0% { transform: scale(0.6); opacity: 1; } 100% { transform: scale(1.5); opacity: 0.15; } }
   .vh-totals { font-size: 12px; color: var(--muted); margin-left: auto; }
   .vh-wrap { overflow-x: auto; }
@@ -3134,23 +3139,35 @@ function vhRowValue(row, key) {
 }
 // ── Visit row → fly the territory map to that site and pulse it ──────
 let vhHighlightMarker = null;
+let vhHighlightPopup = null;
+// Clear ring + popup + row selection. Globals are nulled BEFORE removing
+// so the popup's own 'close' event can't re-enter this.
+function clearVisitHighlight() {
+  const m = vhHighlightMarker, p = vhHighlightPopup;
+  vhHighlightMarker = null; vhHighlightPopup = null;
+  if (m) { try { m.remove(); } catch (e) {} }
+  if (p) { try { p.remove(); } catch (e) {} }
+  document.querySelectorAll("#vh-body tr.vh-sel").forEach(tr => tr.classList.remove("vh-sel"));
+}
 function flyToVisitSite(encAddr, rowEl) {
+  // Clicking the already-selected row toggles the highlight off.
+  if (rowEl && rowEl.classList.contains("vh-sel")) { clearVisitHighlight(); return; }
   const addr = decodeURIComponent(encAddr);
   const key = siteAddrKey(addr);
   const site = buildSites().find(s => siteAddrKey(s.address) === key);
   if (!site || site.lat == null || site.lng == null) { showToast("No mapped location for this address yet"); return; }
   if (!tpMap) { showToast("Territory map is still loading — try again in a moment"); return; }
 
-  // Row selection highlight
-  document.querySelectorAll("#vh-body tr.vh-sel").forEach(tr => tr.classList.remove("vh-sel"));
+  // Clear any previous highlight (ring + popup + row), then select this row.
+  clearVisitHighlight();
   if (rowEl) rowEl.classList.add("vh-sel");
 
   // Bring the map into view, drop a pulsing ring, fly in.
   const mapEl = document.getElementById("tp-map");
   if (mapEl) mapEl.scrollIntoView({ behavior: "smooth", block: "center" });
-  if (vhHighlightMarker) { try { vhHighlightMarker.remove(); } catch (e) {} vhHighlightMarker = null; }
   const el = document.createElement("div");
-  el.className = "vh-site-pulse";
+  el.className = "vh-site-pulse-wrap";
+  el.innerHTML = '<div class="vh-site-pulse"></div>';
   vhHighlightMarker = new mapboxgl.Marker({ element: el }).setLngLat([site.lng, site.lat]).addTo(tpMap);
   tpMap.flyTo({ center: [site.lng, site.lat], zoom: Math.max(tpMap.getZoom(), 13), speed: 1.2, essential: true });
 
@@ -3159,12 +3176,17 @@ function flyToVisitSite(encAddr, rowEl) {
   const title = phiSafeView
     ? "Service site" + (zipOnly ? " · " + esc(zipOnly) : "")
     : esc(site.address);
-  new mapboxgl.Popup({ offset: 14 })
+  vhHighlightPopup = new mapboxgl.Popup({ offset: 14 })
     .setLngLat([site.lng, site.lat])
     .setHTML("<div style='font:12px -apple-system,Segoe UI,Roboto,sans-serif;max-width:230px'><b>" + title + "</b><br>" +
       site.totalVisits + " visits · " + site.rows.length + " episode(s)" +
       (site.latest ? "<br>Latest: " + esc(fmtDate(site.latest)) : "") + "</div>")
     .addTo(tpMap);
+  // The highlight lives exactly as long as the popup: clicking anywhere
+  // on the map (popups close on map click) or the popup's × clears the
+  // ring and the row selection too. Guard: when clearVisitHighlight()
+  // removes the popup itself, the global is already null — no re-entry.
+  vhHighlightPopup.on("close", () => { if (vhHighlightPopup) clearVisitHighlight(); });
 }
 
 function renderVisitTable(rebuildFilters) {
