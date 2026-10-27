@@ -1002,6 +1002,125 @@ function encSiteAddr(addr) {
   return encodeURIComponent(String(addr == null ? "" : addr)).replace(/'/g, "%27");
 }
 
+// ── 📍 Fix mis-geocoded sites (migration 85) ─────────────────────────
+// The import's geocoder used to take Mapbox's first hit blindly, so a
+// "Lakeshore Dr, Chicago" could land in another town 33 miles away.
+// These helpers re-geocode anchored to the site's own ZIP and persist
+// the fix on every matching history row AND the shared geocode cache
+// (so re-imports keep it).
+
+// Cache key — copied VERBATIM from clinician-map.html's
+// normalizeGeocodeAddressKey so the planner writes the same key the
+// import reads. (siteAddrKey above is a different, looser normalization
+// used only for exclusions.)
+function normalizeGeocodeAddressKey(address) {
+  return String(address ?? "")
+    .toLowerCase()
+    .replace(/\b(apartment|apt|unit|floor|fl|suite|ste)\b\.?/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+const SITE_ZIP_SANITY_MILES = 15;
+
+function siteZipOf(site) {
+  const row0 = (site.rows && site.rows[0]) || {};
+  return normZip(row0.zip_code) || ((String(site.address || "").match(/\b(\d{5})\b/) || [])[1] || "");
+}
+
+// Geocode with limit=5 + proximity bias, keep the first candidate that
+// actually lands near the site's own ZIP; none → the ZIP centroid
+// itself (approximate, but in the right area).
+async function zipAnchoredGeocode(addr, zip) {
+  const centroid = await getZipCentroid(zip);
+  try {
+    const res = await fetch("https://api.mapbox.com/geocoding/v5/mapbox.places/" + encodeURIComponent(addr) +
+      ".json?access_token=" + encodeURIComponent(mapboxgl.accessToken) + "&limit=5&country=US" +
+      (centroid ? "&proximity=" + centroid.lng + "," + centroid.lat : ""));
+    const data = await res.json();
+    const feats = (data && data.features) || [];
+    if (centroid) {
+      const near = feats.find(f => f && f.center && f.center.length >= 2 &&
+        haversineMiles(centroid.lat, centroid.lng, f.center[1], f.center[0]) <= SITE_ZIP_SANITY_MILES);
+      if (near) return { lat: near.center[1], lng: near.center[0], approx: false };
+      return { lat: centroid.lat, lng: centroid.lng, approx: true };
+    }
+    const f = feats[0];
+    return (f && f.center && f.center.length >= 2) ? { lat: f.center[1], lng: f.center[0], approx: false } : null;
+  } catch (e) {
+    return centroid ? { lat: centroid.lat, lng: centroid.lng, approx: true } : null;
+  }
+}
+
+// Core re-pin: geocode + RPC + in-memory row patch. Returns
+// { ok, approx, rows } (ok:false when cancelled or failed).
+async function repinSite(site, zip, autoApprox) {
+  const row0 = (site.rows && site.rows[0]) || {};
+  const result = await zipAnchoredGeocode(site.address, zip);
+  if (!result) { showToast("Couldn't geocode this address — no fix applied"); return { ok: false }; }
+  if (result.approx && !autoApprox) {
+    if (!confirm("Couldn't pin the exact street within " + SITE_ZIP_SANITY_MILES + " mi of ZIP " + zip +
+        ".\n\nPlace it at the center of ZIP " + zip + " instead (approximate, but in the right area)?")) {
+      return { ok: false };
+    }
+  }
+  const { data, error } = await db.rpc("fix_site_location", {
+    p_full_address: row0.full_address || null,
+    p_street: row0.street || null,
+    p_city: row0.city || null,
+    p_zip: row0.zip_code || null,
+    p_normalized_address: normalizeGeocodeAddressKey(row0.full_address || site.address),
+    p_lat: result.lat,
+    p_lng: result.lng
+  });
+  if (error) { showToast("Fix failed: " + error.message + " — has migration 85 been run?"); return { ok: false }; }
+  site.rows.forEach(r => { r.patient_lat = result.lat; r.patient_lng = result.lng; });
+  return { ok: true, approx: result.approx, rows: (data != null ? data : site.rows.length) };
+}
+
+// Popup button → fix ONE site.
+async function fixSiteLocation(encAddr) {
+  if (!canEditPlan()) { showToast("Editor or admin role required"); return; }
+  const key = siteAddrKey(decodeURIComponent(encAddr));
+  const site = buildSites().find(s => siteAddrKey(s.address) === key);
+  if (!site || !site.rows.length) { showToast("Site not found"); return; }
+  const zip = siteZipOf(site);
+  if (!zip) { showToast("This site has no ZIP to anchor to — can't verify the fix"); return; }
+  showToast("📍 Re-geocoding against ZIP " + zip + "…");
+  const r = await repinSite(site, zip, false);
+  if (!r.ok) return;
+  showToast("📍 Re-pinned" + (r.approx ? " at the ZIP center" : "") + " — " + r.rows + " history row" + (r.rows === 1 ? "" : "s") + " updated");
+  refreshAfterSiteExcl();
+}
+
+// 🧭 chip → scan EVERY site against its own ZIP, fix the outliers.
+async function verifySiteLocations() {
+  if (!canEditPlan()) { showToast("Editor or admin role required"); return; }
+  showToast("🧭 Checking every site against its own ZIP…");
+  const sites = buildSites().filter(s => s.lat != null && s.lng != null);
+  const flagged = [];
+  for (const s of sites) {
+    const zip = siteZipOf(s);
+    if (!zip) continue;
+    const c = await getZipCentroid(zip);
+    if (!c) continue;
+    const d = haversineMiles(c.lat, c.lng, s.lat, s.lng);
+    if (d > SITE_ZIP_SANITY_MILES) flagged.push({ site: s, zip, miles: d });
+  }
+  if (!flagged.length) { showToast("🧭 All sites sit within " + SITE_ZIP_SANITY_MILES + " mi of their own ZIP ✓"); return; }
+  const list = flagged.map(f => "• " + f.site.address + "  (" + Math.round(f.miles) + " mi from ZIP " + f.zip + ")").join("\n");
+  if (!confirm("🧭 " + flagged.length + " site(s) look mis-geocoded:\n\n" + list +
+      "\n\nRe-pin them now? (Anchored to each site's ZIP; a street that can't be found lands at its ZIP center.)")) return;
+  let fixed = 0;
+  for (let i = 0; i < flagged.length; i++) {
+    showToast("📍 Fixing " + (i + 1) + " of " + flagged.length + "…");
+    const r = await repinSite(flagged[i].site, flagged[i].zip, true);
+    if (r.ok) fixed += 1;
+  }
+  showToast("🧭 Fixed " + fixed + " of " + flagged.length + " flagged site" + (flagged.length === 1 ? "" : "s"));
+  refreshAfterSiteExcl();
+}
+
 let _sitesCache = null;
 function buildSites() {
   if (_sitesCache) return _sitesCache;
@@ -2271,6 +2390,9 @@ function renderMapLayerChips() {
   chips.push(`<button type="button" class="ml-chip${toolMode === "lens" ? " armed" : ""}" onclick="toggleTool('lens')">⭕ Lens</button>`);
   chips.push(`<button type="button" class="ml-chip" onclick="showTypicalReach()">🎯 Typical reach</button>`);
   chips.push(`<button type="button" class="ml-chip${tlActive ? " armed" : ""}" onclick="toggleTimeline()">🎞 Timeline</button>`);
+  if (canEditPlan()) {
+    chips.push(`<button type="button" class="ml-chip" title="Flag every site plotted more than 15 mi from its own ZIP (a wrong-town geocode) and re-pin them in one pass" onclick="verifySiteLocations()">🧭 Verify locations</button>`);
+  }
   if (toolMode === "lens" || lensCenter) {
     chips.push(`<span class="tp-tool-controls">` +
       `<button type="button" class="tstep" onclick="stepRadiusMiles(-1)" ${lensRadius <= RADIUS_MIN_MI ? "disabled" : ""} aria-label="Shrink lens">−</button>` +
@@ -2801,9 +2923,11 @@ function initTerritoryMap() {
       const actionBtn = (addr) => {
         if (!canEditPlan() || !addr) return "";
         const enc = encSiteAddr(addr);
-        return isExcluded
-          ? `<div style='margin-top:6px'><button type="button" onclick="unexcludeSite('${enc}')" style="padding:3px 9px;border:1px solid #bfe3cc;background:#e7f6ec;color:#1b7a3d;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">↩ Un-exclude</button></div>`
-          : `<div style='margin-top:6px'><button type="button" onclick="excludeSite('${enc}')" style="padding:3px 9px;border:1px solid #f3c0c0;background:#fdf2f2;color:#b3261e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer" title="Stop this location from counting in served ZIPs, gaps, work center, and the roster flag">🚫 Exclude location</button></div>`;
+        const fixBtn = `<button type="button" onclick="fixSiteLocation('${enc}')" style="padding:3px 9px;border:1px solid #bcd2f0;background:#eef4fd;color:#1e4d8c;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer" title="Pin plotted in the wrong place? Re-geocode this address anchored to its own ZIP — fixes the history rows and the geocode cache">📍 Fix location</button>`;
+        const exclBtn = isExcluded
+          ? `<button type="button" onclick="unexcludeSite('${enc}')" style="padding:3px 9px;border:1px solid #bfe3cc;background:#e7f6ec;color:#1b7a3d;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer">↩ Un-exclude</button>`
+          : `<button type="button" onclick="excludeSite('${enc}')" style="padding:3px 9px;border:1px solid #f3c0c0;background:#fdf2f2;color:#b3261e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer" title="Stop this location from counting in served ZIPs, gaps, work center, and the roster flag">🚫 Exclude location</button>`;
+        return `<div style='margin-top:6px;display:flex;gap:6px;flex-wrap:wrap'>${fixBtn}${exclBtn}</div>`;
       };
       tpMap.on("click", id, e => {
         const f = e.features && e.features[0];
