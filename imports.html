@@ -146,6 +146,21 @@
   <div class="stats-strip" id="stats-strip"></div>
 
   <div id="areas"></div>
+
+  <!-- 🧰 Data repair — admin utilities that fix data the imports created.
+       Kept OUT of the catalog grid: these aren't imports, they're one-time
+       (or rare) maintenance passes. -->
+  <div class="area">
+    <div class="area-head">🧰 Data repair</div>
+    <div class="import-grid">
+      <div class="import-card">
+        <div class="ic-top"><div class="ic-title">🧭 Fix mis-located service sites</div><div class="ic-file">One-time</div></div>
+        <div class="ic-blurb">Portal-wide sweep across <b>all clinicians</b>: every geocoded patient service site is checked against its own ZIP; any point plotted more than 15 miles away (a wrong-town geocode) is re-geocoded anchored to that ZIP — or placed at the ZIP center when the exact street can't be found — and the shared geocode cache is corrected so re-imports keep the fix. Requires migration 85.</div>
+        <div class="ic-lastrun" id="sweep-status"><span class="ic-never">Loading…</span></div>
+        <div class="ic-foot"><button class="go-btn" type="button" id="sweep-btn">🧭 Run sweep</button></div>
+      </div>
+    </div>
+  </div>
 </div>
 
 <!-- Toast -->
@@ -259,6 +274,7 @@ async function loadLog() {
   }
   renderStats();
   renderAreas();
+  renderSweepLastRun();
 }
 
 function escHtml(s) {
@@ -339,6 +355,174 @@ function goToImport(key) {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 🧭 SITE LOCATION SWEEP (migration 85) — portal-wide, admin-only.
+// Every geocoded service site (all clinicians) is checked against its
+// own ZIP; points > 15 mi away are re-geocoded ZIP-anchored and fixed
+// through the fix_site_location RPC (rows + shared geocode cache).
+// ══════════════════════════════════════════════════════════════════
+const MAPBOX_TOKEN = "pk.eyJ1IjoiZGl6dG9ueTY3IiwiYSI6ImNtbjVjNW1seTA4dWsycXBpbjRreHVoOHQifQ.7wgw3ocLrvjEmpKdx-vP1A";
+const SWEEP_SANITY_MILES = 15;
+const sweepZipCache = new Map();
+let sweepRunning = false;
+
+function sweepHaversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8, toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+function sweepStatus(html) {
+  document.getElementById("sweep-status").innerHTML = html;
+}
+async function sweepGeocode(query, limit, proximity) {
+  const res = await fetch("https://api.mapbox.com/geocoding/v5/mapbox.places/" + encodeURIComponent(query) +
+    ".json?access_token=" + encodeURIComponent(MAPBOX_TOKEN) + "&limit=" + limit + "&country=US" +
+    (proximity ? "&proximity=" + proximity.lng + "," + proximity.lat : ""));
+  const data = await res.json();
+  return (data && data.features) || [];
+}
+async function sweepZipCentroid(zip) {
+  const z = String(zip || "").trim().slice(0, 5);
+  if (!/^\d{5}$/.test(z)) return null;
+  if (sweepZipCache.has(z)) return sweepZipCache.get(z);
+  let out = null;
+  try {
+    const feats = await sweepGeocode(z, 1, null);
+    const c = feats[0] && feats[0].center;
+    if (Array.isArray(c) && c.length >= 2) out = { lat: Number(c[1]), lng: Number(c[0]) };
+  } catch (e) { /* best-effort */ }
+  sweepZipCache.set(z, out);
+  return out;
+}
+
+async function runSiteSweep() {
+  if (sweepRunning) return;
+  if (!confirm("🧭 Portal-wide site location sweep\n\nThis checks EVERY geocoded patient service site (all clinicians) against its own ZIP and re-pins any point plotted more than " + SWEEP_SANITY_MILES + " miles away. Fixed points update the stored history rows and the shared geocode cache.\n\nRun it now?")) return;
+  const btn = document.getElementById("sweep-btn");
+  sweepRunning = true;
+  btn.disabled = true; btn.textContent = "Sweeping…";
+  try {
+    // 1. Page through every service row that has coordinates.
+    sweepStatus("Loading service sites…");
+    const rows = [];
+    let from = 0;
+    for (;;) {
+      const { data, error } = await db.from("therapy_boss_completed_service_import_rows")
+        .select("full_address, street, city, zip_code, patient_lat, patient_lng")
+        .not("patient_lat", "is", null)
+        .order("id", { ascending: true })
+        .range(from, from + 999);
+      if (error) throw error;
+      rows.push.apply(rows, data || []);
+      sweepStatus("Loading service sites… " + rows.length + " rows");
+      if (!data || data.length < 1000) break;
+      from += 1000;
+    }
+
+    // 2. Collapse to distinct addresses (one fix covers every row).
+    const byAddr = new Map();
+    rows.forEach(r => {
+      const key = (r.full_address || [r.street, r.city, r.zip_code].filter(Boolean).join("|")).toLowerCase().trim();
+      if (!key) return;
+      const e = byAddr.get(key);
+      if (e) { e.rowCount += 1; return; }
+      byAddr.set(key, {
+        full_address: r.full_address || null, street: r.street || null,
+        city: r.city || null, zip: String(r.zip_code || "").trim(),
+        lat: Number(r.patient_lat), lng: Number(r.patient_lng), rowCount: 1
+      });
+    });
+    const addrs = Array.from(byAddr.values());
+    const checkable = addrs.filter(a => /^\d{5}/.test(a.zip) && isFinite(a.lat) && isFinite(a.lng));
+    const noZip = addrs.length - checkable.length;
+
+    // 3. Flag everything too far from its own ZIP.
+    const flagged = [];
+    for (let i = 0; i < checkable.length; i++) {
+      if (i % 25 === 0) sweepStatus("Checking " + (i + 1) + " of " + checkable.length + " addresses against their ZIPs…");
+      const a = checkable[i];
+      const c = await sweepZipCentroid(a.zip);
+      if (!c) continue;
+      a.centroid = c;
+      a.miles = sweepHaversineMiles(c.lat, c.lng, a.lat, a.lng);
+      if (a.miles > SWEEP_SANITY_MILES) flagged.push(a);
+    }
+    if (!flagged.length) {
+      sweepStatus("<span class='when' style='color:#047857'>✓ Clean</span> <span class='meta'>· " + checkable.length + " addresses checked, all within " + SWEEP_SANITY_MILES + " mi of their ZIP" + (noZip ? " · " + noZip + " skipped (no ZIP)" : "") + "</span>");
+      showToast("All service sites check out ✓", "ok");
+      return;
+    }
+
+    // 4. Fix each flagged address: ZIP-anchored re-geocode → RPC.
+    let fixed = 0, approx = 0, failed = 0, rowsTouched = 0;
+    for (let i = 0; i < flagged.length; i++) {
+      const a = flagged[i];
+      sweepStatus("Re-pinning " + (i + 1) + " of " + flagged.length + " mislocated addresses…");
+      let point = null, isApprox = false;
+      try {
+        const addrText = a.full_address || [a.street, a.city, a.zip].filter(Boolean).join(", ");
+        const feats = await sweepGeocode(addrText, 5, a.centroid);
+        const near = feats.find(f => f && f.center && f.center.length >= 2 &&
+          sweepHaversineMiles(a.centroid.lat, a.centroid.lng, f.center[1], f.center[0]) <= SWEEP_SANITY_MILES);
+        if (near) point = { lat: near.center[1], lng: near.center[0] };
+        else { point = a.centroid; isApprox = true; }
+      } catch (e) { point = a.centroid; isApprox = true; }
+      const normalized = String(a.full_address || ((a.street || "") + " " + (a.city || "") + " " + a.zip))
+        .toLowerCase()
+        .replace(/\b(apartment|apt|unit|floor|fl|suite|ste)\b\.?/g, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+      const { data, error } = await db.rpc("fix_site_location", {
+        p_full_address: a.full_address,
+        p_street: a.street, p_city: a.city, p_zip: a.zip || null,
+        p_normalized_address: normalized,
+        p_lat: point.lat, p_lng: point.lng
+      });
+      if (error) {
+        failed += 1;
+        if (/fix_site_location/.test(error.message || "")) {
+          sweepStatus("<span style='color:#b91c1c'>Stopped — has migration 85 been run?</span>");
+          showToast("Sweep failed: " + error.message, "err");
+          return;
+        }
+        continue;
+      }
+      fixed += 1;
+      if (isApprox) approx += 1;
+      rowsTouched += (data != null ? data : a.rowCount);
+    }
+
+    const summary = "✓ Fixed " + fixed + " of " + flagged.length + " mislocated addresses (" + rowsTouched + " history rows)" +
+      (approx ? " · " + approx + " placed at their ZIP center" : "") +
+      (failed ? " · " + failed + " failed" : "") +
+      (noZip ? " · " + noZip + " skipped (no ZIP)" : "");
+    sweepStatus("<span class='when' style='color:#047857'>" + escHtml(summary) + "</span>");
+    showToast("🧭 Sweep complete — " + fixed + " address" + (fixed === 1 ? "" : "es") + " re-pinned", "ok");
+    try {
+      await db.rpc("log_import", { p_key: "map_site_sweep", p_label: "Site location sweep", p_area: "Map", p_row_count: fixed });
+    } catch (e) { /* history tile is best-effort */ }
+  } catch (e) {
+    sweepStatus("<span style='color:#b91c1c'>Sweep failed: " + escHtml((e && e.message) || String(e)) + "</span>");
+    showToast("Sweep failed: " + ((e && e.message) || e), "err");
+  } finally {
+    sweepRunning = false;
+    btn.disabled = false; btn.textContent = "🧭 Run sweep";
+  }
+}
+
+function renderSweepLastRun() {
+  const row = logByKey["map_site_sweep"];
+  if (row && row.last_imported_at) {
+    sweepStatus(`<span class="when">Last swept ${escHtml(fmtDate(row.last_imported_at))}</span> <span class="rel">(${escHtml(relDays(row.last_imported_at))})</span>` +
+      (row.last_email ? ` <span class="meta">· ${escHtml(row.last_email)}</span>` : "") +
+      (row.last_row_count != null ? ` <span class="meta">· ${row.last_row_count} fixed</span>` : ""));
+  } else {
+    sweepStatus('<span class="ic-never">Never run</span>');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // TOAST + WIRING
 // ══════════════════════════════════════════════════════════════════
 let toastTimer = null;
@@ -358,6 +542,7 @@ document.getElementById("areas").addEventListener("click", e => {
   const btn = e.target.closest(".go-btn[data-key]");
   if (btn) goToImport(btn.dataset.key);
 });
+document.getElementById("sweep-btn").addEventListener("click", runSiteSweep);
 
 checkSession();
 </script>
