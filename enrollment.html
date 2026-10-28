@@ -1616,9 +1616,16 @@ async function drawTherapistLetter(doc) {
   wrap("Dear " + (name || "Therapist") + ",", font, 0); y -= lead * 0.5;
   wrap("We are completing your Medicare enrollment (CMS-855I) so your services can be reassigned to Dependable Care Staffing, LLC.", font, 0);
   y -= lead * 0.5;
-  // Brief Med B explainer — therapists often ask what this paperwork is.
+  // Brief Med B explainer — what it is, how it differs from the
+  // home-health work they already do, and why it benefits them.
   page.drawText("What this is:", { x: left, y, size, font: bold }); y -= lead;
-  wrap("Medicare Part B covers outpatient therapy services. This enrollment registers you with Medicare as an individual practitioner and lets Dependable Care bill Medicare for the visits you provide to Part B patients. It is a standard credentialing step at no cost to you — nothing changes about your pay or your current assignments; it simply adds Medicare Part B patients to the work we can offer you.", font, 0);
+  wrap("Medicare Part B covers outpatient therapy, including visits in the patient's home. This enrollment registers you with Medicare as an individual practitioner so Dependable Care can bill Part B visits you provide. It is a standard credentialing step at no cost to you, with no change to your pay or your current assignments.", font, 0);
+  y -= lead * 0.4;
+  page.drawText("How it compares to your home-health visits:", { x: left, y, size, font: bold }); y -= lead;
+  wrap("Home-health visits are paid under the agency's Medicare episode, so how often you can see a patient is limited by the agency's plan of care. Under Part B, visits are billed to Medicare directly, one by one - so patients can typically be seen at higher frequencies, and therapy can continue after a home-health episode ends.", font, 0);
+  y -= lead * 0.4;
+  page.drawText("What it means for you:", { x: left, y, size, font: bold }); y -= lead;
+  wrap("More visits available to you, increased frequencies where the patient needs them, and continued care with patients you already know after home-health discharge.", font, 0);
   y -= lead * 0.5;
   wrap("Please take a moment with the enclosed pages:", font, 0);
   y -= lead * 0.5;
