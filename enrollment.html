@@ -1614,7 +1614,13 @@ async function drawTherapistLetter(doc) {
   };
   page.drawText("Dependable Care Staffing, LLC", { x: left, y, size: 15, font: bold }); y -= lead * 2.5;
   wrap("Dear " + (name || "Therapist") + ",", font, 0); y -= lead * 0.5;
-  wrap("We are completing your Medicare enrollment (CMS-855I) so your services can be reassigned to Dependable Care Staffing, LLC. Please take a moment with the enclosed pages:", font, 0);
+  wrap("We are completing your Medicare enrollment (CMS-855I) so your services can be reassigned to Dependable Care Staffing, LLC.", font, 0);
+  y -= lead * 0.5;
+  // Brief Med B explainer — therapists often ask what this paperwork is.
+  page.drawText("What this is:", { x: left, y, size, font: bold }); y -= lead;
+  wrap("Medicare Part B covers outpatient therapy services. This enrollment registers you with Medicare as an individual practitioner and lets Dependable Care bill Medicare for the visits you provide to Part B patients. It is a standard credentialing step at no cost to you — nothing changes about your pay or your current assignments; it simply adds Medicare Part B patients to the work we can offer you.", font, 0);
+  y -= lead * 0.5;
+  wrap("Please take a moment with the enclosed pages:", font, 0);
   y -= lead * 0.5;
   [
     ["1.", "Please review sheet 5 (your personal information). If anything is wrong, just write the correction right over it."],
