@@ -320,6 +320,7 @@
         <button class="btn-action" id="save-btn" type="button">💾 Save Progress</button>
         <button class="btn-action" id="print-packet-btn" type="button" title="Print the Driver's License, Professional License and Diploma — one per page — to send with the packet">🖨 Print packet docs</button>
         <button class="btn-action" id="print-therapist-btn" type="button" title="Cover letter + sheet 5 (review) + sheet 24 ×2 (sign Section 15)">🖨 Print therapist pages</button>
+        <button class="btn-action" id="print-letter-btn" type="button" title="Print just the cover letter — no form sheets">🖨 Letter only</button>
         <button class="btn-action" id="install-template-btn" type="button" style="display:none;" title="One-time setup: store the SANITIZED blank CMS-855I template in the private documents bucket">📄 Install blank template</button>
         <input type="file" id="template-file-input" accept=".pdf,application/pdf" style="display:none;">
       </div>
@@ -1638,12 +1639,50 @@ async function drawTherapistLetter(doc) {
     wrap(t, font, 22);
     y -= lead * 0.4;
   });
-  y -= lead;
+  y -= lead * 0.5;
+  wrap("If you have any issues, please call or text Tony Davila, Administrator: (630) 398-6806 - or email dependablecarestaffing.hr@gmail.com.", font, 0);
+  y -= lead * 0.5;
   wrap("Thank you,", font, 0); y -= lead * 0.5;
   wrap("Dependable Care Staffing, LLC — Credentialing", bold, 0);
 }
 
 let therapistPrintFrame = null;
+// Print a pdf-lib document via a hidden iframe (no portal header/footer);
+// fall back to a new tab where the browser won't script its PDF viewer.
+async function printPdfDoc(out, toastMsg) {
+  const url = URL.createObjectURL(new Blob([await out.save()], { type: "application/pdf" }));
+  setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
+  if (therapistPrintFrame) therapistPrintFrame.remove();
+  const frame = therapistPrintFrame = document.createElement("iframe");
+  frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
+  frame.onload = () => {
+    try { frame.contentWindow.focus(); frame.contentWindow.print(); }
+    catch (e) {
+      window.open(url, "_blank");
+      showToast("Opened in a new tab — print from there.");
+    }
+  };
+  frame.src = url;
+  document.body.appendChild(frame);
+  if (toastMsg) showToast(toastMsg, "ok");
+}
+
+// 🖨 Letter only — the cover letter as its own single printed page.
+async function printLetterOnly() {
+  collectFormValues();
+  const btn = document.getElementById("print-letter-btn");
+  btn.disabled = true; btn.textContent = "Preparing…";
+  try {
+    const out = await PDFLib.PDFDocument.create();
+    await drawTherapistLetter(out);
+    await printPdfDoc(out, "Letter — 1 page.");
+  } catch (e) {
+    showToast("Print failed: " + (e.message || e), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "🖨 Letter only";
+  }
+}
+
 async function printTherapistPages() {
   collectFormValues();
   if (!document.getElementById("review-confirm").checked) {
@@ -1663,23 +1702,7 @@ async function printTherapistPages() {
     await drawTherapistLetter(out);
     const pages = await out.copyPages(pdfDoc, sheet5.concat(sheet24, sheet24));
     pages.forEach(p => out.addPage(p));
-    const url = URL.createObjectURL(new Blob([await out.save()], { type: "application/pdf" }));
-    setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000);
-    // Print from a hidden iframe (the PDF viewer adds no portal header/footer);
-    // fall back to a new tab where the browser won't script its PDF viewer.
-    if (therapistPrintFrame) therapistPrintFrame.remove();
-    const frame = therapistPrintFrame = document.createElement("iframe");
-    frame.style.cssText = "position:fixed;right:0;bottom:0;width:0;height:0;border:0;";
-    frame.onload = () => {
-      try { frame.contentWindow.focus(); frame.contentWindow.print(); }
-      catch (e) {
-        window.open(url, "_blank");
-        showToast("Opened in a new tab — print from there.");
-      }
-    };
-    frame.src = url;
-    document.body.appendChild(frame);
-    showToast("Letter + sheet 5 + sheet 24 ×2 — " + (1 + sheet5.length + sheet24.length * 2) + " pages.", "ok");
+    await printPdfDoc(out, "Letter + sheet 5 + sheet 24 ×2 — " + (1 + sheet5.length + sheet24.length * 2) + " pages.");
   } catch (e) {
     showToast("Print failed: " + (e.message || e), "err");
   } finally {
@@ -2337,6 +2360,7 @@ document.getElementById("save-btn").addEventListener("click", () => saveProvider
 document.getElementById("print-packet-btn").addEventListener("click", () => printDocSlots(PACKET_PRINT_SLOTS));
 document.getElementById("generate-btn").addEventListener("click", generatePdf);
 document.getElementById("print-therapist-btn").addEventListener("click", printTherapistPages);
+document.getElementById("print-letter-btn").addEventListener("click", printLetterOnly);
 document.getElementById("install-template-btn").addEventListener("click", () => document.getElementById("template-file-input").click());
 document.getElementById("template-file-input").addEventListener("change", e => {
   const file = e.target.files && e.target.files[0];
