@@ -1632,7 +1632,7 @@ async function drawTherapistLetter(doc) {
   [
     ["1.", "Please review sheet 5 (your personal information). If anything is wrong, just write the correction right over it."],
     ["2.", "Sign Section 15 on BOTH copies of the signature sheet. We have marked where with flags."],
-    ["3.", "Return all pages to our office in the included stamped envelope."]
+    ["3.", "Return both signed signature sheets in the included stamped envelope - and sheet 5 only if you wrote corrections on it."]
   ].forEach(([n, t]) => {
     page.drawText(n, { x: left, y, size, font: bold });
     wrap(t, font, 22);
