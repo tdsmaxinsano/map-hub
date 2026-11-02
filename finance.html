@@ -2092,14 +2092,14 @@
       <div class="cpr-modal-box" style="width:560px;">
         <div class="cpr-modal-title">📷 Scan a patient check</div>
         <div class="cpr-modal-sub">
-          Drop a clear photo of the check (JPG / PNG / HEIC). Our OCR pulls payer name, amount, check number, date, and memo — you'll get a chance to fix anything wrong before adding it to the batch.
+          Drop a clear photo of the check (JPG / PNG / HEIC) — or just press <b>Ctrl+V</b> to paste a screenshot. Our OCR pulls payer name, amount, check number, date, and memo — you'll get a chance to fix anything wrong before adding it to the batch.
         </div>
 
         <!-- Step 1: image dropzone -->
         <div id="bank-scan-step1">
           <div class="dropzone bank-scan-dropzone" id="bank-scan-dz" tabindex="0" role="button" aria-label="Drop check image">
             <div class="bank-dz-icon">📄</div>
-            <div class="bank-dz-title">Drop check image here or click to browse</div>
+            <div class="bank-dz-title">Drop, paste (Ctrl+V), or click to browse</div>
             <div class="bank-dz-sub">JPG / PNG / HEIC. One check per image.</div>
           </div>
           <input type="file" id="bank-scan-file" accept="image/*" style="display:none;" />
@@ -12606,6 +12606,22 @@ const BANK = (() => {
       // box edge) — don't close
       if (backdropMousedownInside) { backdropMousedownInside = false; return; }
       closeScanModal();
+    });
+
+    // 📋 Paste support: while the scan modal is open, Ctrl+V of a
+    // screenshot/image feeds the same OCR path as drop/browse. Ignored
+    // mid-scan and when the modal is closed, so pasting elsewhere on
+    // the Finance page never triggers a scan by surprise.
+    document.addEventListener("paste", (e) => {
+      if (modalEl.style.display === "none" || scanBusy) return;
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for (const it of items) {
+        if (it.kind === "file" && String(it.type).startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) { e.preventDefault(); handleCheckImage(f); }
+          return;
+        }
+      }
     });
   }
 
