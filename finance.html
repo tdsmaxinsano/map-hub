@@ -13237,7 +13237,8 @@ const PARK = (() => {
         "<td>" + escHtml(r.patient_name || "—") + "</td>" +
         "<td style='white-space:nowrap'>" + escHtml(fmtD(r.session_date)) + "</td>" +
         "<td><input type='number' step='0.01' min='0' data-ppk='amount' value='" + Number(r.amount).toFixed(2) + "' style='width:76px'" + (st !== "open" ? " disabled" : "") + "></td>" +
-        "<td style='font-size:11.5px;color:var(--muted)'>" + escHtml([r.vendor, r.session_number].filter(Boolean).join(" · ") || "—") + "</td>" +
+        "<td style='font-size:11.5px;color:var(--muted)'>" + escHtml([r.vendor, r.session_number].filter(Boolean).join(" · ") || "—") +
+          (r.location ? "<br><span style='font-size:10.5px;'>📍 " + escHtml(r.location) + "</span>" : "") + "</td>" +
         "<td><input type='text' data-ppk='agency_name' list='park-agency-list' value='" + escAttr(r.agency_name || "") + "' style='width:150px'" + (r.invoiced_at ? " disabled" : "") + " placeholder='—'></td>" +
         "<td>" + (r.tb_matched ? "<span title='Matched to an imported TB episode'>✓</span>" : "<span title='No TB visit matched'>⚠</span>") + "</td>" +
         "<td style='white-space:nowrap'>" + (st === "voided" ? "<span class='hist-chip' title='" + escAttr(r.void_reason || "") + "'>🚫 void</span>" : chips) + "</td>" +
