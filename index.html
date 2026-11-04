@@ -201,6 +201,38 @@
   .tool-card p { font-size: 12px; color: var(--muted); line-height: 1.4; flex: 1; }
   .tool-card .open-link { font-size: 12px; font-weight: 700; color: var(--accent); margin-top: 4px; }
 
+  /* 📞 Phone System dropdown on the Home pane */
+  .pm-details { background: var(--card); border: 1px solid var(--border); border-radius: 12px; margin-bottom: 22px; overflow: hidden; }
+  .pm-details > summary { list-style: none; cursor: pointer; padding: 14px 18px; font-size: 15px; font-weight: 800; display: flex; align-items: center; gap: 10px; user-select: none; }
+  .pm-details > summary::-webkit-details-marker { display: none; }
+  .pm-details > summary .pm-caret { transition: transform .15s; font-size: 12px; color: var(--muted); }
+  .pm-details[open] > summary .pm-caret { transform: rotate(90deg); }
+  .pm-details > summary .pm-sub { font-size: 12px; font-weight: 600; color: var(--muted); }
+  .pm-body { padding: 4px 18px 18px; border-top: 1px solid var(--border); }
+  .pm-dwrap { overflow-x: auto; margin-top: 10px; }
+  .pm-dwrap svg { min-width: 680px; display: block; margin: 0 auto; }
+  .pm-dwrap svg text { font-family: inherit; fill: var(--text); }
+  .pm-dwrap .pt { font-size: 14px; font-weight: 700; }
+  .pm-dwrap .ps { font-size: 11px; fill: var(--muted); }
+  .pm-dwrap .pm2 { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; fill: var(--muted); }
+  .pm-dwrap .pe { font-size: 11px; font-weight: 600; fill: var(--accent); }
+  .pm-dwrap .pbox { fill: var(--card); stroke: var(--border); stroke-width: 1.5; }
+  .pm-dwrap .pbox-main { fill: #e0ecff; stroke: var(--accent); }
+  .pm-dwrap .pbox-vm { fill: #fdf6e6; stroke: #b98a2d; stroke-dasharray: 4 3; }
+  .pm-dwrap .pedge { stroke: var(--accent); stroke-width: 2; fill: none; }
+  .pm-dwrap .pedge-no { stroke: #b98a2d; stroke-width: 2; fill: none; stroke-dasharray: 5 4; }
+  .pm-dwrap .pno { font-size: 11px; font-weight: 700; fill: #92400e; }
+  .pm-table-wrap { overflow-x: auto; margin-top: 14px; }
+  .pm-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .pm-table th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 2px solid var(--border); padding: 6px 9px; }
+  .pm-table td { border-bottom: 1px solid var(--border); padding: 7px 9px; vertical-align: top; }
+  .pm-table tr:last-child td { border-bottom: 0; }
+  .pm-num { font-family: ui-monospace, Consolas, monospace; font-weight: 600; white-space: nowrap; }
+  .pm-ext { display: inline-block; background: #e0ecff; color: var(--accent-strong); font-family: ui-monospace, Consolas, monospace; font-weight: 700; font-size: 11.5px; border-radius: 6px; padding: 1px 7px; }
+  .pm-notes { margin: 14px 0 0; padding-left: 20px; font-size: 12.5px; color: var(--muted); }
+  .pm-notes li { margin: 4px 0; }
+  .pm-notes b { color: var(--text); }
+
   /* News & Alerts card on the Home pane */
   .alerts-count {
     display: inline-block;
@@ -545,6 +577,87 @@
             </button>
           </div>
         </div>
+
+        <!-- 📞 Phone System reference (expanding dropdown) -->
+        <details class="pm-details">
+          <summary>
+            <span class="pm-caret">▶</span>
+            📞 Phone System
+            <span class="pm-sub">main (847) 737-5469 · who's on what number &amp; how calls flow · updated Nov 4, 2026</span>
+          </summary>
+          <div class="pm-body">
+            <div class="pm-dwrap">
+<svg viewBox="0 0 760 560" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Call flow diagram">
+  <defs>
+    <marker id="pmarr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2463eb"/>
+    </marker>
+    <marker id="pmarrw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#b98a2d"/>
+    </marker>
+  </defs>
+  <rect class="pbox" x="325" y="10" width="110" height="36" rx="18"/>
+  <text class="pt" x="380" y="33" text-anchor="middle">📞 Caller</text>
+  <line class="pedge" x1="380" y1="46" x2="380" y2="68" marker-end="url(#pmarr)"/>
+  <rect class="pbox" x="28" y="24" width="192" height="52" rx="10"/>
+  <text class="pt" x="124" y="45" text-anchor="middle">Old # · 847-983-8417</text>
+  <text class="ps" x="124" y="62" text-anchor="middle">Comcast · on CMS-855I packets</text>
+  <path class="pedge" d="M220 58 C 260 68, 280 78, 300 88" marker-end="url(#pmarr)"/>
+  <text class="pe" x="226" y="48">Be Anywhere</text>
+  <rect class="pbox pbox-main" x="245" y="72" width="270" height="62" rx="10"/>
+  <text class="pt" x="380" y="97" text-anchor="middle">Main · (847) 737-5469</text>
+  <text class="ps" x="380" y="117" text-anchor="middle">press 0 → operator (ext 103) · texts → ext 103</text>
+  <path class="pedge" d="M300 134 C 240 160, 210 175, 190 202" marker-end="url(#pmarr)"/>
+  <text class="pe" x="195" y="166">Mon–Fri 8a–5p CT</text>
+  <path class="pedge" d="M460 134 C 520 160, 550 175, 568 202" marker-end="url(#pmarr)"/>
+  <text class="pe" x="520" y="166">after hours + weekends</text>
+  <rect class="pbox" x="80" y="206" width="210" height="66" rx="10"/>
+  <text class="pt" x="185" y="228" text-anchor="middle">Anne + Khristine · ext 103</text>
+  <text class="pm2" x="185" y="246" text-anchor="middle">847-440-3500 · SMS</text>
+  <text class="ps" x="185" y="262" text-anchor="middle">Anne 8:00–3:30 · Khristine 12:30–5:30</text>
+  <rect class="pbox" x="470" y="206" width="210" height="66" rx="10"/>
+  <text class="pt" x="575" y="228" text-anchor="middle">Cheryl (solo) · ext 101</text>
+  <text class="pm2" x="575" y="246" text-anchor="middle">847-752-4604 · SMS</text>
+  <text class="ps" x="575" y="262" text-anchor="middle">8:00–5:30 · Super Admin</text>
+  <path class="pedge-no" d="M470 245 C 400 245, 360 245, 296 242" marker-end="url(#pmarrw)"/>
+  <text class="pno" x="383" y="236" text-anchor="middle">no answer</text>
+  <line class="pedge-no" x1="185" y1="272" x2="185" y2="322" marker-end="url(#pmarrw)"/>
+  <text class="pno" x="196" y="302">no answer</text>
+  <rect class="pbox pbox-vm" x="80" y="326" width="210" height="58" rx="10"/>
+  <text class="pt" x="185" y="350" text-anchor="middle">🎙 Voicemail · ext 103</text>
+  <text class="ps" x="185" y="368" text-anchor="middle">only Anne can hear it · text copy by email</text>
+  <text class="pe" x="575" y="316" text-anchor="middle">direct calls only — main number never rings here</text>
+  <rect class="pbox" x="470" y="326" width="210" height="66" rx="10"/>
+  <text class="pt" x="575" y="348" text-anchor="middle">Gio + Kim · ext 102</text>
+  <text class="pm2" x="575" y="366" text-anchor="middle">847-954-7022 · SMS</text>
+  <text class="ps" x="575" y="382" text-anchor="middle">Gio &amp; Kim both 8:00–5:30</text>
+  <line class="pedge-no" x1="575" y1="392" x2="575" y2="440" marker-end="url(#pmarrw)"/>
+  <text class="pno" x="586" y="420">no answer</text>
+  <rect class="pbox pbox-vm" x="470" y="444" width="210" height="52" rx="10"/>
+  <text class="pt" x="575" y="466" text-anchor="middle">🎙 Voicemail · ext 102</text>
+  <text class="ps" x="575" y="483" text-anchor="middle">only Gio's line sees it</text>
+  <text class="ps" x="80" y="540">All three extensions ring their RingCentral apps 24/7 — no desk phones, no personal schedules.</text>
+</svg>
+            </div>
+            <div class="pm-table-wrap">
+              <table class="pm-table">
+                <thead><tr><th>Ext</th><th>Direct number</th><th>Answered by</th><th>Work hours</th><th>Main-number calls</th></tr></thead>
+                <tbody>
+                  <tr><td><span class="pm-ext">103</span></td><td class="pm-num">847-440-3500</td><td>Anne + Khristine</td><td class="pm-num">Anne 8–3:30 · Khr 12:30–5:30</td><td>Business hours + press-0 + texts + every missed-call chain</td></tr>
+                  <tr><td><span class="pm-ext">101</span></td><td class="pm-num">847-752-4604</td><td>Cheryl (Super Admin)</td><td class="pm-num">8:00–5:30</td><td>After hours &amp; weekends</td></tr>
+                  <tr><td><span class="pm-ext">102</span></td><td class="pm-num">847-954-7022</td><td>Gio + Kim</td><td class="pm-num">both 8:00–5:30</td><td>Direct dials only</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <ul class="pm-notes">
+              <li><b>Record a call:</b> press <b>*</b> then <b>9</b> during any call. Missed calls arrive as voicemail-to-text emails.</li>
+              <li><b>The funnel:</b> every unanswered call ends in <b>Anne's ext 103 voicemail</b> — only she can hear that box.</li>
+              <li><b>Old number (847) 983-8417</b> (on the CMS-855I packets) forwards to the main number via Comcast Be Anywhere.</li>
+              <li><b>Vacation switches</b> (RingCentral, all OFF): Anne→Gio · Cheryl→Gio · Gio→Cheryl — one flip skips a line entirely.</li>
+              <li>Outgoing caller ID shows <b>DEPENDABLE CARE</b>. Main routing live-tested Nov 4 → Anne answered ✓</li>
+            </ul>
+          </div>
+        </details>
 
         <h2 class="section-title">Activity</h2>
         <div class="recent-row">
