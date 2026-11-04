@@ -13288,7 +13288,9 @@ const PARK = (() => {
       list.forEach(r => ws.addRow({
         no, date: today, bank: c.bank, payee: clin, memo,
         gl: c.gl,
-        desc: "Parking — " + (r.patient_name || "patient") + " " + fmtD(r.session_date) + (r.session_number ? " · " + r.session_number : ""),
+        desc: ["Parking — " + (r.patient_name || "patient") + " " + fmtD(r.session_date),
+               [r.vendor, r.session_number].filter(Boolean).join(" "),
+               r.location].filter(Boolean).join(" · "),
         amt: Number(Number(r.amount).toFixed(2))
       }));
     }
@@ -13350,7 +13352,7 @@ const PARK = (() => {
         no: inv.no, cust: agency, date: fmt(today), due: fmt(due), terms: "Net 15",
         sdate: r.session_date ? fmt(new Date(r.session_date + "T00:00:00")) : fmt(today),
         item: c.item,
-        desc: [r.patient_name, r.clinician_name, [r.vendor, r.session_number].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+        desc: [r.patient_name, r.clinician_name, [r.vendor, r.session_number].filter(Boolean).join(" "), r.location].filter(Boolean).join(" · "),
         qty: 1, rate: Number(Number(r.amount).toFixed(2)), amt: Number(Number(r.amount).toFixed(2))
       }));
     }
