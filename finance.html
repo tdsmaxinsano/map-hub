@@ -2185,8 +2185,11 @@
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center;">
           <button type="button" class="btn-primary" id="park-checks-btn">⬇ Checks XLSX (SaaSant)</button>
           <button type="button" class="btn-primary" id="park-invoices-btn">⬇ Invoices XLSX (SaaSant)</button>
+          <button type="button" class="btn-secondary" id="park-attach-btn" title="Select many receipt screenshots — the AI reads each session number and files it onto the matching row">📎 Bulk attach receipts</button>
+          <input type="file" id="park-attach-file" accept="image/*" multiple style="display:none;">
           <span style="font-size:12px;color:var(--muted);">Checks: one per clinician, all their open rows. Invoices: one PK-number per agency, Net 15, a line per receipt.</span>
         </div>
+        <div id="park-attach-log" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:12.5px;line-height:1.8;max-height:260px;overflow:auto;"></div>
         <div id="park-batch-receipts" style="margin-top:10px;"></div>
       </div>
     </div><!-- /#qbt-parking-section -->
@@ -13463,6 +13466,69 @@ const PARK = (() => {
     return new Blob([arr], { type });
   }
 
+  // ── Bulk attach: AI reads each image's session number → files it on the row ──
+  const SESSION_PROMPT =
+    "This is a parking receipt (ParkChicago, garage ticket, meter app, etc.). " +
+    "Return ONLY a JSON object, no markdown fences: {\"session_number\": \"...\"} — " +
+    "the receipt's Session Number / ticket number digits exactly as printed, or null if none is visible.";
+  let attachBusy = false;
+
+  async function bulkAttach(files) {
+    if (attachBusy) return;
+    const imgs = Array.from(files).filter(f => f.type.startsWith("image/"));
+    if (!imgs.length) { showToast("No image files selected.", "error"); return; }
+    attachBusy = true;
+    const logEl = document.getElementById("park-attach-log");
+    logEl.style.display = "block";
+    logEl.innerHTML = "";
+    const line = (html) => { const d = document.createElement("div"); d.innerHTML = html; logEl.appendChild(d); logEl.scrollTop = logEl.scrollHeight; return d; };
+    const digits = (v) => String(v == null ? "" : v).replace(/\D/g, "");
+    let ok = 0;
+    try {
+      const session = (await db.auth.getSession()).data.session;
+      const token = session ? session.access_token : SUPABASE_KEY;
+      for (let i = 0; i < imgs.length; i++) {
+        const f = imgs[i];
+        const d = line("⏳ " + escHtml(f.name) + " — reading… (" + (i + 1) + "/" + imgs.length + ")");
+        try {
+          const durl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(f); });
+          const res = await fetch(`${SUPABASE_URL}/functions/v1/tb-scan-image`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "apikey": SUPABASE_KEY },
+            body: JSON.stringify({ imageBase64: durl, prompt: SESSION_PROMPT })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || res.statusText);
+          const content = data?.choices?.[0]?.message?.content || "";
+          let parsed = {};
+          try { parsed = JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim()); } catch (e) {}
+          const sess = digits(parsed.session_number);
+          if (!sess) { d.innerHTML = "⚠ " + escHtml(f.name) + " — couldn't read a session number (attach by rescanning this one through 📷)"; continue; }
+          const row = rows.find(r => !r.voided_at && digits(r.session_number) === sess);
+          if (!row) { d.innerHTML = "⚠ " + escHtml(f.name) + " — no row with session # " + sess; continue; }
+          if (row.receipt_path) { d.innerHTML = "⏭ " + escHtml(f.name) + " — session " + sess + " already has a receipt, skipped"; continue; }
+          const ext = (f.type.split("/")[1] || "png").replace("jpeg", "jpg");
+          const path = row.id + "." + ext;
+          const up = await db.storage.from(RECEIPT_BUCKET).upload(path, f, { contentType: f.type || "image/png", upsert: true });
+          if (up.error) throw new Error(up.error.message);
+          const upd = await db.from("parking_reimbursements").update({ receipt_path: path }).eq("id", row.id).select().single();
+          if (upd.error) throw new Error(upd.error.message);
+          Object.assign(row, upd.data);
+          ok += 1;
+          d.innerHTML = "✓ " + escHtml(f.name) + " → " + sess + " · " + escHtml(row.patient_name || "—") + " · " + (row.session_date || "");
+        } catch (e) {
+          d.innerHTML = "✗ " + escHtml(f.name) + " — " + escHtml(e.message || String(e));
+        }
+      }
+    } finally {
+      attachBusy = false;
+      document.getElementById("park-attach-file").value = "";
+      line("<b>Done — attached " + ok + " of " + imgs.length + ".</b>");
+      render();
+      showToast("Attached " + ok + " receipt" + (ok === 1 ? "" : "s") + ".", ok ? "success" : "error");
+    }
+  }
+
   // ── init ────────────────────────────────────────────────────────
   function init() {
     if (initialized) return;
@@ -13607,6 +13673,8 @@ const PARK = (() => {
 
     document.getElementById("park-checks-btn").addEventListener("click", downloadChecks);
     document.getElementById("park-invoices-btn").addEventListener("click", downloadInvoices);
+    document.getElementById("park-attach-btn").addEventListener("click", () => document.getElementById("park-attach-file").click());
+    document.getElementById("park-attach-file").addEventListener("change", (e) => { if (e.target.files && e.target.files.length) bulkAttach(e.target.files); });
 
     loadRefs();
     load();
