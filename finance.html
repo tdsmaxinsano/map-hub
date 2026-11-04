@@ -13199,6 +13199,16 @@ const PARK = (() => {
     });
   }
   function fmtD(d) { return d ? String(d).slice(0, 10) : "—"; }
+  // "Coning, Constance" / "Constance Coning" → "C. Coning" (exports only; full name stays in the table)
+  function abbrevPatient(name) {
+    const s = String(name || "").trim();
+    if (!s) return "";
+    const m = s.match(/^([^,]+),\s*(.+)$/);
+    if (m) return m[2].trim().charAt(0).toUpperCase() + ". " + m[1].trim();
+    const parts = s.split(/\s+/);
+    if (parts.length >= 2) return parts[0].charAt(0).toUpperCase() + ". " + parts.slice(1).join(" ");
+    return s;
+  }
   function render() {
     const open = rows.filter(r => statusOf(r) === "open");
     const needCheck = open.filter(r => !r.check_exported_at);
@@ -13285,7 +13295,7 @@ const PARK = (() => {
       list.forEach(r => ws.addRow({
         no, date: today, bank: c.bank, payee: clin, memo,
         gl: c.gl,
-        desc: "Parking — " + (r.patient_name || "patient") + " " + fmtD(r.session_date) + (r.session_number ? " · " + r.session_number : ""),
+        desc: "Parking — " + (abbrevPatient(r.patient_name) || "patient") + " " + fmtD(r.session_date) + (r.session_number ? " · " + r.session_number : ""),
         amt: Number(Number(r.amount).toFixed(2))
       }));
     }
@@ -13347,7 +13357,7 @@ const PARK = (() => {
         no: inv.no, cust: agency, date: fmt(today), due: fmt(due), terms: "Net 15",
         sdate: r.session_date ? fmt(new Date(r.session_date + "T00:00:00")) : fmt(today),
         item: c.item,
-        desc: [r.patient_name, r.clinician_name, [r.vendor, r.session_number].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+        desc: [abbrevPatient(r.patient_name), r.clinician_name, [r.vendor, r.session_number].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
         qty: 1, rate: Number(Number(r.amount).toFixed(2)), amt: Number(Number(r.amount).toFixed(2))
       }));
     }
