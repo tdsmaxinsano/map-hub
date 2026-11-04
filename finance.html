@@ -1900,6 +1900,14 @@
          ②  (TBD — likely Vendor/Customer reconciler or 1099 prep)
          ③  (TBD — surfaces as user needs come up) -->
   <div class="view" id="view-qbtools">
+    <!-- QB Tools sub-tabs: Bank Match & Deposits stay together; Parking
+         Reimbursements is its own category (fills a reserved slot). -->
+    <div class="tab-bar" id="qbt-tabs" style="margin-bottom:14px;">
+      <button type="button" class="tab-btn active" data-qbt="bank">🏦 Bank Match &amp; Deposits</button>
+      <button type="button" class="tab-btn" data-qbt="parking">🅿️ Parking Reimbursements <span class="badge" id="qbt-park-badge" style="display:none;"></span></button>
+    </div>
+
+    <div id="qbt-bank-section">
     <div class="card">
       <h3>① Bank Match — Chase deposits → QB Bank Deposit</h3>
       <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
@@ -2085,6 +2093,103 @@
         </table>
       </div>
     </div>
+    </div><!-- /#qbt-bank-section -->
+
+    <!-- 🅿️ PARKING REIMBURSEMENTS (migration 89) — clinicians text parking
+         receipts from patient visits; pay them via QB Check AND bill the
+         home-health agency via QB Invoice (PK#### series), both through
+         SaaSant XLSX. Receipts scan via AI; requests verify against the
+         imported TB completed-service episodes (agency auto-fill). -->
+    <div id="qbt-parking-section" style="display:none;">
+      <div class="card">
+        <h3>🅿️ Parking Reimbursements <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— pay the clinician, invoice the agency, one queue</span></h3>
+        <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+          Scan the receipt screenshot a clinician texts (or add by hand). Each request is checked against the imported TherapyBoss visits — a match fills the home-health agency automatically. Then two downloads: <strong>⬇ Checks</strong> (one QB check per clinician via SaaSant → Bulk Upload → Check) and <strong>⬇ Invoices</strong> (one PK-series invoice per agency via SaaSant → Bulk Upload → Invoice). A row closes when it's on both.
+        </p>
+
+        <details id="park-settings" style="margin-bottom:12px;">
+          <summary style="cursor:pointer;font-weight:700;font-size:13px;">⚙ Settings (bank · check GL · invoice item · next PK number)</summary>
+          <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:10px;">
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px;">Bank account (QB)
+              <input type="text" id="park-set-bank" style="width:180px;" />
+            </label>
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px;">Check expense account
+              <input type="text" id="park-set-gl" style="width:220px;" />
+            </label>
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px;">Invoice product/service (exact QB name)
+              <input type="text" id="park-set-item" style="width:220px;" />
+            </label>
+            <label style="font-size:11px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:4px;">Next invoice #
+              <input type="text" id="park-set-nextinv" style="width:100px;" placeholder="PK0023" />
+            </label>
+          </div>
+          <p style="font-size:11.5px;color:var(--muted);margin:8px 0 0;">Agency names must match QB <b>Customer</b> names exactly, and the product/service must exist in QB — same rule as Bank Match. First time: upload one small batch in SaaSant to confirm the column mapping.</p>
+        </details>
+
+        <!-- Intake: AI receipt scan + manual add -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
+          <button type="button" class="btn-primary" id="park-scan-btn">📷 Scan a parking receipt</button>
+          <span style="font-size:12px;color:var(--muted);">drop / paste / browse a receipt screenshot — or add by hand:</span>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;" id="park-quickadd">
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Clinician
+            <input type="text" id="park-add-clin" list="park-clin-list" style="width:160px;" />
+          </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Patient
+            <input type="text" id="park-add-patient" style="width:150px;" />
+          </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Session date
+            <input type="date" id="park-add-date" style="width:135px;" />
+          </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Amount $
+            <input type="number" step="0.01" min="0" id="park-add-amount" style="width:85px;" />
+          </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Vendor
+            <input type="text" id="park-add-vendor" style="width:120px;" placeholder="ParkChicago" />
+          </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Agency (HH)
+            <input type="text" id="park-add-agency" list="park-agency-list" style="width:160px;" placeholder="auto from TB" />
+          </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Source
+            <select id="park-add-source" style="width:85px;"><option value="text">text</option><option value="email">email</option><option value="other">other</option></select>
+          </label>
+          <button type="button" class="btn-secondary" id="park-add-btn">＋ Add</button>
+          <datalist id="park-clin-list"></datalist>
+          <datalist id="park-agency-list"></datalist>
+        </div>
+
+        <div class="stat-strip" id="park-stats"></div>
+
+        <div class="hist-tools" style="margin-top:10px;">
+          <span class="hist-chip park-chip active" data-park-filter="open">Open</span>
+          <span class="hist-chip park-chip" data-park-filter="needs_check">Needs check</span>
+          <span class="hist-chip park-chip" data-park-filter="needs_invoice">Needs invoice</span>
+          <span class="hist-chip park-chip" data-park-filter="closed">Closed</span>
+          <span class="hist-chip park-chip" data-park-filter="voided">Voided</span>
+          <span class="hist-chip park-chip" data-park-filter="all">All</span>
+          <input type="text" id="park-search" placeholder="Search clinician / patient / agency / session#…" style="flex:1;min-width:200px;" />
+          <button type="button" class="btn-secondary" id="park-rematch-btn" title="Re-run the TherapyBoss match on every unmatched open row (useful after a new Completed Services import)">🔍 Re-match</button>
+        </div>
+
+        <div style="overflow-x:auto;margin-top:8px;">
+          <table class="hist-table" id="park-table">
+            <thead><tr>
+              <th>Clinician</th><th>Patient</th><th>Session</th><th>Amount</th><th>Vendor · Session #</th><th>Agency (HH)</th><th>TB</th><th>Status</th><th>📎</th><th></th>
+            </tr></thead>
+            <tbody id="park-tbody">
+              <tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted);">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;align-items:center;">
+          <button type="button" class="btn-primary" id="park-checks-btn">⬇ Checks XLSX (SaaSant)</button>
+          <button type="button" class="btn-primary" id="park-invoices-btn">⬇ Invoices XLSX (SaaSant)</button>
+          <span style="font-size:12px;color:var(--muted);">Checks: one per clinician, all their open rows. Invoices: one PK-number per agency, Net 15, a line per receipt.</span>
+        </div>
+        <div id="park-batch-receipts" style="margin-top:10px;"></div>
+      </div>
+    </div><!-- /#qbt-parking-section -->
 
     <!-- Scan-a-check modal (lives inside view-qbtools so it's removed
          from layout when not on the QB Tools tab) -->
@@ -2163,6 +2268,66 @@
           <button type="button" class="btn-secondary" id="bank-scan-cancel">Cancel</button>
           <button type="button" class="btn-secondary" id="bank-scan-rescan" style="display:none;">↻ Scan a different image</button>
           <button type="button" class="btn-primary"   id="bank-scan-add"    style="display:none;" disabled>+ Add to batch</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🅿️ Scan-a-parking-receipt modal -->
+    <div class="cpr-modal-overlay" id="park-scan-modal" style="display:none;">
+      <div class="cpr-modal-box" style="width:600px;">
+        <div class="cpr-modal-title">📷 Scan a parking receipt</div>
+        <div class="cpr-modal-sub">Drop, paste (<b>Ctrl+V</b>), or browse the screenshot a clinician sent (ParkChicago email, garage ticket…). The AI pulls vendor, session #, date, address, and the TOTAL — then you add the clinician and patient.</div>
+
+        <div id="park-scan-step1">
+          <div class="dropzone bank-scan-dropzone" id="park-scan-dz" tabindex="0" role="button" aria-label="Drop receipt image">
+            <div class="bank-dz-icon">🅿️</div>
+            <div class="bank-dz-title">Drop, paste (Ctrl+V), or click to browse</div>
+            <div class="bank-dz-sub">JPG / PNG / HEIC. One receipt per image.</div>
+          </div>
+          <input type="file" id="park-scan-file" accept="image/*" style="display:none;" />
+        </div>
+
+        <div id="park-scan-busy" style="display:none;text-align:center;padding:24px;">
+          <div style="font-size:24px;margin-bottom:8px;">🔍</div>
+          <div style="font-size:14px;color:var(--muted);">Reading the receipt… (~5 seconds)</div>
+        </div>
+
+        <div id="park-scan-form" style="display:none;">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;">
+            <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Clinician *
+              <input type="text" id="park-scan-clin" list="park-clin-list" />
+            </label>
+            <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Patient
+              <input type="text" id="park-scan-patient" />
+            </label>
+            <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Session date
+              <input type="date" id="park-scan-date" />
+            </label>
+            <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Total amount $ *
+              <input type="number" step="0.01" min="0" id="park-scan-amount" />
+            </label>
+            <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Vendor
+              <input type="text" id="park-scan-vendor" />
+            </label>
+            <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Session #
+              <input type="text" id="park-scan-session" />
+            </label>
+            <label style="grid-column:1 / -1;font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Parking address
+              <input type="text" id="park-scan-location" />
+            </label>
+            <label style="grid-column:1 / -1;font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Agency (HH) — auto-fills from the TB visit match when found
+              <input type="text" id="park-scan-agency" list="park-agency-list" />
+            </label>
+          </div>
+          <div id="park-scan-thumb-wrap" style="display:none;margin-top:10px;text-align:center;">
+            <img id="park-scan-thumb" alt="Receipt preview" style="max-height:160px;max-width:100%;border:1px solid var(--border);border-radius:8px;" />
+          </div>
+        </div>
+
+        <div class="cpr-modal-footer">
+          <button type="button" class="btn-secondary" id="park-scan-cancel">Cancel</button>
+          <button type="button" class="btn-secondary" id="park-scan-rescan" style="display:none;">↻ Scan a different image</button>
+          <button type="button" class="btn-primary"   id="park-scan-add"    style="display:none;">＋ Add request</button>
         </div>
       </div>
     </div>
@@ -12844,6 +13009,613 @@ const HIST = (() => {
 })();
 
 // ══════════════════════════════════════════════════════════════════
+// 🅿️ PARKING REIMBURSEMENTS (migration 89) — scan/enter requests,
+// verify against imported TB episodes, pay clinicians (QB Checks) and
+// bill agencies (QB Invoices, PK#### series) via SaaSant XLSX.
+// ══════════════════════════════════════════════════════════════════
+const PARK = (() => {
+  const LS_KEY = "dcs_finance_parking_v1";
+  const RECEIPT_BUCKET = "parking-receipts";
+  const PARK_PROMPT =
+    "This is a screenshot or photo of a PARKING receipt (ParkChicago email, garage ticket, meter app, etc.). " +
+    "Extract the following and return ONLY a JSON object — no markdown fences, no explanation. Use null when unsure:\n" +
+    "- vendor (string — the parking provider, e.g. 'ParkChicago', 'The Buckingham Garage')\n" +
+    "- session_number (string — session / ticket / reference number)\n" +
+    "- session_date (string, YYYY-MM-DD — the parking date)\n" +
+    "- location (string — the parking address or zone name)\n" +
+    "- total (number — the TOTAL amount paid INCLUDING convenience/service fees; prefer the 'Total' line over component fees)";
+
+  let rows = [], clinicians = [], agencyNames = [];
+  let filter = "open", search = "";
+  let scanBusy = false, scanDataUrl = null, scanExt = "png";
+  let lastInvoiceBatches = null;   // [{invoiceNo, agency, rowIds}] for the receipts panel
+  let initialized = false, tableMissing = false, uid = null;
+
+  // ── settings ────────────────────────────────────────────────────
+  const DEFAULTS = { bank: "Chase Bank #5133", gl: "Travel - Parking Reimbursement", item: "Parking Reinbursment", nextinv: "PK0023" };
+  function loadSettings() {
+    try { return Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(LS_KEY) || "{}")); }
+    catch (e) { return Object.assign({}, DEFAULTS); }
+  }
+  function saveSettings() {
+    const c = cfg();
+    try { localStorage.setItem(LS_KEY, JSON.stringify(c)); } catch (e) {}
+  }
+  function cfg() {
+    return {
+      bank:    document.getElementById("park-set-bank").value.trim()    || DEFAULTS.bank,
+      gl:      document.getElementById("park-set-gl").value.trim()      || DEFAULTS.gl,
+      item:    document.getElementById("park-set-item").value.trim()    || DEFAULTS.item,
+      nextinv: document.getElementById("park-set-nextinv").value.trim() || DEFAULTS.nextinv
+    };
+  }
+
+  // ── data ────────────────────────────────────────────────────────
+  async function load() {
+    const { data, error } = await db.from("parking_reimbursements").select("*").order("created_at", { ascending: false });
+    if (error) {
+      tableMissing = true;
+      document.getElementById("park-tbody").innerHTML =
+        '<tr><td colspan="10" style="padding:24px;text-align:center;color:#b3261e;">' + escHtml(error.message) + " — has migration 89 been run?</td></tr>";
+      return;
+    }
+    tableMissing = false;
+    rows = data || [];
+    render();
+  }
+  async function loadRefs() {
+    try {
+      let r = await db.from("clinician_v2").select("id,name").eq("status", "Active").order("name");
+      if (r.error) r = await db.from("clinician_v2").select("id,name").order("name");
+      clinicians = r.data || [];
+      document.getElementById("park-clin-list").innerHTML =
+        clinicians.map(c => '<option value="' + escAttr(c.name) + '">').join("");
+    } catch (e) { /* datalist stays empty — free-text still works */ }
+    try {
+      const { data } = await db.from("home_health_agencies").select("name").order("name");
+      agencyNames = (data || []).map(r => r.name).filter(Boolean);
+      document.getElementById("park-agency-list").innerHTML =
+        agencyNames.map(n => '<option value="' + escAttr(n) + '">').join("");
+    } catch (e) {}
+  }
+
+  // ── TB episode match → verifies the visit + supplies the agency ──
+  function pNorm(s) { return String(s || "").toLowerCase().replace(/[^a-z0-9, ]+/g, " ").replace(/\s+/g, " ").trim(); }
+  function nameVariants(s) {
+    const n = pNorm(s);
+    const out = [n];
+    if (n.includes(",")) {
+      const [last, first] = n.split(",").map(x => x.trim());
+      if (first) out.push((first + " " + last).trim());
+    } else {
+      const sp = n.split(" ");
+      if (sp.length === 2) out.push(sp[1] + ", " + sp[0], sp[1] + " " + sp[0]);
+    }
+    return out.filter(Boolean);
+  }
+  function longestToken(s) {
+    return pNorm(s).split(/[ ,]+/).filter(Boolean).sort((a, b) => b.length - a.length)[0] || "";
+  }
+  async function tbMatch(patient, clinicianName, dateIso) {
+    const probe = longestToken(patient);
+    if (!probe || probe.length < 3) return null;
+    const { data, error } = await db.from("therapy_boss_completed_service_import_rows")
+      .select("id, patient_name, clinician_names_raw, start_of_episode, ended_date, last_visit_date, referral_source, primary_payer")
+      .ilike("patient_name", "%" + probe + "%").limit(60);
+    if (error || !data || !data.length) return null;
+    const pats = nameVariants(patient);
+    const clinTok = longestToken(clinicianName);
+    for (const r of data) {
+      const pn = pNorm(r.patient_name);
+      if (!pats.some(v => pn.includes(v) || v.includes(pn))) continue;
+      if (clinTok && !pNorm(r.clinician_names_raw).includes(clinTok)) continue;
+      if (dateIso) {
+        const d = Date.parse(dateIso);
+        const s = r.start_of_episode ? Date.parse(r.start_of_episode) - 7 * 86400000 : -Infinity;
+        const eRaw = r.ended_date || r.last_visit_date;
+        const e = (eRaw ? Date.parse(eRaw) : Date.now()) + 7 * 86400000;
+        if (isFinite(d) && (d < s || d > e)) continue;
+      }
+      return r;
+    }
+    return null;
+  }
+
+  // ── add (shared by scan + manual) ───────────────────────────────
+  function dupCheck(f) {
+    const sess = String(f.session_number || "").trim().toLowerCase();
+    return rows.find(r => !r.voided_at && (
+      (sess && String(r.session_number || "").trim().toLowerCase() === sess) ||
+      (pNorm(r.clinician_name) === pNorm(f.clinician_name) && r.session_date === f.session_date &&
+       Number(r.amount) === Number(f.amount))
+    ));
+  }
+  async function addRow(f, receipt) {
+    if (!f.clinician_name) { showToast("Clinician is required.", "error"); return null; }
+    if (!(Number(f.amount) > 0)) { showToast("Amount must be more than $0.", "error"); return null; }
+    const dup = dupCheck(f);
+    if (dup && !confirm("⚠ Possible DUPLICATE:\n\n" + dup.clinician_name + " · " + (dup.session_number || dup.session_date || "") +
+        " · $" + Number(dup.amount).toFixed(2) + " already in the queue.\n\nAdd anyway?")) return null;
+    const clin = clinicians.find(c => pNorm(c.name) === pNorm(f.clinician_name));
+    const tb = await tbMatch(f.patient_name, f.clinician_name, f.session_date);
+    const payload = {
+      clinician_id: clin ? clin.id : null,
+      clinician_name: f.clinician_name,
+      patient_name: f.patient_name || null,
+      session_date: f.session_date || null,
+      vendor: f.vendor || null,
+      session_number: f.session_number || null,
+      location: f.location || null,
+      amount: Number(Number(f.amount).toFixed(2)),
+      agency_name: f.agency_name || (tb ? (tb.referral_source || tb.primary_payer || null) : null),
+      source: f.source || "text",
+      notes: f.notes || null,
+      tb_matched: !!tb,
+      tb_row_id: tb ? tb.id : null,
+      created_by: uid
+    };
+    const { data, error } = await db.from("parking_reimbursements").insert(payload).select().single();
+    if (error) { showToast("Add failed: " + error.message, "error"); return null; }
+    let row = data;
+    if (receipt) {
+      try {
+        const path = row.id + "." + (receipt.ext || "png");
+        const up = await db.storage.from(RECEIPT_BUCKET).upload(path, receipt.blob, { contentType: receipt.type || "image/png", upsert: true });
+        if (!up.error) {
+          const upd = await db.from("parking_reimbursements").update({ receipt_path: path }).eq("id", row.id).select().single();
+          if (!upd.error && upd.data) row = upd.data;
+        } else showToast("Saved, but receipt upload failed: " + up.error.message, "error");
+      } catch (e) { showToast("Saved, but receipt upload failed: " + e.message, "error"); }
+    }
+    rows.unshift(row);
+    render();
+    showToast(tb
+      ? "Added ✓ TB visit matched — agency " + (row.agency_name || "—")
+      : "Added — ⚠ no TB visit matched; set the agency by hand.");
+    return row;
+  }
+
+  // ── queue render ────────────────────────────────────────────────
+  function statusOf(r) {
+    if (r.voided_at) return "voided";
+    if (r.check_exported_at && r.invoiced_at) return "closed";
+    return "open";
+  }
+  function visible() {
+    const q = search.toLowerCase().trim();
+    return rows.filter(r => {
+      const st = statusOf(r);
+      if (filter === "open"          && st !== "open") return false;
+      if (filter === "needs_check"   && (st !== "open" || r.check_exported_at)) return false;
+      if (filter === "needs_invoice" && (st !== "open" || r.invoiced_at)) return false;
+      if (filter === "closed" && st !== "closed") return false;
+      if (filter === "voided" && st !== "voided") return false;
+      if (q) {
+        const hay = [r.clinician_name, r.patient_name, r.agency_name, r.session_number, r.vendor, r.location, r.invoice_no]
+          .filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }
+  function fmtD(d) { return d ? String(d).slice(0, 10) : "—"; }
+  function render() {
+    const open = rows.filter(r => statusOf(r) === "open");
+    const needCheck = open.filter(r => !r.check_exported_at);
+    const needInv = open.filter(r => !r.invoiced_at && r.agency_name);
+    const needInvNoAg = open.filter(r => !r.invoiced_at && !r.agency_name);
+    const sum = a => a.reduce((s, r) => s + Number(r.amount || 0), 0);
+    const oldest = open.length ? open.map(r => r.date_received || r.created_at).sort()[0] : null;
+    document.getElementById("park-stats").innerHTML =
+      '<div class="stat-pill"><div class="lbl">Open</div><div class="val">' + open.length + "</div></div>" +
+      '<div class="stat-pill flag"><div class="lbl">Needs check</div><div class="val">' + needCheck.length + " · $" + sum(needCheck).toFixed(2) + "</div></div>" +
+      '<div class="stat-pill flag"><div class="lbl">Needs invoice</div><div class="val">' + needInv.length + " · $" + sum(needInv).toFixed(2) + "</div></div>" +
+      (needInvNoAg.length ? '<div class="stat-pill"><div class="lbl">⚠ No agency</div><div class="val">' + needInvNoAg.length + "</div></div>" : "") +
+      (oldest ? '<div class="stat-pill"><div class="lbl">Oldest open</div><div class="val">' + escHtml(fmtD(oldest)) + "</div></div>" : "");
+    const badge = document.getElementById("qbt-park-badge");
+    if (badge) { badge.textContent = open.length || ""; badge.style.display = open.length ? "" : "none"; }
+
+    const list = visible();
+    const body = document.getElementById("park-tbody");
+    if (!list.length) {
+      body.innerHTML = '<tr><td colspan="10" style="padding:24px;text-align:center;color:var(--muted);">' +
+        (rows.length ? "Nothing matches this filter." : "No parking requests yet — scan a receipt or add one above.") + "</td></tr>";
+      return;
+    }
+    body.innerHTML = list.map(r => {
+      const st = statusOf(r);
+      const chips =
+        (r.check_exported_at ? '<span class="hist-chip" style="background:#d9f3e6;color:#065f46;" title="' + escAttr(r.check_batch || "") + '">check ✓</span>' :
+          '<span class="hist-chip" style="background:#fdf3e2;color:#92400e;">check ·</span>') +
+        (r.invoiced_at ? '<span class="hist-chip" style="background:#d9f3e6;color:#065f46;" title="' + escAttr(r.invoice_no || "") + '">' + escHtml(r.invoice_no || "inv ✓") + "</span>" :
+          '<span class="hist-chip" style="background:#fdf3e2;color:#92400e;">invoice ·</span>');
+      return "<tr data-pid='" + escAttr(r.id) + "'" + (st === "voided" ? " style='opacity:.45'" : "") + ">" +
+        "<td>" + escHtml(r.clinician_name) + "</td>" +
+        "<td>" + escHtml(r.patient_name || "—") + "</td>" +
+        "<td style='white-space:nowrap'>" + escHtml(fmtD(r.session_date)) + "</td>" +
+        "<td><input type='number' step='0.01' min='0' data-ppk='amount' value='" + Number(r.amount).toFixed(2) + "' style='width:76px'" + (st !== "open" ? " disabled" : "") + "></td>" +
+        "<td style='font-size:11.5px;color:var(--muted)'>" + escHtml([r.vendor, r.session_number].filter(Boolean).join(" · ") || "—") + "</td>" +
+        "<td><input type='text' data-ppk='agency_name' list='park-agency-list' value='" + escAttr(r.agency_name || "") + "' style='width:150px'" + (r.invoiced_at ? " disabled" : "") + " placeholder='—'></td>" +
+        "<td>" + (r.tb_matched ? "<span title='Matched to an imported TB episode'>✓</span>" : "<span title='No TB visit matched'>⚠</span>") + "</td>" +
+        "<td style='white-space:nowrap'>" + (st === "voided" ? "<span class='hist-chip' title='" + escAttr(r.void_reason || "") + "'>🚫 void</span>" : chips) + "</td>" +
+        "<td>" + (r.receipt_path ? "<button type='button' class='btn-secondary' data-pact='receipt' style='padding:2px 8px;font-size:11px'>📎</button>" : "") + "</td>" +
+        "<td style='white-space:nowrap'>" +
+          (st === "open" ? "<button type='button' class='btn-secondary' data-pact='void' style='padding:2px 8px;font-size:11px' title='Exclude from exports (kept for audit)'>🚫</button>" : "") +
+          (st === "voided" ? "<button type='button' class='btn-secondary' data-pact='unvoid' style='padding:2px 8px;font-size:11px'>↩</button>" : "") +
+        "</td>" +
+      "</tr>";
+    }).join("");
+  }
+
+  async function patchRow(id, patch) {
+    const { data, error } = await db.from("parking_reimbursements").update(patch).eq("id", id).select().single();
+    if (error) { showToast("Save failed: " + error.message, "error"); return false; }
+    const i = rows.findIndex(r => r.id === id);
+    if (i !== -1) rows[i] = data;
+    return true;
+  }
+
+  // ── exports ─────────────────────────────────────────────────────
+  function stamp() { return (new Date()).toISOString().slice(0, 10).replace(/-/g, ""); }
+  async function downloadChecks() {
+    if (typeof ExcelJS === "undefined") { showToast("Spreadsheet writer didn't load — hard-refresh.", "error"); return; }
+    const pend = rows.filter(r => statusOf(r) === "open" && !r.check_exported_at);
+    if (!pend.length) { showToast("No rows waiting for a check."); return; }
+    const c = cfg(); saveSettings();
+    const byClin = new Map();
+    pend.forEach(r => { const k = r.clinician_name; if (!byClin.has(k)) byClin.set(k, []); byClin.get(k).push(r); });
+    const batch = "PRK-C-" + stamp();
+    const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet("Sheet1");
+    ws.columns = [
+      { header: "Check No", key: "no", width: 18 },
+      { header: "Payment Date", key: "date", width: 14 },
+      { header: "Bank Account", key: "bank", width: 22 },
+      { header: "Payee", key: "payee", width: 24 },
+      { header: "Memo", key: "memo", width: 32 },
+      { header: "Line Account", key: "gl", width: 26 },
+      { header: "Line Description", key: "desc", width: 42 },
+      { header: "Line Amount", key: "amt", width: 12 }
+    ];
+    const today = new Date().toLocaleDateString("en-US");
+    let n = 0;
+    for (const [clin, list] of Array.from(byClin.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+      n += 1;
+      const no = batch + "-" + n;
+      const memo = "Parking reimbursement — " + list.length + " visit" + (list.length === 1 ? "" : "s");
+      list.forEach(r => ws.addRow({
+        no, date: today, bank: c.bank, payee: clin, memo,
+        gl: c.gl,
+        desc: "Parking — " + (r.patient_name || "patient") + " " + fmtD(r.session_date) + (r.session_number ? " · " + r.session_number : ""),
+        amt: Number(Number(r.amount).toFixed(2))
+      }));
+    }
+    ws.getRow(1).font = { bold: true };
+    ws.getColumn("amt").numFmt = "#,##0.00";
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = "Parking_Checks_" + stamp() + ".xlsx";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    const now = new Date().toISOString();
+    const ids = pend.map(r => r.id);
+    const { error } = await db.from("parking_reimbursements").update({ check_exported_at: now, check_batch: batch }).in("id", ids);
+    if (error) showToast("Downloaded, but stamping rows failed: " + error.message, "error");
+    else pend.forEach(r => { r.check_exported_at = now; r.check_batch = batch; });
+    render();
+    showToast("⬇ " + fname + " — " + byClin.size + " check" + (byClin.size === 1 ? "" : "s") + " / " + pend.length + " lines. SaaSant → Bulk Upload → Check.");
+    try { await db.rpc("log_import", { p_key: "fin_parking", p_label: "Parking Reimbursements", p_area: "Finance", p_row_count: pend.length, p_notes: "checks " + batch + " · " + byClin.size + " payees" }); } catch (e) {}
+  }
+
+  function nextInvoiceNo(cur) {
+    const m = String(cur || "").match(/^([A-Za-z]*)(\d+)$/);
+    if (!m) return { no: cur || "PK0001", next: cur };
+    const num = String(Number(m[2]) + 1).padStart(m[2].length, "0");
+    return { no: m[1] + m[2], next: m[1] + num };
+  }
+  async function downloadInvoices() {
+    if (typeof ExcelJS === "undefined") { showToast("Spreadsheet writer didn't load — hard-refresh.", "error"); return; }
+    const pend = rows.filter(r => statusOf(r) === "open" && !r.invoiced_at && r.agency_name);
+    const skipped = rows.filter(r => statusOf(r) === "open" && !r.invoiced_at && !r.agency_name).length;
+    if (!pend.length) { showToast("No invoice-ready rows" + (skipped ? " — " + skipped + " open row(s) have no agency set." : ".")); return; }
+    const c = cfg();
+    const byAgency = new Map();
+    pend.forEach(r => { const k = r.agency_name; if (!byAgency.has(k)) byAgency.set(k, []); byAgency.get(k).push(r); });
+    const wb = new ExcelJS.Workbook(), ws = wb.addWorksheet("Sheet1");
+    ws.columns = [
+      { header: "Invoice No", key: "no", width: 12 },
+      { header: "Customer", key: "cust", width: 28 },
+      { header: "Invoice Date", key: "date", width: 14 },
+      { header: "Due Date", key: "due", width: 14 },
+      { header: "Terms", key: "terms", width: 10 },
+      { header: "Line Service Date", key: "sdate", width: 14 },
+      { header: "Line Item", key: "item", width: 24 },
+      { header: "Line Description", key: "desc", width: 46 },
+      { header: "Line Qty", key: "qty", width: 8 },
+      { header: "Line Rate", key: "rate", width: 12 },
+      { header: "Line Amount", key: "amt", width: 12 }
+    ];
+    const today = new Date(); const due = new Date(Date.now() + 15 * 86400000);
+    const fmt = d => d.toLocaleDateString("en-US");
+    let inv = { next: c.nextinv };
+    const batches = [];
+    for (const [agency, list] of Array.from(byAgency.entries()).sort((a, b) => a[0].localeCompare(b[0]))) {
+      inv = nextInvoiceNo(inv.next);
+      batches.push({ invoiceNo: inv.no, agency, ids: list.map(r => r.id) });
+      list.sort((a, b) => String(a.session_date || "").localeCompare(String(b.session_date || "")));
+      list.forEach(r => ws.addRow({
+        no: inv.no, cust: agency, date: fmt(today), due: fmt(due), terms: "Net 15",
+        sdate: r.session_date ? fmt(new Date(r.session_date + "T00:00:00")) : fmt(today),
+        item: c.item,
+        desc: [r.patient_name, r.clinician_name, [r.vendor, r.session_number].filter(Boolean).join(" ")].filter(Boolean).join(" · "),
+        qty: 1, rate: Number(Number(r.amount).toFixed(2)), amt: Number(Number(r.amount).toFixed(2))
+      }));
+    }
+    ws.getRow(1).font = { bold: true };
+    ws.getColumn("rate").numFmt = "#,##0.00"; ws.getColumn("amt").numFmt = "#,##0.00";
+    const buf = await wb.xlsx.writeBuffer();
+    const fname = "Parking_Invoices_" + stamp() + ".xlsx";
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    a.download = fname; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    const now = new Date().toISOString();
+    for (const b of batches) {
+      const { error } = await db.from("parking_reimbursements").update({ invoiced_at: now, invoice_no: b.invoiceNo }).in("id", b.ids);
+      if (error) { showToast("Stamping " + b.invoiceNo + " failed: " + error.message, "error"); continue; }
+      rows.forEach(r => { if (b.ids.includes(r.id)) { r.invoiced_at = now; r.invoice_no = b.invoiceNo; } });
+    }
+    document.getElementById("park-set-nextinv").value = inv.next;
+    saveSettings();
+    lastInvoiceBatches = batches;
+    render(); renderBatchReceipts();
+    showToast("⬇ " + fname + " — " + batches.length + " invoice" + (batches.length === 1 ? "" : "s") + " (" + batches.map(b => b.invoiceNo).join(", ") + ")" + (skipped ? " · " + skipped + " skipped (no agency)" : "") + ". SaaSant → Bulk Upload → Invoice.");
+    try { await db.rpc("log_import", { p_key: "fin_parking", p_label: "Parking Reimbursements", p_area: "Finance", p_row_count: pend.length, p_notes: "invoices " + batches.map(b => b.invoiceNo).join(",") }); } catch (e) {}
+  }
+
+  // Receipts for the just-exported invoices — download & attach to the
+  // QB invoice email, same as the office does today.
+  function renderBatchReceipts() {
+    const host = document.getElementById("park-batch-receipts");
+    if (!host) return;
+    if (!lastInvoiceBatches) { host.innerHTML = ""; return; }
+    host.innerHTML = lastInvoiceBatches.map(b => {
+      const withR = rows.filter(r => b.ids.includes(r.id) && r.receipt_path);
+      return "<div style='font-size:12.5px;margin-top:6px;'><b>" + escHtml(b.invoiceNo) + " · " + escHtml(b.agency) + "</b> — 📎 " +
+        (withR.length
+          ? withR.map(r => "<button type='button' class='btn-secondary' data-pact='receipt' data-pid='" + escAttr(r.id) + "' style='padding:1px 7px;font-size:11px;margin:0 2px;'>" + escHtml((r.clinician_name || "").split(" ")[0] + " " + fmtD(r.session_date)) + "</button>").join("")
+          : "<span style='color:var(--muted)'>no stored receipts</span>") +
+        " <span style='color:var(--muted)'>attach these to the QB invoice email</span></div>";
+    }).join("");
+  }
+
+  async function openReceipt(id) {
+    const r = rows.find(x => x.id === id);
+    if (!r || !r.receipt_path) return;
+    const { data, error } = await db.storage.from(RECEIPT_BUCKET).createSignedUrl(r.receipt_path, 300);
+    if (error || !data) { showToast("Couldn't open receipt: " + (error ? error.message : "no URL"), "error"); return; }
+    window.open(data.signedUrl, "_blank", "noopener");
+  }
+
+  // ── scan modal ──────────────────────────────────────────────────
+  function openScan() {
+    scanDataUrl = null; scanBusy = false;
+    document.getElementById("park-scan-step1").style.display = "block";
+    document.getElementById("park-scan-busy").style.display = "none";
+    document.getElementById("park-scan-form").style.display = "none";
+    document.getElementById("park-scan-thumb-wrap").style.display = "none";
+    document.getElementById("park-scan-add").style.display = "none";
+    document.getElementById("park-scan-rescan").style.display = "none";
+    document.getElementById("park-scan-file").value = "";
+    ["clin", "patient", "date", "amount", "vendor", "session", "location", "agency"].forEach(k => {
+      document.getElementById("park-scan-" + k).value = "";
+    });
+    document.getElementById("park-scan-modal").style.display = "flex";
+  }
+  function closeScan() { document.getElementById("park-scan-modal").style.display = "none"; scanDataUrl = null; scanBusy = false; }
+
+  async function handleReceiptImage(file) {
+    if (scanBusy) return;
+    if (!file.type.startsWith("image/")) { showToast("Please use an image file (JPG/PNG/HEIC).", "error"); return; }
+    scanBusy = true;
+    scanExt = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+    document.getElementById("park-scan-step1").style.display = "none";
+    document.getElementById("park-scan-busy").style.display = "block";
+    try {
+      scanDataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(file); });
+      document.getElementById("park-scan-thumb").src = scanDataUrl;
+      const session = (await db.auth.getSession()).data.session;
+      const token = session ? session.access_token : SUPABASE_KEY;
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/tb-scan-image`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "apikey": SUPABASE_KEY },
+        body: JSON.stringify({ imageBase64: scanDataUrl, prompt: PARK_PROMPT })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || res.statusText);
+      const content = data?.choices?.[0]?.message?.content || "";
+      const jsonStr = content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+      let parsed = {};
+      try { parsed = JSON.parse(jsonStr); } catch (e) { showToast("OCR couldn't parse — fill the fields by hand.", "error"); }
+      document.getElementById("park-scan-vendor").value   = parsed.vendor || "";
+      document.getElementById("park-scan-session").value  = parsed.session_number || "";
+      document.getElementById("park-scan-date").value     = parsed.session_date || "";
+      document.getElementById("park-scan-location").value = parsed.location || "";
+      document.getElementById("park-scan-amount").value   = parsed.total != null ? Number(parsed.total).toFixed(2) : "";
+      document.getElementById("park-scan-busy").style.display = "none";
+      document.getElementById("park-scan-form").style.display = "block";
+      document.getElementById("park-scan-thumb-wrap").style.display = "block";
+      document.getElementById("park-scan-add").style.display = "";
+      document.getElementById("park-scan-rescan").style.display = "";
+      document.getElementById("park-scan-clin").focus();
+    } catch (e) {
+      showToast("Scan failed: " + e.message, "error");
+      document.getElementById("park-scan-step1").style.display = "block";
+      document.getElementById("park-scan-busy").style.display = "none";
+    } finally { scanBusy = false; }
+  }
+
+  function dataUrlToBlob(durl) {
+    const [meta, b64] = durl.split(",");
+    const type = (meta.match(/data:(.*?);/) || [])[1] || "image/png";
+    const bin = atob(b64); const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type });
+  }
+
+  // ── init ────────────────────────────────────────────────────────
+  function init() {
+    if (initialized) return;
+    initialized = true;
+    db.auth.getUser().then(r => { uid = r.data && r.data.user ? r.data.user.id : null; }).catch(() => {});
+    const s = loadSettings();
+    document.getElementById("park-set-bank").value = s.bank;
+    document.getElementById("park-set-gl").value = s.gl;
+    document.getElementById("park-set-item").value = s.item;
+    document.getElementById("park-set-nextinv").value = s.nextinv;
+    ["park-set-bank", "park-set-gl", "park-set-item", "park-set-nextinv"].forEach(id =>
+      document.getElementById(id).addEventListener("blur", saveSettings));
+
+    // sub-tabs
+    document.querySelectorAll("#qbt-tabs [data-qbt]").forEach(btn => btn.addEventListener("click", () => {
+      document.querySelectorAll("#qbt-tabs [data-qbt]").forEach(b => b.classList.toggle("active", b === btn));
+      document.getElementById("qbt-bank-section").style.display = btn.dataset.qbt === "bank" ? "" : "none";
+      document.getElementById("qbt-parking-section").style.display = btn.dataset.qbt === "parking" ? "" : "none";
+      try { localStorage.setItem("dcs_finance_qbt_tab", btn.dataset.qbt); } catch (e) {}
+    }));
+    try {
+      if (localStorage.getItem("dcs_finance_qbt_tab") === "parking") {
+        document.querySelector('#qbt-tabs [data-qbt="parking"]').click();
+      }
+    } catch (e) {}
+
+    // intake
+    document.getElementById("park-scan-btn").addEventListener("click", openScan);
+    document.getElementById("park-scan-cancel").addEventListener("click", closeScan);
+    document.getElementById("park-scan-rescan").addEventListener("click", openScan);
+    const dz = document.getElementById("park-scan-dz"), fi = document.getElementById("park-scan-file");
+    dz.addEventListener("click", () => fi.click());
+    dz.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fi.click(); } });
+    dz.addEventListener("dragover", e => e.preventDefault());
+    dz.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) handleReceiptImage(f); });
+    fi.addEventListener("change", e => { const f = e.target.files[0]; e.target.value = ""; if (f) handleReceiptImage(f); });
+    document.addEventListener("paste", e => {
+      const modal = document.getElementById("park-scan-modal");
+      if (!modal || modal.style.display === "none" || scanBusy) return;
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for (const it of items) {
+        if (it.kind === "file" && String(it.type).startsWith("image/")) {
+          const f = it.getAsFile();
+          if (f) { e.preventDefault(); handleReceiptImage(f); }
+          return;
+        }
+      }
+    });
+    document.getElementById("park-scan-add").addEventListener("click", async () => {
+      const f = {
+        clinician_name: document.getElementById("park-scan-clin").value.trim(),
+        patient_name: document.getElementById("park-scan-patient").value.trim(),
+        session_date: document.getElementById("park-scan-date").value || null,
+        amount: document.getElementById("park-scan-amount").value,
+        vendor: document.getElementById("park-scan-vendor").value.trim(),
+        session_number: document.getElementById("park-scan-session").value.trim(),
+        location: document.getElementById("park-scan-location").value.trim(),
+        agency_name: document.getElementById("park-scan-agency").value.trim(),
+        source: "text"
+      };
+      const receipt = scanDataUrl ? { blob: dataUrlToBlob(scanDataUrl), ext: scanExt, type: "image/" + (scanExt === "jpg" ? "jpeg" : scanExt) } : null;
+      const row = await addRow(f, receipt);
+      if (row) closeScan();
+    });
+
+    document.getElementById("park-add-btn").addEventListener("click", async () => {
+      const f = {
+        clinician_name: document.getElementById("park-add-clin").value.trim(),
+        patient_name: document.getElementById("park-add-patient").value.trim(),
+        session_date: document.getElementById("park-add-date").value || null,
+        amount: document.getElementById("park-add-amount").value,
+        vendor: document.getElementById("park-add-vendor").value.trim(),
+        agency_name: document.getElementById("park-add-agency").value.trim(),
+        source: document.getElementById("park-add-source").value
+      };
+      const row = await addRow(f, null);
+      if (row) {
+        ["park-add-patient", "park-add-date", "park-add-amount", "park-add-agency"].forEach(id => { document.getElementById(id).value = ""; });
+        document.getElementById("park-add-patient").focus();   // clinician stays for the next one
+      }
+    });
+    document.getElementById("park-quickadd").addEventListener("keydown", e => {
+      if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); document.getElementById("park-add-btn").click(); }
+    });
+
+    // filters + search + rematch
+    document.querySelectorAll(".park-chip").forEach(chip => chip.addEventListener("click", () => {
+      filter = chip.dataset.parkFilter;
+      document.querySelectorAll(".park-chip").forEach(c => c.classList.toggle("active", c === chip));
+      render();
+    }));
+    let st = null;
+    document.getElementById("park-search").addEventListener("input", e => {
+      clearTimeout(st); st = setTimeout(() => { search = e.target.value; render(); }, 250);
+    });
+    document.getElementById("park-rematch-btn").addEventListener("click", async () => {
+      const targets = rows.filter(r => statusOf(r) === "open" && !r.tb_matched);
+      if (!targets.length) { showToast("Nothing unmatched to re-check."); return; }
+      showToast("Re-matching " + targets.length + " request(s) against TB visits…");
+      let hits = 0;
+      for (const r of targets) {
+        const tb = await tbMatch(r.patient_name, r.clinician_name, r.session_date);
+        if (tb) {
+          hits += 1;
+          await patchRow(r.id, { tb_matched: true, tb_row_id: tb.id, agency_name: r.agency_name || tb.referral_source || tb.primary_payer || null });
+        }
+      }
+      render();
+      showToast("🔍 " + hits + " of " + targets.length + " now matched.");
+    });
+
+    // table edits + actions (delegated)
+    document.getElementById("park-tbody").addEventListener("change", async e => {
+      const t = e.target.closest("[data-ppk]");
+      if (!t) return;
+      const id = t.closest("tr").dataset.pid;
+      const field = t.dataset.ppk;
+      let v = t.value;
+      if (field === "amount") { v = Number(v); if (!(v > 0)) { showToast("Amount must be > 0", "error"); return; } }
+      await patchRow(id, { [field]: field === "agency_name" ? (v.trim() || null) : v });
+      render();
+    });
+    const actHandler = async e => {
+      const btn = e.target.closest("[data-pact]");
+      if (!btn) return;
+      const id = btn.dataset.pid || (btn.closest("tr") && btn.closest("tr").dataset.pid);
+      if (!id) return;
+      if (btn.dataset.pact === "receipt") { openReceipt(id); return; }
+      if (btn.dataset.pact === "void") {
+        const reason = prompt("Void this request? Reason (kept for audit):", "duplicate");
+        if (reason === null) return;
+        await patchRow(id, { voided_at: new Date().toISOString(), void_reason: reason || null });
+        render();
+      }
+      if (btn.dataset.pact === "unvoid") {
+        await patchRow(id, { voided_at: null, void_reason: null });
+        render();
+      }
+    };
+    document.getElementById("park-tbody").addEventListener("click", actHandler);
+    document.getElementById("park-batch-receipts").addEventListener("click", actHandler);
+
+    document.getElementById("park-checks-btn").addEventListener("click", downloadChecks);
+    document.getElementById("park-invoices-btn").addEventListener("click", downloadInvoices);
+
+    loadRefs();
+    load();
+  }
+
+  return { init };
+})();
+
+// ══════════════════════════════════════════════════════════════════
 // EXP — Expense Categorizer (② card under QB Tools)
 // Drop Chase CSV → keyword-categorize expense rows (Amount < 0) via
 // rules from expense_category_rules (migration 33) → user reviews +
@@ -14444,6 +15216,7 @@ function maybeInitVdr() {
 function maybeInitQbTools() {
   if (currentRole === "admin") BANK.init();
   if (currentRole === "admin") HIST.init();
+  if (currentRole === "admin") PARK.init();
 }
 function maybeInitExpenses() {
   if (currentRole === "admin") EXP.init();
@@ -14475,7 +15248,7 @@ launchApp = async function(user) {
     const params = new URLSearchParams(location.search);
     const v = params.get("view") || "landing";
     if (v === "billing")  { VDR.init(); IIF.init(); ATTACH.init(); }
-    if (v === "qbtools")  { BANK.init(); HIST.init(); }
+    if (v === "qbtools")  { BANK.init(); HIST.init(); PARK.init(); }
     if (v === "expenses") { EXP.init(); EDOC.init(); }
     if (v === "payroll")  { cprPayRatesInit(); }
     if (v === "renewals") { RENEW.init(); }
