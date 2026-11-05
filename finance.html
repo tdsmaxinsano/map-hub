@@ -13535,7 +13535,24 @@ const PARK = (() => {
   }
 
   // ── Receipts ZIP + SaaSant attachments map ──────────────────────
+  // SaaSant's Attachments upload caps at 10 MB, so each receipt is
+  // re-encoded as a compact JPEG and the batch auto-splits into parts.
+  const ZIP_PART_LIMIT = 8 * 1024 * 1024;
   let attachZipBusy = false;
+
+  async function compressReceipt(blob) {
+    try {
+      const bmp = await createImageBitmap(blob);
+      const scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+      const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+      const cv = document.createElement("canvas"); cv.width = w; cv.height = h;
+      cv.getContext("2d").drawImage(bmp, 0, 0, w, h);
+      const out = await new Promise(res => cv.toBlob(res, "image/jpeg", 0.8));
+      if (out && out.size < blob.size) return { blob: out, ext: "jpg" };
+    } catch (e) { /* fall through — keep original */ }
+    return { blob, ext: null };
+  }
+
   async function downloadAttachZip() {
     if (attachZipBusy) return;
     const inv = rows.filter(r => r.invoice_no && r.receipt_path && !r.voided_at)
@@ -13547,28 +13564,39 @@ const PARK = (() => {
     const btn = document.getElementById("park-attachzip-btn");
     const label = btn.textContent;
     try {
-      const zip = new JSZip();
-      const lines = ["Transaction Type,Doc Number,File Name"];
-      let ok = 0; const fails = [];
+      const entries = []; const fails = [];
       for (let i = 0; i < inv.length; i++) {
         const r = inv[i];
         btn.textContent = "⏳ " + (i + 1) + "/" + inv.length + "…";
-        const ext = (String(r.receipt_path).split(".").pop() || "png").toLowerCase();
-        const fname = [r.invoice_no, r.session_date || "nodate", r.session_number || String(r.id).slice(0, 8)].join("_") + "." + ext;
         const { data, error } = await db.storage.from(RECEIPT_BUCKET).download(r.receipt_path);
         if (error || !data) { fails.push((r.session_number || r.id) + " (" + (error ? error.message : "no data") + ")"); continue; }
-        zip.file(fname, data);
-        lines.push("Invoice," + r.invoice_no + "," + fname);
-        ok += 1;
+        const c = await compressReceipt(data);
+        const ext = c.ext || (String(r.receipt_path).split(".").pop() || "png").toLowerCase();
+        const fname = [r.invoice_no, r.session_date || "nodate", r.session_number || String(r.id).slice(0, 8)].join("_") + "." + ext;
+        entries.push({ fname, blob: c.blob, inv: r.invoice_no, size: c.blob.size });
       }
-      zip.file("attachments-map.csv", lines.join("\r\n") + "\r\n");
-      const blob = await zip.generateAsync({ type: "blob" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "Parking_Receipts_Attachments_" + stamp() + ".zip";
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
-      showToast("ZIP ready: " + ok + " receipt" + (ok === 1 ? "" : "s") + " + attachments-map.csv" +
+      if (!entries.length) { showToast("Nothing downloadable — " + fails.slice(0, 3).join(", "), "error"); return; }
+      // split into parts under the SaaSant limit
+      const parts = [[]]; let size = 0;
+      for (const e of entries) {
+        if (size + e.size > ZIP_PART_LIMIT && parts[parts.length - 1].length) { parts.push([]); size = 0; }
+        parts[parts.length - 1].push(e); size += e.size;
+      }
+      for (let p = 0; p < parts.length; p++) {
+        btn.textContent = "📦 zipping " + (p + 1) + "/" + parts.length + "…";
+        const zip = new JSZip();
+        const lines = ["Transaction Type,Doc Number,File Name"];
+        parts[p].forEach(e => { zip.file(e.fname, e.blob); lines.push("Invoice," + e.inv + "," + e.fname); });
+        zip.file("attachments-map.csv", lines.join("\r\n") + "\r\n");
+        const blob = await zip.generateAsync({ type: "blob" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "Parking_Receipts_Attachments_" + stamp() + (parts.length > 1 ? "_part" + (p + 1) + "of" + parts.length : "") + ".zip";
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+        if (p < parts.length - 1) await new Promise(res => setTimeout(res, 500));
+      }
+      showToast(entries.length + " receipt" + (entries.length === 1 ? "" : "s") + " in " + parts.length + " ZIP" + (parts.length === 1 ? "" : "s — upload each to SaaSant Attachments (its own map is inside)") +
         (fails.length ? " — " + fails.length + " failed: " + fails.slice(0, 3).join(", ") : ""), fails.length ? "error" : "success");
     } finally {
       attachZipBusy = false;
