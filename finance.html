@@ -13276,9 +13276,9 @@ const PARK = (() => {
       { header: "Bank Account", key: "bank", width: 22 },
       { header: "Payee", key: "payee", width: 24 },
       { header: "Memo", key: "memo", width: 32 },
-      { header: "Line Account", key: "gl", width: 26 },
-      { header: "Line Description", key: "desc", width: 42 },
-      { header: "Line Amount", key: "amt", width: 12 }
+      { header: "Category Account", key: "gl", width: 26 },
+      { header: "Category Description", key: "desc", width: 42 },
+      { header: "Category Line Amount", key: "amt", width: 12 }
     ];
     const today = new Date().toLocaleDateString("en-US");
     let n = 0;
@@ -13334,12 +13334,12 @@ const PARK = (() => {
       { header: "Invoice Date", key: "date", width: 14 },
       { header: "Due Date", key: "due", width: 14 },
       { header: "Terms", key: "terms", width: 10 },
-      { header: "Line Service Date", key: "sdate", width: 14 },
-      { header: "Line Item", key: "item", width: 24 },
-      { header: "Line Description", key: "desc", width: 46 },
-      { header: "Line Qty", key: "qty", width: 8 },
-      { header: "Line Rate", key: "rate", width: 12 },
-      { header: "Line Amount", key: "amt", width: 12 }
+      { header: "Service Date", key: "sdate", width: 14 },
+      { header: "Product/Service", key: "item", width: 24 },
+      { header: "Product/Service Description", key: "desc", width: 46 },
+      { header: "Product/Service Quantity", key: "qty", width: 8 },
+      { header: "Product/Service Rate", key: "rate", width: 12 },
+      { header: "Product/Service Amount", key: "amt", width: 12 }
     ];
     const today = new Date(); const due = new Date(Date.now() + 15 * 86400000);
     const fmt = d => d.toLocaleDateString("en-US");
