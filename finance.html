@@ -2187,7 +2187,7 @@
           <button type="button" class="btn-primary" id="park-checks-btn">⬇ Checks XLSX (SaaSant)</button>
           <button type="button" class="btn-primary" id="park-invoices-btn">⬇ Invoices XLSX (SaaSant)</button>
           <button type="button" class="btn-secondary" id="park-attach-btn" title="Select many receipt screenshots — the AI reads each session number and files it onto the matching row">📎 Bulk attach receipts</button>
-          <button type="button" class="btn-secondary" id="park-attachzip-btn" title="ZIP of every invoiced row's receipt (named by invoice · date · session) + attachments-map.csv for SaaSant's Attachments import">⬇ Receipts ZIP + map</button>
+          <button type="button" class="btn-secondary" id="park-attachzip-btn" title="One ZIP per ~8MB: compressed receipts (named invoice · date · session) + Mapping.xlsx — upload as-is to SaaSant → Attachments">⬇ Receipts ZIP + map</button>
           <input type="file" id="park-attach-file" accept="image/*" multiple style="display:none;">
           <span style="font-size:12px;color:var(--muted);">Checks: one per clinician, all their open rows. Invoices: one PK-number per agency, Net 15, a line per receipt.</span>
         </div>
@@ -13560,6 +13560,7 @@ const PARK = (() => {
                       String(a.session_date || "").localeCompare(String(b.session_date || "")));
     if (!inv.length) { showToast("No invoiced rows with receipts yet — run ⬇ Invoices (and attach receipts) first.", "error"); return; }
     if (typeof JSZip === "undefined") { showToast("ZIP library didn't load — hard-refresh and try again.", "error"); return; }
+    if (typeof ExcelJS === "undefined") { showToast("ExcelJS didn't load — hard-refresh and try again.", "error"); return; }
     attachZipBusy = true;
     const btn = document.getElementById("park-attachzip-btn");
     const label = btn.textContent;
@@ -13584,27 +13585,31 @@ const PARK = (() => {
       }
       for (let p = 0; p < parts.length; p++) {
         btn.textContent = "📦 zipping " + (p + 1) + "/" + parts.length + "…";
+        // Mapping.xlsx — EXACT sheet name + headers of the portal's proven
+        // TB-invoice attachments bundle (buildSaasantZip above): SaaSant
+        // auto-detects "Invoice No" / "File Name" on Sheet1 inside the zip.
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet("Sheet1");
+        ws.columns = [
+          { header: "Invoice No", key: "ref",  width: 22 },
+          { header: "File Name",  key: "file", width: 46 }
+        ];
+        parts[p].forEach(e => ws.addRow({ ref: e.inv, file: e.fname }));
+        ws.getRow(1).font = { bold: true };
+        const xlsxBuf = await wb.xlsx.writeBuffer();
         const zip = new JSZip();
-        const lines = ["Transaction Type,Doc Number,File Name"];
-        parts[p].forEach(e => { zip.file(e.fname, e.blob); lines.push("Invoice," + e.inv + "," + e.fname); });
-        zip.file("attachments-map.csv", lines.join("\r\n") + "\r\n");
+        zip.file("Mapping.xlsx", xlsxBuf);
+        parts[p].forEach(e => zip.file(e.fname, e.blob));
         const partTag = parts.length > 1 ? "_part" + (p + 1) + "of" + parts.length : "";
-        const blob = await zip.generateAsync({ type: "blob" });
+        const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
         const a = document.createElement("a");
         a.href = URL.createObjectURL(blob);
-        a.download = "Parking_Receipts_Attachments_" + stamp() + partTag + ".zip";
+        a.download = "Parking_Receipts_" + stamp() + partTag + "_SaaSant_Attachments.zip";
         document.body.appendChild(a); a.click(); a.remove();
         setTimeout(() => URL.revokeObjectURL(a.href), 8000);
-        // SaaSant wants the map as its own upload beside the ZIP — download it separately too
-        await new Promise(res => setTimeout(res, 400));
-        const csvA = document.createElement("a");
-        csvA.href = URL.createObjectURL(new Blob([lines.join("\r\n") + "\r\n"], { type: "text/csv" }));
-        csvA.download = "attachments-map_" + stamp() + partTag + ".csv";
-        document.body.appendChild(csvA); csvA.click(); csvA.remove();
-        setTimeout(() => URL.revokeObjectURL(csvA.href), 8000);
         if (p < parts.length - 1) await new Promise(res => setTimeout(res, 500));
       }
-      showToast(entries.length + " receipt" + (entries.length === 1 ? "" : "s") + " in " + parts.length + " ZIP" + (parts.length === 1 ? "" : "s — upload each to SaaSant Attachments (its own map is inside)") +
+      showToast(entries.length + " receipt" + (entries.length === 1 ? "" : "s") + " in " + parts.length + " ZIP" + (parts.length === 1 ? "" : "s — upload each to SaaSant Attachments separately") +
         (fails.length ? " — " + fails.length + " failed: " + fails.slice(0, 3).join(", ") : ""), fails.length ? "error" : "success");
     } finally {
       attachZipBusy = false;
