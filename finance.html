@@ -9,6 +9,7 @@
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 <!-- ExcelJS — write multi-sheet XLSX output with bar charts -->
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <!-- Chart.js — inline preview + trend charts -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
@@ -2186,6 +2187,7 @@
           <button type="button" class="btn-primary" id="park-checks-btn">⬇ Checks XLSX (SaaSant)</button>
           <button type="button" class="btn-primary" id="park-invoices-btn">⬇ Invoices XLSX (SaaSant)</button>
           <button type="button" class="btn-secondary" id="park-attach-btn" title="Select many receipt screenshots — the AI reads each session number and files it onto the matching row">📎 Bulk attach receipts</button>
+          <button type="button" class="btn-secondary" id="park-attachzip-btn" title="ZIP of every invoiced row's receipt (named by invoice · date · session) + attachments-map.csv for SaaSant's Attachments import">⬇ Receipts ZIP + map</button>
           <input type="file" id="park-attach-file" accept="image/*" multiple style="display:none;">
           <span style="font-size:12px;color:var(--muted);">Checks: one per clinician, all their open rows. Invoices: one PK-number per agency, Net 15, a line per receipt.</span>
         </div>
@@ -13532,6 +13534,48 @@ const PARK = (() => {
     }
   }
 
+  // ── Receipts ZIP + SaaSant attachments map ──────────────────────
+  let attachZipBusy = false;
+  async function downloadAttachZip() {
+    if (attachZipBusy) return;
+    const inv = rows.filter(r => r.invoice_no && r.receipt_path && !r.voided_at)
+      .sort((a, b) => String(a.invoice_no).localeCompare(String(b.invoice_no)) ||
+                      String(a.session_date || "").localeCompare(String(b.session_date || "")));
+    if (!inv.length) { showToast("No invoiced rows with receipts yet — run ⬇ Invoices (and attach receipts) first.", "error"); return; }
+    if (typeof JSZip === "undefined") { showToast("ZIP library didn't load — hard-refresh and try again.", "error"); return; }
+    attachZipBusy = true;
+    const btn = document.getElementById("park-attachzip-btn");
+    const label = btn.textContent;
+    try {
+      const zip = new JSZip();
+      const lines = ["Transaction Type,Doc Number,File Name"];
+      let ok = 0; const fails = [];
+      for (let i = 0; i < inv.length; i++) {
+        const r = inv[i];
+        btn.textContent = "⏳ " + (i + 1) + "/" + inv.length + "…";
+        const ext = (String(r.receipt_path).split(".").pop() || "png").toLowerCase();
+        const fname = [r.invoice_no, r.session_date || "nodate", r.session_number || String(r.id).slice(0, 8)].join("_") + "." + ext;
+        const { data, error } = await db.storage.from(RECEIPT_BUCKET).download(r.receipt_path);
+        if (error || !data) { fails.push((r.session_number || r.id) + " (" + (error ? error.message : "no data") + ")"); continue; }
+        zip.file(fname, data);
+        lines.push("Invoice," + r.invoice_no + "," + fname);
+        ok += 1;
+      }
+      zip.file("attachments-map.csv", lines.join("\r\n") + "\r\n");
+      const blob = await zip.generateAsync({ type: "blob" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "Parking_Receipts_Attachments_" + stamp() + ".zip";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+      showToast("ZIP ready: " + ok + " receipt" + (ok === 1 ? "" : "s") + " + attachments-map.csv" +
+        (fails.length ? " — " + fails.length + " failed: " + fails.slice(0, 3).join(", ") : ""), fails.length ? "error" : "success");
+    } finally {
+      attachZipBusy = false;
+      btn.textContent = label;
+    }
+  }
+
   // ── init ────────────────────────────────────────────────────────
   function init() {
     if (initialized) return;
@@ -13677,6 +13721,7 @@ const PARK = (() => {
     document.getElementById("park-checks-btn").addEventListener("click", downloadChecks);
     document.getElementById("park-invoices-btn").addEventListener("click", downloadInvoices);
     document.getElementById("park-attach-btn").addEventListener("click", () => document.getElementById("park-attach-file").click());
+    document.getElementById("park-attachzip-btn").addEventListener("click", downloadAttachZip);
     document.getElementById("park-attach-file").addEventListener("change", (e) => { if (e.target.files && e.target.files.length) bulkAttach(e.target.files); });
 
     loadRefs();
