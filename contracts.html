@@ -68,6 +68,14 @@
   .tpl-status { font-size: 12.5px; margin-left: 4px; }
   .tpl-status.ok { color: #047857; } .tpl-status.miss { color: #b91c1c; }
 
+  table.archive { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 13px; }
+  table.archive th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  table.archive td { padding: 7px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+  .chip-unlinked { background: #fef3c7; color: #92400e; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .chip-linked { background: #ecfdf5; color: #047857; border-radius: 999px; padding: 2px 9px; font-size: 11px; font-weight: 700; white-space: nowrap; }
+  .mini-btn { background: #fff; border: 1px solid var(--border); border-radius: 7px; padding: 4px 9px; font-size: 12px; cursor: pointer; }
+  .mini-btn:hover { background: #f8fafc; }
+
   .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 200; max-width: 85vw; }
   .toast.show { opacity: 1; }
   .toast.err { background: #b91c1c; } .toast.ok { background: #047857; }
@@ -192,6 +200,21 @@
     </div>
   </div>
 
+  <div class="card">
+    <h2>📁 Signed contract archive</h2>
+    <p class="sub">Once the agency signs: scan the contract and upload it here — it's stored privately in Supabase, tied to the agency.
+      Contracts signed before the agency exists in the portal show ⚠ unlinked; after your next agency import, hit <b>🔁 Re-link</b> and they match by name.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button type="button" class="btn-secondary" id="signed-upload-btn">⬆ Upload signed contract (uses the agency + date above)</button>
+      <input type="file" id="signed-file" accept=".pdf,image/*" style="display:none;">
+      <button type="button" class="btn-secondary" id="relink-btn">🔁 Re-link unmatched</button>
+    </div>
+    <table class="archive">
+      <thead><tr><th>Agency</th><th>Effective</th><th>Uploaded</th><th>Link</th><th></th></tr></thead>
+      <tbody id="archive-tbody"><tr><td colspan="5" style="color:var(--muted);padding:14px 8px;">Loading…</td></tr></tbody>
+    </table>
+  </div>
+
 </div>
 
 <div class="toast" id="toast"></div>
@@ -275,7 +298,7 @@ async function launchApp(user) {
   document.getElementById("c-effective").value = new Date().toISOString().slice(0, 10);
   renderTierButtons();
   renderTierEditor();
-  await Promise.all([loadAgencies(), loadRates(), checkTemplate()]);
+  await Promise.all([loadAgencies(), loadRates(), checkTemplate(), loadContracts()]);
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -528,6 +551,118 @@ async function generate() {
 }
 
 // ══════════════════════════════════════════════════════════════════
+// 📁 SIGNED CONTRACT ARCHIVE (migration 91: table + private bucket)
+// ══════════════════════════════════════════════════════════════════
+const SIGNED_BUCKET = "signed-contracts";
+let contractFiles = [];
+
+function normName(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]+/g, " ")
+    .replace(/\b(inc|llc|ltd|corp|corporation|co|the)\b/g, "").replace(/\s+/g, " ").trim();
+}
+
+async function loadContracts() {
+  try {
+    const { data, error } = await db.from("agency_contract_files")
+      .select("*").order("uploaded_at", { ascending: false });
+    if (error) throw error;
+    contractFiles = data || [];
+  } catch (e) {
+    contractFiles = [];
+    const msg = String((e && e.message) || "");
+    if (/find the table|does not exist|schema cache/i.test(msg))
+      showToast("Run migration 91 (signed contract archive) in the Supabase SQL editor.", "err");
+  }
+  renderContracts();
+}
+
+function renderContracts() {
+  const tb = document.getElementById("archive-tbody");
+  if (!contractFiles.length) {
+    tb.innerHTML = '<tr><td colspan="5" style="color:var(--muted);padding:14px 8px;">No signed contracts stored yet.</td></tr>';
+    return;
+  }
+  tb.innerHTML = contractFiles.map(r => {
+    const linked = !!r.agency_id;
+    return "<tr>" +
+      "<td>" + escHtml(r.agency_name || "—") + "</td>" +
+      "<td>" + (r.effective_date || "—") + "</td>" +
+      "<td>" + String(r.uploaded_at || "").slice(0, 10) + "</td>" +
+      "<td>" + (linked ? '<span class="chip-linked">linked ✓</span>' : '<span class="chip-unlinked">⚠ not in portal yet</span>') + "</td>" +
+      '<td style="white-space:nowrap;text-align:right;">' +
+        (r.file_path ? '<button class="mini-btn" data-sact="open" data-id="' + r.id + '">📎 open</button> ' : "") +
+        '<button class="mini-btn" data-sact="del" data-id="' + r.id + '">🗑</button>' +
+      "</td></tr>";
+  }).join("");
+}
+
+async function uploadSigned(file) {
+  const name = document.getElementById("c-name").value.trim();
+  if (!name) { showToast("Pick/type the agency (legal name field) first — the upload files under it.", "err"); return; }
+  const pickId = document.getElementById("c-agency").value;
+  const agencyId = agencies.some(a => a.id === pickId) ? pickId : null;
+  try {
+    const { data: row, error } = await db.from("agency_contract_files").insert({
+      agency_id: agencyId, agency_name: name,
+      effective_date: document.getElementById("c-effective").value || null,
+      created_by: currentUser ? currentUser.id : null
+    }).select().single();
+    if (error) throw error;
+    const ext = (file.name.split(".").pop() || "pdf").toLowerCase();
+    const path = row.id + "." + ext;
+    const up = await db.storage.from(SIGNED_BUCKET).upload(path, file, { contentType: file.type || "application/pdf", upsert: true });
+    if (up.error) throw new Error("row saved but file upload failed: " + up.error.message);
+    const upd = await db.from("agency_contract_files").update({ file_path: path }).eq("id", row.id).select().single();
+    contractFiles.unshift(upd.data || row);
+    renderContracts();
+    showToast("Signed contract stored" + (agencyId ? " and linked to the portal agency." : " — will link after the agency is imported."), "ok");
+  } catch (e) {
+    showToast("Upload failed: " + (e.message || e), "err");
+  } finally {
+    document.getElementById("signed-file").value = "";
+  }
+}
+
+async function relinkContracts() {
+  const unlinked = contractFiles.filter(r => !r.agency_id);
+  if (!unlinked.length) { showToast("Nothing to re-link — every stored contract is already tied to an agency.", "ok"); return; }
+  let hits = 0;
+  for (const r of unlinked) {
+    const n = normName(r.agency_name);
+    if (!n) continue;
+    let match = agencies.find(a => normName(a.name) === n);
+    if (!match) match = agencies.find(a => { const an = normName(a.name); return an && (an.includes(n) || n.includes(an)); });
+    if (!match) continue;
+    const { data, error } = await db.from("agency_contract_files").update({ agency_id: match.id }).eq("id", r.id).select().single();
+    if (!error && data) { Object.assign(r, data); hits += 1; }
+  }
+  renderContracts();
+  showToast(hits ? "Linked " + hits + " contract(s) to portal agencies." : "No name matches yet — re-run after the next agency import.", hits ? "ok" : "err");
+}
+
+async function openSigned(id) {
+  const r = contractFiles.find(x => x.id === id);
+  if (!r || !r.file_path) return;
+  const { data, error } = await db.storage.from(SIGNED_BUCKET).createSignedUrl(r.file_path, 300);
+  if (error || !data) { showToast("Couldn't open: " + (error ? error.message : "no URL"), "err"); return; }
+  window.open(data.signedUrl, "_blank", "noopener");
+}
+
+async function deleteSigned(id) {
+  const r = contractFiles.find(x => x.id === id);
+  if (!r) return;
+  if (!confirm("Delete the stored signed contract for " + (r.agency_name || "this agency") + "? This cannot be undone.")) return;
+  try {
+    if (r.file_path) await db.storage.from(SIGNED_BUCKET).remove([r.file_path]);
+    const { error } = await db.from("agency_contract_files").delete().eq("id", id);
+    if (error) throw error;
+    contractFiles = contractFiles.filter(x => x.id !== id);
+    renderContracts();
+    showToast("Deleted.", "ok");
+  } catch (e) { showToast("Delete failed: " + (e.message || e), "err"); }
+}
+
+// ══════════════════════════════════════════════════════════════════
 // WIRING
 // ══════════════════════════════════════════════════════════════════
 document.getElementById("login-btn").addEventListener("click", doSignIn);
@@ -538,6 +673,15 @@ document.getElementById("tier-agency-btn").addEventListener("click", applyAgency
 document.getElementById("install-btn").addEventListener("click", () => document.getElementById("install-file").click());
 document.getElementById("install-file").addEventListener("change", e => { if (e.target.files && e.target.files[0]) installTemplate(e.target.files[0]); });
 document.getElementById("gen-btn").addEventListener("click", generate);
+document.getElementById("signed-upload-btn").addEventListener("click", () => document.getElementById("signed-file").click());
+document.getElementById("signed-file").addEventListener("change", e => { if (e.target.files && e.target.files[0]) uploadSigned(e.target.files[0]); });
+document.getElementById("relink-btn").addEventListener("click", relinkContracts);
+document.getElementById("archive-tbody").addEventListener("click", e => {
+  const b = e.target.closest("[data-sact]");
+  if (!b) return;
+  if (b.dataset.sact === "open") openSigned(b.dataset.id);
+  else if (b.dataset.sact === "del") deleteSigned(b.dataset.id);
+});
 document.getElementById("r-parking").value = PARKING_DEFAULT;
 checkSession();
 </script>
