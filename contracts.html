@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Contracts — DependableCare</title>
+<script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+  :root {
+    --blue: #0b1f44; --blue-mid: #163172; --gold: #c79a26; --accent: #2463eb;
+    --green: #22c55e; --amber: #eab308; --red: #ef4444;
+    --bg: #f4f6fa; --card: #ffffff; --border: #e2e8f0; --text: #1f2937; --muted: #6b7280;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+
+  #login-screen { display: none; position: fixed; inset: 0; z-index: 100; align-items: center; justify-content: center; background: linear-gradient(135deg, var(--blue) 0%, var(--blue-mid) 100%); }
+  .login-card { background: #fff; border-radius: 16px; padding: 36px 32px; width: 340px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); }
+  .login-card h1 { margin: 0 0 4px; color: var(--blue); font-size: 22px; font-weight: 800; text-align: center; }
+  .login-card p  { margin: 0 0 22px; color: var(--gold); font-size: 13px; font-weight: 600; text-align: center; }
+  .login-card label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .login-card input { width: 100%; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; font-size: 14px; margin-bottom: 12px; }
+  .login-card button { width: 100%; background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px; font-size: 14px; font-weight: 700; cursor: pointer; margin-top: 6px; }
+  .login-err { color: #b91c1c; font-size: 12px; margin-top: 8px; min-height: 14px; text-align: center; }
+
+  #admin-gate { display: none; position: fixed; inset: 0; z-index: 99; align-items: center; justify-content: center; background: rgba(11, 31, 68, 0.92); color: #fff; text-align: center; padding: 32px; }
+  #admin-gate .gate-card { max-width: 420px; }
+  #admin-gate h2 { margin: 0 0 10px; }
+  #admin-gate button { margin-top: 18px; background: #fff; color: var(--blue); border: none; border-radius: 10px; padding: 10px 22px; font-weight: 700; cursor: pointer; }
+
+  #app-header { display: none; align-items: center; gap: 14px; background: var(--blue); color: #fff; padding: 10px 18px; position: sticky; top: 0; z-index: 50; flex-wrap: wrap; }
+  #app-header .brand { font-weight: 800; font-size: 15px; white-space: nowrap; }
+  #app-header .brand small { color: var(--gold); font-weight: 700; }
+  .header-nav { display: flex; gap: 4px; flex-wrap: wrap; }
+  .header-nav a { color: #cbd5e1; text-decoration: none; font-size: 12px; padding: 5px 8px; border-radius: 7px; white-space: nowrap; }
+  .header-nav a:hover { background: rgba(255,255,255,0.12); color: #fff; }
+  .header-nav a.active { background: var(--accent); color: #fff; font-weight: 700; }
+  .header-user { margin-left: auto; font-size: 12px; color: #cbd5e1; }
+  .header-signout { background: rgba(255,255,255,0.14); color: #fff; border: none; border-radius: 8px; padding: 6px 12px; font-size: 12px; cursor: pointer; }
+
+  #app-container { display: none; max-width: 1060px; margin: 0 auto; padding: 18px 16px 60px; }
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { margin: 0 0 4px; font-size: 16px; color: var(--blue); }
+  .card .sub { font-size: 12.5px; color: var(--muted); margin: 0 0 14px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .field label { display: block; font-size: 11.5px; font-weight: 700; color: var(--muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+  .field input, .field select { width: 100%; border: 1px solid var(--border); border-radius: 9px; padding: 9px 11px; font-size: 14px; background: #fff; }
+  .field input:focus, .field select:focus { outline: 2px solid rgba(36, 99, 235, 0.35); }
+  .wide { grid-column: 1 / -1; }
+
+  .rate-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; }
+  .tier-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 14px; }
+  .tier-row .lbl { font-size: 12px; font-weight: 700; color: var(--muted); }
+  .tier-btn { background: #eef2ff; border: 1px solid #c7d2fe; color: var(--blue-mid); border-radius: 999px; padding: 6px 14px; font-size: 12.5px; font-weight: 700; cursor: pointer; }
+  .tier-btn:hover { background: #e0e7ff; }
+  .tier-btn.agency { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+
+  details.settings { margin-top: 14px; border-top: 1px dashed var(--border); padding-top: 10px; }
+  details.settings summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--muted); }
+  .tier-edit { display: grid; grid-template-columns: 140px repeat(7, 1fr); gap: 6px; align-items: center; margin-top: 10px; font-size: 12px; }
+  .tier-edit input { width: 100%; border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font-size: 12.5px; }
+  .tier-edit .colhead { font-size: 10.5px; font-weight: 700; color: var(--muted); text-align: center; }
+
+  .btn-primary { background: var(--accent); color: #fff; border: none; border-radius: 10px; padding: 11px 20px; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .btn-primary:disabled { opacity: 0.55; cursor: default; }
+  .btn-secondary { background: #fff; color: var(--blue-mid); border: 1px solid var(--border); border-radius: 10px; padding: 10px 16px; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .tpl-status { font-size: 12.5px; margin-left: 4px; }
+  .tpl-status.ok { color: #047857; } .tpl-status.miss { color: #b91c1c; }
+
+  .toast { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 10px 18px; border-radius: 10px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 200; max-width: 85vw; }
+  .toast.show { opacity: 1; }
+  .toast.err { background: #b91c1c; } .toast.ok { background: #047857; }
+</style>
+</head>
+<body>
+
+<div id="login-screen">
+  <div class="login-card">
+    <h1>DependableCare</h1>
+    <p>Contracts</p>
+    <label for="login-email">Email</label>
+    <input id="login-email" type="email" autocomplete="username">
+    <label for="login-password">Password</label>
+    <input id="login-password" type="password" autocomplete="current-password">
+    <button id="login-btn">Sign in</button>
+    <div class="login-err" id="login-err"></div>
+  </div>
+</div>
+
+<div id="admin-gate">
+  <div class="gate-card">
+    <h2>Admins only</h2>
+    <div>The contract generator (and its rate sheet) is restricted to admin users.</div>
+    <button onclick="doSignOut()">Sign out</button>
+  </div>
+</div>
+
+<header id="app-header">
+  <span class="brand">DependableCare <small>Contracts</small></span>
+  <nav class="header-nav">
+    <a href="index.html">🏠 Home</a>
+    <a href="clinician-map.html">🗺️ Map</a>
+    <a href="referrals.html">📋 Referrals</a>
+    <a href="time-tracker.html">⏱️ Time</a>
+    <a href="compliance.html">✅ Compliance</a>
+    <a href="kanban.html">🗂️ Kanban</a>
+    <a href="roster-review.html">📋 Roster</a>
+    <a href="agencies.html">🏢 Agencies</a>
+    <a href="finance.html">💰 Finance</a>
+    <a href="imports.html">📥 Imports</a>
+    <a href="enrollment.html">📄 CMS-855I</a>
+    <a href="contracts.html" class="active">🖋 Contracts</a>
+  </nav>
+  <span class="header-user" id="header-user"></span>
+  <button class="header-signout" id="signout-btn">Sign out</button>
+</header>
+
+<div id="app-container">
+
+  <div class="card">
+    <h2>🖋 Professional Services Agreement</h2>
+    <p class="sub">Pick the agency, confirm the few variable fields, choose a rate tier, hit Generate — you get the finished Word doc
+      (<b>Professional Services Agreement – Agency – date.docx</b>) with the lawyer wording untouched. Print / PDF / sign from Word exactly as today.</p>
+    <div class="grid">
+      <div class="field wide">
+        <label for="c-agency">Home health agency</label>
+        <select id="c-agency"><option value="">— pick an agency —</option></select>
+      </div>
+      <div class="field">
+        <label for="c-effective">Effective date</label>
+        <input id="c-effective" type="date">
+      </div>
+      <div class="field">
+        <label for="c-name">Agency legal name (as on the contract)</label>
+        <input id="c-name" type="text" placeholder="Caress Home Health Care Inc.">
+      </div>
+      <div class="field wide">
+        <label for="c-address">Agency address (page-1 "with offices at …")</label>
+        <input id="c-address" type="text" placeholder="3917 Howard St, Skokie, IL 60076">
+      </div>
+      <div class="field">
+        <label for="c-n1">Notices — line 1 (Section 10 "If to Client")</label>
+        <input id="c-n1" type="text">
+      </div>
+      <div class="field">
+        <label for="c-n2">Notices — line 2</label>
+        <input id="c-n2" type="text">
+      </div>
+      <div class="field">
+        <label for="c-n3">Notices — line 3</label>
+        <input id="c-n3" type="text">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Exhibit A — Pay Rate Sheet</h2>
+    <p class="sub">Apply a tier, then tweak anything — the generated contract uses exactly what's in these boxes.</p>
+    <div class="tier-row" id="tier-row">
+      <span class="lbl">Apply tier:</span>
+      <!-- tier buttons injected -->
+      <button type="button" class="tier-btn agency" id="tier-agency-btn" style="display:none;">🏢 Agency's saved rates</button>
+    </div>
+    <div class="rate-grid">
+      <div class="field"><label for="r-pt">PT all visits</label><input id="r-pt" type="number" step="0.01" min="0"></div>
+      <div class="field"><label for="r-pta">PTA all visits</label><input id="r-pta" type="number" step="0.01" min="0"></div>
+      <div class="field"><label for="r-ot">OT all visits</label><input id="r-ot" type="number" step="0.01" min="0"></div>
+      <div class="field"><label for="r-ota">OTA all visits</label><input id="r-ota" type="number" step="0.01" min="0"></div>
+      <div class="field"><label for="r-st">ST all visits</label><input id="r-st" type="number" step="0.01" min="0"></div>
+      <div class="field"><label for="r-oasis">PT/OT/ST OASIS visits</label><input id="r-oasis" type="number" step="0.01" min="0"></div>
+      <div class="field"><label for="r-attempt">Attempted visit</label><input id="r-attempt" type="number" step="0.01" min="0"></div>
+      <div class="field wide"><label for="r-parking">Parking fees wording</label><input id="r-parking" type="text"></div>
+    </div>
+    <details class="settings" id="tier-settings">
+      <summary>⚙ Edit the three tiers (names + rates — saved on this computer)</summary>
+      <div class="tier-edit" id="tier-edit">
+        <!-- injected -->
+      </div>
+    </details>
+  </div>
+
+  <div class="card">
+    <h2>Generate</h2>
+    <p class="sub">The Word master lives in the private <b>contract-templates</b> bucket (never in the code).
+      First time only: install the tokenized template (<b>DCS_PSA_Template.docx</b>).</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+      <button type="button" class="btn-primary" id="gen-btn">⬇ Generate contract (.docx)</button>
+      <button type="button" class="btn-secondary" id="install-btn">📄 Install / replace template</button>
+      <input type="file" id="install-file" accept=".docx" style="display:none;">
+      <span class="tpl-status" id="tpl-status">checking template…</span>
+    </div>
+  </div>
+
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// CONFIG + AUTH (enrollment.html pattern; admin-only page)
+// ══════════════════════════════════════════════════════════════════
+const SUPABASE_URL = "https://jpemlcuxjvynlbeygukb.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwZW1sY3V4anZ5bmxiZXlndWtiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ0MDI5OTcsImV4cCI6MjA4OTk3ODk5N30.hNSDcxas0F3gZxNOf8ScHJBcjfV_nHzD0859bTBHkTI";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+  auth: { storage: window.localStorage, persistSession: true, autoRefreshToken: true }
+});
+
+const TPL_BUCKET = "contract-templates";
+const TPL_PATH = "_template/psa-template.docx";
+const LS_KEY = "dcs_contracts_v1";
+
+const RATE_KEYS = ["pt", "pta", "ot", "ota", "st", "oasis", "attempt"];
+const RATE_LABELS = { pt: "PT", pta: "PTA", ot: "OT", ota: "OTA", st: "ST", oasis: "OASIS", attempt: "Attempt" };
+const STANDARD = { pt: 95, pta: 90, ot: 103, ota: 95, st: 110, oasis: 150, attempt: 35 };
+const PARKING_DEFAULT = "100% of parking cost with receipt and HHA approval";
+const REQUIRED_TOKENS = [
+  "EFFECTIVE_DATE", "AGENCY_NAME", "AGENCY_ADDRESS",
+  "NOTICE_CLIENT_L1", "NOTICE_CLIENT_L2", "NOTICE_CLIENT_L3",
+  "RATE_PT", "RATE_PTA", "RATE_OT", "RATE_OTA", "RATE_ST",
+  "RATE_OASIS", "RATE_ATTEMPT", "RATE_PARKING"
+];
+
+let currentUser = null;
+let currentRole = "readonly";
+let agencies = [];           // home_health_agencies rows
+let agencyRates = {};        // agency_id -> list_agency_contracts row
+let localTemplateFile = null; // fallback when the bucket copy is missing
+
+let toastTimer = null;
+function showToast(msg, kind) {
+  const t = document.getElementById("toast");
+  t.textContent = msg;
+  t.className = "toast show" + (kind === "err" ? " err" : kind === "ok" ? " ok" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { t.className = "toast"; }, kind === "err" ? 7000 : 3200);
+}
+function escXml(s) {
+  return String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+async function checkSession() {
+  const { data } = await db.auth.getSession();
+  if (data && data.session && data.session.user) await launchApp(data.session.user);
+  else document.getElementById("login-screen").style.display = "flex";
+}
+async function doSignIn() {
+  const email = document.getElementById("login-email").value.trim();
+  const password = document.getElementById("login-password").value;
+  const btn = document.getElementById("login-btn");
+  const err = document.getElementById("login-err");
+  err.textContent = "";
+  btn.disabled = true; btn.textContent = "Signing in…";
+  const { data, error } = await db.auth.signInWithPassword({ email, password });
+  btn.disabled = false; btn.textContent = "Sign in";
+  if (error) { err.textContent = error.message || "Incorrect credentials."; return; }
+  await launchApp(data.session.user);
+}
+async function doSignOut() { await db.auth.signOut(); location.reload(); }
+
+async function launchApp(user) {
+  currentUser = user;
+  document.getElementById("login-screen").style.display = "none";
+  try {
+    const { data: roleRow } = await db.from("user_roles").select("role").eq("user_id", user.id).maybeSingle();
+    currentRole = (roleRow && roleRow.role) || "readonly";
+  } catch (e) { currentRole = "readonly"; }
+  if (currentRole !== "admin") {
+    document.getElementById("admin-gate").style.display = "flex";
+    return;
+  }
+  document.getElementById("app-header").style.display = "flex";
+  document.getElementById("app-container").style.display = "block";
+  document.getElementById("header-user").textContent = user.email || "";
+  document.getElementById("c-effective").value = new Date().toISOString().slice(0, 10);
+  renderTierButtons();
+  renderTierEditor();
+  await Promise.all([loadAgencies(), loadRates(), checkTemplate()]);
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DATA — agencies + saved rates
+// ══════════════════════════════════════════════════════════════════
+async function loadAgencies() {
+  try {
+    const { data, error } = await db.from("home_health_agencies")
+      .select("id, name, street, city, state, zip").order("name");
+    if (error) throw error;
+    agencies = data || [];
+  } catch (e) { agencies = []; showToast("Couldn't load agencies: " + (e.message || e), "err"); }
+  const sel = document.getElementById("c-agency");
+  sel.innerHTML = '<option value="">— pick an agency —</option>' +
+    agencies.map(a => `<option value="${a.id}">${escHtml(a.name || a.id)}</option>`).join("");
+}
+function escHtml(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+async function loadRates() {
+  try {
+    const { data, error } = await db.rpc("list_agency_contracts");
+    if (error) throw error;
+    (data || []).forEach(r => { agencyRates[r.agency_id] = r; });
+  } catch (e) { /* non-fatal — tiers still work */ }
+}
+
+function onAgencyChange() {
+  const id = document.getElementById("c-agency").value;
+  const a = agencies.find(x => x.id === id);
+  if (!a) return;
+  const cityLine = [a.city, a.state].filter(Boolean).join(", ") + (a.zip ? " " + a.zip : "");
+  document.getElementById("c-name").value = a.name || "";
+  document.getElementById("c-address").value = [a.street, cityLine].filter(Boolean).join(", ");
+  document.getElementById("c-n1").value = a.name || "";
+  document.getElementById("c-n2").value = a.street || "";
+  document.getElementById("c-n3").value = cityLine;
+  // agency saved-rates shortcut (rate tracker, migration 30/80)
+  const r = agencyRates[id];
+  const has = r && [r.rate_pt_eval, r.rate_pt_assistant, r.rate_ot_eval, r.rate_ot_assistant, r.rate_st_eval].some(v => v != null);
+  document.getElementById("tier-agency-btn").style.display = has ? "" : "none";
+}
+
+function applyAgencyRates() {
+  const r = agencyRates[document.getElementById("c-agency").value];
+  if (!r) return;
+  const map = { pt: r.rate_pt_eval, pta: r.rate_pt_assistant, ot: r.rate_ot_eval, ota: r.rate_ot_assistant, st: r.rate_st_eval };
+  RATE_KEYS.forEach(k => {
+    const v = map[k];
+    if (v != null) document.getElementById("r-" + k).value = Number(v).toFixed(2);
+  });
+  showToast("Applied the agency's saved rates (OASIS/Attempted keep their current values).", "ok");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// RATE TIERS — three named tiers, editable, saved to localStorage
+// ══════════════════════════════════════════════════════════════════
+function defaultTiers() {
+  return [
+    { name: "Standard", rates: { ...STANDARD } },
+    { name: "Tier 2", rates: { ...STANDARD } },
+    { name: "Tier 3", rates: { ...STANDARD } }
+  ];
+}
+function loadSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem(LS_KEY) || "{}");
+    if (Array.isArray(s.tiers) && s.tiers.length === 3) return s;
+  } catch (e) {}
+  return { tiers: defaultTiers() };
+}
+function saveSettings(s) { try { localStorage.setItem(LS_KEY, JSON.stringify(s)); } catch (e) {} }
+
+function renderTierButtons() {
+  const s = loadSettings();
+  const row = document.getElementById("tier-row");
+  row.querySelectorAll(".tier-btn:not(.agency)").forEach(b => b.remove());
+  const anchor = document.getElementById("tier-agency-btn");
+  s.tiers.forEach((t, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "tier-btn"; b.textContent = t.name;
+    b.addEventListener("click", () => applyTier(i));
+    row.insertBefore(b, anchor);
+  });
+}
+function applyTier(i) {
+  const s = loadSettings();
+  const t = s.tiers[i];
+  if (!t) return;
+  RATE_KEYS.forEach(k => { document.getElementById("r-" + k).value = Number(t.rates[k] ?? STANDARD[k]).toFixed(2); });
+  if (!document.getElementById("r-parking").value) document.getElementById("r-parking").value = PARKING_DEFAULT;
+  showToast("Applied " + t.name + " rates — still editable below.", "ok");
+}
+function renderTierEditor() {
+  const s = loadSettings();
+  const host = document.getElementById("tier-edit");
+  let html = '<div></div>' + RATE_KEYS.map(k => `<div class="colhead">${RATE_LABELS[k]}</div>`).join("");
+  s.tiers.forEach((t, i) => {
+    html += `<div><input data-tier-name="${i}" value="${escHtml(t.name)}"></div>`;
+    html += RATE_KEYS.map(k => `<div><input type="number" step="0.01" min="0" data-tier="${i}" data-rate="${k}" value="${Number(t.rates[k] ?? STANDARD[k]).toFixed(2)}"></div>`).join("");
+  });
+  host.innerHTML = html;
+  host.addEventListener("change", (e) => {
+    const s2 = loadSettings();
+    if (e.target.dataset.tierName != null) s2.tiers[Number(e.target.dataset.tierName)].name = e.target.value.trim() || ("Tier " + (Number(e.target.dataset.tierName) + 1));
+    else if (e.target.dataset.tier != null) s2.tiers[Number(e.target.dataset.tier)].rates[e.target.dataset.rate] = Number(e.target.value) || 0;
+    else return;
+    saveSettings(s2);
+    renderTierButtons();
+  });
+}
+
+// ══════════════════════════════════════════════════════════════════
+// TEMPLATE — private bucket; install with token + sanitization check
+// ══════════════════════════════════════════════════════════════════
+function tplStatus(txt, ok) {
+  const el = document.getElementById("tpl-status");
+  el.textContent = txt;
+  el.className = "tpl-status " + (ok ? "ok" : "miss");
+}
+async function checkTemplate() {
+  try {
+    const { data, error } = await db.storage.from(TPL_BUCKET).list("_template");
+    if (error) throw error;
+    const hit = (data || []).find(f => f.name === "psa-template.docx");
+    if (hit) { tplStatus("Template installed ✓", true); return; }
+    tplStatus("No template installed — click 📄 Install (run migration 90 first if this errors).", false);
+  } catch (e) {
+    tplStatus("Template check failed: " + (e.message || e) + " — run migration 90.", false);
+  }
+}
+
+async function validateTemplate(buf) {
+  const zip = await JSZip.loadAsync(buf);
+  const doc = zip.file("word/document.xml");
+  if (!doc) throw new Error("Not a Word .docx (no word/document.xml inside).");
+  const xml = await doc.async("string");
+  const text = xml.replace(/<[^>]+>/g, "");
+  const missing = REQUIRED_TOKENS.filter(t => !text.includes("{{" + t + "}}"));
+  if (missing.length) throw new Error("Template is missing token(s): " + missing.map(t => "{{" + t + "}}").join(", "));
+  if (/caress/i.test(text)) throw new Error("Template still contains a real agency name — install the TOKENIZED master (DCS_PSA_Template.docx), not a filled contract.");
+  return true;
+}
+
+async function installTemplate(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    await validateTemplate(buf);
+    const up = await db.storage.from(TPL_BUCKET).upload(TPL_PATH, new Blob([buf], {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    }), { upsert: true });
+    if (up.error) throw new Error(up.error.message);
+    localTemplateFile = file;
+    tplStatus("Template installed ✓", true);
+    showToast("Template installed to the private bucket.", "ok");
+  } catch (e) {
+    showToast("Install refused: " + (e.message || e), "err");
+  } finally {
+    document.getElementById("install-file").value = "";
+  }
+}
+
+async function fetchTemplateBytes() {
+  const { data, error } = await db.storage.from(TPL_BUCKET).download(TPL_PATH);
+  if (!error && data) return await data.arrayBuffer();
+  if (localTemplateFile) return await localTemplateFile.arrayBuffer();
+  throw new Error("No template in the bucket — click 📄 Install / replace template first.");
+}
+
+// ══════════════════════════════════════════════════════════════════
+// GENERATE — fill {{TOKENS}} inside the docx XML and download
+// ══════════════════════════════════════════════════════════════════
+function fmtLongDate(iso) {
+  const [y, m, d] = iso.split("-").map(Number);
+  const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  return `${MONTHS[m - 1]} ${d}, ${y}`;
+}
+function money(id) {
+  const v = Number(document.getElementById(id).value);
+  if (!isFinite(v) || v <= 0) return null;
+  return "$" + v.toFixed(2);
+}
+const BLANK_LINE = "_________________________________";
+
+function buildTokenMap() {
+  const eff = document.getElementById("c-effective").value;
+  const name = document.getElementById("c-name").value.trim();
+  const addr = document.getElementById("c-address").value.trim();
+  if (!eff) throw new Error("Pick the effective date.");
+  if (!name) throw new Error("Agency legal name is required.");
+  if (!addr) throw new Error("Agency address is required.");
+  const rates = {};
+  for (const k of RATE_KEYS) {
+    const v = money("r-" + k);
+    if (!v) throw new Error("Rate for " + RATE_LABELS[k] + " is missing — apply a tier or type it.");
+    rates[k] = v;
+  }
+  return {
+    EFFECTIVE_DATE: fmtLongDate(eff),
+    AGENCY_NAME: name,
+    AGENCY_ADDRESS: addr,
+    NOTICE_CLIENT_L1: document.getElementById("c-n1").value.trim() || BLANK_LINE,
+    NOTICE_CLIENT_L2: document.getElementById("c-n2").value.trim() || BLANK_LINE,
+    NOTICE_CLIENT_L3: document.getElementById("c-n3").value.trim() || BLANK_LINE,
+    RATE_PT: rates.pt, RATE_PTA: rates.pta, RATE_OT: rates.ot, RATE_OTA: rates.ota,
+    RATE_ST: rates.st, RATE_OASIS: rates.oasis, RATE_ATTEMPT: rates.attempt,
+    RATE_PARKING: document.getElementById("r-parking").value.trim() || PARKING_DEFAULT
+  };
+}
+
+// Replaces {{TOKEN}} even when Word later split it across runs: any XML
+// tags inside the braces are stripped to recover the token name.
+function fillXml(xml, tokens) {
+  return xml.replace(/\{\{[\s\S]{0,400}?\}\}/g, (m) => {
+    const name = m.replace(/<[^>]*>/g, "").replace(/[{}]/g, "").trim();
+    return Object.prototype.hasOwnProperty.call(tokens, name) ? escXml(tokens[name]) : m;
+  });
+}
+
+async function generate() {
+  const btn = document.getElementById("gen-btn");
+  try {
+    const tokens = buildTokenMap();
+    btn.disabled = true; btn.textContent = "Generating…";
+    const buf = await fetchTemplateBytes();
+    const zip = await JSZip.loadAsync(buf);
+    const parts = Object.keys(zip.files).filter(n => /^word\/(document|header\d*|footer\d*)\.xml$/.test(n));
+    let leftovers = [];
+    for (const n of parts) {
+      let xml = await zip.file(n).async("string");
+      xml = fillXml(xml, tokens);
+      const left = (xml.replace(/<[^>]+>/g, "").match(/\{\{[A-Z_0-9]+\}\}/g) || []);
+      leftovers = leftovers.concat(left);
+      zip.file(n, xml);
+    }
+    if (leftovers.length) showToast("Warning — unfilled tokens left in the doc: " + [...new Set(leftovers)].join(", "), "err");
+    const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE" });
+    const safe = tokens.AGENCY_NAME.replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "Professional Services Agreement - " + safe + " - " + document.getElementById("c-effective").value + ".docx";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    if (!leftovers.length) showToast("Contract generated — open it in Word to print / PDF / sign.", "ok");
+  } catch (e) {
+    showToast(e.message || String(e), "err");
+  } finally {
+    btn.disabled = false; btn.textContent = "⬇ Generate contract (.docx)";
+  }
+}
+
+// ══════════════════════════════════════════════════════════════════
+// WIRING
+// ══════════════════════════════════════════════════════════════════
+document.getElementById("login-btn").addEventListener("click", doSignIn);
+document.getElementById("login-password").addEventListener("keydown", e => { if (e.key === "Enter") doSignIn(); });
+document.getElementById("signout-btn").addEventListener("click", doSignOut);
+document.getElementById("c-agency").addEventListener("change", onAgencyChange);
+document.getElementById("tier-agency-btn").addEventListener("click", applyAgencyRates);
+document.getElementById("install-btn").addEventListener("click", () => document.getElementById("install-file").click());
+document.getElementById("install-file").addEventListener("change", e => { if (e.target.files && e.target.files[0]) installTemplate(e.target.files[0]); });
+document.getElementById("gen-btn").addEventListener("click", generate);
+document.getElementById("r-parking").value = PARKING_DEFAULT;
+checkSession();
+</script>
+</body>
+</html>
