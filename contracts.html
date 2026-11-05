@@ -124,7 +124,7 @@
       (<b>Professional Services Agreement – Agency – date.docx</b>) with the lawyer wording untouched. Print / PDF / sign from Word exactly as today.</p>
     <div class="grid">
       <div class="field wide">
-        <label for="c-agency">Home health agency</label>
+        <label for="c-agency">Home health agency (picking one prefills the fields — new agencies: choose ✏️ and type)</label>
         <select id="c-agency"><option value="">— pick an agency —</option></select>
       </div>
       <div class="field">
@@ -290,6 +290,7 @@ async function loadAgencies() {
   } catch (e) { agencies = []; showToast("Couldn't load agencies: " + (e.message || e), "err"); }
   const sel = document.getElementById("c-agency");
   sel.innerHTML = '<option value="">— pick an agency —</option>' +
+    '<option value="__new__">✏️ New agency — not in the portal yet (type the fields below)</option>' +
     agencies.map(a => `<option value="${a.id}">${escHtml(a.name || a.id)}</option>`).join("");
 }
 function escHtml(s) {
@@ -305,6 +306,13 @@ async function loadRates() {
 
 function onAgencyChange() {
   const id = document.getElementById("c-agency").value;
+  if (id === "__new__") {
+    ["c-name", "c-address", "c-n1", "c-n2", "c-n3"].forEach(k => { document.getElementById(k).value = ""; });
+    document.getElementById("tier-agency-btn").style.display = "none";
+    document.getElementById("c-name").focus();
+    showToast("Type the new agency's name and address — add it to the portal's agency list separately when ready.", "ok");
+    return;
+  }
   const a = agencies.find(x => x.id === id);
   if (!a) return;
   const cityLine = [a.city, a.state].filter(Boolean).join(", ") + (a.zip ? " " + a.zip : "");
