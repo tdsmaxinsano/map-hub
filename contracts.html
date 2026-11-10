@@ -269,7 +269,10 @@ async function launchApp(user) {
     document.getElementById("admin-gate").style.display = "flex";
     return;
   }
-  document.getElementById("app-header").style.display = "flex";
+  // Inside the portal shell iframe the shell already provides nav +
+  // user + sign-out — the page's own header only shows standalone.
+  const embedded = (() => { try { return window.self !== window.top; } catch (e) { return true; } })();
+  document.getElementById("app-header").style.display = embedded ? "none" : "flex";
   document.getElementById("app-container").style.display = "block";
   document.getElementById("header-user").textContent = user.email || "";
   document.getElementById("c-effective").value = new Date().toISOString().slice(0, 10);
