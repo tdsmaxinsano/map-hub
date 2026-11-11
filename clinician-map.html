@@ -7425,6 +7425,26 @@
     </div>
   </div>
 
+  <script>
+    /* Pre-boot splash: the toolbar above has already painted, but the xlsx
+       download below and the main script's parse stall the page for seconds —
+       buttons visible, no handlers yet (dead clicks). Cover the UI NOW for a
+       returning (cached-session) user; the real boot re-initializes this
+       splash when it takes over, and the auth flow hides it for anon. */
+    (function() {
+      try {
+        var likely = false;
+        for (var i = 0; i < localStorage.length; i++) {
+          var k = localStorage.key(i);
+          if (k && k.indexOf("sb-") === 0 && k.indexOf("-auth-token") >= 0 &&
+              String(localStorage.getItem(k) || "").length > 20) { likely = true; break; }
+        }
+        if (!likely) return;
+        var el = document.getElementById("map-boot-splash");
+        if (el) el.hidden = false;
+      } catch (e) { /* never block boot */ }
+    })();
+  </script>
   <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
   <script>
