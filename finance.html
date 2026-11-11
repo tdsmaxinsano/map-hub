@@ -2289,6 +2289,9 @@
           <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Clinician (whole batch)
             <input type="text" id="park-bulk-clin" list="park-clin-list" style="width:220px;" placeholder="Adam Ouyang" />
           </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Patient (optional — fills every row)
+            <input type="text" id="park-bulk-patient" style="width:200px;" placeholder="Last, First" />
+          </label>
           <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Source
             <select id="park-bulk-source"><option value="text">text</option><option value="email" selected>email</option><option value="other">other</option></select>
           </label>
@@ -13755,6 +13758,8 @@ const PARK = (() => {
       const session = (await db.auth.getSession()).data.session;
       const token = session ? session.access_token : SUPABASE_KEY;
       const episodes = await tbEpisodesFor(clin);
+      const forcedPatient = document.getElementById("park-bulk-patient").value.trim();
+      const seenSessions = new Set();
       bulkItems = [];
       for (let i = 0; i < imgs.length; i++) {
         busy.textContent = "⏳ scanning receipt " + (i + 1) + " of " + imgs.length + "…";
@@ -13773,7 +13778,23 @@ const PARK = (() => {
           patient: "", agency: "", cands: []
         };
         item.cands = tbCandidatesFor(episodes, item.date);
-        if (item.cands.length === 1) { item.patient = item.cands[0].patient; item.agency = item.cands[0].agency; }
+        if (forcedPatient) {
+          // Whole-batch patient: trust the office over the episode guess.
+          item.patient = forcedPatient;
+          item.forced = true;
+          const hit = item.cands.find(c => pNorm(c.patient) === pNorm(forcedPatient) ||
+            pNorm(c.patient).includes(pNorm(forcedPatient)) || pNorm(forcedPatient).includes(pNorm(c.patient)));
+          item.agency = hit ? hit.agency : "";
+        } else if (item.cands.length === 1) {
+          item.patient = item.cands[0].patient; item.agency = item.cands[0].agency;
+        }
+        // AI sometimes misreads the year (receipts rarely print it) — flag
+        // anything that lands more than ~13 months in the past.
+        const dts = Date.parse(item.date);
+        if (isFinite(dts) && (Date.now() - dts) > 400 * 86400000) item.oldDate = true;
+        const sessKey = String(item.session || "").trim().toLowerCase();
+        if (sessKey && seenSessions.has(sessKey)) { item.include = false; item.dupBatch = true; }
+        else if (sessKey) seenSessions.add(sessKey);
         const dup = dupCheck({ clinician_name: clin, session_number: item.session, session_date: item.date, amount: item.amount });
         if (dup) { item.include = false; item.dup = true; }
         if (err || !(Number(item.amount) > 0)) item.include = false;
@@ -13792,9 +13813,12 @@ const PARK = (() => {
   function renderBulkReview() {
     const tb = document.getElementById("park-bulk-tbody");
     tb.innerHTML = bulkItems.map((it, i) => {
-      const status = it.dup ? '<span style="color:#92400e;">⏭ already in queue</span>'
+      const status = it.dupBatch ? '<span style="color:#92400e;">⏭ duplicate page in this batch</span>'
+        : it.dup ? '<span style="color:#92400e;">⏭ already in queue</span>'
         : it.err ? '<span style="color:#b91c1c;">✗ scan failed</span>'
         : !(Number(it.amount) > 0) ? '<span style="color:#b91c1c;">⚠ no total read</span>'
+        : it.oldDate ? '<span style="color:#b91c1c;">⚠ check year — read as ' + escHtml(String(it.date).slice(0, 4)) + '</span>'
+        : it.forced ? '<span style="color:#047857;">✓ batch patient</span>'
         : it.cands.length === 1 ? '<span style="color:#047857;">✓ 1 TB patient</span>'
         : it.cands.length > 1 ? '<span style="color:#92400e;">⚠ ' + it.cands.length + ' candidates</span>'
         : '<span style="color:#92400e;">⚠ no TB episode</span>';
