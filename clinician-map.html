@@ -3132,6 +3132,30 @@
     .rsg-inact-toggle input { vertical-align: -1px; margin: 0 3px 0 0; cursor: pointer; }
     .rsg-foot { padding: 9px 12px; border-top: 1px solid #eef2f7; display: flex; justify-content: flex-end; gap: 8px; background: #f8fafc; }
     .rsg-report { padding: 6px 14px; background: #1e4d8c; color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    /* One-click assignment from Suggest cards */
+    .rsg-actions { display: flex; flex-direction: column; gap: 4px; align-items: stretch; margin-left: auto; flex-shrink: 0; }
+    .rsg-log { padding: 4px 9px; background: #1e4d8c; color: #fff; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+    .rsg-log:hover { background: #163a6b; }
+    .rsg-log[disabled] { background: #cbd5e1; color: #64748b; cursor: not-allowed; }
+    .rsg-copy { padding: 3px 8px; background: #fff; color: #1e4d8c; border: 1px solid #cbd5e1; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+    .rsg-copy:hover { background: #f1f5f9; }
+    .rsg-logged { padding: 4px 8px; background: #d1fae5; color: #065f46; border-radius: 6px; font-size: 11px; font-weight: 700; white-space: nowrap; text-align: center; }
+    .rsg-fatigue { font-size: 10.5px; font-weight: 700; color: #92400e; background: #fef3c7; border-radius: 999px; padding: 1px 7px; }
+    .rsg-logtop { padding: 6px 12px; background: #fff; color: #1e4d8c; border: 1px solid #1e4d8c; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; margin-right: auto; }
+    /* Clickable contact status + panel nav */
+    button.ref-contact-status { border: none; cursor: pointer; font-family: inherit; }
+    button.ref-contact-status:hover { filter: brightness(0.94); }
+    .ref-staffed-cta { display: none; width: 100%; margin: 6px 0 2px; padding: 6px 10px; background: #16a34a; color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
+    .ref-staffed-cta.show { display: block; }
+    .ref-panel-nav { display: flex; gap: 6px; margin-top: 6px; }
+    .ref-panel-nav button { flex: 1; padding: 5px 8px; background: #f0f4fa; color: #1e3a5f; border: 1px solid #d7e0ec; border-radius: 7px; font-size: 11.5px; font-weight: 700; cursor: pointer; }
+    .ref-panel-nav button:hover { background: #e2e8f2; }
+    /* Board: outreach count + age urgency */
+    .oprb-cc { display: inline-block; margin-left: 5px; padding: 0 5px; border-radius: 999px; font-size: 9.5px; font-weight: 700; line-height: 15px; vertical-align: 1px; background: #e2e8f0; color: #475569; }
+    .oprb-cc.none { background: #fee2e2; color: #b91c1c; }
+    .oprb-cc.ok { background: #d1fae5; color: #065f46; }
+    .ref-jump-age-cell.warn { color: #b45309; font-weight: 700; }
+    .ref-jump-age-cell.late { color: #dc2626; font-weight: 700; }
     .rsg-report:hover { background: #163a6e; }
     /* Quick log row */
     .ref-quick-log { margin: 8px 0; padding-top: 8px; border-top: 1px solid #e2e8f0; }
@@ -22822,7 +22846,15 @@
 
         if (payload.eventType === "INSERT") {
           var existsIdx = contacts.findIndex(function(c) { return c.id === newRow.id; });
-          if (existsIdx < 0) contacts.push(newRow);
+          if (existsIdx < 0) {
+            // Our own write may already be cached without an id (older
+            // callers) — adopt the echo instead of showing it twice.
+            existsIdx = contacts.findIndex(function(c) {
+              return !c.id && c.referral_id === newRow.referral_id &&
+                String(c.clinician_name || "").trim().toLowerCase() === String(newRow.clinician_name || "").trim().toLowerCase();
+            });
+          }
+          if (existsIdx < 0) contacts.push(newRow); else contacts[existsIdx] = newRow;
         } else if (payload.eventType === "UPDATE") {
           var idx = contacts.findIndex(function(c) { return c.id === newRow.id; });
           if (idx >= 0) contacts[idx] = newRow; else contacts.push(newRow);
@@ -25373,7 +25405,7 @@
           var cResp = await rejectOnTimeout(
             supabaseClient
               .from("referral_contacts")
-              .select("referral_id, clinician_name, discipline, response")
+              .select("id, referral_id, clinician_name, discipline, response, created_at")
               .in("referral_id", refIds)
               .order("created_at", { ascending: false }),
             6000,
@@ -25684,6 +25716,17 @@
       return 0;
     });
 
+    // Next/Prev in the referral panel walks the board in this exact order
+    _oprbVisibleIds = refs.map(function(r) { return r.id; });
+
+    // Outreach counts per referral (for the row badge)
+    var _ccByRef = {};
+    (appState.referralOverlayContacts || []).forEach(function(ct) {
+      var e = _ccByRef[ct.referral_id] || (_ccByRef[ct.referral_id] = { n: 0, acc: 0 });
+      e.n += 1;
+      if (ct.response === "accepted" || ct.response === "accepted_solo") e.acc += 1;
+    });
+
     // ── Column header ──
     var colHdr = document.createElement("div");
     colHdr.className = "ref-jump-col-hdr";
@@ -25732,12 +25775,17 @@
         var row = document.createElement("div");
         row.className = "ref-jump-row";
         row.setAttribute("data-ref-id", r.id);
+        var cc = _ccByRef[r.id] || { n: 0, acc: 0 };
+        var ccHtml = status !== "open" ? ""
+          : cc.n === 0 ? "<span class='oprb-cc none' title='No outreach logged yet'>0</span>"
+          : "<span class='oprb-cc" + (cc.acc ? " ok" : "") + "' title='" + cc.n + " contacted · " + cc.acc + " accepted'>" + cc.n + (cc.acc ? "✓" : "") + "</span>";
+        var ageCls = status !== "open" ? "" : days >= 3 ? " late" : days >= 2 ? " warn" : "";
         row.innerHTML =
           "<span class='ref-jump-agency' title='" + escHtml(agencyFull) + "'>" + escHtml(agency) + "</span>" +
-          "<span class='ref-jump-name'>" + escHtml(lastName) + "</span>" +
+          "<span class='ref-jump-name'>" + escHtml(lastName) + ccHtml + "</span>" +
           "<span class='ref-jump-discs'>" + discsHtml + "</span>" +
           "<span class='ref-jump-city'>" + escHtml(city) + "</span>" +
-          "<span class='ref-jump-age-cell'>" + ageStr + "</span>" +
+          "<span class='ref-jump-age-cell" + ageCls + "'>" + ageStr + "</span>" +
           "<div class='oprb-status-cell'><select style='color:" +
             (status === "staffed" ? "#166534" : status === "cancelled" || status === "rejected" ? "#6b7280" : "#92400e") + "'>" +
             "<option value='open'"      + (status === "open"      ? " selected" : "") + ">Open</option>" +
@@ -25855,12 +25903,55 @@
       var statusCss   = statusKey === "accepted" || statusKey === "acceptedsolo" ? "accepted"
                       : statusKey === "declined" || statusKey === "notinterested" ? "declined"
                       : statusKey === "waiting"  ? "waiting" : "other";
+      var statusHtml = c.id
+        ? "<button type='button' class='ref-contact-status " + statusCss + "' onclick='refCycleContactResponse(\"" + c.id + "\")' title='Click to change: Pending → Accepted → Declined'>" + escHtml(statusLabel) + "</button>"
+        : "<span class='ref-contact-status " + statusCss + "'>" + escHtml(statusLabel) + "</span>";
       return "<div class='ref-contact-item'>" +
         "<span class='ref-contact-name' title='" + escHtml(c.clinician_name) + "'>" + escHtml(c.clinician_name) + "</span>" +
         "<span class='ref-contact-disc' style='background:" + col + "'>" + escHtml(c.discipline || "—") + "</span>" +
-        "<span class='ref-contact-status " + statusCss + "'>" + escHtml(statusLabel) + "</span>" +
+        statusHtml +
       "</div>";
     }).join("");
+  }
+
+  // Pending → Accepted → Declined → Pending (solo acceptances and
+  // "not interested" re-enter the cycle at the natural next step).
+  var REF_RESPONSE_NEXT = {
+    waiting: "accepted", accepted: "declined", accepted_solo: "declined",
+    declined: "waiting", not_interested: "waiting"
+  };
+  async function refCycleContactResponse(contactId) {
+    var contacts = appState.referralOverlayContacts || [];
+    var c = contacts.find(function(x) { return String(x.id) === String(contactId); });
+    if (!c) return;
+    var cur = String(c.response || "waiting").toLowerCase();
+    var next = REF_RESPONSE_NEXT[cur] || "waiting";
+    var { error } = await supabaseClient.from("referral_contacts")
+      .update({ response: next, updated_at: new Date().toISOString() })
+      .eq("id", c.id);
+    if (error) { showToast("Couldn't update status: " + error.message, "error"); return; }
+    c.response = next;
+    refreshRefPanelContacts(c.referral_id);
+  }
+
+  // Every needed discipline has an acceptance (mirrors referrals.html
+  // checkAutoStaffed; handles both "PT/PTA" and ["PT","PTA"] shapes, and a
+  // therapist's accepted_solo covering the assistant slot).
+  function refAllDisciplinesFilled(ref, contacts) {
+    if (!ref) return false;
+    var needed = [];
+    (ref.disciplines || []).forEach(function(d) {
+      String(d).toUpperCase().split("/").forEach(function(p) {
+        p = p.trim(); if (p && needed.indexOf(p) === -1) needed.push(p);
+      });
+    });
+    if (!needed.length) return false;
+    var acc = function(c) { return c.response === "accepted" || c.response === "accepted_solo"; };
+    return needed.every(function(d) {
+      if (contacts.some(function(c) { return c.discipline === d && acc(c); })) return true;
+      var lead = d === "PTA" ? "PT" : d === "OTA" ? "OT" : null;
+      return !!lead && contacts.some(function(c) { return c.discipline === lead && c.response === "accepted_solo"; });
+    });
   }
 
   function refreshRefPanelContacts(refId) {
@@ -25871,9 +25962,75 @@
     var listEl = document.getElementById("rcp-" + refId);
     if (listEl) listEl.innerHTML = buildContactListHtml(fresh);
 
+    // "Mark Staffed" appears once every discipline has an acceptance
+    var cta = document.getElementById("rsc-" + refId);
+    if (cta) {
+      var ref = (appState.referralOverlayData || []).find(function(r) { return r.id === refId; });
+      var open = ref && String(ref.status || "open").toLowerCase() === "open";
+      cta.classList.toggle("show", !!open && refAllDisciplinesFilled(ref, fresh));
+    }
+
+    // Keep Suggest cards' ✓ Logged / ➕ Log state in sync
+    if (_refSuggestData && _refSuggestData.referral && _refSuggestData.referral.id === refId) {
+      renderReferralSuggestPanel(_refSuggestData);
+    }
+
     // Refresh the GeoJSON pin badge counts (cheap; n is small)
     if (typeof rebuildReferralGeoJSON === "function") rebuildReferralGeoJSON();
+    // Board outreach counts — rebuild without losing scroll or selection
+    if (typeof populateReferralDropdown === "function" && _refJumpOpen) {
+      var bodyEl = document.querySelector(".ref-jump-body");
+      var keepScroll = bodyEl ? bodyEl.scrollTop : 0;
+      populateReferralDropdown();
+      var newBody = document.querySelector(".ref-jump-body");
+      if (newBody) newBody.scrollTop = keepScroll;
+      if (appState.refPanelOpenId) highlightRefJumpRow(appState.refPanelOpenId);
+    }
   }
+
+  async function refMarkStaffedAndNext(refId) {
+    await oprb_updateStatus(refId, "staffed");
+    var cta = document.getElementById("rsc-" + refId);
+    if (cta) cta.classList.remove("show");
+    refGoAdjacent(1, refId);
+  }
+
+  // ── Work the queue: next / previous OPEN referral in the board's order ──
+  var _oprbVisibleIds = [];
+  function refGoAdjacent(step, fromId) {
+    var data = appState.referralOverlayData || [];
+    var openIds = _oprbVisibleIds.filter(function(id) {
+      var r = data.find(function(x) { return x.id === id; });
+      return r && String(r.status || "open").toLowerCase() === "open";
+    });
+    if (!openIds.length) {
+      openIds = data.filter(function(r) { return String(r.status || "open").toLowerCase() === "open"; })
+        .map(function(r) { return r.id; });
+    }
+    var cur = fromId || appState.refPanelOpenId;
+    var pool = openIds.filter(function(id) { return id !== cur; });
+    if (!pool.length) { showToast("No other open referrals — the queue is clear.", "success"); return; }
+    var idx = openIds.indexOf(cur);
+    var nextId;
+    if (idx === -1) nextId = step > 0 ? pool[0] : pool[pool.length - 1];
+    else nextId = openIds[(idx + step + openIds.length) % openIds.length];
+    if (nextId === cur) nextId = pool[0];
+    var nextRef = data.find(function(r) { return r.id === nextId; });
+    if (!nextRef) return;
+    closeReferralSuggestPanel();
+    handleRefJumpRow(nextRef);
+    setTimeout(function() {
+      if (appState.refPanelOpenId === nextRef.id) refSuggestClinicians(nextRef.id);
+    }, 700);
+  }
+
+  document.addEventListener("keydown", function(e) {
+    if (!appState.refPanelOpenId || e.ctrlKey || e.metaKey || e.altKey) return;
+    var t = e.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+    if (e.key === "j" || e.key === "J") { e.preventDefault(); refGoAdjacent(1); }
+    else if (e.key === "k" || e.key === "K") { e.preventDefault(); refGoAdjacent(-1); }
+  });
 
   // ── Persistent referral panel — open / close ──
 
@@ -26177,6 +26334,26 @@
         " · " + zipCount + " cover ZIP" + (data.zip ? " " + escHtml(data.zip) + (_refZipPlace ? " · " + escHtml(_refZipPlace) : "") : "") +
         " · " + radCount + " within " + REF_SUGGEST_RADIUS_MI + " mi" + inactToggle + "</div>";
 
+    // Assignment state: who's already on THIS referral, and how many open
+    // asks each clinician has pending on OTHER open referrals (fatigue).
+    var allContacts = appState.referralOverlayContacts || [];
+    var loggedHere = {};
+    var openAsks = {};
+    var openRefIds = {};
+    (appState.referralOverlayData || []).forEach(function(r) {
+      if (String(r.status || "open").toLowerCase() === "open") openRefIds[r.id] = true;
+    });
+    allContacts.forEach(function(ct) {
+      var k = String(ct.clinician_name || "").trim().toLowerCase();
+      if (!k) return;
+      if (ct.referral_id === ref.id) { loggedHere[k] = true; return; }
+      if (openRefIds[ct.referral_id] && String(ct.response || "waiting").toLowerCase() === "waiting") {
+        openAsks[k] = (openAsks[k] || 0) + 1;
+      }
+    });
+    _refSuggestVisible = list;
+    _refSuggestLoggedHere = loggedHere;
+
     var body;
     if (!list.length) {
       body = "<div class='rsg-empty'>" +
@@ -26220,6 +26397,19 @@
           if (c.restrClinicians.length) parts.push("clinicians: " + c.restrClinicians.join(", "));
           restr += "<div class='rsg-restr'>🚫 " + escHtml(parts.join(" · ")) + "</div>";
         }
+        var ckey = String(c.name || "").trim().toLowerCase();
+        var asks = openAsks[ckey] || 0;
+        var fatigue = asks
+          ? "<span class='rsg-fatigue' title='Pending (unanswered) asks on other open referrals'>📨 " + asks + " open ask" + (asks === 1 ? "" : "s") + "</span>"
+          : "";
+        var blockReason = refSuggestBlockReason(c);
+        var actions = "<div class='rsg-actions'>" +
+          (loggedHere[ckey]
+            ? "<div class='rsg-logged'>✓ Logged</div>"
+            : "<button type='button' class='rsg-log' onclick='refSuggestLog(" + i + ")'" +
+                (blockReason ? " disabled title='" + escHtml(blockReason) + "'" : " title='Add to this referral as Pending'") + ">➕ Log</button>") +
+          "<button type='button' class='rsg-copy' onclick='refSuggestCopy(" + i + ")' title='Copy a ready-to-send text (no patient details)'>📋 Text</button>" +
+        "</div>";
         return "<div class='rsg-card'>" +
           "<div class='rsg-rank'>" + (c.rank || (i + 1)) + "</div>" +
           "<div class='rsg-main'>" +
@@ -26230,18 +26420,94 @@
             "<div class='rsg-meta'>" +
               "<span class='rsg-dist'>📏 " + distTxt + "</span>" +
               buildRadiusClinicianStarsHtml(c.rating) +
-              chips + perf +
+              chips + perf + fatigue +
             "</div>" +
             restr +
           "</div>" +
+          actions +
         "</div>";
       }).join("") + "</div>";
     }
 
+    var eligibleTop = list.filter(function(c) {
+      return !loggedHere[String(c.name || "").trim().toLowerCase()] && !refSuggestBlockReason(c);
+    }).length;
     var foot = "<div class='rsg-foot'>" +
+      (eligibleTop ? "<button class='rsg-logtop' onclick='refSuggestLogTop(3)' title='Log the top 3 eligible clinicians not yet on this referral'>➕ Log top " + Math.min(3, eligibleTop) + "</button>" : "") +
       (list.length ? "<button class='rsg-report' onclick='openReferralSuggestReport()'>🖨 Report</button>" : "") +
       "</div>";
     panel.innerHTML = head + body + foot;
+  }
+
+  // ── One-click assignment from Suggest ──
+  var _refSuggestVisible = [];
+  var _refSuggestLoggedHere = {};
+
+  // Same hard stops the full Referral Board enforces before adding.
+  function refSuggestBlockReason(c) {
+    if (!c) return "Unknown clinician";
+    if (c.active === false) return "Inactive — needs reactivation first";
+    if (c.zipExcluded) return "Won't serve this ZIP";
+    if (c.agencyConflict) return "Restricted from this agency";
+    return "";
+  }
+
+  async function refSuggestLog(i) {
+    var data = _refSuggestData;
+    var c = _refSuggestVisible[i];
+    if (!data || !data.referral || !c) return;
+    var why = refSuggestBlockReason(c);
+    if (why) { showToast("⛔ " + why, "warning"); return; }
+    var disc = c.discipline || ((data.referral.disciplines || [])[0] || "PT").split("/")[0];
+    var row = await refInsertContact(data.referral.id, c.name, disc);
+    if (row && row !== "dup") showToast("➕ " + formatClinicianDisplayName(c.name) + " logged as Pending", "success", 1800);
+  }
+
+  async function refSuggestLogTop(n) {
+    var data = _refSuggestData;
+    if (!data || !data.referral) return;
+    var picks = _refSuggestVisible.filter(function(c) {
+      return !_refSuggestLoggedHere[String(c.name || "").trim().toLowerCase()] && !refSuggestBlockReason(c);
+    }).slice(0, n);
+    if (!picks.length) { showToast("Everyone eligible is already logged.", "warning"); return; }
+    var added = 0;
+    for (var k = 0; k < picks.length; k++) {
+      var c = picks[k];
+      var disc = c.discipline || ((data.referral.disciplines || [])[0] || "PT").split("/")[0];
+      var row = await refInsertContact(data.referral.id, c.name, disc);
+      if (row && row !== "dup") added += 1;
+    }
+    showToast("➕ Logged " + added + " clinician" + (added === 1 ? "" : "s") + " as Pending", added ? "success" : "warning", 2200);
+  }
+
+  // Ready-to-send outreach text. Deliberately no patient name / street
+  // address — just area, ZIP, agency, and discipline.
+  function refSuggestCopy(i) {
+    var data = _refSuggestData;
+    var c = _refSuggestVisible[i];
+    if (!data || !data.referral || !c) return;
+    var ref = data.referral;
+    var raw = String(c.name || "").trim();
+    var first = raw.indexOf(",") !== -1 ? raw.split(",")[1].trim().split(/\s+/)[0] : raw.split(/\s+/)[0];
+    first = first ? first.charAt(0).toUpperCase() + first.slice(1).toLowerCase() : "there";
+    var parts = String(ref.address || "").split(",");
+    var p0 = (parts[0] || "").trim();
+    var area = /\d/.test(p0) && parts.length > 1 ? parts[1].trim() : p0;
+    var place = [area, data.zip].filter(Boolean).join(" ");
+    var text = "Hi " + first + ", we have a new " + (c.discipline || "therapy") + " referral" +
+      (place ? " in " + place : "") + (data.agency ? " (" + data.agency + ")" : "") +
+      ". Are you available to take it?";
+    var done = function() { showToast("📋 Text copied — paste it into RingCentral", "success", 2000); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done, function() { refCopyFallback(text); done(); });
+    } else { refCopyFallback(text); done(); }
+  }
+  function refCopyFallback(text) {
+    var ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.select();
+    try { document.execCommand("copy"); } catch (e) {}
+    ta.remove();
   }
 
   function openReferralSuggestReport() {
@@ -26376,6 +26642,11 @@
         "<div class='ref-contact-list-label'>Contacts</div>" +
         "<div class='ref-contact-list' id='rcp-" + rid + "'>" +
           buildContactListHtml(accepted) +
+        "</div>" +
+        "<button type='button' class='ref-staffed-cta" + (refAllDisciplinesFilled(r, accepted) ? " show" : "") + "' id='rsc-" + rid + "' onclick='refMarkStaffedAndNext(\"" + rid + "\")'>✅ All filled — mark Staffed &amp; next</button>" +
+        "<div class='ref-panel-nav'>" +
+          "<button type='button' onclick='refGoAdjacent(-1)' title='Previous open referral (K)'>‹ Prev</button>" +
+          "<button type='button' onclick='refGoAdjacent(1)' title='Next open referral (J)'>Next ›</button>" +
         "</div>" +
 
         "<div class='ref-quick-log'>" +
@@ -26578,51 +26849,70 @@
     if (!name) { nameEl.focus(); nameEl.style.borderColor = "#ef4444"; return; }
     nameEl.style.borderColor = "";
 
-    // Duplicate guard — same clinician already logged to this referral
-    var already = appState.referralOverlayContacts.find(function(c) {
-      return c.referral_id === refId &&
-             c.clinician_name.trim().toLowerCase() === name.toLowerCase();
-    });
-    if (already) {
+    var logBtn = nameEl.closest(".ref-quick-log").querySelector(".ref-log-btn");
+    if (logBtn) { logBtn.disabled = true; logBtn.textContent = "…"; }
+    var result = await refInsertContact(refId, name, disc);
+    if (logBtn) { logBtn.disabled = false; logBtn.textContent = "Log"; }
+
+    if (result === "dup") {
       nameEl.style.borderColor = "#f59e0b";
       nameEl.title = "Already logged";
-      showToast(name + " is already logged on this referral.", "warning");
       setTimeout(function() { nameEl.style.borderColor = ""; nameEl.title = ""; }, 2000);
       return;
     }
-
-    var logBtn = nameEl.closest(".ref-quick-log").querySelector(".ref-log-btn");
-    if (logBtn) { logBtn.disabled = true; logBtn.textContent = "…"; }
-
-    var { error } = await supabaseClient.from("referral_contacts").insert({
-      referral_id:    refId,
-      clinician_name: name,
-      discipline:     disc,
-      response:       "waiting"
-    });
-
-    if (logBtn) { logBtn.disabled = false; logBtn.textContent = "Log"; }
-
-    if (error) {
-      nameEl.style.borderColor = "#ef4444";
-      console.error("[RefLog]", error);
-      return;
-    }
-
-    // Update local cache first, then refresh panel + badge
-    appState.referralOverlayContacts.push({
-      referral_id:    refId,
-      clinician_name: name,
-      discipline:     disc,
-      response:       "waiting"
-    });
+    if (!result) { nameEl.style.borderColor = "#ef4444"; return; }
 
     // Success feedback
     nameEl.value = "";
     if (okEl) { okEl.style.display = "block"; setTimeout(function() { okEl.style.display = "none"; }, 2500); }
+  }
 
-    // Refresh contact list in panel + update pin badge from local state
+  // Shared contact insert for Quick Log and Suggest ➕ Log. Returns the
+  // saved row, "dup" when the clinician is already on this referral, or
+  // null on error. Checks the local cache AND the database (other tabs /
+  // the full Referral Board may have logged them), and caches the row
+  // WITH its id so the realtime echo dedupes instead of double-listing.
+  async function refInsertContact(refId, name, disc) {
+    name = String(name || "").trim();
+    var key = name.toLowerCase();
+    var contacts = appState.referralOverlayContacts || [];
+    var cached = contacts.find(function(c) {
+      return c.referral_id === refId && String(c.clinician_name || "").trim().toLowerCase() === key;
+    });
+    if (cached) { showToast(name + " is already logged on this referral.", "warning"); return "dup"; }
+
+    try {
+      var existing = await supabaseClient.from("referral_contacts")
+        .select("id, referral_id, clinician_name, discipline, response, created_at")
+        .eq("referral_id", refId)
+        .ilike("clinician_name", name.replace(/[%_\\]/g, "\\$&"));
+      if (!existing.error && existing.data && existing.data.length) {
+        existing.data.forEach(function(row) {
+          if (!contacts.some(function(c) { return c.id === row.id; })) contacts.push(row);
+        });
+        refreshRefPanelContacts(refId);
+        showToast(name + " is already logged on this referral.", "warning");
+        return "dup";
+      }
+    } catch (e) { /* fall through — the insert is still safe to attempt */ }
+
+    var ins = await supabaseClient.from("referral_contacts").insert({
+      referral_id:    refId,
+      clinician_name: name,
+      discipline:     disc,
+      response:       "waiting"
+    }).select("id, referral_id, clinician_name, discipline, response, created_at").single();
+
+    if (ins.error || !ins.data) {
+      console.error("[RefLog]", ins.error);
+      showToast("Couldn't log " + name + ": " + ((ins.error && ins.error.message) || "unknown error"), "error");
+      return null;
+    }
+    // The realtime echo may have landed first — never cache the row twice.
+    if (!contacts.some(function(c) { return c.id === ins.data.id; })) contacts.push(ins.data);
+    appState.referralOverlayContacts = contacts;
     refreshRefPanelContacts(refId);
+    return ins.data;
   }
 
   // Simple HTML escape for popup content
