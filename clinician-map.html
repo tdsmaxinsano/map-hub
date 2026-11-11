@@ -8376,6 +8376,7 @@
     const completedServicePointLayerId = "completed-service-points";
     const completedServicePointFocusedLayerId = "completed-service-points-focused";
     const completedServicePointCountLayerId = "completed-service-point-count";
+    const completedServiceRadiusLabelLayerId = "completed-service-radius-labels";
     const completedServiceClusterRadius = 44;
     const completedServiceClusterMaxZoom = 11;
     const radiusMinimumMiles = 1;
@@ -11037,7 +11038,8 @@
             ptSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "PT"], 1, 0]],
             ptaSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "PTA"], 1, 0]],
             otSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "OT"], 1, 0]],
-            otaSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "OTA"], 1, 0]]
+            otaSiteCount: ["+", ["case", ["==", ["get", "dominantDiscipline"], "OTA"], 1, 0]],
+            dimCount: ["+", ["case", ["==", ["get", "dim"], 1], 1, 0]]
           }
         });
       }
@@ -11050,9 +11052,9 @@
           filter: ["has", "point_count"],
           paint: {
             "circle-color": "#2463eb",
-            "circle-opacity": 0.92,
+            "circle-opacity": ["case", ["==", ["get", "dimCount"], ["get", "point_count"]], 0.3, 0.92],
             "circle-stroke-color": "#f5f8fd",
-            "circle-stroke-width": 2,
+            "circle-stroke-width": ["case", ["==", ["get", "dimCount"], ["get", "point_count"]], 1, 2],
             "circle-radius": [
               "step",
               ["get", "point_count"],
@@ -11077,7 +11079,8 @@
             "text-size": 12
           },
           paint: {
-            "text-color": "#f5f8fd"
+            "text-color": "#f5f8fd",
+            "text-opacity": ["case", ["==", ["get", "dimCount"], ["get", "point_count"]], 0.5, 1]
           }
         });
       }
@@ -11090,15 +11093,17 @@
           filter: ["!", ["has", "point_count"]],
           paint: {
             "circle-color": "#2463eb",
-            "circle-opacity": 0.97,
+            "circle-opacity": ["case", ["==", ["get", "dim"], 1], 0.3, 0.97],
             "circle-stroke-color": "#f5f8fd",
             "circle-stroke-width": [
-              "interpolate",
-              ["linear"],
-              ["zoom"],
-              8, 2,
-              12, 2.8,
-              15, 3.4
+              "case", ["==", ["get", "dim"], 1], 1,
+              ["interpolate",
+                ["linear"],
+                ["zoom"],
+                8, 2,
+                12, 2.8,
+                15, 3.4
+              ]
             ],
             "circle-radius": [
               "interpolate",
@@ -11146,35 +11151,78 @@
             "text-size": 10
           },
           paint: {
-            "text-color": "#f5f8fd"
+            "text-color": "#f5f8fd",
+            "text-opacity": ["case", ["==", ["get", "dim"], 1], 0.5, 1]
+          }
+        });
+      }
+
+      // Radius clinician-name labels — GL symbols with built-in collision
+      // decluttering, replacing the per-site DOM Marker labels that made
+      // lens drags and referral fly-tos janky (every DOM label repositioned
+      // per frame; stacks of identical names piled up unreadably).
+      if (!map.getLayer(completedServiceRadiusLabelLayerId)) {
+        map.addLayer({
+          id: completedServiceRadiusLabelLayerId,
+          type: "symbol",
+          source: completedServiceSourceId,
+          filter: ["all", ["!", ["has", "point_count"]], ["==", ["get", "inRadius"], 1], ["!=", ["get", "radiusLabel"], ""]],
+          layout: {
+            "text-field": ["get", "radiusLabel"],
+            "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"],
+            "text-size": 10.5,
+            "text-anchor": "bottom",
+            "text-offset": [0, -1.1],
+            "text-max-width": 16
+          },
+          paint: {
+            "text-color": "#1E3A5F",
+            "text-halo-color": "#ffffff",
+            "text-halo-width": 1.3
           }
         });
       }
     }
 
     function getCompletedServiceGeoJson() {
-      return {
-        type: "FeatureCollection",
-        features: getVisibleCompletedServiceSites(false).filter(hasCompletedServiceCoordinates).map(function(site) {
-          return {
-            type: "Feature",
-            geometry: {
-              type: "Point",
-              coordinates: [site.lng, site.lat]
-            },
-            properties: {
-              siteKey: site.key,
-              fullAddress: site.fullAddress || "",
-              dominantDiscipline: site.primaryDiscipline || "",
-              serviceRowsCount: site.serviceRowsCount,
-              serviceRowsLabel: site.serviceRowsCount > 9 ? "9+" : String(site.serviceRowsCount || ""),
-              uniquePatientCount: site.uniquePatientCount || 0,
-              uniqueClinicianCount: site.uniqueClinicianCount || 0,
-              totalServiceVisits: site.totalServiceVisits || 0
-            }
-          };
-        })
-      };
+      const center = appState.selectionCenter || null;
+      const radiusMiles = center ? appState.selectedRadiusMiles : 0;
+      // Spotlight (lens active, services toggle OFF): only in-radius sites —
+      // the whole point of the spotlight. Previously this fed EVERY site in
+      // the city, which is why "all the services stayed on".
+      const spotlightOnly = !appState.showCompletedServices && !!center;
+
+      const features = [];
+      getVisibleCompletedServiceSites(false).filter(hasCompletedServiceCoordinates).forEach(function(site) {
+        let inRadius = 0;
+        if (center) {
+          inRadius = haversineMiles(center.lat, center.lng, site.lat, site.lng) <= radiusMiles ? 1 : 0;
+        }
+        if (spotlightOnly && !inRadius) return;
+        // Dim = emphasis mode: toggle ON + a radius active + site outside it.
+        const dim = (!spotlightOnly && center && !inRadius) ? 1 : 0;
+        features.push({
+          type: "Feature",
+          geometry: {
+            type: "Point",
+            coordinates: [site.lng, site.lat]
+          },
+          properties: {
+            siteKey: site.key,
+            fullAddress: site.fullAddress || "",
+            dominantDiscipline: site.primaryDiscipline || "",
+            serviceRowsCount: site.serviceRowsCount,
+            serviceRowsLabel: site.serviceRowsCount > 9 ? "9+" : String(site.serviceRowsCount || ""),
+            uniquePatientCount: site.uniquePatientCount || 0,
+            uniqueClinicianCount: site.uniqueClinicianCount || 0,
+            totalServiceVisits: site.totalServiceVisits || 0,
+            inRadius: inRadius,
+            dim: dim,
+            radiusLabel: inRadius ? getCompletedServiceRadiusLabelText(site) : ""
+          }
+        });
+      });
+      return { type: "FeatureCollection", features: features };
     }
 
     function syncCompletedServiceLayerFocus() {
@@ -11241,48 +11289,21 @@
     }
 
     function updateCompletedServiceRadiusLabels() {
-      if (!appState.selectionCenter || !appState.hasLoadedCompletedServices) {
-        clearCompletedServiceRadiusLabels();
+      // Radius clinician-name labels now live in the GL symbol layer
+      // (completedServiceRadiusLabelLayerId) — collision-decluttered and
+      // GPU-positioned. This refreshes the per-feature inRadius / dim /
+      // radiusLabel properties whenever the lens or radius moves; any
+      // legacy DOM label markers are torn down.
+      clearCompletedServiceRadiusLabels();
+      ensureCompletedServiceLayers();
+      const lensSpotlight = !!appState.selectionCenter && appState.hasLoadedCompletedServices;
+      if (!appState.showCompletedServices && !lensSpotlight) {
+        clearCompletedServiceMarkers();
         return;
       }
-
-      const radiusSites = getCompletedServiceSitesInRadius();
-      const visibleKeys = new Set();
-
-      radiusSites.forEach(function(entry) {
-        const site = entry.site;
-        const labelText = getCompletedServiceRadiusLabelText(site);
-        if (!labelText || !hasCompletedServiceCoordinates(site)) return;
-
-        visibleKeys.add(site.key);
-        if (appState.completedServiceRadiusLabelsByKey.has(site.key)) {
-          const existingLabelMarker = appState.completedServiceRadiusLabelsByKey.get(site.key);
-          existingLabelMarker.setLngLat([site.lng, site.lat]);
-          existingLabelMarker.getElement().textContent = labelText;
-          return;
-        }
-
-        const label = document.createElement("div");
-        label.className = "selection-label completed-service-radius-label";
-        label.textContent = labelText;
-
-        const labelMarker = new mapboxgl.Marker({
-          element: label,
-          anchor: "bottom",
-          offset: [0, -18]
-        })
-          .setLngLat([site.lng, site.lat])
-          .addTo(map);
-
-        appState.completedServiceRadiusLabelsByKey.set(site.key, labelMarker);
-      });
-
-      appState.completedServiceRadiusLabelsByKey.forEach(function(marker, siteKey) {
-        if (!visibleKeys.has(siteKey)) {
-          marker.remove();
-          appState.completedServiceRadiusLabelsByKey.delete(siteKey);
-        }
-      });
+      const source = map.getSource(completedServiceSourceId);
+      if (!source) return;
+      source.setData(getCompletedServiceGeoJson());
     }
 
     function buildCompletedServicePopupHtml(site) {
@@ -11377,7 +11398,9 @@
           openCompletedServicePopup(focusedSite, [focusedSite.lng, focusedSite.lat]);
         }
       }
-      updateCompletedServiceRadiusLabels();
+      // Radius labels ride the same GeoJSON (inRadius/radiusLabel props) —
+      // only legacy DOM labels need clearing here.
+      clearCompletedServiceRadiusLabels();
     }
 
     function renderCompletedServiceSidebar() {
