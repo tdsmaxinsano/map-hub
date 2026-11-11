@@ -116,7 +116,10 @@
   .zip-chip.gap-refused { background: #f3f4f6; color: #6b7280; border-color: #e0e3e8; }
   .zip-chip.copyable { cursor: pointer; }
   .zip-chip.copyable:hover { box-shadow: 0 0 0 2px rgba(26, 95, 180, .28); }
-  .zip-chip.tb-done { background: #e7f6ec !important; color: #1b7a3d !important; border-color: #bfe3cc !important; }
+  /* Copied for TB entry — NOT confirmed. Only a TB re-import confirms a ZIP
+     (it then moves to TB Loaded ZIPs). Deliberately not green. */
+  .zip-chip.tb-copied { background: #fff !important; border: 1px dashed #1a5fb4 !important; color: #1a5fb4 !important; }
+  .tb-awaiting { font-size: 11.5px; font-weight: 700; color: #92400e; }
   .gap-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin: 0 0 7px; }
   .gap-tools .mv-btn { padding: 4px 10px; font-size: 11.5px; }
   .gap-tools .tb-progress { font-size: 11.5px; font-weight: 700; color: #1a5fb4; }
@@ -1452,6 +1455,7 @@ function declaredZipSet() {
 function renderZipPanels() {
   const declared = declaredZipSet();
   const served = servedZipCounts();
+  tbSyncCopiedWithDeclared(declared);
   const servedZips = Object.keys(served).sort((a, b) => served[b] - served[a]);
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
 
@@ -1485,6 +1489,7 @@ function renderZipPanels() {
       toolsHost.innerHTML = "";
     } else {
       const remaining = gapAdd.filter(z => !tbEntryDone.has(z));
+      const awaiting = gapAdd.filter(z => tbEntryDone.has(z));
       let html = "";
       if (gapAdd.length) html += `<button type="button" class="mv-btn" onclick="copyGapList()">📋 Copy list (${gapAdd.length})</button>`;
       html += `<button type="button" class="mv-btn${tbEntryMode ? " primary" : ""}" onclick="toggleTbEntryMode()">${tbEntryMode ? "✕ Exit TB entry mode" : "➡ TB entry mode"}</button>`;
@@ -1492,17 +1497,22 @@ function renderZipPanels() {
         html += remaining.length
           ? `<button type="button" class="mv-btn primary" onclick="tbCopyNext()">Copy next → ${esc(remaining[0])}</button>` +
             `<span class="tb-progress">${gapAdd.length - remaining.length} of ${gapAdd.length} copied</span>`
-          : `<span class="tb-progress" style="color:#1b7a3d">✓ All ${gapAdd.length} copied — now declared in TB? Re-run the ZIP import to confirm.</span>`;
+          : `<span class="tb-progress">All ${gapAdd.length} copied.</span>`;
+      }
+      if (awaiting.length) {
+        html += `<span class="tb-awaiting" title="Copying doesn't confirm anything. Export ZIP coverage from TherapyBoss and import it here (📮 TB Loaded ZIPs) — ZIPs TB really has move out of this list.">📋 ${awaiting.length} copied · awaiting TB — re-import ZIPs from TB to confirm</span>` +
+          `<button type="button" class="mv-btn" onclick="tbClearCopied()" title="Remove the copied marks (e.g. clicked by accident). Nothing in TB or the portal changes.">↺ Clear copied marks</button>`;
       }
       toolsHost.innerHTML = html;
     }
   }
 
   const gapChip = (z, cls, inner, title) => {
-    const done = tbEntryMode && tbEntryDone.has(z);
+    const copied = cls === "gap-add" && tbEntryDone.has(z);
     const click = tbEntryMode ? ` onclick="tbCopyOne('${esc(z)}')"` : "";
-    const t = tbEntryMode ? "Click to copy just this ZIP for TherapyBoss" + (title ? " — " + title : "") : (title || "");
-    return `<span class="zip-chip ${cls}${tbEntryMode ? " copyable" : ""}${done ? " tb-done" : ""}"${t ? ` title="${esc(t)}"` : ""}${click}>${done ? "✓ " : ""}${inner}</span>`;
+    let t = tbEntryMode ? "Click to copy just this ZIP for TherapyBoss" + (title ? " — " + title : "") : (title || "");
+    if (copied) t = "Copied — awaiting TB. Confirmed only when a TB re-import includes it." + (t ? " · " + t : "");
+    return `<span class="zip-chip ${cls}${tbEntryMode ? " copyable" : ""}${copied ? " tb-copied" : ""}"${t ? ` title="${esc(t)}"` : ""}${click}>${copied ? "📋 " : ""}${inner}</span>`;
   };
 
   const refusedHtml = gapRefused.length
@@ -1544,7 +1554,55 @@ function renderZipPanels() {
 // plain full-list copy there's a TB entry mode: chips become one-click
 // copies that check off as you alternate paste-by-paste with TB.
 let tbEntryMode = false;
+// ZIPs copied for TB entry — "awaiting TB", NOT done. Persisted per
+// clinician so the marks survive a refresh while you work in TB. A ZIP
+// leaves this set only when the declared list (a TB re-import) has it.
 let tbEntryDone = new Set();
+let tbCopiedFor = null;
+let tbJustImported = false;
+
+function tbCopiedKey(cid) { return "tp_tb_copied_" + cid; }
+function tbSaveCopied() {
+  if (!clinician) return;
+  try {
+    if (tbEntryDone.size) localStorage.setItem(tbCopiedKey(clinician.id), JSON.stringify(Array.from(tbEntryDone)));
+    else localStorage.removeItem(tbCopiedKey(clinician.id));
+  } catch (e) {}
+}
+function tbSyncCopiedWithDeclared(declared) {
+  if (!clinician) return;
+  if (tbCopiedFor !== clinician.id) {
+    tbCopiedFor = clinician.id;
+    tbEntryDone = new Set();
+    try { (JSON.parse(localStorage.getItem(tbCopiedKey(clinician.id)) || "[]") || []).forEach(z => tbEntryDone.add(z)); } catch (e) {}
+  }
+  const confirmed = Array.from(tbEntryDone).filter(z => declared.has(z));
+  if (confirmed.length) {
+    confirmed.forEach(z => tbEntryDone.delete(z));
+    tbSaveCopied();
+  }
+  if (tbJustImported) {
+    tbJustImported = false;
+    const missing = Array.from(tbEntryDone);
+    setTimeout(() => {
+      if (missing.length) {
+        showToast("✓ TB confirmed " + confirmed.length + " ZIP" + (confirmed.length === 1 ? "" : "s") +
+          " · ⚠ " + missing.length + " copied but NOT in TB yet: " + missing.slice(0, 6).join(", ") + (missing.length > 6 ? "…" : ""));
+      } else if (confirmed.length) {
+        showToast("✓ TherapyBoss confirmed all " + confirmed.length + " copied ZIP" + (confirmed.length === 1 ? "" : "s"));
+      }
+    }, 2800);
+  } else if (confirmed.length) {
+    showToast("✓ TherapyBoss confirmed " + confirmed.length + " ZIP" + (confirmed.length === 1 ? "" : "s") + ": " + confirmed.slice(0, 6).join(", "));
+  }
+}
+function tbClearCopied() {
+  if (!tbEntryDone.size) return;
+  if (!confirm("Clear the 📋 copied marks on " + tbEntryDone.size + " ZIP(s)?\n\nOnly the marks go away — nothing in TherapyBoss or the portal changes.")) return;
+  tbEntryDone = new Set();
+  tbSaveCopied();
+  renderZipPanels();
+}
 
 function gapAddZips() {
   const declared = declaredZipSet();
@@ -1555,7 +1613,6 @@ function gapAddZips() {
 }
 function toggleTbEntryMode() {
   tbEntryMode = !tbEntryMode;
-  if (!tbEntryMode) tbEntryDone = new Set(); // fresh checklist next time
   renderZipPanels();
   if (tbEntryMode) showToast("➡ TB entry mode — click a chip (or Copy next) to copy one ZIP at a time");
 }
@@ -1576,10 +1633,11 @@ function tbCopyOne(zip) {
   const wasNew = !tbEntryDone.has(z);
   const done = () => {
     tbEntryDone.add(z);
+    tbSaveCopied();
     renderZipPanels();
     const left = gapAddZips().filter(x => !tbEntryDone.has(x)).length;
     showToast("📋 " + z + " copied — paste into TB" +
-      (wasNew ? (left ? " · " + left + " to go" : " · that's the last one 🎉") : " (again)"));
+      (wasNew ? (left ? " · " + left + " to go" : " · last one — now re-import ZIPs from TB to confirm") : " (again)"));
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(z).then(done).catch(() => copyZipFallback(z, done));
@@ -1886,6 +1944,7 @@ async function covImportApply() {
 
     showToast("✓ Coverage updated for " + fmtName(clinician.name) + (added.length || removed.length ? " (+" + added.length + " / −" + removed.length + ")" : " (no changes)"));
     covImport = null;
+    tbJustImported = true;
     await reloadCoverage();
   } catch (e) {
     showToast("Import failed: " + (e.message || e));
