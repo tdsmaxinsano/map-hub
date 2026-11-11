@@ -11,6 +11,7 @@
 <script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!-- Chart.js — inline preview + trend charts -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <!-- PDF.js (legacy build 3.11.174 — last stable UMD release; 4.x is ESM-only).
@@ -2130,6 +2131,7 @@
         <!-- Intake: AI receipt scan + manual add -->
         <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">
           <button type="button" class="btn-primary" id="park-scan-btn">📷 Scan a parking receipt</button>
+          <button type="button" class="btn-secondary" id="park-bulk-btn" title="A therapist sent a whole batch? Drop a multi-page PDF or many screenshots — every receipt is scanned, matched to their TherapyBoss patients, and queued in one pass.">📚 Bulk import (PDF / images)</button>
           <span style="font-size:12px;color:var(--muted);">drop / paste / browse a receipt screenshot — or add by hand:</span>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;" id="park-quickadd">
@@ -2278,6 +2280,44 @@
     </div>
 
     <!-- 🅿️ Scan-a-parking-receipt modal -->
+    <div class="cpr-modal-overlay" id="park-bulk-modal" style="display:none;">
+      <div class="cpr-modal-box" style="width:860px;max-width:95vw;">
+        <div class="cpr-modal-title">📚 Bulk import parking receipts</div>
+        <div class="cpr-modal-sub">One clinician's batch at a time. Drop a <b>multi-page PDF</b> (each page a receipt) or <b>many screenshots</b> —
+          the AI reads every receipt, suggests the patient from the clinician's TherapyBoss episodes on that date, and you confirm the lot in one go.</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Clinician (whole batch)
+            <input type="text" id="park-bulk-clin" list="park-clin-list" style="width:220px;" placeholder="Adam Ouyang" />
+          </label>
+          <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Source
+            <select id="park-bulk-source"><option value="text">text</option><option value="email" selected>email</option><option value="other">other</option></select>
+          </label>
+        </div>
+        <div id="park-bulk-step1">
+          <div class="dropzone bank-scan-dropzone" id="park-bulk-dz" tabindex="0" role="button" aria-label="Drop PDF or images">
+            <div class="bank-dz-icon">📚</div>
+            <div class="bank-dz-title">Drop the PDF / screenshots here, or click to browse</div>
+            <div class="bank-dz-sub">PDF (one receipt per page) · JPG / PNG — any mix, many at once.</div>
+          </div>
+          <input type="file" id="park-bulk-file" accept=".pdf,image/*" multiple style="display:none;">
+        </div>
+        <div id="park-bulk-busy" style="display:none;font-size:13px;color:var(--muted);padding:12px 2px;">⏳ working…</div>
+        <div id="park-bulk-review" style="display:none;max-height:46vh;overflow:auto;">
+          <table style="width:100%;border-collapse:collapse;font-size:12.5px;">
+            <thead><tr style="text-align:left;color:var(--muted);font-size:10.5px;text-transform:uppercase;">
+              <th style="padding:4px 6px;">✓</th><th style="padding:4px 6px;">Receipt</th><th style="padding:4px 6px;">Date</th>
+              <th style="padding:4px 6px;">$</th><th style="padding:4px 6px;">Patient</th><th style="padding:4px 6px;">Agency (HH)</th><th style="padding:4px 6px;">Status</th>
+            </tr></thead>
+            <tbody id="park-bulk-tbody"></tbody>
+          </table>
+        </div>
+        <div class="cpr-modal-footer" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;">
+          <button type="button" class="btn-secondary" id="park-bulk-cancel">Cancel</button>
+          <button type="button" class="btn-primary" id="park-bulk-add" style="display:none;">➕ Add selected</button>
+        </div>
+      </div>
+    </div>
+
     <div class="cpr-modal-overlay" id="park-scan-modal" style="display:none;">
       <div class="cpr-modal-box" style="width:600px;">
         <div class="cpr-modal-title">📷 Scan a parking receipt</div>
@@ -13617,6 +13657,200 @@ const PARK = (() => {
     }
   }
 
+  // ── 📚 Bulk import: multi-page PDF / many screenshots in one pass ──
+  // Each page/image → tb-scan-image (full receipt prompt) → patient
+  // suggested from the clinician's TB episodes covering that date →
+  // review table → addRow() per confirmed line (receipt image attached).
+  let bulkItems = [];
+  let bulkBusy = false;
+
+  async function scanDataUrl(dataUrl, token) {
+    const res = await fetch(`${SUPABASE_URL}/functions/v1/tb-scan-image`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "apikey": SUPABASE_KEY },
+      body: JSON.stringify({ imageBase64: dataUrl, prompt: PARK_PROMPT })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || res.statusText);
+    const content = data?.choices?.[0]?.message?.content || "";
+    try { return JSON.parse(content.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim()); }
+    catch (e) { return {}; }
+  }
+
+  async function filesToImages(files) {
+    const out = [];
+    for (const f of Array.from(files)) {
+      if (/\.pdf$/i.test(f.name) || f.type === "application/pdf") {
+        if (typeof pdfjsLib === "undefined") throw new Error("PDF library didn't load — hard-refresh and try again.");
+        if (!pdfjsLib.GlobalWorkerOptions.workerSrc)
+          pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        const pdf = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+        for (let p = 1; p <= pdf.numPages; p++) {
+          const page = await pdf.getPage(p);
+          const vp = page.getViewport({ scale: 1.6 });
+          const cv = document.createElement("canvas"); cv.width = vp.width; cv.height = vp.height;
+          await page.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+          const blob = await new Promise(res => cv.toBlob(res, "image/jpeg", 0.85));
+          out.push({ blob, dataUrl: cv.toDataURL("image/jpeg", 0.85), label: f.name + " · p" + p });
+        }
+      } else if (f.type.startsWith("image/")) {
+        const dataUrl = await new Promise((res, rej) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = rej; fr.readAsDataURL(f); });
+        out.push({ blob: f, dataUrl, label: f.name });
+      }
+    }
+    return out;
+  }
+
+  // All TB episodes for one clinician (fetched once per batch); candidates
+  // for a receipt = episodes whose window covers the receipt date.
+  async function tbEpisodesFor(clinicianName) {
+    const tok = longestToken(clinicianName);
+    if (!tok || tok.length < 3) return [];
+    const { data } = await db.from("therapy_boss_completed_service_import_rows")
+      .select("patient_name, referral_source, primary_payer, start_of_episode, ended_date, last_visit_date, clinician_names_raw")
+      .ilike("clinician_names_raw", "%" + tok + "%").limit(400);
+    return data || [];
+  }
+  function tbCandidatesFor(episodes, dateIso) {
+    const d = dateIso ? Date.parse(dateIso) : NaN;
+    const seen = new Map();
+    for (const r of episodes) {
+      if (isFinite(d)) {
+        const s = r.start_of_episode ? Date.parse(r.start_of_episode) - 7 * 86400000 : -Infinity;
+        const eRaw = r.ended_date || r.last_visit_date;
+        const e = (eRaw ? Date.parse(eRaw) : Date.now()) + 7 * 86400000;
+        if (d < s || d > e) continue;
+      }
+      const k = pNorm(r.patient_name);
+      if (!k || seen.has(k)) continue;
+      seen.set(k, { patient: r.patient_name, agency: r.referral_source || r.primary_payer || "" });
+    }
+    return [...seen.values()];
+  }
+
+  function openBulk() {
+    bulkItems = [];
+    document.getElementById("park-bulk-step1").style.display = "block";
+    document.getElementById("park-bulk-busy").style.display = "none";
+    document.getElementById("park-bulk-review").style.display = "none";
+    document.getElementById("park-bulk-add").style.display = "none";
+    document.getElementById("park-bulk-file").value = "";
+    document.getElementById("park-bulk-modal").style.display = "flex";
+    document.getElementById("park-bulk-clin").focus();
+  }
+  function closeBulk() { document.getElementById("park-bulk-modal").style.display = "none"; bulkItems = []; bulkBusy = false; }
+
+  async function processBulk(files) {
+    if (bulkBusy) return;
+    const clin = document.getElementById("park-bulk-clin").value.trim();
+    if (!clin) { showToast("Type the clinician first — the whole batch files under them.", "error"); return; }
+    bulkBusy = true;
+    const busy = document.getElementById("park-bulk-busy");
+    document.getElementById("park-bulk-step1").style.display = "none";
+    busy.style.display = "block";
+    try {
+      busy.textContent = "⏳ reading file(s)…";
+      const imgs = await filesToImages(files);
+      if (!imgs.length) throw new Error("No PDF pages or images found in what was dropped.");
+      const session = (await db.auth.getSession()).data.session;
+      const token = session ? session.access_token : SUPABASE_KEY;
+      const episodes = await tbEpisodesFor(clin);
+      bulkItems = [];
+      for (let i = 0; i < imgs.length; i++) {
+        busy.textContent = "⏳ scanning receipt " + (i + 1) + " of " + imgs.length + "…";
+        const im = imgs[i];
+        let parsed = {};
+        let err = null;
+        try { parsed = await scanDataUrl(im.dataUrl, token) || {}; }
+        catch (e) { err = e.message || String(e); }
+        const item = {
+          include: true, blob: im.blob, label: im.label, err,
+          date: parsed.session_date || "",
+          vendor: parsed.vendor || "",
+          session: parsed.session_number || "",
+          location: parsed.location || "",
+          amount: parsed.total != null ? Number(parsed.total).toFixed(2) : "",
+          patient: "", agency: "", cands: []
+        };
+        item.cands = tbCandidatesFor(episodes, item.date);
+        if (item.cands.length === 1) { item.patient = item.cands[0].patient; item.agency = item.cands[0].agency; }
+        const dup = dupCheck({ clinician_name: clin, session_number: item.session, session_date: item.date, amount: item.amount });
+        if (dup) { item.include = false; item.dup = true; }
+        if (err || !(Number(item.amount) > 0)) item.include = false;
+        bulkItems.push(item);
+      }
+      renderBulkReview();
+    } catch (e) {
+      showToast("Bulk import failed: " + (e.message || e), "error");
+      document.getElementById("park-bulk-step1").style.display = "block";
+    } finally {
+      busy.style.display = "none";
+      bulkBusy = false;
+    }
+  }
+
+  function renderBulkReview() {
+    const tb = document.getElementById("park-bulk-tbody");
+    tb.innerHTML = bulkItems.map((it, i) => {
+      const status = it.dup ? '<span style="color:#92400e;">⏭ already in queue</span>'
+        : it.err ? '<span style="color:#b91c1c;">✗ scan failed</span>'
+        : !(Number(it.amount) > 0) ? '<span style="color:#b91c1c;">⚠ no total read</span>'
+        : it.cands.length === 1 ? '<span style="color:#047857;">✓ 1 TB patient</span>'
+        : it.cands.length > 1 ? '<span style="color:#92400e;">⚠ ' + it.cands.length + ' candidates</span>'
+        : '<span style="color:#92400e;">⚠ no TB episode</span>';
+      const dl = it.cands.length
+        ? '<datalist id="park-bulk-dl-' + i + '">' + it.cands.map(c => '<option value="' + escHtml(c.patient) + '">').join("") + "</datalist>"
+        : "";
+      return "<tr>" +
+        '<td style="padding:4px 6px;"><input type="checkbox" data-bk="include" data-bi="' + i + '"' + (it.include ? " checked" : "") + "></td>" +
+        '<td style="padding:4px 6px;font-size:11px;color:var(--muted);">' + escHtml(it.label) +
+          "<br>" + escHtml([it.vendor, it.session].filter(Boolean).join(" · ") || "—") + "</td>" +
+        '<td style="padding:4px 6px;"><input type="date" data-bk="date" data-bi="' + i + '" value="' + escHtml(it.date) + '" style="width:130px;"></td>' +
+        '<td style="padding:4px 6px;"><input type="number" step="0.01" min="0" data-bk="amount" data-bi="' + i + '" value="' + escHtml(it.amount) + '" style="width:76px;"></td>' +
+        '<td style="padding:4px 6px;"><input type="text" data-bk="patient" data-bi="' + i + '" value="' + escHtml(it.patient) + '" list="park-bulk-dl-' + i + '" style="width:160px;">' + dl + "</td>" +
+        '<td style="padding:4px 6px;"><input type="text" data-bk="agency" data-bi="' + i + '" value="' + escHtml(it.agency) + '" list="park-agency-list" style="width:170px;"></td>' +
+        '<td style="padding:4px 6px;">' + status + "</td>" +
+      "</tr>";
+    }).join("");
+    document.getElementById("park-bulk-review").style.display = "block";
+    updateBulkAddBtn();
+  }
+  function updateBulkAddBtn() {
+    const n = bulkItems.filter(it => it.include).length;
+    const b = document.getElementById("park-bulk-add");
+    b.style.display = "";
+    b.disabled = !n;
+    b.textContent = "➕ Add selected (" + n + ")";
+  }
+
+  async function addBulkSelected() {
+    if (bulkBusy) return;
+    const clin = document.getElementById("park-bulk-clin").value.trim();
+    const src = document.getElementById("park-bulk-source").value;
+    const picked = bulkItems.filter(it => it.include);
+    if (!picked.length) return;
+    bulkBusy = true;
+    const b = document.getElementById("park-bulk-add");
+    let ok = 0;
+    try {
+      for (let i = 0; i < picked.length; i++) {
+        const it = picked[i];
+        b.textContent = "⏳ adding " + (i + 1) + "/" + picked.length + "…";
+        const row = await addRow({
+          clinician_name: clin, patient_name: it.patient.trim() || null,
+          session_date: it.date || null, amount: it.amount,
+          vendor: it.vendor || null, session_number: it.session || null,
+          location: it.location || null, agency_name: it.agency.trim() || null, source: src
+        }, { blob: it.blob, ext: "jpg", type: "image/jpeg" });
+        if (row) ok += 1;
+      }
+    } finally {
+      bulkBusy = false;
+      closeBulk();
+      showToast("Bulk import done — added " + ok + " of " + picked.length + " selected receipt(s).", ok ? "success" : "error");
+    }
+  }
+
   // ── init ────────────────────────────────────────────────────────
   function init() {
     if (initialized) return;
@@ -13646,6 +13880,22 @@ const PARK = (() => {
     // intake
     document.getElementById("park-scan-btn").addEventListener("click", openScan);
     document.getElementById("park-scan-cancel").addEventListener("click", closeScan);
+    // 📚 bulk import
+    document.getElementById("park-bulk-btn").addEventListener("click", openBulk);
+    document.getElementById("park-bulk-cancel").addEventListener("click", closeBulk);
+    document.getElementById("park-bulk-add").addEventListener("click", addBulkSelected);
+    const bdz = document.getElementById("park-bulk-dz");
+    bdz.addEventListener("click", () => document.getElementById("park-bulk-file").click());
+    bdz.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); document.getElementById("park-bulk-file").click(); } });
+    bdz.addEventListener("dragover", e => e.preventDefault());
+    bdz.addEventListener("drop", e => { e.preventDefault(); if (e.dataTransfer.files && e.dataTransfer.files.length) processBulk(e.dataTransfer.files); });
+    document.getElementById("park-bulk-file").addEventListener("change", e => { if (e.target.files && e.target.files.length) processBulk(e.target.files); });
+    document.getElementById("park-bulk-tbody").addEventListener("change", e => {
+      const i = Number(e.target.dataset.bi), k = e.target.dataset.bk;
+      if (!(i >= 0) || !k || !bulkItems[i]) return;
+      if (k === "include") { bulkItems[i].include = e.target.checked; updateBulkAddBtn(); }
+      else bulkItems[i][k] = e.target.value;
+    });
     document.getElementById("park-scan-rescan").addEventListener("click", openScan);
     const dz = document.getElementById("park-scan-dz"), fi = document.getElementById("park-scan-file");
     dz.addEventListener("click", () => fi.click());
