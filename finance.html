@@ -13664,7 +13664,7 @@ const PARK = (() => {
   let bulkItems = [];
   let bulkBusy = false;
 
-  async function scanDataUrl(dataUrl, token) {
+  async function scanReceiptDataUrl(dataUrl, token) {
     const res = await fetch(`${SUPABASE_URL}/functions/v1/tb-scan-image`, {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}`, "apikey": SUPABASE_KEY },
@@ -13761,7 +13761,7 @@ const PARK = (() => {
         const im = imgs[i];
         let parsed = {};
         let err = null;
-        try { parsed = await scanDataUrl(im.dataUrl, token) || {}; }
+        try { parsed = await scanReceiptDataUrl(im.dataUrl, token) || {}; }
         catch (e) { err = e.message || String(e); }
         const item = {
           include: true, blob: im.blob, label: im.label, err,
