@@ -25405,12 +25405,18 @@
           var cResp = await rejectOnTimeout(
             supabaseClient
               .from("referral_contacts")
-              .select("id, referral_id, clinician_name, discipline, response, created_at")
+              .select("id, referral_id, clinician_name, discipline, response, contacted_at")
               .in("referral_id", refIds)
-              .order("created_at", { ascending: false }),
+              .order("contacted_at", { ascending: false }),
             6000,
             "referral_contacts query"
           );
+          // Never swallow this: a bad column here silently emptied every
+          // referral's contact list on the map for as long as it existed.
+          if (cResp.error) {
+            console.error("[ReferralOverlay] contacts load failed:", cResp.error);
+            showToast("Referral contacts didn't load: " + (cResp.error.message || cResp.error), "error");
+          }
           contacts = cResp.data || [];
         }
 
@@ -26883,7 +26889,7 @@
 
     try {
       var existing = await supabaseClient.from("referral_contacts")
-        .select("id, referral_id, clinician_name, discipline, response, created_at")
+        .select("id, referral_id, clinician_name, discipline, response, contacted_at")
         .eq("referral_id", refId)
         .ilike("clinician_name", name.replace(/[%_\\]/g, "\\$&"));
       if (!existing.error && existing.data && existing.data.length) {
@@ -26901,7 +26907,7 @@
       clinician_name: name,
       discipline:     disc,
       response:       "waiting"
-    }).select("id, referral_id, clinician_name, discipline, response, created_at").single();
+    }).select("id, referral_id, clinician_name, discipline, response, contacted_at").single();
 
     if (ins.error || !ins.data) {
       console.error("[RefLog]", ins.error);
