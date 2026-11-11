@@ -11096,14 +11096,12 @@
             "circle-opacity": ["case", ["==", ["get", "dim"], 1], 0.3, 0.97],
             "circle-stroke-color": "#f5f8fd",
             "circle-stroke-width": [
-              "case", ["==", ["get", "dim"], 1], 1,
-              ["interpolate",
-                ["linear"],
-                ["zoom"],
-                8, 2,
-                12, 2.8,
-                15, 3.4
-              ]
+              "interpolate",
+              ["linear"],
+              ["zoom"],
+              8, ["case", ["==", ["get", "dim"], 1], 1, 2],
+              12, ["case", ["==", ["get", "dim"], 1], 1, 2.8],
+              15, ["case", ["==", ["get", "dim"], 1], 1, 3.4]
             ],
             "circle-radius": [
               "interpolate",
