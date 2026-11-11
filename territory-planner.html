@@ -134,6 +134,24 @@
   .mv-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
   .mv-btn.danger { color: #b3261e; border-color: #f3c0c0; }
   .mv-btn:disabled { opacity: .5; cursor: default; }
+  /* 📝 Review meetings */
+  .rv-sec { font-size: 11px; font-weight: 800; color: var(--blue); text-transform: uppercase; letter-spacing: .4px; margin: 10px 0 6px; }
+  .rv-task { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 5px; background: #fff; font-size: 12.5px; }
+  .rv-task.done { opacity: .55; }
+  .rv-task.done .rv-title { text-decoration: line-through; }
+  .rv-task .rv-title { flex: 1; min-width: 0; }
+  .rv-due { font-size: 11px; color: var(--muted); white-space: nowrap; }
+  .rv-due.overdue { color: #b3261e; font-weight: 800; }
+  .rv-x { border: none; background: none; color: #94a3b8; cursor: pointer; font-size: 12px; padding: 0 4px; }
+  .rv-x:hover { color: #b3261e; }
+  .rv-form textarea { width: 100%; min-height: 90px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 12.5px; box-sizing: border-box; }
+  .rv-form input[type=date], .rv-form input[type=text] { border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; font: inherit; font-size: 12.5px; }
+  .rv-item-row { display: flex; gap: 6px; margin-bottom: 5px; }
+  .rv-item-row input[type=text] { flex: 1; min-width: 0; }
+  .rv-meeting { border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; margin-bottom: 6px; background: #fbfcfe; }
+  .rv-meeting-head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 800; color: var(--blue); }
+  .rv-meeting-head .rv-by { font-weight: 600; color: var(--muted); }
+  .rv-notes { white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; margin-top: 5px; color: #1f2937; }
   .mv-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
   .mv-label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin: 12px 0 5px; }
   .mv-input { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
@@ -319,6 +337,12 @@
       </div>
 
       <div>
+        <div class="card" id="tp-review-card" style="display:none">
+          <h3>📝 Review meetings <span id="tp-review-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
+          <p class="hint">Internal notes from review meetings with this clinician, plus action items. Open items show up in Roster Review. Visible to admins and editors only.</p>
+          <div id="tp-review-body"><span class="empty-note">Loading…</span></div>
+        </div>
+
         <div class="card">
           <h3>📮 TB Loaded ZIPs <span id="tp-declared-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
           <p class="hint">Declared coverage — synced from TherapyBoss. Update the clinician's ZIPs in TB, then import here (this clinician only) or via the Map's bulk importer.</p>
@@ -895,6 +919,7 @@ async function openWorkspace(clinicianId) {
     renderTravelStats();
     initTerritoryMap();
     renderSiteExclList();
+    loadReviewCard();
 
     // Resolve ZIP place names in the background, then repaint the chip
     // surfaces ("60176 · Schiller Park"). Cards with in-progress edits
@@ -929,6 +954,214 @@ function clinicianStatus() {
   const s = String((profileRow && profileRow.status) || (clinician.active === false ? "Inactive" : "Active"));
   return s || "Active";
 }
+// ══════════════════════════════════════════════════════════════════
+// 📝 REVIEW MEETINGS — internal notes + action items (migration 93).
+// Admin/editor only; hidden in the clinician's own read-only view.
+// ══════════════════════════════════════════════════════════════════
+let reviewMeetings = [];
+let reviewTasks = [];
+let reviewTableMissing = false;
+let reviewDraftItems = [{ title: "", due: "" }];
+let reviewShowDone = false;
+
+function localIsoDate(d) {
+  const x = d || new Date();
+  return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+}
+
+async function loadReviewCard() {
+  const card = document.getElementById("tp-review-card");
+  if (!card) return;
+  if (currentRole === "clinician" || !canEditPlan() || !clinician) { card.style.display = "none"; return; }
+  card.style.display = "";
+  const cid = clinician.id;
+  const [mRes, tRes] = await Promise.all([
+    db.from("clinician_review_meetings").select("*").eq("clinician_id", cid).order("meeting_date", { ascending: false }).order("created_at", { ascending: false }),
+    db.from("clinician_review_tasks").select("*").eq("clinician_id", cid).order("created_at", { ascending: true })
+  ]);
+  if (!clinician || clinician.id !== cid) return;   // switched clinicians mid-load
+  reviewTableMissing = !!(mRes.error || tRes.error);
+  reviewMeetings = mRes.data || [];
+  reviewTasks = tRes.data || [];
+  reviewDraftItems = [{ title: "", due: "" }];
+  renderReviewCard();
+  if ((PAGE_INITIAL_SEARCH + window.location.hash).indexOf("reviews") !== -1) {
+    card.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+}
+
+function reviewTaskRowHtml(t) {
+  const today = localIsoDate();
+  const overdue = t.status === "open" && t.due_date && t.due_date < today;
+  return "<div class='rv-task" + (t.status === "done" ? " done" : "") + "'>" +
+    "<input type='checkbox' " + (t.status === "done" ? "checked " : "") + "onchange='toggleReviewTask(\"" + t.id + "\", this.checked)' title='Mark done'>" +
+    "<span class='rv-title'>" + esc(t.title) + "</span>" +
+    (t.due_date ? "<span class='rv-due" + (overdue ? " overdue" : "") + "'>" + (overdue ? "⚠ " : "") + "due " + esc(fmtDate(t.due_date)) + "</span>" : "") +
+    "<button type='button' class='rv-x' onclick='deleteReviewTask(\"" + t.id + "\")' title='Delete item'>✕</button>" +
+  "</div>";
+}
+
+function renderReviewCard() {
+  const body = document.getElementById("tp-review-body");
+  const countEl = document.getElementById("tp-review-count");
+  if (!body) return;
+  if (reviewTableMissing) {
+    body.innerHTML = "<span class='empty-note'>Run migration 93 (clinician review meetings) in the Supabase SQL editor to turn this on.</span>";
+    if (countEl) countEl.textContent = "";
+    return;
+  }
+  const open = reviewTasks.filter(t => t.status === "open");
+  const done = reviewTasks.filter(t => t.status === "done");
+  if (countEl) {
+    countEl.textContent = "— " + reviewMeetings.length + " meeting" + (reviewMeetings.length === 1 ? "" : "s") +
+      " · " + open.length + " open item" + (open.length === 1 ? "" : "s");
+  }
+
+  let html = "";
+
+  // Open action items (with quick add)
+  html += "<div class='rv-sec'>Open action items</div>";
+  html += open.length ? open.map(reviewTaskRowHtml).join("") : "<div class='empty-note' style='margin-bottom:6px'>Nothing open.</div>";
+  html += "<div class='rv-form rv-item-row' style='margin-top:4px'>" +
+    "<input type='text' id='rv-quick-title' placeholder='Add an action item…' onkeydown='if(event.key===\"Enter\")quickAddReviewTask()'>" +
+    "<input type='date' id='rv-quick-due' title='Due date (optional)'>" +
+    "<button type='button' class='mv-btn' onclick='quickAddReviewTask()'>+ Add</button>" +
+  "</div>";
+  if (done.length) {
+    html += "<button type='button' class='mv-btn' style='margin:4px 0 2px;font-size:11px;padding:3px 9px' onclick='reviewShowDone=!reviewShowDone;renderReviewCard()'>" +
+      (reviewShowDone ? "Hide" : "Show") + " " + done.length + " completed</button>";
+    if (reviewShowDone) html += done.map(reviewTaskRowHtml).join("");
+  }
+
+  // New meeting
+  html += "<div class='rv-sec'>New review meeting</div>";
+  html += "<div class='rv-form'>" +
+    "<div style='display:flex;gap:8px;align-items:center;margin-bottom:6px'>" +
+      "<label style='font-size:12px;color:var(--muted)'>Date <input type='date' id='rv-date' value='" + localIsoDate() + "'></label>" +
+    "</div>" +
+    "<textarea id='rv-notes' placeholder='What did you discuss? Performance, territory, schedule, concerns, wins…'></textarea>" +
+    "<div style='font-size:11.5px;font-weight:700;color:var(--muted);margin:8px 0 5px'>Action items from this meeting</div>" +
+    reviewDraftItems.map((it, i) =>
+      "<div class='rv-item-row'>" +
+        "<input type='text' value='" + esc(it.title) + "' placeholder='e.g. Update ZIPs in TherapyBoss' oninput='reviewDraftItems[" + i + "].title=this.value'>" +
+        "<input type='date' value='" + esc(it.due) + "' title='Due date (optional)' onchange='reviewDraftItems[" + i + "].due=this.value'>" +
+        (reviewDraftItems.length > 1 ? "<button type='button' class='rv-x' onclick='reviewDraftItems.splice(" + i + ",1);renderReviewCard()' title='Remove'>✕</button>" : "") +
+      "</div>"
+    ).join("") +
+    "<button type='button' class='mv-btn' style='font-size:11.5px;padding:4px 10px' onclick='reviewDraftItems.push({title:\"\",due:\"\"});renderReviewCard()'>+ Another item</button>" +
+    "<div style='display:flex;gap:10px;align-items:center;margin-top:10px;flex-wrap:wrap'>" +
+      "<label style='font-size:12px;display:flex;align-items:center;gap:5px'><input type='checkbox' id='rv-mark-reviewed' checked> Also mark clinician Reviewed</label>" +
+      "<button type='button' class='mv-btn primary' id='rv-save' onclick='saveReviewMeeting()' style='margin-left:auto'>💾 Save meeting</button>" +
+    "</div>" +
+  "</div>";
+
+  // History
+  if (reviewMeetings.length) {
+    html += "<div class='rv-sec'>Past meetings</div>";
+    html += reviewMeetings.map(m => {
+      const items = reviewTasks.filter(t => t.meeting_id === m.id);
+      return "<div class='rv-meeting'>" +
+        "<div class='rv-meeting-head'>" + esc(fmtDate(m.meeting_date)) +
+          (m.created_by_email ? "<span class='rv-by'>· " + esc(String(m.created_by_email).split("@")[0]) + "</span>" : "") +
+          "<button type='button' class='rv-x' style='margin-left:auto' onclick='deleteReviewMeeting(\"" + m.id + "\")' title='Delete meeting'>✕</button>" +
+        "</div>" +
+        (m.notes ? "<div class='rv-notes'>" + esc(m.notes) + "</div>" : "<div class='empty-note'>No notes.</div>") +
+        (items.length ? "<div style='margin-top:6px'>" + items.map(reviewTaskRowHtml).join("") + "</div>" : "") +
+      "</div>";
+    }).join("");
+  }
+  body.innerHTML = html;
+}
+
+async function saveReviewMeeting() {
+  if (!clinician) return;
+  const notes = (document.getElementById("rv-notes").value || "").trim();
+  const date = document.getElementById("rv-date").value || localIsoDate();
+  const items = reviewDraftItems.map(it => ({ title: String(it.title || "").trim(), due: it.due || null })).filter(it => it.title);
+  if (!notes && !items.length) { showToast("Add notes or at least one action item first."); return; }
+  const btn = document.getElementById("rv-save");
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+  const who = { created_by: currentUser ? currentUser.id : null, created_by_email: currentUser ? currentUser.email : null };
+  try {
+    const mRes = await db.from("clinician_review_meetings")
+      .insert(Object.assign({ clinician_id: clinician.id, meeting_date: date, notes: notes || null }, who))
+      .select().single();
+    if (mRes.error) throw mRes.error;
+    reviewMeetings.unshift(mRes.data);
+    if (items.length) {
+      const tRes = await db.from("clinician_review_tasks").insert(items.map(it => Object.assign({
+        clinician_id: clinician.id, meeting_id: mRes.data.id, title: it.title, due_date: it.due
+      }, who))).select();
+      if (tRes.error) throw tRes.error;
+      reviewTasks = reviewTasks.concat(tRes.data || []);
+    }
+    const markEl = document.getElementById("rv-mark-reviewed");
+    if (markEl && markEl.checked) {
+      const pr = await db.from("clinician_profiles").upsert({
+        clinician_id: clinician.id,
+        last_reviewed_at: new Date().toISOString(),
+        last_reviewed_by: currentUser ? currentUser.id : null,
+        updated_at: new Date().toISOString()
+      }, { onConflict: "clinician_id" });
+      if (pr.error) showToast("Meeting saved, but the Reviewed stamp failed: " + pr.error.message);
+    }
+    reviewDraftItems = [{ title: "", due: "" }];
+    renderReviewCard();
+    showToast("📝 Meeting saved" + (items.length ? " with " + items.length + " action item" + (items.length === 1 ? "" : "s") : ""));
+  } catch (e) {
+    showToast("Save failed: " + (e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = "💾 Save meeting"; }
+  }
+}
+
+async function quickAddReviewTask() {
+  if (!clinician) return;
+  const tEl = document.getElementById("rv-quick-title");
+  const dEl = document.getElementById("rv-quick-due");
+  const title = (tEl.value || "").trim();
+  if (!title) { tEl.focus(); return; }
+  const res = await db.from("clinician_review_tasks").insert({
+    clinician_id: clinician.id, title, due_date: dEl.value || null,
+    created_by: currentUser ? currentUser.id : null, created_by_email: currentUser ? currentUser.email : null
+  }).select().single();
+  if (res.error) { showToast("Couldn't add: " + res.error.message); return; }
+  reviewTasks.push(res.data);
+  renderReviewCard();
+  const again = document.getElementById("rv-quick-title");
+  if (again) again.focus();
+}
+
+async function toggleReviewTask(id, done) {
+  const t = reviewTasks.find(x => x.id === id);
+  if (!t) return;
+  const patch = done
+    ? { status: "done", done_at: new Date().toISOString(), done_by: currentUser ? currentUser.id : null, updated_at: new Date().toISOString() }
+    : { status: "open", done_at: null, done_by: null, updated_at: new Date().toISOString() };
+  const res = await db.from("clinician_review_tasks").update(patch).eq("id", id);
+  if (res.error) { showToast("Couldn't update: " + res.error.message); renderReviewCard(); return; }
+  Object.assign(t, patch);
+  renderReviewCard();
+}
+
+async function deleteReviewTask(id) {
+  const t = reviewTasks.find(x => x.id === id);
+  if (!t || !confirm("Delete this action item?\n\n" + t.title)) return;
+  const res = await db.from("clinician_review_tasks").delete().eq("id", id);
+  if (res.error) { showToast("Couldn't delete: " + res.error.message); return; }
+  reviewTasks = reviewTasks.filter(x => x.id !== id);
+  renderReviewCard();
+}
+
+async function deleteReviewMeeting(id) {
+  const m = reviewMeetings.find(x => x.id === id);
+  if (!m || !confirm("Delete the " + fmtDate(m.meeting_date) + " meeting notes?\n\nIts action items are kept (unlinked from the meeting).")) return;
+  const res = await db.from("clinician_review_meetings").delete().eq("id", id);
+  if (res.error) { showToast("Couldn't delete: " + res.error.message); return; }
+  reviewMeetings = reviewMeetings.filter(x => x.id !== id);
+  reviewTasks.forEach(t => { if (t.meeting_id === id) t.meeting_id = null; });
+  renderReviewCard();
+}
+
 function renderHeader() {
   document.title = fmtName(clinician.name) + " — Territory Planner";
   document.getElementById("tp-name").textContent = fmtName(clinician.name) || "Unnamed";

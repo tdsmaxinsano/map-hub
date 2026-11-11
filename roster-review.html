@@ -164,6 +164,21 @@
   .territory-link:hover { text-decoration: underline; }
   .map-mini-link { font-size: 12px; text-decoration: none; opacity: .45; }
   .map-mini-link:hover { opacity: 1; }
+  /* 📋 Review action items (migration 93) */
+  .task-badge {
+    font-size: 11px; font-weight: 800; color: #92400e; text-decoration: none;
+    border: 1px solid #f5d38a; border-radius: 999px; padding: 1px 7px;
+    background: #fef7e6; white-space: nowrap;
+  }
+  .task-badge.overdue { color: #b3261e; border-color: #f3b4b4; background: #fdeeee; }
+  .task-badge:hover { text-decoration: underline; }
+  .rt-group { margin-bottom: 12px; }
+  .rt-group-head { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; color: #1E3A5F; margin-bottom: 5px; }
+  .rt-group-head a { font-size: 11px; font-weight: 700; color: #1a5fb4; text-decoration: none; margin-left: auto; }
+  .rt-item { display: flex; align-items: center; gap: 8px; padding: 6px 9px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px; font-size: 13px; }
+  .rt-item .rt-title { flex: 1; min-width: 0; }
+  .rt-due { font-size: 11.5px; color: #64748b; white-space: nowrap; }
+  .rt-due.overdue { color: #b3261e; font-weight: 800; }
   .name-cell-stack .name-subline {
     display: inline-flex; align-items: center; gap: 5px;
     font-weight: 600;
@@ -635,6 +650,7 @@
       <span class="chip preset" id="preset-returning">🏖 Returning &lt;14d</span>
       <span class="chip preset" id="preset-paused-long">💤 Paused 30d+</span>
       <span class="chip preset" id="preset-cov-gaps">🧭 Has Gaps</span>
+      <span class="chip preset" id="preset-open-tasks" style="display:none;" title="Clinicians with open action items from review meetings">📋 Open tasks</span>
       <span class="chip preset" id="preset-no-visits" title="Clinicians with no visit data at all — loaded but never dispatched (or stale records)">📥 No visits yet</span>
       <span class="chip preset" data-quiet="30" title="Had visits before, but none in the last 30+ days (latest completed-service date)">😴 30d+</span>
       <span class="chip preset" data-quiet="60" title="Had visits before, but none in the last 60+ days (latest completed-service date)">😴 60d+</span>
@@ -646,6 +662,7 @@
       <div class="col-picker-menu" id="col-picker-menu"></div>
     </div>
     <button class="btn-export" id="csv-btn" style="display:none;">⬇ CSV</button>
+    <button class="btn-export" id="review-tasks-btn" style="display:none;" title="Every open action item from clinician review meetings">📋 Review tasks</button>
     <button class="btn-export" id="unused-report-btn" title="Printable report of therapists with no visit data — load date + coverage areas grouped by city">🖨 Unused Report</button>
     <button class="btn-export" id="bulk-visits-btn" style="display:none;background:#fff;border:1.5px solid #1E3A5F;color:#1E3A5F;">📥 Bulk Import Visits</button>
   </div>
@@ -689,6 +706,17 @@
 </div>
 
 <!-- ══════ BULK VISITS IMPORT MODAL — admin-only ══════ -->
+<div class="modal-overlay" id="review-tasks-modal" style="display:none;">
+  <div class="modal-box" style="width:640px;">
+    <div class="modal-title">📋 Open review tasks</div>
+    <div class="modal-sub">Action items from clinician review meetings, grouped by clinician — overdue first. Check one off when it's done; open a clinician's Territory Planner to see the meeting notes.</div>
+    <div id="review-tasks-body"></div>
+    <div class="modal-footer">
+      <button type="button" class="btn-cancel" id="review-tasks-close">Close</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="bulk-visits-modal" style="display:none;">
   <div class="modal-box" style="width:600px;">
     <div class="modal-title">📥 Bulk Import Patient Visits → Roster Metrics</div>
@@ -861,8 +889,12 @@ let filters = {
   pausedLong: false,
   covGaps: false,
   noVisits: false,
+  openTasks: false,
   quietDays: 0   // 0 = off; 30 / 60 / 90 = hide anyone with a visit newer than that
 };
+// 📋 Open review action items (migration 93), keyed by clinician id
+let reviewTasksByCid = {};
+let reviewTasksOpen = [];
 let realtimeChannel = null;
 let visibleCols = loadVisibleCols(); // {key: bool}
 let agenciesList = []; // [{id, name}] from home_health_agencies
@@ -1137,6 +1169,8 @@ async function launchApp(user) {
   loadVdrSummary().then(() => { if (rosterRows.length) renderTable(); });
   // Med B CR link state (best-effort — readonly users fail RLS and get no chips)
   loadMedbLookup().then(() => { if (rosterRows.length) renderTable(); });
+  // 📋 Review action items (admin/editor; table may predate migration 93)
+  loadReviewTasks();
   // Build the column picker (uses current visibleCols from localStorage)
   renderColumnPicker();
   // Load the roster and render
@@ -1322,6 +1356,8 @@ function passesFilters(r) {
     const g = getCovGapsFor(r);
     if (!g || ((g.gap_add_count || 0) + (g.gap_idle_count || 0)) === 0) return false;
   }
+
+  if (filters.openTasks && !(reviewTasksByCid[r.id] || []).length) return false;
 
   if (filters.noVisits) {
     // "No visits yet" = neither the Patient-Visits nor the VDR summary
@@ -1510,6 +1546,7 @@ function buildRow(r) {
         <span class="name-links-row">
           <a class="territory-link" href="territory-planner.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open Territory Planner">🧭 Territory</a>
           <a class="map-mini-link" href="clinician-map.html?clinician=${encodeURIComponent(r.id)}" target="_blank" rel="noopener" title="Open on the full Map (loads the whole map — use Territory for roster work)">🗺</a>
+          ${renderReviewTaskBadge(r)}
           ${renderMedbAction(r, canEdit)}
         </span>
         <span class="name-subline">
@@ -2840,6 +2877,7 @@ function parseUrlFilters() {
   if (params.has("needReview")) filters.needReview = params.get("needReview") === "1";
   if (params.has("covGaps")) filters.covGaps = params.get("covGaps") === "1";
   if (params.has("noVisits")) filters.noVisits = params.get("noVisits") === "1";
+  if (params.has("openTasks")) filters.openTasks = params.get("openTasks") === "1";
   if (params.has("quiet")) {
     const q = parseInt(params.get("quiet"), 10);
     filters.quietDays = [30, 60, 90].includes(q) ? q : 0;
@@ -2860,6 +2898,7 @@ function syncFilterUI() {
   document.getElementById("preset-paused-long").classList.toggle("active", filters.pausedLong);
   document.getElementById("preset-cov-gaps").classList.toggle("active", filters.covGaps);
   document.getElementById("preset-no-visits").classList.toggle("active", filters.noVisits);
+  document.getElementById("preset-open-tasks").classList.toggle("active", filters.openTasks);
   document.querySelectorAll(".chip.preset[data-quiet]").forEach(c => {
     c.classList.toggle("active", filters.quietDays === parseInt(c.dataset.quiet, 10));
   });
@@ -2873,6 +2912,7 @@ function writeUrlFilters() {
   if (filters.needReview) params.set("needReview", "1");
   if (filters.covGaps) params.set("covGaps", "1");
   if (filters.noVisits) params.set("noVisits", "1");
+  if (filters.openTasks) params.set("openTasks", "1");
   if (filters.quietDays) params.set("quiet", String(filters.quietDays));
   const qs = params.toString();
   history.replaceState(null, "", qs ? "?" + qs : location.pathname);
@@ -2924,6 +2964,98 @@ document.getElementById("preset-paused-long").addEventListener("click", () => {
 document.getElementById("preset-cov-gaps").addEventListener("click", () => {
   filters.covGaps = !filters.covGaps;
   syncFilterUI(); writeUrlFilters(); renderAll();
+});
+document.getElementById("preset-open-tasks").addEventListener("click", () => {
+  filters.openTasks = !filters.openTasks;
+  syncFilterUI(); writeUrlFilters(); renderAll();
+});
+
+// ══════════════════════════════════════════════════════════════════
+// 📋 REVIEW ACTION ITEMS — from Territory Planner review meetings
+// ══════════════════════════════════════════════════════════════════
+function isoToday() {
+  const x = new Date();
+  return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0");
+}
+
+async function loadReviewTasks() {
+  if (currentRole !== "admin" && currentRole !== "editor") return;
+  const res = await db.from("clinician_review_tasks")
+    .select("id, clinician_id, title, due_date, status, created_at")
+    .eq("status", "open")
+    .order("due_date", { ascending: true, nullsFirst: false })
+    .order("created_at", { ascending: true });
+  if (res.error) return;   // table predates migration 93 — feature stays hidden
+  reviewTasksOpen = res.data || [];
+  reviewTasksByCid = {};
+  reviewTasksOpen.forEach(t => { (reviewTasksByCid[t.clinician_id] = reviewTasksByCid[t.clinician_id] || []).push(t); });
+  document.getElementById("preset-open-tasks").style.display = "";
+  const btn = document.getElementById("review-tasks-btn");
+  btn.style.display = "";
+  const today = isoToday();
+  const overdue = reviewTasksOpen.filter(t => t.due_date && t.due_date < today).length;
+  btn.textContent = "📋 Review tasks (" + reviewTasksOpen.length + ")" + (overdue ? " · ⚠ " + overdue + " overdue" : "");
+  if (rosterRows.length) renderAll();
+  if (document.getElementById("review-tasks-modal").style.display !== "none") renderReviewTasksModal();
+}
+
+function renderReviewTaskBadge(r) {
+  const list = reviewTasksByCid[r.id] || [];
+  if (!list.length) return "";
+  const today = isoToday();
+  const overdue = list.some(t => t.due_date && t.due_date < today);
+  const tip = list.map(t => "• " + t.title + (t.due_date ? " (due " + fmtDate(t.due_date) + ")" : "")).join("\n");
+  return `<a class="task-badge${overdue ? " overdue" : ""}" href="territory-planner.html?clinician=${encodeURIComponent(r.id)}&focus=reviews" target="_blank" rel="noopener" title="${escAttr(list.length + " open review item" + (list.length === 1 ? "" : "s") + ":\n" + tip)}">📋 ${list.length}${overdue ? " ⚠" : ""}</a>`;
+}
+
+function renderReviewTasksModal() {
+  const body = document.getElementById("review-tasks-body");
+  if (!reviewTasksOpen.length) {
+    body.innerHTML = "<div style='color:#64748b;font-size:13px;padding:6px 0'>No open action items 🎉</div>";
+    return;
+  }
+  const today = isoToday();
+  const groups = Object.keys(reviewTasksByCid).map(cid => {
+    const row = rosterRows.find(r => r.id === cid);
+    const items = reviewTasksByCid[cid];
+    const firstDue = items.map(t => t.due_date).filter(Boolean).sort()[0] || "9999-12-31";
+    return { cid, name: row ? formatName(row.name) : "Unknown clinician", items, firstDue };
+  }).sort((a, b) => a.firstDue.localeCompare(b.firstDue) || a.name.localeCompare(b.name));
+  body.innerHTML = groups.map(g =>
+    `<div class="rt-group">
+      <div class="rt-group-head">${escHtml(g.name)}
+        <a href="territory-planner.html?clinician=${encodeURIComponent(g.cid)}&focus=reviews" target="_blank" rel="noopener">🧭 Notes &amp; tasks ↗</a>
+      </div>
+      ${g.items.map(t => {
+        const overdue = t.due_date && t.due_date < today;
+        return `<div class="rt-item">
+          <input type="checkbox" data-rt-done="${escAttr(t.id)}" title="Mark done" />
+          <span class="rt-title">${escHtml(t.title)}</span>
+          ${t.due_date ? `<span class="rt-due${overdue ? " overdue" : ""}">${overdue ? "⚠ " : ""}due ${escHtml(fmtDate(t.due_date))}</span>` : ""}
+        </div>`;
+      }).join("")}
+    </div>`
+  ).join("");
+}
+
+document.getElementById("review-tasks-btn").addEventListener("click", () => {
+  renderReviewTasksModal();
+  document.getElementById("review-tasks-modal").style.display = "flex";
+});
+document.getElementById("review-tasks-close").addEventListener("click", () => {
+  document.getElementById("review-tasks-modal").style.display = "none";
+});
+document.getElementById("review-tasks-body").addEventListener("change", async (e) => {
+  const id = e.target && e.target.dataset ? e.target.dataset.rtDone : null;
+  if (!id || !e.target.checked) return;
+  e.target.disabled = true;
+  const res = await db.from("clinician_review_tasks").update({
+    status: "done", done_at: new Date().toISOString(),
+    done_by: currentUser ? currentUser.id : null, updated_at: new Date().toISOString()
+  }).eq("id", id);
+  if (res.error) { e.target.checked = false; e.target.disabled = false; showToast("Couldn't update: " + res.error.message, "error"); return; }
+  showToast("✓ Done");
+  await loadReviewTasks();
 });
 // 😴 Quiet chips are radio-like: picking one clears the others; clicking the
 // active one turns the filter off.
