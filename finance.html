@@ -2295,6 +2295,9 @@
           <label style="font-size:10.5px;font-weight:700;color:var(--muted);display:flex;flex-direction:column;gap:3px;">Source
             <select id="park-bulk-source"><option value="text">text</option><option value="email" selected>email</option><option value="other">other</option></select>
           </label>
+          <label style="font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;font-weight:700;" title="Medicare Part B / internal patient — not in TherapyBoss, no home-health agency. Rows close on the check alone.">
+            <input type="checkbox" id="park-bulk-medb"> Ⓜ Med B — check only, no agency invoice
+          </label>
         </div>
         <div id="park-bulk-step1">
           <div class="dropzone bank-scan-dropzone" id="park-bulk-dz" tabindex="0" role="button" aria-label="Drop PDF or images">
@@ -13185,7 +13188,7 @@ const PARK = (() => {
     if (dup && !confirm("⚠ Possible DUPLICATE:\n\n" + dup.clinician_name + " · " + (dup.session_number || dup.session_date || "") +
         " · $" + Number(dup.amount).toFixed(2) + " already in the queue.\n\nAdd anyway?")) return null;
     const clin = clinicians.find(c => pNorm(c.name) === pNorm(f.clinician_name));
-    const tb = await tbMatch(f.patient_name, f.clinician_name, f.session_date);
+    const tb = f.no_invoice ? null : await tbMatch(f.patient_name, f.clinician_name, f.session_date);
     const payload = {
       clinician_id: clin ? clin.id : null,
       clinician_name: f.clinician_name,
@@ -13200,6 +13203,7 @@ const PARK = (() => {
       notes: f.notes || null,
       tb_matched: !!tb,
       tb_row_id: tb ? tb.id : null,
+      no_invoice: !!f.no_invoice,
       created_by: uid
     };
     const { data, error } = await db.from("parking_reimbursements").insert(payload).select().single();
@@ -13217,8 +13221,8 @@ const PARK = (() => {
     }
     rows.unshift(row);
     render();
-    showToast(tb
-      ? "Added ✓ TB visit matched — agency " + (row.agency_name || "—")
+    showToast(f.no_invoice ? "Added Ⓜ Med B — check only, never invoiced."
+      : tb ? "Added ✓ TB visit matched — agency " + (row.agency_name || "—")
       : "Added — ⚠ no TB visit matched; set the agency by hand.");
     return row;
   }
@@ -13226,7 +13230,7 @@ const PARK = (() => {
   // ── queue render ────────────────────────────────────────────────
   function statusOf(r) {
     if (r.voided_at) return "voided";
-    if (r.check_exported_at && r.invoiced_at) return "closed";
+    if (r.check_exported_at && (r.invoiced_at || r.no_invoice)) return "closed";
     return "open";
   }
   function visible() {
@@ -13235,7 +13239,7 @@ const PARK = (() => {
       const st = statusOf(r);
       if (filter === "open"          && st !== "open") return false;
       if (filter === "needs_check"   && (st !== "open" || r.check_exported_at)) return false;
-      if (filter === "needs_invoice" && (st !== "open" || r.invoiced_at)) return false;
+      if (filter === "needs_invoice" && (st !== "open" || r.invoiced_at || r.no_invoice)) return false;
       if (filter === "closed" && st !== "closed") return false;
       if (filter === "voided" && st !== "voided") return false;
       if (q) {
@@ -13250,8 +13254,8 @@ const PARK = (() => {
   function render() {
     const open = rows.filter(r => statusOf(r) === "open");
     const needCheck = open.filter(r => !r.check_exported_at);
-    const needInv = open.filter(r => !r.invoiced_at && r.agency_name);
-    const needInvNoAg = open.filter(r => !r.invoiced_at && !r.agency_name);
+    const needInv = open.filter(r => !r.invoiced_at && !r.no_invoice && r.agency_name);
+    const needInvNoAg = open.filter(r => !r.invoiced_at && !r.no_invoice && !r.agency_name);
     const sum = a => a.reduce((s, r) => s + Number(r.amount || 0), 0);
     const oldest = open.length ? open.map(r => r.date_received || r.created_at).sort()[0] : null;
     document.getElementById("park-stats").innerHTML =
@@ -13275,7 +13279,8 @@ const PARK = (() => {
       const chips =
         (r.check_exported_at ? '<span class="hist-chip" style="background:#d9f3e6;color:#065f46;" title="' + escAttr(r.check_batch || "") + '">check ✓</span>' :
           '<span class="hist-chip" style="background:#fdf3e2;color:#92400e;">check ·</span>') +
-        (r.invoiced_at ? '<span class="hist-chip" style="background:#d9f3e6;color:#065f46;" title="' + escAttr(r.invoice_no || "") + '">' + escHtml(r.invoice_no || "inv ✓") + "</span>" :
+        (r.no_invoice ? '<span class="hist-chip" style="background:#ede9fe;color:#5b21b6;" title="Med B / internal — pay clinician only, never invoiced">Ⓜ no inv</span>' :
+         r.invoiced_at ? '<span class="hist-chip" style="background:#d9f3e6;color:#065f46;" title="' + escAttr(r.invoice_no || "") + '">' + escHtml(r.invoice_no || "inv ✓") + "</span>" :
           '<span class="hist-chip" style="background:#fdf3e2;color:#92400e;">invoice ·</span>');
       return "<tr data-pid='" + escAttr(r.id) + "'" + (st === "voided" ? " style='opacity:.45'" : "") + ">" +
         "<td>" + escHtml(r.clinician_name) + "</td>" +
@@ -13284,11 +13289,12 @@ const PARK = (() => {
         "<td><input type='number' step='0.01' min='0' data-ppk='amount' value='" + Number(r.amount).toFixed(2) + "' style='width:76px'" + (st !== "open" ? " disabled" : "") + "></td>" +
         "<td style='font-size:11.5px;color:var(--muted)'>" + escHtml([r.vendor, r.session_number].filter(Boolean).join(" · ") || "—") +
           (r.location ? "<br><span style='font-size:10.5px;'>📍 " + escHtml(r.location) + "</span>" : "") + "</td>" +
-        "<td><input type='text' data-ppk='agency_name' list='park-agency-list' value='" + escAttr(r.agency_name || "") + "' style='width:150px'" + (r.invoiced_at ? " disabled" : "") + " placeholder='—'></td>" +
-        "<td>" + (r.tb_matched ? "<span title='Matched to an imported TB episode'>✓</span>" : "<span title='No TB visit matched'>⚠</span>") + "</td>" +
+        "<td><input type='text' data-ppk='agency_name' list='park-agency-list' value='" + escAttr(r.agency_name || "") + "' style='width:150px'" + (r.invoiced_at || r.no_invoice ? " disabled" : "") + " placeholder='—'></td>" +
+        "<td>" + (r.no_invoice ? "<span title='Med B / internal — no TB episode expected'>—</span>" : r.tb_matched ? "<span title='Matched to an imported TB episode'>✓</span>" : "<span title='No TB visit matched'>⚠</span>") + "</td>" +
         "<td style='white-space:nowrap'>" + (st === "voided" ? "<span class='hist-chip' title='" + escAttr(r.void_reason || "") + "'>🚫 void</span>" : chips) + "</td>" +
         "<td>" + (r.receipt_path ? "<button type='button' class='btn-secondary' data-pact='receipt' style='padding:2px 8px;font-size:11px'>📎</button>" : "") + "</td>" +
         "<td style='white-space:nowrap'>" +
+          (st !== "voided" && !r.invoiced_at ? "<button type='button' class='btn-secondary' data-pact='medb' style='padding:2px 8px;font-size:11px" + (r.no_invoice ? ";background:#ede9fe" : "") + "' title='Toggle Med B / internal — pay the clinician, never invoice an agency'>Ⓜ</button>" : "") +
           (st === "open" ? "<button type='button' class='btn-secondary' data-pact='void' style='padding:2px 8px;font-size:11px' title='Exclude from exports (kept for audit)'>🚫</button>" : "") +
           (st === "voided" ? "<button type='button' class='btn-secondary' data-pact='unvoid' style='padding:2px 8px;font-size:11px'>↩</button>" : "") +
         "</td>" +
@@ -13366,7 +13372,7 @@ const PARK = (() => {
   }
   async function downloadInvoices() {
     if (typeof ExcelJS === "undefined") { showToast("Spreadsheet writer didn't load — hard-refresh.", "error"); return; }
-    const pend = rows.filter(r => statusOf(r) === "open" && !r.invoiced_at && r.agency_name);
+    const pend = rows.filter(r => statusOf(r) === "open" && !r.invoiced_at && !r.no_invoice && r.agency_name);
     const skipped = rows.filter(r => statusOf(r) === "open" && !r.invoiced_at && !r.agency_name).length;
     if (!pend.length) { showToast("No invoice-ready rows" + (skipped ? " — " + skipped + " open row(s) have no agency set." : ".")); return; }
     const c = cfg();
@@ -13759,6 +13765,7 @@ const PARK = (() => {
       const token = session ? session.access_token : SUPABASE_KEY;
       const episodes = await tbEpisodesFor(clin);
       const forcedPatient = document.getElementById("park-bulk-patient").value.trim();
+      const batchMedB = document.getElementById("park-bulk-medb").checked;
       const seenSessions = new Set();
       bulkItems = [];
       for (let i = 0; i < imgs.length; i++) {
@@ -13778,7 +13785,13 @@ const PARK = (() => {
           patient: "", agency: "", cands: []
         };
         item.cands = tbCandidatesFor(episodes, item.date);
-        if (forcedPatient) {
+        if (batchMedB) {
+          // Med B / internal: not in TB, no agency — suggestions don't apply.
+          item.medb = true;
+          item.cands = [];
+          item.patient = forcedPatient;
+          item.agency = "";
+        } else if (forcedPatient) {
           // Whole-batch patient: trust the office over the episode guess.
           item.patient = forcedPatient;
           item.forced = true;
@@ -13818,6 +13831,7 @@ const PARK = (() => {
         : it.err ? '<span style="color:#b91c1c;">✗ scan failed</span>'
         : !(Number(it.amount) > 0) ? '<span style="color:#b91c1c;">⚠ no total read</span>'
         : it.oldDate ? '<span style="color:#b91c1c;">⚠ check year — read as ' + escHtml(String(it.date).slice(0, 4)) + '</span>'
+        : it.medb ? '<span style="color:#5b21b6;">Ⓜ Med B — check only</span>'
         : it.forced ? '<span style="color:#047857;">✓ batch patient</span>'
         : it.cands.length === 1 ? '<span style="color:#047857;">✓ 1 TB patient</span>'
         : it.cands.length > 1 ? '<span style="color:#92400e;">⚠ ' + it.cands.length + ' candidates</span>'
@@ -13832,7 +13846,7 @@ const PARK = (() => {
         '<td style="padding:4px 6px;"><input type="date" data-bk="date" data-bi="' + i + '" value="' + escHtml(it.date) + '" style="width:130px;"></td>' +
         '<td style="padding:4px 6px;"><input type="number" step="0.01" min="0" data-bk="amount" data-bi="' + i + '" value="' + escHtml(it.amount) + '" style="width:76px;"></td>' +
         '<td style="padding:4px 6px;"><input type="text" data-bk="patient" data-bi="' + i + '" value="' + escHtml(it.patient) + '" list="park-bulk-dl-' + i + '" style="width:160px;">' + dl + "</td>" +
-        '<td style="padding:4px 6px;"><input type="text" data-bk="agency" data-bi="' + i + '" value="' + escHtml(it.agency) + '" list="park-agency-list" style="width:170px;"></td>' +
+        '<td style="padding:4px 6px;"><input type="text" data-bk="agency" data-bi="' + i + '" value="' + escHtml(it.agency) + '" list="park-agency-list" style="width:170px;"' + (it.medb ? " disabled placeholder=\"Med B — none\"" : "") + "></td>" +
         '<td style="padding:4px 6px;">' + status + "</td>" +
       "</tr>";
     }).join("");
@@ -13864,7 +13878,8 @@ const PARK = (() => {
           clinician_name: clin, patient_name: it.patient.trim() || null,
           session_date: it.date || null, amount: it.amount,
           vendor: it.vendor || null, session_number: it.session || null,
-          location: it.location || null, agency_name: it.agency.trim() || null, source: src
+          location: it.location || null, agency_name: it.medb ? null : (it.agency.trim() || null),
+          source: src, no_invoice: !!it.medb
         }, { blob: it.blob, ext: "jpg", type: "image/jpeg" });
         if (row) ok += 1;
       }
@@ -13987,7 +14002,7 @@ const PARK = (() => {
       clearTimeout(st); st = setTimeout(() => { search = e.target.value; render(); }, 250);
     });
     document.getElementById("park-rematch-btn").addEventListener("click", async () => {
-      const targets = rows.filter(r => statusOf(r) === "open" && !r.tb_matched);
+      const targets = rows.filter(r => statusOf(r) === "open" && !r.tb_matched && !r.no_invoice);
       if (!targets.length) { showToast("Nothing unmatched to re-check."); return; }
       showToast("Re-matching " + targets.length + " request(s) against TB visits…");
       let hits = 0;
@@ -14028,6 +14043,13 @@ const PARK = (() => {
       if (btn.dataset.pact === "unvoid") {
         await patchRow(id, { voided_at: null, void_reason: null });
         render();
+      }
+      if (btn.dataset.pact === "medb") {
+        const r = rows.find(x => x.id === id);
+        if (!r) return;
+        await patchRow(id, { no_invoice: !r.no_invoice });
+        render();
+        showToast(!r.no_invoice ? "Ⓜ Med B — this row closes on the check alone; never invoiced." : "Back to normal — invoice side re-opened.");
       }
     };
     document.getElementById("park-tbody").addEventListener("click", actHandler);
