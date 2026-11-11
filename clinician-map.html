@@ -6494,6 +6494,7 @@
           <!-- ── Cell 6: Map Utilities ── -->
           <div class="toolbar-cell">
             <button id="zoom-extents" class="btn-secondary" type="button" title="Zoom to fit all visible clinicians"><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>Fit</span></button>
+            <button id="map-reset-all" class="btn-secondary" type="button" title="Reset everything to how the map first opens — filters, lens, ZIP check, referral and Suggest panels, layers, and view. No page reload."><span class="btn-icon"><svg viewBox="0 0 24 24"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>Reset</span></button>
             <button id="therapyboss-toggle" class="btn-secondary therapyboss-toggle" type="button" title="Toggle TherapyBoss integration panel"><span class="btn-icon"><svg viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>TB</span></button>
             <select id="style-selector" class="toolbar-select" aria-label="Map style">
               <option value="mapbox://styles/diztony67/cmn95ctde001j01qug5odd9ce">DependableCare Gray</option>
@@ -21909,6 +21910,46 @@
       updateSummary();
     }
 
+    // ↺ Reset — back to the first-open state WITHOUT a page reload (no
+    // re-download of clinicians / referrals / services). Covers everything
+    // resetAllMapTools() leaves behind: referral + Suggest panels, the ZIP
+    // coverage check and its circle, agency isolation, layer toggles, view.
+    function resetMapToFirstOpen() {
+      // Panels first — closeRefPanel restores its own discipline snapshot,
+      // which the full filter reset below then clears.
+      try { if (typeof closeReferralSuggestPanel === "function") closeReferralSuggestPanel(); } catch (e) {}
+      try { if (typeof closeRefPanel === "function" && appState.refPanelOpenId) closeRefPanel(); } catch (e) {}
+
+      // ZIP coverage check (same path as its own ✕ Clear button)
+      var zipClear = document.getElementById("clear-zip-panel-check");
+      if (zipClear && (appState.zipCoverageCheckQuery || appState.zipCoverageCentroid)) zipClear.click();
+      var zipPanelInput = document.getElementById("zip-panel-search");
+      if (zipPanelInput) zipPanelInput.value = "";
+      if (elements.zipCoverageSearch) elements.zipCoverageSearch.value = "";
+      _zipClearedByUser = false;   // fresh-open behavior: lens→ZIP snap allowed again
+
+      try { clearAgencyIsolation(); } catch (e) {}
+
+      // Filters, lens, ruler, search, profiles, popups
+      resetAllMapTools();
+
+      // Layers back to first-open defaults: clinicians on, service pins off
+      appState.showClinicians = true;
+      if (elements.showCliniciansToggle) elements.showCliniciansToggle.checked = true;
+      syncClinicianVisibilityToggle();
+      if (appState.showCompletedServices) {
+        appState.showCompletedServices = false;
+        if (elements.showCompletedServicesToggle) elements.showCompletedServicesToggle.checked = false;
+        syncCompletedServiceVisibilityToggle();
+        syncCompletedServicesMapDisplay();
+      }
+      syncAllMarkerVisuals();
+      updateSummary();
+
+      fitMapToVisibleClinicians(true);
+      showToast("↺ Map reset — fresh start, no reload", "success", 2200);
+    }
+
     async function editClinician(clinicianId) {
       const clinician = appState.clinicians.find(function(item) { return item.id === clinicianId; });
       if (!clinician) return;
@@ -23776,6 +23817,8 @@
       document.getElementById("hud-clear-btn").addEventListener("click", function() {
         resetAllMapTools();
       });
+      var resetAllBtn = document.getElementById("map-reset-all");
+      if (resetAllBtn) resetAllBtn.addEventListener("click", resetMapToFirstOpen);
 
       elements.showCliniciansToggle.addEventListener("change", function() {
         appState.showClinicians = Boolean(elements.showCliniciansToggle.checked);
