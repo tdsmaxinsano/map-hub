@@ -2068,7 +2068,7 @@ function renderPlanEditor() {
   } else {
     html += "<span class='empty-note'>No TB-declared ZIPs to start from — add the new-area ZIPs below.</span>";
   }
-  html += "<div style='font-size:11px;color:var(--muted);margin-top:8px'>💡 Stage by area: turn on <b>⭕ Lens</b> on the map, place the circle, then use <b>＋ Stage adds</b> or <b>− Stage removals</b>.</div>";
+  html += "<div style='font-size:11px;color:var(--muted);margin-top:8px'>💡 Stage by area: on the map, use <b>🟢 Stage adds</b> (green circle) or <b>🔴 Stage removals</b> (red circle).</div>";
   html += "<div class='mv-row' style='margin-top:10px'>" +
     "<input id='mv-add-zips' class='mv-input' placeholder='Add new-area ZIPs (e.g. 60056, 60005)' style='min-width:200px'>" +
     "<button class='mv-btn' onclick='addPlanZips()'>＋ Add</button></div>";
@@ -2293,11 +2293,10 @@ async function reverseZipAt(pt) {
     return z;
   } catch (e) { return null; }
 }
-async function lensStageZips(kind) {
-  if (!canEditPlan() || !lensCenter || lensStageBusy) return;
+async function stageZipsInCircle(kind, center, rMi) {
+  if (!canEditPlan() || !center || lensStageBusy) return;
   if (planTableMissing) { showToast("Run migration 55 (clinician_zip_plans) first"); return; }
   lensStageBusy = true;
-  const center = lensCenter, rMi = lensRadius;
   const declared = declaredZipSet();
   const inCircle = c => c && haversineMiles(center.lat, center.lng, c.lat, c.lng) <= rMi;
   try {
@@ -2861,6 +2860,10 @@ function renderMapLayerChips() {
   chips.push(`<button type="button" class="ml-chip${tlActive ? " armed" : ""}" onclick="toggleTimeline()">🎞 Timeline</button>`);
   if (canEditPlan()) {
     chips.push(`<button type="button" class="ml-chip" title="Flag every site plotted more than 15 mi from its own ZIP (a wrong-town geocode) and re-pin them in one pass" onclick="verifySiteLocations()">🧭 Verify locations</button>`);
+    if (!planTableMissing) {
+      chips.push(`<button type="button" class="ml-chip${toolMode === "stageAdd" ? " armed" : ""}" style="${toolMode === "stageAdd" ? "border-color:#16a34a;color:#166534" : ""}" title="Green circle: drop it on an area to ADD to this clinician's TherapyBoss coverage — every ZIP centered inside gets staged in the 📦 ZIP plan" onclick="toggleTool('stageAdd')">🟢 Stage adds</button>`);
+      chips.push(`<button type="button" class="ml-chip${toolMode === "stageRemove" ? " armed" : ""}" style="${toolMode === "stageRemove" ? "border-color:#dc2626;color:#991b1b" : ""}" title="Red circle: drop it on an area to REMOVE from TherapyBoss coverage — every declared ZIP centered inside gets staged for removal" onclick="toggleTool('stageRemove')">🔴 Stage removals</button>`);
+    }
     chips.push(`<button type="button" class="ml-chip${toolMode === "nogo" ? " armed" : ""}"${tlDis} title="Draw hard no-go boundaries (several zones, up to ${NO_GO_MAX_POINTS} draggable corners each) — Accept marks every ZIP inside them won't-serve, portal-wide" onclick="toggleTool('nogo')">⛔ No-go zones${noGoZones.length ? " (" + noGoZones.length + ")" : ""}</button>`);
     if (toolMode === "nogo") {
       const zoneBtns = noGoZones.map((z, i) =>
@@ -2874,16 +2877,22 @@ function renderMapLayerChips() {
         `</span>`);
     }
   }
+  if ((toolMode === "stageAdd" || toolMode === "stageRemove") && canEditPlan()) {
+    const isAdd = toolMode === "stageAdd";
+    chips.push(`<span class="tp-tool-controls">` +
+      `<button type="button" class="tstep" onclick="stepStageRadius(-1)" ${stageRadius <= RADIUS_MIN_MI ? "disabled" : ""} aria-label="Shrink circle">−</button>` +
+      `<span class="treadout" style="color:${isAdd ? "#166534" : "#991b1b"}">${esc(fmtRadiusLabel(stageRadius))}</span>` +
+      `<button type="button" class="tstep" onclick="stepStageRadius(1)" ${stageRadius >= RADIUS_MAX_MI ? "disabled" : ""} aria-label="Grow circle">+</button>` +
+      `<button type="button" class="tstep" style="width:auto;padding:0 10px;font-weight:800;color:#fff;background:${isAdd ? "#16a34a" : "#dc2626"};border-color:${isAdd ? "#16a34a" : "#dc2626"}" ${stageCenter ? "" : "disabled"} onclick="stageZipsInCircle('${isAdd ? "add" : "remove"}', stageCenter, stageRadius)">✓ Stage ${isAdd ? "adds" : "removals"}</button>` +
+      `<button type="button" class="tstep" style="color:#b3261e" title="Remove the circle" onclick="clearStageTool();renderMapLayerChips();renderToolStatus()">✕</button>` +
+      `</span>`);
+  }
   if (toolMode === "lens" || lensCenter) {
     chips.push(`<span class="tp-tool-controls">` +
       `<button type="button" class="tstep" onclick="stepRadiusMiles(-1)" ${lensRadius <= RADIUS_MIN_MI ? "disabled" : ""} aria-label="Shrink lens">−</button>` +
       `<span class="treadout" role="spinbutton" tabindex="0" aria-valuemin="${RADIUS_MIN_MI}" aria-valuemax="${RADIUS_MAX_MI}" aria-valuenow="${lensRadius}" ` +
         `onwheel="event.preventDefault(); stepRadiusMiles(event.deltaY > 0 ? -1 : 1)" onkeydown="lensRadiusKeydown(event)">${esc(fmtRadiusLabel(lensRadius))}</span>` +
       `<button type="button" class="tstep" onclick="stepRadiusMiles(1)" ${lensRadius >= RADIUS_MAX_MI ? "disabled" : ""} aria-label="Grow lens">+</button>` +
-      (canEditPlan() && lensCenter && !planTableMissing
-        ? `<button type="button" class="tstep" style="width:auto;padding:0 8px;color:#047857;font-weight:800" onclick="lensStageZips('add')" title="Stage every ZIP centered inside this circle as an ADDITION in the 📦 ZIP plan (skips ZIPs already declared and won't-serve / no-go ZIPs). You confirm the list first.">＋ Stage adds</button>` +
-          `<button type="button" class="tstep" style="width:auto;padding:0 8px;color:#b3261e;font-weight:800" onclick="lensStageZips('remove')" title="Stage every currently-declared ZIP centered inside this circle for REMOVAL in the 📦 ZIP plan. You confirm the list first.">− Stage removals</button>`
-        : "") +
       `<button type="button" class="tstep" style="color:#b3261e" title="Clear measurements" onclick="clearMapTools()">✕</button>` +
       `</span>`);
   }
@@ -2923,6 +2932,44 @@ function getRadiusStepDelta(current, direction) {
   if (direction > 0) return safe < 3 ? 0.5 : 1;
   return safe <= 3 ? 0.5 : 1;
 }
+// ── 🟢/🔴 Staging circle (separate from the measuring Lens) ──────────
+let stageCenter = null;
+let stageRadius = 2;
+let stageCenterMarker = null;
+function stageColor() { return toolMode === "stageRemove" ? "#dc2626" : "#16a34a"; }
+function updateStageVisuals() {
+  if (!tpMap) return;
+  ensureToolLayers();
+  const source = tpMap.getSource("tp-stage-circle");
+  if (!source) return;
+  if (!stageCenter) { source.setData({ type: "FeatureCollection", features: [] }); return; }
+  const f = createCircleGeoJson(stageCenter, stageRadius);
+  f.properties = Object.assign({}, f.properties || {}, { color: stageColor() });
+  source.setData({ type: "FeatureCollection", features: [f] });
+  if (!stageCenterMarker) {
+    const node = document.createElement("div");
+    node.className = "radius-center";
+    stageCenterMarker = new mapboxgl.Marker({ element: node }).setLngLat([stageCenter.lng, stageCenter.lat]).addTo(tpMap);
+  } else {
+    stageCenterMarker.setLngLat([stageCenter.lng, stageCenter.lat]);
+  }
+}
+function clearStageTool() {
+  stageCenter = null;
+  if (stageCenterMarker) { try { stageCenterMarker.remove(); } catch (e) {} stageCenterMarker = null; }
+  if (tpMap && tpMap.getSource("tp-stage-circle")) {
+    tpMap.getSource("tp-stage-circle").setData({ type: "FeatureCollection", features: [] });
+  }
+}
+function stepStageRadius(direction) {
+  const dir = direction >= 0 ? 1 : -1;
+  const current = clampRadiusMiles(stageRadius);
+  stageRadius = clampRadiusMiles(current + getRadiusStepDelta(current, dir) * dir);
+  updateStageVisuals();
+  renderMapLayerChips();
+  renderToolStatus();
+}
+
 function stepRadiusMiles(direction) {
   const dir = direction >= 0 ? 1 : -1;
   const current = clampRadiusMiles(lensRadius);
@@ -2990,6 +3037,17 @@ function ensureToolLayers() {
     tpMap.addLayer({ id: "tp-lens-circle-line", type: "line", source: "tp-lens-circle",
       paint: { "line-color": "#1e4d8c", "line-width": 2, "line-dasharray": [2, 2] } });
   }
+  if (!tpMap.getSource("tp-stage-circle")) {
+    tpMap.addSource("tp-stage-circle", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  }
+  if (!tpMap.getLayer("tp-stage-circle-fill")) {
+    tpMap.addLayer({ id: "tp-stage-circle-fill", type: "fill", source: "tp-stage-circle",
+      paint: { "fill-color": ["coalesce", ["get", "color"], "#16a34a"], "fill-opacity": 0.16 } });
+  }
+  if (!tpMap.getLayer("tp-stage-circle-line")) {
+    tpMap.addLayer({ id: "tp-stage-circle-line", type: "line", source: "tp-stage-circle",
+      paint: { "line-color": ["coalesce", ["get", "color"], "#16a34a"], "line-width": 2.5 } });
+  }
   if (!tpMap.getSource("tp-ruler-line")) {
     tpMap.addSource("tp-ruler-line", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   }
@@ -3011,18 +3069,22 @@ function ensureToolLayers() {
   } catch (e) { /* style still loading — the load-handler re-apply will draw it */ }
 }
 function toggleTool(mode) {
+  const isStage = m => m === "stageAdd" || m === "stageRemove";
   if (toolMode === mode) {
     if (mode === "ruler") clearRulerTool();
     if (mode === "lens") clearLensTool();
     if (mode === "nogo") noGoDisarm();   // polygon stays, edit handles go
+    if (isStage(mode)) clearStageTool();
     toolMode = "";
   } else {
     // Portal interplay: arming one tool disarms the others.
     if (mode !== "ruler") clearRulerTool();
     if (mode !== "lens") clearLensTool();
     if (toolMode === "nogo") noGoDisarm();
+    if (!isStage(mode)) clearStageTool();   // add⇄remove keeps the circle, recolored
     toolMode = mode;
     if (mode === "nogo") noGoRenderMarkers();
+    if (isStage(mode)) updateStageVisuals();
   }
   renderMapLayerChips();
   renderToolStatus();
@@ -3030,6 +3092,7 @@ function toggleTool(mode) {
 function clearMapTools() {
   clearRulerTool();
   clearLensTool();
+  clearStageTool();
   noGoDisarm();   // the saved zone itself is only removed via 🗑 Clear
   toolMode = "";
   renderMapLayerChips();
@@ -3310,6 +3373,14 @@ async function noGoAccept() {
 function renderToolStatus() {
   const el = document.getElementById("tp-tool-status");
   if (!el) return;
+  if (toolMode === "stageAdd" || toolMode === "stageRemove") {
+    const add = toolMode === "stageAdd";
+    el.textContent = stageCenter
+      ? (add ? "🟢 " : "🔴 ") + fmtRadiusLabel(stageRadius) + " circle placed — resize with − / +, click elsewhere to move it, then press ✓ Stage " + (add ? "adds" : "removals") + "."
+      : (add ? "🟢 Click the map to drop the GREEN circle on the area to ADD to TherapyBoss coverage."
+             : "🔴 Click the map to drop the RED circle on the area to REMOVE from TherapyBoss coverage.");
+    return;
+  }
   if (toolMode === "ruler") {
     if (rulerPts.length === 2) {
       const miles = haversineMiles(rulerPts[0].lat, rulerPts[0].lng, rulerPts[1].lat, rulerPts[1].lng);
@@ -3744,6 +3815,8 @@ function initTerritoryMap() {
       updateRulerVisuals();
     }
     if (lensCenter) updateLensVisuals();
+    stageCenterMarker = null;
+    if (stageCenter) updateStageVisuals();
     // ⛔ No-go zone always renders (it's a standing boundary, visible to
     // every role); draggable corner handles only while the tool is armed.
     noGoMarkers = [];
@@ -3771,6 +3844,12 @@ function initTerritoryMap() {
         rulerPts.push(pt);
         addRulerPointMarker(pt);
         updateRulerVisuals();
+        renderToolStatus();
+      } else if (toolMode === "stageAdd" || toolMode === "stageRemove") {
+        if (!canEditPlan()) return;
+        stageCenter = pt;   // re-click moves the circle
+        updateStageVisuals();
+        renderMapLayerChips();
         renderToolStatus();
       } else if (toolMode === "lens") {
         lensCenter = pt; // re-click moves the lens
