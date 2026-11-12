@@ -1856,6 +1856,10 @@ function renderSiteExclList() {
   if (!siteExclusions.length) { host.innerHTML = ""; return; }
   let html = `<div style="margin-top:8px;font-size:11.5px;color:#6b7280;cursor:pointer;user-select:none;font-weight:700" onclick="toggleSiteExclList()">` +
     `${siteExclOpen ? "▾" : "▸"} 🚫 Excluded locations (${siteExclusions.length}) <span style="font-weight:400">— not counted in territory math</span></div>`;
+  const circleCount = siteExclusions.filter(r => r.note === CIRCLE_EXCL_NOTE).length;
+  if (circleCount && canEditPlan()) {
+    html += `<div style="margin-top:4px"><button type="button" class="mv-btn" style="padding:2px 9px;font-size:11px" onclick="restoreCircleExclusions()" title="Un-exclude every location the red circle excluded">↩ Restore all ${circleCount} from the red circle</button></div>`;
+  }
   if (siteExclOpen) {
     html += `<div style="margin-top:5px;display:flex;flex-direction:column;gap:4px">` +
       siteExclusions.map(r => {
@@ -3067,6 +3071,60 @@ async function reverseZipAt(pt) {
 // ZIPs with past visits but never in TB: nothing to remove in TB. Marking
 // them ⛔ Won't serve takes them off the "consider adding" gap list and
 // makes the Suggest tools flag this clinician for referrals there.
+// 🚫 Bulk: every visit location inside the red circle stops counting in
+// served ZIPs, gaps, work center, travel stats, and the roster flag —
+// for an area the clinician no longer serves (not a move, so the history
+// cutoff would wrongly hide their current area too). Tagged with a note
+// so "↩ Restore all from the red circle" can undo it in one click.
+const CIRCLE_EXCL_NOTE = "Red circle — area no longer served";
+async function offerExcludeSitesInCircle(center, rMi) {
+  if (!canEditPlan() || !center) return 0;
+  if (siteExclTableMissing) return 0;
+  const inside = buildSites().filter(st => st.lat != null && st.lng != null && !st.excluded &&
+    haversineMiles(center.lat, center.lng, st.lat, st.lng) <= rMi);
+  if (!inside.length) return 0;
+  const visits = inside.reduce((t, st) => t + (st.totalVisits || 0), 0);
+  const msg = "Also exclude the " + inside.length + " visit location" + (inside.length === 1 ? "" : "s") +
+    " inside the red circle (" + visits + " visit" + (visits === 1 ? "" : "s") + ")?\n\n" +
+    "• They stop counting in served ZIPs, coverage gaps, work center, travel stats, and the roster's gap flag.\n" +
+    "• The dots turn gray (🚫 Excluded layer). The visit history table keeps every row.\n" +
+    "• Undo in one click: 🚫 Excluded locations → ↩ Restore all from the red circle.";
+  if (!confirm(msg)) return 0;
+  const email = (currentUser && currentUser.email) || null;
+  const rows = [];
+  const seen = new Set();
+  inside.forEach(st => {
+    const key = siteAddrKey(st.address);
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    rows.push({ clinician_id: clinician.id, address_norm: key, address_display: st.address, note: CIRCLE_EXCL_NOTE, set_by_email: email });
+  });
+  for (let i = 0; i < rows.length; i += 400) {
+    const { error } = await db.from("clinician_site_exclusions").upsert(rows.slice(i, i + 400), { onConflict: "clinician_id,address_norm" });
+    if (error) { showToast("Couldn't exclude: " + error.message); return 0; }
+  }
+  rows.forEach(r => {
+    if (!siteExclusions.some(x => siteAddrKey(x.address_norm) === r.address_norm)) {
+      siteExclusions.push(Object.assign({ created_at: new Date().toISOString() }, r));
+    }
+  });
+  showToast("🚫 " + rows.length + " visit location" + (rows.length === 1 ? "" : "s") + " excluded — territory math updated");
+  refreshAfterSiteExcl();
+  return rows.length;
+}
+async function restoreCircleExclusions() {
+  if (!canEditPlan()) return;
+  const mine = siteExclusions.filter(r => r.note === CIRCLE_EXCL_NOTE);
+  if (!mine.length) return;
+  if (!confirm("Restore all " + mine.length + " locations excluded by the red circle? They count again everywhere.")) return;
+  const { error } = await db.from("clinician_site_exclusions")
+    .delete().eq("clinician_id", clinician.id).eq("note", CIRCLE_EXCL_NOTE);
+  if (error) { showToast("Couldn't restore: " + error.message); return; }
+  siteExclusions = siteExclusions.filter(r => r.note !== CIRCLE_EXCL_NOTE);
+  showToast("↩ " + mine.length + " locations restored — territory math updated");
+  refreshAfterSiteExcl();
+}
+
 async function offerWontServeForZips(zips) {
   if (!canEditPlan() || !zips.length) return;
   await ensureZipPlaces(zips);
@@ -3134,7 +3192,8 @@ async function stageZipsInCircle(kind, center, rMi) {
       servedOnlyInside.sort();
       if (!picks.length) {
         if (servedOnlyInside.length) await offerWontServeForZips(servedOnlyInside);
-        else showToast("No ZIPs inside this circle to remove or mark");
+        const nSites = await offerExcludeSitesInCircle(center, rMi);
+        if (!servedOnlyInside.length && !nSites) showToast("No ZIPs or visit locations inside this circle");
         return;
       }
     }
@@ -3179,6 +3238,7 @@ async function stageZipsInCircle(kind, center, rMi) {
       ? "＋ Staged " + picks.length + " new" + (keepInside.length ? " + kept " + keepInside.length + " already in TB" : "") + " — review the plan, then 💾 Save plan"
       : "− Staged " + picks.length + " ZIP" + (picks.length === 1 ? "" : "s") + " — review the plan, then 💾 Save plan");
     if (kind === "remove" && servedOnlyInside.length) await offerWontServeForZips(servedOnlyInside);
+    if (kind === "remove") await offerExcludeSitesInCircle(center, rMi);
   } catch (e) {
     showToast("Staging failed: " + (e.message || e));
   } finally {
