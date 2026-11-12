@@ -3064,6 +3064,32 @@ async function reverseZipAt(pt) {
     return z;
   } catch (e) { return null; }
 }
+// ZIPs with past visits but never in TB: nothing to remove in TB. Marking
+// them ⛔ Won't serve takes them off the "consider adding" gap list and
+// makes the Suggest tools flag this clinician for referrals there.
+async function offerWontServeForZips(zips) {
+  if (!canEditPlan() || !zips.length) return;
+  await ensureZipPlaces(zips);
+  const served = servedZipCounts();
+  const msg = zips.length + " ZIP" + (zips.length === 1 ? " is" : "s are") + " inside the red circle with past visits but NOT in TherapyBoss — there's nothing to remove in TB.\n\n" +
+    zips.map(z => "  " + zipTitleName(z) + (served[z] ? " — served ×" + served[z] : "")).join("\n") +
+    "\n\nMark " + (zips.length === 1 ? "it" : "them") + " ⛔ Won't serve?\n" +
+    "• They stop showing as blue \"consider adding\" gaps (they'll appear dark ⛔ on the map).\n" +
+    "• Suggest will flag / block this clinician for referrals in " + (zips.length === 1 ? "that ZIP" : "those ZIPs") + ".\n" +
+    "• Undo anytime in the ⛔ Won't serve card.";
+  if (!confirm(msg)) return;
+  const rows = zips.map(z => ({
+    clinician_id: clinician.id,
+    zip_code: z,
+    note: "Not their area (red circle)",
+    set_by_email: (currentUser && currentUser.email) || null
+  }));
+  const res = await db.from("clinician_zip_exclusions").upsert(rows, { onConflict: "clinician_id,zip_code" });
+  if (res.error) { showToast("Couldn't mark won't-serve: " + res.error.message); return; }
+  showToast("⛔ " + zips.length + " ZIP" + (zips.length === 1 ? "" : "s") + " marked Won't serve");
+  await reloadExclusions();
+}
+
 async function stageZipsInCircle(kind, center, rMi) {
   if (!canEditPlan() || !center || lensStageBusy) return;
   if (planTableMissing) { showToast("Run migration 55 (clinician_zip_plans) first"); return; }
@@ -3071,7 +3097,7 @@ async function stageZipsInCircle(kind, center, rMi) {
   const declared = declaredZipSet();
   const inCircle = c => c && haversineMiles(center.lat, center.lng, c.lat, c.lng) <= rMi;
   try {
-    let picks = [], refused = [], keepInside = [];
+    let picks = [], refused = [], keepInside = [], servedOnlyInside = [];
     if (kind === "add") {
       showToast("🔍 Finding ZIPs inside the " + fmtRadiusLabel(rMi) + " circle…");
       const found = new Set();
@@ -3097,6 +3123,19 @@ async function stageZipsInCircle(kind, center, rMi) {
       for (const z of declared) {
         if (st0.removed && st0.removed.has(z)) continue;
         if (inCircle(await getZipCentroid(z))) picks.push(z);
+      }
+      // Served-only ZIPs (past visits, never in TB) can't be removed from TB —
+      // offered as ⛔ Won't serve instead so they stop reading as gaps.
+      const excludedNow = excludedZipSet();
+      for (const z of Object.keys(servedZipCounts())) {
+        if (declared.has(z) || excludedNow.has(z)) continue;
+        if (inCircle(await getZipCentroid(z))) servedOnlyInside.push(z);
+      }
+      servedOnlyInside.sort();
+      if (!picks.length) {
+        if (servedOnlyInside.length) await offerWontServeForZips(servedOnlyInside);
+        else showToast("No ZIPs inside this circle to remove or mark");
+        return;
       }
     }
     picks.sort(); refused.sort(); keepInside.sort();
@@ -3139,6 +3178,7 @@ async function stageZipsInCircle(kind, center, rMi) {
     showToast(kind === "add"
       ? "＋ Staged " + picks.length + " new" + (keepInside.length ? " + kept " + keepInside.length + " already in TB" : "") + " — review the plan, then 💾 Save plan"
       : "− Staged " + picks.length + " ZIP" + (picks.length === 1 ? "" : "s") + " — review the plan, then 💾 Save plan");
+    if (kind === "remove" && servedOnlyInside.length) await offerWontServeForZips(servedOnlyInside);
   } catch (e) {
     showToast("Staging failed: " + (e.message || e));
   } finally {
