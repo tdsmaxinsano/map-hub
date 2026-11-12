@@ -2056,9 +2056,19 @@ function renderPlanEditor() {
       const suggest = !!cutoff && !served[z];
       return `<span class="zip-chip ${removed ? "plan-remove" : "plan-keep"}${suggest ? " plan-suggest" : ""}" onclick="togglePlanZip('${esc(z)}')">${suggest ? "💡 " : ""}${esc(z)}${placeSuffix(z)}</span>`;
     }).join("") + "</div>";
+    const idleKeep = declared.filter(z => !served[z] && !st.removed.has(z));
+    html += "<div class='mv-row' style='margin-top:8px'>" +
+      (idleKeep.length
+        ? `<button class='mv-btn' onclick='planBulkRemove("idle")' title='Stage removal of every declared ZIP with no completed visits${cutoff ? " since the cutoff" : ""}'>− Not served${cutoff ? " since cutoff" : ""} (${idleKeep.length})</button>`
+        : "") +
+      "<input id='mv-remove-zips' class='mv-input' placeholder='Paste ZIPs to remove' style='min-width:170px'>" +
+      "<button class='mv-btn' onclick='planBulkRemove(\"paste\")'>− Remove</button>" +
+      (st.removed.size ? "<button class='mv-btn' onclick='planBulkRemove(\"keepall\")' title='Undo every staged removal'>↺ Keep all</button>" : "") +
+      "</div>";
   } else {
     html += "<span class='empty-note'>No TB-declared ZIPs to start from — add the new-area ZIPs below.</span>";
   }
+  html += "<div style='font-size:11px;color:var(--muted);margin-top:8px'>💡 Stage by area: turn on <b>⭕ Lens</b> on the map, place the circle, then use <b>＋ Stage adds</b> or <b>− Stage removals</b>.</div>";
   html += "<div class='mv-row' style='margin-top:10px'>" +
     "<input id='mv-add-zips' class='mv-input' placeholder='Add new-area ZIPs (e.g. 60056, 60005)' style='min-width:200px'>" +
     "<button class='mv-btn' onclick='addPlanZips()'>＋ Add</button></div>";
@@ -2217,6 +2227,135 @@ function removeAddedZip(zip) {
   st.added = st.added.filter(z => z !== zip);
   renderMoveCard();
 }
+// ── Bulk ZIP staging — plan editor shortcuts + ⭕ Lens area tools ─────
+// Everything lands in the 📦 staged plan (moveState), so the existing flow
+// takes over: 💾 Save plan → 📋 copy into TherapyBoss → TB re-import → the
+// TB-vs-plan diff confirms.
+function planEnsureEditing() {
+  if (zipPlan && !planEditing) restagePlan();   // merge into the saved plan
+  return ensureMoveState();
+}
+function planBulkRemove(kind) {
+  captureMoveInputs();
+  const st = ensureMoveState();
+  const declared = declaredZipSet();
+  if (kind === "keepall") {
+    st.removed = new Set();
+  } else if (kind === "idle") {
+    const served = servedZipCounts();
+    let n = 0;
+    declared.forEach(z => { if (!served[z] && !st.removed.has(z)) { st.removed.add(z); n++; } });
+    showToast("− Staged " + n + " not-served ZIP" + (n === 1 ? "" : "s") + " for removal");
+  } else if (kind === "paste") {
+    const input = document.getElementById("mv-remove-zips");
+    const raw = (input && input.value) || "";
+    let n = 0, notDeclared = 0, bad = 0;
+    raw.split(/[,\s]+/).map(x => x.trim()).filter(Boolean).forEach(z => {
+      if (!/^\d{5}$/.test(z)) { bad++; return; }
+      if (!declared.has(z)) { notDeclared++; return; }
+      if (!st.removed.has(z)) { st.removed.add(z); n++; }
+    });
+    if (!n && !notDeclared && !bad) { showToast("Paste one or more ZIPs first"); return; }
+    showToast("− Staged " + n + " for removal" +
+      (notDeclared ? " · " + notDeclared + " not declared in TB (nothing to remove)" : "") +
+      (bad ? " · " + bad + " not 5-digit ZIPs" : ""));
+  }
+  renderMoveCard();
+}
+
+let lensStageBusy = false;
+// Sample points across the circle (center + grid), capped for API cost.
+function lensSamplePoints(center, rMi) {
+  const pts = [{ lat: center.lat, lng: center.lng }];
+  const spacing = Math.max(0.5, Math.sqrt(Math.PI * rMi * rMi / 110));
+  const dLat = spacing / 69;
+  const dLng = spacing / (69 * Math.cos(center.lat * Math.PI / 180));
+  const steps = Math.ceil(rMi / spacing);
+  for (let i = -steps; i <= steps; i++) {
+    for (let j = -steps; j <= steps; j++) {
+      if (!i && !j) continue;
+      const p = { lat: center.lat + i * dLat, lng: center.lng + j * dLng };
+      if (haversineMiles(center.lat, center.lng, p.lat, p.lng) <= rMi) pts.push(p);
+    }
+  }
+  return pts;
+}
+// Reverse-geocode one point to its ZIP; caches the ZIP's own center.
+async function reverseZipAt(pt) {
+  try {
+    const res = await fetch("https://api.mapbox.com/geocoding/v5/mapbox.places/" + pt.lng + "," + pt.lat +
+      ".json?types=postcode&limit=1&access_token=" + encodeURIComponent(mapboxgl.accessToken));
+    const data = await res.json();
+    const f = data && data.features && data.features[0];
+    const z = f && normZip(f.text);
+    if (!z) return null;
+    if (Array.isArray(f.center) && !zipCentroidCache.has(z)) zipCentroidCache.set(z, { lat: f.center[1], lng: f.center[0] });
+    return z;
+  } catch (e) { return null; }
+}
+async function lensStageZips(kind) {
+  if (!canEditPlan() || !lensCenter || lensStageBusy) return;
+  if (planTableMissing) { showToast("Run migration 55 (clinician_zip_plans) first"); return; }
+  lensStageBusy = true;
+  const center = lensCenter, rMi = lensRadius;
+  const declared = declaredZipSet();
+  const inCircle = c => c && haversineMiles(center.lat, center.lng, c.lat, c.lng) <= rMi;
+  try {
+    let picks = [], refused = [];
+    if (kind === "add") {
+      showToast("🔍 Finding ZIPs inside the " + fmtRadiusLabel(rMi) + " circle…");
+      const found = new Set();
+      const pts = lensSamplePoints(center, rMi);
+      for (let k = 0; k < pts.length; k += 8) {
+        const batch = await Promise.all(pts.slice(k, k + 8).map(reverseZipAt));
+        batch.forEach(z => { if (z) found.add(z); });
+      }
+      // Known ZIPs near the edge that the grid may have stepped over
+      [...Object.keys(servedZipCounts()), ...requestedZipSet()].forEach(z => found.add(normZip(z)));
+      const excluded = excludedZipSet();
+      const st0 = moveState || { added: [] };
+      for (const z of found) {
+        if (!z || declared.has(z) || (st0.added || []).includes(z)) continue;
+        if (!inCircle(await getZipCentroid(z))) continue;   // ZIP's center must be inside
+        if (excluded.has(z)) refused.push(z); else picks.push(z);
+      }
+    } else {
+      const st0 = moveState || { removed: new Set() };
+      for (const z of declared) {
+        if (st0.removed && st0.removed.has(z)) continue;
+        if (inCircle(await getZipCentroid(z))) picks.push(z);
+      }
+    }
+    picks.sort(); refused.sort();
+    if (!picks.length) {
+      showToast(kind === "add"
+        ? "No new ZIPs centered inside this circle" + (refused.length ? " (" + refused.length + " skipped — won't-serve)" : "")
+        : "No declared ZIPs centered inside this circle");
+      return;
+    }
+    await ensureZipPlaces(picks.concat(refused));
+    const line = z => "  " + z + placeSuffix(z);
+    const msg = (kind === "add"
+      ? "Stage " + picks.length + " ZIP ADDITION" + (picks.length === 1 ? "" : "S") + " in the ZIP plan?"
+      : "Stage " + picks.length + " ZIP REMOVAL" + (picks.length === 1 ? "" : "S") + " in the ZIP plan?") +
+      "\n\n" + picks.map(line).join("\n") +
+      (refused.length ? "\n\nSkipped — won't-serve / no-go:\n" + refused.map(line).join("\n") : "") +
+      "\n\nNothing changes in TherapyBoss until you save the plan and enter it there.";
+    if (!confirm(msg)) return;
+    const st = planEnsureEditing();
+    if (kind === "add") picks.forEach(z => { if (!st.added.includes(z)) st.added.push(z); });
+    else picks.forEach(z => st.removed.add(z));
+    renderMoveCard();
+    const card = document.getElementById("tp-move-card");
+    if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast((kind === "add" ? "＋ Staged " : "− Staged ") + picks.length + " ZIP" + (picks.length === 1 ? "" : "s") + " — review the plan, then 💾 Save plan");
+  } catch (e) {
+    showToast("Staging failed: " + (e.message || e));
+  } finally {
+    lensStageBusy = false;
+  }
+}
+
 function restagePlan() {
   const declared = declaredZipSet();
   const target = new Set((zipPlan.target_zips || []).map(normZip));
@@ -2741,6 +2880,10 @@ function renderMapLayerChips() {
       `<span class="treadout" role="spinbutton" tabindex="0" aria-valuemin="${RADIUS_MIN_MI}" aria-valuemax="${RADIUS_MAX_MI}" aria-valuenow="${lensRadius}" ` +
         `onwheel="event.preventDefault(); stepRadiusMiles(event.deltaY > 0 ? -1 : 1)" onkeydown="lensRadiusKeydown(event)">${esc(fmtRadiusLabel(lensRadius))}</span>` +
       `<button type="button" class="tstep" onclick="stepRadiusMiles(1)" ${lensRadius >= RADIUS_MAX_MI ? "disabled" : ""} aria-label="Grow lens">+</button>` +
+      (canEditPlan() && lensCenter && !planTableMissing
+        ? `<button type="button" class="tstep" style="width:auto;padding:0 8px;color:#047857;font-weight:800" onclick="lensStageZips('add')" title="Stage every ZIP centered inside this circle as an ADDITION in the 📦 ZIP plan (skips ZIPs already declared and won't-serve / no-go ZIPs). You confirm the list first.">＋ Stage adds</button>` +
+          `<button type="button" class="tstep" style="width:auto;padding:0 8px;color:#b3261e;font-weight:800" onclick="lensStageZips('remove')" title="Stage every currently-declared ZIP centered inside this circle for REMOVAL in the 📦 ZIP plan. You confirm the list first.">− Stage removals</button>`
+        : "") +
       `<button type="button" class="tstep" style="color:#b3261e" title="Clear measurements" onclick="clearMapTools()">✕</button>` +
       `</span>`);
   }
