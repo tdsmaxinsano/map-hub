@@ -115,6 +115,9 @@
   .zip-chip.gap-idle { background: #fdf6e6; color: #92400e; border-color: #ecd9a8; }
   .zip-chip.gap-refused { background: #f3f4f6; color: #6b7280; border-color: #e0e3e8; }
   .zip-chip.copyable { cursor: pointer; }
+  .tb-marks { display: inline-flex; gap: 2px; margin-right: 5px; vertical-align: 1px; }
+  .tb-marks span { font-size: 9px; font-weight: 800; line-height: 1; padding: 2px 3px; border-radius: 3px; background: #e5e7eb; color: #9ca3af; }
+  .tb-marks span.on { background: #1a5fb4; color: #fff; }
   .zip-chip.copyable:hover { box-shadow: 0 0 0 2px rgba(26, 95, 180, .28); }
   /* Copied for TB entry — NOT confirmed. Only a TB re-import confirms a ZIP
      (it then moves to TB Loaded ZIPs). Deliberately not green. */
@@ -1590,7 +1593,9 @@ function renderZipPanels() {
         const step = tbGapNextStep();
         html += step
           ? `<button type="button" class="mv-btn primary" onclick="tbCopyNext()">Copy next → ${esc(step.kind === "memo" ? (planTbMemo(step.zip) || step.zip) + " (Memo)" : step.zip + " (Zip)")}</button>` +
-            `<span class="tb-progress">${gapAdd.length - remaining.length} of ${gapAdd.length} copied · Zip, then Memo, then Add in TB</span>`
+            `<span class="tb-progress">${gapAdd.length - remaining.length} of ${gapAdd.length} copied · Zip, then Memo, then Add in TB</span>` +
+            `<div class="tb-progress" style="flex-basis:100%;margin-top:2px">Next in TB → <b>Zip</b> <code>${esc(step.zip)}</code> · <b>Memo</b> <code>${esc(planTbMemo(step.zip) || "— type the town —")}</code>` +
+            `${step.kind === "memo" ? " · (Zip already copied)" : ""} — chips: <b>Z</b>/<b>M</b> turn blue as each is copied; click a chip twice for Zip then Memo.</div>`
           : `<span class="tb-progress">All ${gapAdd.length} copied — SUBMIT in TB, then re-import.</span>`;
       }
       if (awaiting.length) {
@@ -1606,10 +1611,21 @@ function renderZipPanels() {
       return `<span class="zip-chip gap-add plan-adding-chip" title="${esc("Staged to ADD in the 📦 ZIP plan — " + (planSets.saved ? "awaiting TherapyBoss (add it there, then re-import)" : "💾 plan not saved yet"))}">＋ ${inner}</span>`;
     }
     const copied = cls === "gap-add" && tbEntryDone.has(z);
-    const click = tbEntryMode ? ` onclick="tbCopyOne('${esc(z)}')"` : "";
-    let t = tbEntryMode ? "Click to copy just this ZIP for TherapyBoss" + (title ? " — " + title : "") : (title || "");
-    if (copied) t = "Copied — awaiting TB. Confirmed only when a TB re-import includes it." + (t ? " · " + t : "");
-    return `<span class="zip-chip ${cls}${tbEntryMode ? " copyable" : ""}${copied ? " tb-copied" : ""}"${t ? ` title="${esc(t)}"` : ""}${click}>${copied ? "📋 " : ""}${inner}</span>`;
+    const memo = cls === "gap-add" ? planTbMemo(z) : "";
+    const memoCopied = copied && tbMemoDone.has(z);
+    const click = tbEntryMode && cls === "gap-add" ? ` onclick="tbChipClick('${esc(z)}')"` : "";
+    let t = title || "";
+    if (tbEntryMode && cls === "gap-add") {
+      t = "TB fields → Zip: " + z + " · Memo: " + (memo ? "\"" + memo + "\"" : "(no town known — type it in TB)") +
+        "\n" + (!copied ? "Click to copy the Zip" : (memo && !memoCopied ? "Click again to copy the Memo" : "Both copied — click to copy the Zip again")) +
+        (copied ? "\nAwaiting TB — confirmed only when a TB re-import includes it." : "");
+    } else if (copied) {
+      t = "Copied — awaiting TB. Confirmed only when a TB re-import includes it." + (t ? " · " + t : "");
+    }
+    const marks = tbEntryMode && cls === "gap-add"
+      ? `<span class="tb-marks"><span class="${copied ? "on" : ""}">Z</span>${memo ? `<span class="${memoCopied ? "on" : ""}">M</span>` : ""}</span>`
+      : (copied ? "📋 " : "");
+    return `<span class="zip-chip ${cls}${tbEntryMode ? " copyable" : ""}${copied ? " tb-copied" : ""}"${t ? ` title="${esc(t)}"` : ""}${click}>${marks}${inner}</span>`;
   };
 
   const refusedHtml = gapRefused.length
@@ -1856,6 +1872,13 @@ function tbCopyMemo(zip) {
   } else {
     copyZipFallback(text, done);
   }
+}
+// Chip click in TB entry mode: 1st click = Zip, 2nd = Memo, then Zip again.
+function tbChipClick(zip) {
+  const z = normZip(zip);
+  if (!tbEntryDone.has(z)) { tbCopyOne(z); return; }
+  if (planTbMemo(z) && !tbMemoDone.has(z)) { tbCopyMemo(z); return; }
+  tbCopyOne(z);
 }
 function tbCopyNext() {
   const step = tbGapNextStep();
