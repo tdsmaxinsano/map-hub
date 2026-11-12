@@ -1520,6 +1520,19 @@ function servedZipCounts() {
   });
   return counts;
 }
+// ZIPs deliberately taken OUT of TB in a recorded coverage change
+// (migration 59 revisions, newest first). A later revision that re-adds
+// the ZIP cancels it. These are not "consider adding" gaps — offering to
+// put them straight back would undo the coverage change.
+function removedInTbZipSet() {
+  const out = new Set();
+  const decided = new Set();
+  (zipRevisions || []).forEach(rev => {   // newest first
+    (rev.added || []).map(normZip).forEach(z => { if (z && !decided.has(z)) decided.add(z); });
+    (rev.removed || []).map(normZip).forEach(z => { if (z && !decided.has(z)) { decided.add(z); out.add(z); } });
+  });
+  return out;
+}
 function declaredZipSet() {
   const set = new Set();
   declaredRows.forEach(r => { const z = normZip(r.zip_code); if (z) set.add(z); });
@@ -1554,8 +1567,10 @@ function renderZipPanels() {
   // show them separately below as a muted non-copy line.
   const excluded = excludedZipSet();
   const gapAddAll = servedZips.filter(z => !declared.has(z));
-  const gapAdd = gapAddAll.filter(z => !excluded.has(z));
+  const removedInTb = removedInTbZipSet();
+  const gapAdd = gapAddAll.filter(z => !excluded.has(z) && !removedInTb.has(z));
   const gapRefused = gapAddAll.filter(z => excluded.has(z));
+  const gapRemoved = gapAddAll.filter(z => !excluded.has(z) && removedInTb.has(z));
   const gapIdle = Array.from(declared).filter(z => !served[z]).sort();
 
   // Copy-out tools: TB only accepts ZIPs one at a time, so alongside the
@@ -1572,10 +1587,11 @@ function renderZipPanels() {
       if (gapAdd.length) html += `<button type="button" class="mv-btn" onclick="copyGapList()">📋 Copy list (${gapAdd.length})</button>`;
       html += `<button type="button" class="mv-btn${tbEntryMode ? " primary" : ""}" onclick="toggleTbEntryMode()">${tbEntryMode ? "✕ Exit TB entry mode" : "➡ TB entry mode"}</button>`;
       if (tbEntryMode && gapAdd.length) {
-        html += remaining.length
-          ? `<button type="button" class="mv-btn primary" onclick="tbCopyNext()">Copy next → ${esc(remaining[0])}</button>` +
-            `<span class="tb-progress">${gapAdd.length - remaining.length} of ${gapAdd.length} copied</span>`
-          : `<span class="tb-progress">All ${gapAdd.length} copied.</span>`;
+        const step = tbGapNextStep();
+        html += step
+          ? `<button type="button" class="mv-btn primary" onclick="tbCopyNext()">Copy next → ${esc(step.kind === "memo" ? (planTbMemo(step.zip) || step.zip) + " (Memo)" : step.zip + " (Zip)")}</button>` +
+            `<span class="tb-progress">${gapAdd.length - remaining.length} of ${gapAdd.length} copied · Zip, then Memo, then Add in TB</span>`
+          : `<span class="tb-progress">All ${gapAdd.length} copied — SUBMIT in TB, then re-import.</span>`;
       }
       if (awaiting.length) {
         html += `<span class="tb-awaiting" title="Copying doesn't confirm anything. Export ZIP coverage from TherapyBoss and import it here (📮 TB Loaded ZIPs) — ZIPs TB really has move out of this list.">📋 ${awaiting.length} copied · awaiting TB — re-import ZIPs from TB to confirm</span>` +
@@ -1601,9 +1617,15 @@ function renderZipPanels() {
       gapRefused.map(z => `<span class="zip-chip gap-refused" title="On the won't-serve list — do NOT add to TB">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join(" ") +
       `</div>`
     : "";
+  const removedHtml = gapRemoved.length
+    ? `<div style="margin-top:7px;font-size:11px;color:#6b7280"><b>➖ Removed from TB in a coverage change</b> — not counted as gaps: ` +
+      gapRemoved.map(z => `<span class="zip-chip gap-refused" title="Taken out of TB on purpose (📜 Coverage changes). Has visits since the cutoff — mark ⛔ Won't serve so the roster flag and Suggest agree.">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join(" ") +
+      (canEditPlan() ? ` <button type="button" class="mv-btn" style="padding:1px 8px;font-size:11px" onclick="offerWontServeForZips(${esc(JSON.stringify(gapRemoved))})" title="Roster gap flag, map status bar and Suggest only know ⛔ won't-serve — this makes them agree">⛔ Mark won't serve</button>` : "") +
+      `</div>`
+    : "";
   document.getElementById("tp-gap-add").innerHTML = (gapAdd.length
     ? gapAdd.map(z => gapChip(z, "gap-add", `${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span>`, "")).join("")
-    : "<span class='empty-note'>None 🎉 — everywhere they've served is declared" + (gapRefused.length ? " (or refused)" : "") + ".</span>") + refusedHtml;
+    : "<span class='empty-note'>None 🎉 — everywhere they've served is declared" + (gapRefused.length || gapRemoved.length ? " (or refused / removed)" : "") + ".</span>") + refusedHtml + removedHtml;
 
   // Honest labeling under a cutoff: some "idle" ZIPs WERE served — just
   // not since. Distinguish pre-cutoff-only history (🕰) from truly never.
@@ -1702,6 +1724,8 @@ let tbEntryMode = false;
 // clinician so the marks survive a refresh while you work in TB. A ZIP
 // leaves this set only when the declared list (a TB re-import) has it.
 let tbEntryDone = new Set();
+let tbMemoDone = new Set();   // Memo (town) copied for these ZIPs
+let tbLastZip = null;         // ZIP whose Memo comes next
 let tbCopiedFor = null;
 let tbJustImported = false;
 
@@ -1711,6 +1735,8 @@ function tbSaveCopied() {
   try {
     if (tbEntryDone.size) localStorage.setItem(tbCopiedKey(clinician.id), JSON.stringify(Array.from(tbEntryDone)));
     else localStorage.removeItem(tbCopiedKey(clinician.id));
+    if (tbMemoDone.size) localStorage.setItem(tbCopiedKey(clinician.id) + "_memo", JSON.stringify(Array.from(tbMemoDone)));
+    else localStorage.removeItem(tbCopiedKey(clinician.id) + "_memo");
   } catch (e) {}
 }
 function tbSyncCopiedWithDeclared(declared) {
@@ -1718,8 +1744,12 @@ function tbSyncCopiedWithDeclared(declared) {
   if (tbCopiedFor !== clinician.id) {
     tbCopiedFor = clinician.id;
     tbEntryDone = new Set();
+    tbMemoDone = new Set();
+    tbLastZip = null;
     try { (JSON.parse(localStorage.getItem(tbCopiedKey(clinician.id)) || "[]") || []).forEach(z => tbEntryDone.add(z)); } catch (e) {}
+    try { (JSON.parse(localStorage.getItem(tbCopiedKey(clinician.id) + "_memo") || "[]") || []).forEach(z => tbMemoDone.add(z)); } catch (e) {}
   }
+  Array.from(tbMemoDone).forEach(z => { if (declared.has(z)) tbMemoDone.delete(z); });
   const confirmed = Array.from(tbEntryDone).filter(z => declared.has(z));
   if (confirmed.length) {
     confirmed.forEach(z => tbEntryDone.delete(z));
@@ -1744,6 +1774,8 @@ function tbClearCopied() {
   if (!tbEntryDone.size) return;
   if (!confirm("Clear the 📋 copied marks on " + tbEntryDone.size + " ZIP(s)?\n\nOnly the marks go away — nothing in TherapyBoss or the portal changes.")) return;
   tbEntryDone = new Set();
+  tbMemoDone = new Set();
+  tbLastZip = null;
   tbSaveCopied();
   renderZipPanels();
 }
@@ -1752,13 +1784,17 @@ function gapAddZips() {
   const declared = declaredZipSet();
   const served = servedZipCounts();
   const excluded = excludedZipSet(); // refused ZIPs never enter the TB copy flow
+  const removedInTb = removedInTbZipSet(); // nor ZIPs a coverage change took out
   return Object.keys(served).sort((a, b) => served[b] - served[a])
-    .filter(z => !declared.has(z) && !excluded.has(z));
+    .filter(z => !declared.has(z) && !excluded.has(z) && !removedInTb.has(z));
 }
 function toggleTbEntryMode() {
   tbEntryMode = !tbEntryMode;
   renderZipPanels();
-  if (tbEntryMode) showToast("➡ TB entry mode — click a chip (or Copy next) to copy one ZIP at a time");
+  if (tbEntryMode) {
+    ensureZipPlaces(gapAddZips()).then(() => { if (tbEntryMode) renderZipPanels(); });
+    showToast("➡ TB entry mode — Copy next gives the Zip, then its Memo (town), for TherapyBoss's two fields");
+  }
 }
 function copyGapList() {
   const list = gapAddZips();
@@ -1777,11 +1813,12 @@ function tbCopyOne(zip) {
   const wasNew = !tbEntryDone.has(z);
   const done = () => {
     tbEntryDone.add(z);
+    tbLastZip = z;
     tbSaveCopied();
     renderZipPanels();
-    const left = gapAddZips().filter(x => !tbEntryDone.has(x)).length;
-    showToast("📋 " + z + " copied — paste into TB" +
-      (wasNew ? (left ? " · " + left + " to go" : " · last one — now re-import ZIPs from TB to confirm") : " (again)"));
+    const memo = planTbMemo(z);
+    showToast("📋 Zip " + z + " copied — paste into TB's Zip field" +
+      (memo ? " · next: Memo \"" + memo + "\"" : (wasNew ? "" : " (again)")));
   };
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(z).then(done).catch(() => copyZipFallback(z, done));
@@ -1789,10 +1826,41 @@ function tbCopyOne(zip) {
     copyZipFallback(z, done);
   }
 }
+// Next step for the gap list: the Memo of the ZIP just copied, else the
+// first ZIP not copied yet, else any ZIP whose Memo was skipped.
+function tbGapNextStep() {
+  const list = gapAddZips();
+  if (tbLastZip && list.includes(tbLastZip) && planTbMemo(tbLastZip) && !tbMemoDone.has(tbLastZip)) {
+    return { zip: tbLastZip, kind: "memo" };
+  }
+  const z = list.find(x => !tbEntryDone.has(x));
+  if (z) return { zip: z, kind: "zip" };
+  const m = list.find(x => planTbMemo(x) && !tbMemoDone.has(x));
+  return m ? { zip: m, kind: "memo" } : null;
+}
+function tbCopyMemo(zip) {
+  const z = normZip(zip);
+  const text = planTbMemo(z);
+  if (!z || !text) { showToast("No town name known for " + z + " — type the memo in TB"); return; }
+  const done = () => {
+    tbMemoDone.add(z);
+    if (tbLastZip === z) tbLastZip = null;
+    tbSaveCopied();
+    renderZipPanels();
+    const left = gapAddZips().filter(x => !tbEntryDone.has(x)).length;
+    showToast("📋 Memo \"" + text + "\" copied — paste into TB's Memo, then Add" +
+      (left ? " · " + left + " to go" : " · last one — SUBMIT in TB, then re-import to confirm"));
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyZipFallback(text, done));
+  } else {
+    copyZipFallback(text, done);
+  }
+}
 function tbCopyNext() {
-  const next = gapAddZips().find(z => !tbEntryDone.has(z));
-  if (!next) { showToast("✓ All served-but-not-declared ZIPs copied"); return; }
-  tbCopyOne(next);
+  const step = tbGapNextStep();
+  if (!step) { showToast("✓ Every Zip and Memo copied — SUBMIT in TB, then re-import to confirm"); return; }
+  if (step.kind === "memo") tbCopyMemo(step.zip); else tbCopyOne(step.zip);
 }
 
 // ── 🚫 Site exclusion actions (migration 61) ────────────────────────
