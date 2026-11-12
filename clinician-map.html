@@ -5104,6 +5104,27 @@
       opacity: 0.7;
     }
 
+    /* ── ZIP Coverage Status bar (profile shell) ── */
+    .zip-status { display: flex; flex-direction: column; gap: 7px; }
+    .zip-status-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .zip-status-pill { font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 999px; letter-spacing: .02em; }
+    .zip-status-pill.ok { background: #dcfce7; color: #166534; }
+    .zip-status-pill.warn { background: #fef3c7; color: #92400e; }
+    .zip-status-pill.bad { background: #fee2e2; color: #991b1b; }
+    .zip-status-pct { font-size: 13px; }
+    .zip-status-pct b { font-size: 15px; }
+    .zip-status-bar { display: flex; height: 12px; border-radius: 999px; overflow: hidden; background: #e5e7eb; }
+    .zip-status-bar > span { display: block; height: 100%; min-width: 3px; }
+    .zip-status-bar .seg-both { background: #22c55e; }
+    .zip-status-bar .seg-served { background: #3b82f6; }
+    .zip-status-bar .seg-never { background: #f59e0b; }
+    .zip-status-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 12px; color: var(--muted, #64748b); }
+    .zip-status-legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+    .zip-status-legend b { color: #1f2937; }
+    .zip-status-note { font-size: 11px; color: var(--muted, #64748b); }
+    .zip-status-empty { font-size: 13px; color: var(--muted, #64748b); }
+    .zip-status-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+
     /* ── ZIP Coverage Gap comparator (profile shell) ── */
     .zip-compare-row {
       margin: 8px 0 0 0;
@@ -7033,8 +7054,15 @@
           </section>
 
           <section class="profile-card">
-            <h3 class="profile-card-title">ZIP Planning</h3>
-            <div class="profile-grid">
+            <h3 class="profile-card-title">ZIP Coverage Status</h3>
+            <div id="profile-zip-status" class="zip-status">
+              <div class="zip-status-empty">Loading visit history…</div>
+            </div>
+            <div class="zip-status-actions">
+              <button type="button" class="btn-secondary btn-zip-compare" onclick="openTerritoryPlannerForCurrentClinician()" title="Stage adds/removals, TB entry, before/after report">🗺 Fix in Territory Planner</button>
+            </div>
+            <!-- Legacy ZIP Planning fields — hidden; still populated by JS. -->
+            <div class="profile-grid" style="display:none">
               <div class="profile-kv">
                 <div class="profile-kv-label">ZIP</div>
                 <div id="profile-zip" class="profile-kv-value">Not set</div>
@@ -7052,7 +7080,7 @@
                 <div id="profile-preferred-zips" class="profile-kv-value">None</div>
               </div>
             </div>
-            <div class="zip-compare-row">
+            <div class="zip-compare-row" style="display:none">
               <button type="button" id="profile-zip-compare-btn" class="btn-secondary btn-zip-compare" onclick="openZipComparePanel()">
                 🔍 Compare ZIPs
               </button>
@@ -7066,7 +7094,6 @@
               <div id="profile-zip-compare-notice" class="zip-compare-notice" style="display:none;"></div>
               <div id="profile-zip-compare-list" class="zip-compare-list"></div>
             </div>
-            <div class="helper-text">ZIP coverage is synced from TherapyBoss. Enter or update clinician ZIPs there first, then run the ZIP Coverage import here.</div>
           </section>
 
           <section class="profile-card" id="profile-field-intel-card">
@@ -12659,7 +12686,91 @@
       }).join("");
     }
 
+    // ── ZIP Coverage Status — one-glance TB vs actual-visits comparison.
+    // Same inputs as the Territory Planner: served ZIPs honor Ignore
+    // History Before + site exclusions (getClinicianReferralZips); ⛔
+    // won't-serve ZIPs are left out of "served, not in TB".
+    const profileZipWontServeCache = new Map();
+    let profileZipWontServeTableMissing = false;
+    async function loadProfileZipWontServe(clinicianId) {
+      if (profileZipWontServeTableMissing || profileZipWontServeCache.has(clinicianId)) return;
+      profileZipWontServeCache.set(clinicianId, new Set());
+      try {
+        const res = await supabaseClient.from("clinician_zip_exclusions").select("zip_code").eq("clinician_id", clinicianId);
+        if (res.error) { profileZipWontServeTableMissing = true; return; }
+        profileZipWontServeCache.set(clinicianId, new Set((res.data || []).map(function(r) { return String(r.zip_code || "").trim(); })));
+        if (appState.currentProfileClinicianId === clinicianId) renderProfileZipStatus();
+      } catch (e) {}
+    }
+    function getClinicianTbZipSet(clinician) {
+      const tb = new Set();
+      (clinician.zip_coverages || []).forEach(function(row) {
+        if (row && row.zip_code) tb.add(String(row.zip_code).trim());
+      });
+      if (!tb.size && clinician.preferred_zips) {
+        String(clinician.preferred_zips).split(",").forEach(function(z) { if (z.trim()) tb.add(z.trim()); });
+      }
+      return tb;
+    }
+    function renderProfileZipStatus() {
+      const el = document.getElementById("profile-zip-status");
+      if (!el) return;
+      const clinicianId = appState.currentProfileClinicianId;
+      const clinician = clinicianId ? appState.clinicians.find(function(item) { return item.id === clinicianId; }) : null;
+      if (!clinician) { el.innerHTML = "<div class='zip-status-empty'>—</div>"; return; }
+      if (appState.completedServiceLoadError) { el.innerHTML = "<div class='zip-status-empty'>Visit history unavailable.</div>"; return; }
+      if (!appState.hasLoadedCompletedServices) { el.innerHTML = "<div class='zip-status-empty'>Loading visit history…</div>"; return; }
+      loadProfileZipWontServe(clinicianId);
+      const wont = profileZipWontServeCache.get(clinicianId) || new Set();
+      const tb = getClinicianTbZipSet(clinician);
+      const served = getClinicianReferralZips(clinician);
+      const servedSet = new Set(served.map(function(e) { return String(e.zip_code).trim(); }));
+      let both = 0, servedOnly = 0, visitsIn = 0, visitsTotal = 0, wontSkipped = 0;
+      served.forEach(function(e) {
+        const z = String(e.zip_code).trim();
+        const n = Number(e.service_count) || 0;
+        if (tb.has(z)) { both++; visitsIn += n; visitsTotal += n; }
+        else if (wont.has(z)) { wontSkipped++; }
+        else { servedOnly++; visitsTotal += n; }
+      });
+      let never = 0;
+      tb.forEach(function(z) { if (!servedSet.has(z)) never++; });
+      if (!(both + servedOnly + never)) {
+        el.innerHTML = "<div class='zip-status-empty'>No TB ZIPs and no visit history yet.</div>";
+        return;
+      }
+      const pct = visitsTotal ? Math.round(visitsIn / visitsTotal * 100) : null;
+      const tbPct = tb.size ? Math.round(both / tb.size * 100) : null;
+      let pill = "", cls = "";
+      if (!tb.size) { pill = "No ZIPs in TB"; cls = "bad"; }
+      else if (pct === null) { pill = "No recent visits"; cls = "warn"; }
+      else if (pct >= 85) { pill = "✓ In sync"; cls = "ok"; }
+      else if (pct >= 60) { pill = "Drifting"; cls = "warn"; }
+      else { pill = "Out of sync"; cls = "bad"; }
+      function seg(c, n, label) {
+        return n ? "<span class='" + c + "' style='flex:" + n + "' title='" + n + " " + label + "'></span>" : "";
+      }
+      const cutoff = getClinicianIgnoreHistoryBeforeValue(clinician);
+      el.innerHTML =
+        "<div class='zip-status-head'><span class='zip-status-pill " + cls + "'>" + pill + "</span>" +
+          (pct === null ? "" : "<span class='zip-status-pct'><b>" + pct + "%</b> of visits fall in TB ZIPs</span>") +
+        "</div>" +
+        "<div class='zip-status-bar'>" +
+          seg("seg-both", both, "declared & served") + seg("seg-served", servedOnly, "served, not in TB") + seg("seg-never", never, "in TB, never served") +
+        "</div>" +
+        "<div class='zip-status-legend'>" +
+          "<span><i style='background:#22c55e'></i><b>" + both + "</b> declared &amp; served</span>" +
+          "<span><i style='background:#3b82f6'></i><b>" + servedOnly + "</b> served, not in TB</span>" +
+          "<span><i style='background:#f59e0b'></i><b>" + never + "</b> in TB, never served</span>" +
+        "</div>" +
+        "<div class='zip-status-note'>" + tb.size + " TB ZIPs" + (tbPct === null ? "" : " · " + tbPct + "% have visits") +
+          (wontSkipped ? " · " + wontSkipped + " ⛔ won't-serve ignored" : "") +
+          (cutoff ? " · visits since " + escapeHtml(typeof formatAcceptedDate === "function" ? formatAcceptedDate(cutoff) : String(cutoff)) : "") +
+        "</div>";
+    }
+
     function renderProfileReferralZipsSnapshot() {
+      renderProfileZipStatus();
       if (!elements.profileReferralZipsSnapshot) return;
 
       if (!appState.hasLoadedCompletedServices || appState.completedServiceLoadError) {
