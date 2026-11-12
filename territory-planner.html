@@ -1831,6 +1831,8 @@ async function unexcludeSite(encAddr) {
   refreshAfterSiteExcl();
 }
 function refreshAfterSiteExcl() {
+  // Open Map tabs (same browser) reload exclusions right away.
+  try { if (typeof BroadcastChannel === "function") new BroadcastChannel("dcs-site-exclusions").postMessage({ clinician_id: clinician && clinician.id }); } catch (e) {}
   _sitesCache = null;
   renderZipPanels();
   renderTravelStats();

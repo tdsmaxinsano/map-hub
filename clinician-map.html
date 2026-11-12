@@ -17136,9 +17136,72 @@
       );
     }
 
+    // ── Site exclusions (migration 61) — set in the Territory Planner
+    // (🚫 on a site, or the red circle's bulk exclude). An excluded
+    // LOCATION stops counting for THAT clinician everywhere on the map:
+    // dots, radius coverage, ZIP checks, visit history. Keyed exactly like
+    // the planner's siteAddrKey (lower/trim/collapse whitespace).
+    function siteExclAddrKey(addr) {
+      return String(addr == null ? "" : addr).trim().toLowerCase().replace(/\s+/g, " ");
+    }
+    function isCompletedServiceRowSiteExcluded(clinicianId, row) {
+      const set = appState.siteExclusionKeys;
+      if (!set || !set.size || !row) return false;
+      const addr = String(row.full_address || [row.street, row.city, row.state].filter(Boolean).join(", ") || "").trim();
+      const key = siteExclAddrKey(addr);
+      return Boolean(key) && set.has(String(clinicianId || "").trim() + "|" + key);
+    }
+    let siteExclusionsLoading = null;
+    let siteExclusionsLoadedAt = 0;
+    async function loadSiteExclusions(options) {
+      if (siteExclusionsLoading) return siteExclusionsLoading;
+      siteExclusionsLoading = (async function() {
+        try {
+          const keys = new Set();
+          for (let from = 0; ; from += 1000) {
+            const res = await supabaseClient.from("clinician_site_exclusions")
+              .select("clinician_id, address_norm").range(from, from + 999);
+            if (res.error) {
+              // Table missing (migration 61 not run) → nothing excluded.
+              console.warn("Site exclusions unavailable:", res.error.message);
+              return;
+            }
+            (res.data || []).forEach(function(r) {
+              const k = siteExclAddrKey(r.address_norm);
+              if (k) keys.add(String(r.clinician_id) + "|" + k);
+            });
+            if (!res.data || res.data.length < 1000) break;
+          }
+          const prev = appState.siteExclusionKeys || new Set();
+          const changed = prev.size !== keys.size || Array.from(keys).some(function(k) { return !prev.has(k); });
+          appState.siteExclusionKeys = keys;
+          siteExclusionsLoadedAt = Date.now();
+          if (changed && appState.hasLoadedCompletedServices && !(options && options.silent)) {
+            refreshCompletedServiceIsolationViews();
+          }
+        } finally {
+          siteExclusionsLoading = null;
+        }
+      })();
+      return siteExclusionsLoading;
+    }
+    // Same-browser instant sync from the Territory Planner, plus a cheap
+    // re-check whenever the map tab regains focus (other staff's edits).
+    try {
+      if (typeof BroadcastChannel === "function") {
+        new BroadcastChannel("dcs-site-exclusions").onmessage = function() { loadSiteExclusions(); };
+      }
+    } catch (e) {}
+    document.addEventListener("visibilitychange", function() {
+      if (document.visibilityState === "visible" && Date.now() - siteExclusionsLoadedAt > 15000 && supabaseClient) {
+        loadSiteExclusions();
+      }
+    });
+
     function isCompletedServiceRowAllowedForClinicianCoverage(clinicianId, row) {
       const normalizedClinicianId = String(clinicianId || "").trim();
       if (!normalizedClinicianId || !row) return true;
+      if (isCompletedServiceRowSiteExcluded(normalizedClinicianId, row)) return false;
 
       const clinician = appState.clinicians.find(function(entry) {
         return entry.id === normalizedClinicianId;
@@ -22353,6 +22416,7 @@
       syncMapInstructions();
       updateSummary();
       setupClinicianRealtime();
+      loadSiteExclusions();
       if (typeof setupSharedCursor === "function") setupSharedCursor();
       // Best-effort per-clinician VDR aggregates for the profile header chips
       if (typeof loadVdrSummaryForMap === "function") loadVdrSummaryForMap();
