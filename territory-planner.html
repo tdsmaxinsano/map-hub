@@ -164,6 +164,22 @@
   .cu-status.done { background: #dcfce7; color: #166534; }
   .cu-moved-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; color: #1e3a5f; cursor: pointer; user-select: none; padding: 6px 0; border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border); margin-bottom: 6px; }
   .cu-moved-toggle .cu-moved-sub { font-weight: 600; color: var(--muted); }
+  /* 📸 Coverage change reports (migration 94) */
+  .cr-overlay { position: fixed; inset: 0; background: rgba(15,23,42,.55); z-index: 9999; display: flex; align-items: flex-start; justify-content: center; overflow-y: auto; padding: 30px 14px; }
+  .cr-box { background: #fff; border-radius: 14px; width: 980px; max-width: 100%; padding: 18px 20px; box-shadow: 0 24px 64px rgba(0,0,0,.3); }
+  .cr-title { font-size: 16px; font-weight: 800; color: var(--blue); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+  .cr-title .cr-x { margin-left: auto; border: none; background: none; font-size: 18px; cursor: pointer; color: #64748b; }
+  .cr-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+  @media (max-width: 860px) { .cr-grid { grid-template-columns: 1fr; } }
+  .cr-img { width: 100%; border: 1px solid var(--border); border-radius: 8px; background: #f8fafc; min-height: 240px; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
+  .cr-img img { width: 100%; border-radius: 8px; display: block; }
+  .cr-side .mv-label { margin-top: 10px; }
+  .cr-side textarea, .cr-side input[type=text], .cr-side select { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; font: inherit; font-size: 12.5px; }
+  .cr-recips { max-height: 150px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; padding: 6px 8px; font-size: 12.5px; }
+  .cr-recips label { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
+  .cr-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px; }
+  .cr-report-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
+  .cr-report-row:last-child { border-bottom: none; }
   .cu-reason { display: inline-block; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 1px 8px; background: #e0e7ff; color: #3730a3; margin-right: 4px; }
   .mv-input { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
   .zip-chip.excl { background: #111827; color: #fff; border-color: #111827; }
@@ -940,6 +956,7 @@ async function openWorkspace(clinicianId) {
     initTerritoryMap();
     renderSiteExclList();
     loadReviewCard();
+    loadCoverageReports();
 
     // Resolve ZIP place names in the background, then repaint the chip
     // surfaces ("60176 · Schiller Park"). Cards with in-progress edits
@@ -1816,7 +1833,7 @@ function renderSiteExclList() {
 function renderCovRevisions() {
   const host = document.getElementById("tp-cov-revisions");
   if (!host) return;
-  if (!zipRevisions.length) { host.innerHTML = ""; return; }
+  if (!zipRevisions.length && !covReports.length) { host.innerHTML = ""; return; }
   let html = `<div class="mv-label" style="cursor:pointer;user-select:none" onclick="toggleCovRevisions()">${covRevOpen ? "▾" : "▸"} 📜 Coverage changes (${zipRevisions.length})</div>`;
   if (covRevOpen) {
     html += zipRevisions.map(rev => {
@@ -1824,16 +1841,409 @@ function renderCovRevisions() {
       const removed = (rev.removed || []).map(normZip).filter(Boolean);
       const meta = [fmtDate(rev.changed_at), rev.changed_by_email].filter(Boolean).join(" · ");
       return `<div class="rev-row">` +
-        `<div style="font-size:11px;color:var(--muted);margin-bottom:3px">${esc(meta)} — <b style="color:#166534">+${added.length}</b> / <b style="color:#b3261e">−${removed.length}</b> (now ${(rev.zips_after || []).length} ZIPs)</div>` +
+        `<div style="font-size:11px;color:var(--muted);margin-bottom:3px">${esc(meta)} — <b style="color:#166534">+${added.length}</b> / <b style="color:#b3261e">−${removed.length}</b> (now ${(rev.zips_after || []).length} ZIPs)` +
+          (canEditPlan() && !covReportsMissing && rev.id ? ` <button type="button" class="mv-btn" style="padding:1px 8px;font-size:11px;margin-left:6px" onclick="openCoverageReport('${esc(rev.id)}')" title="Before/after markup of this TherapyBoss change — save it, optionally email it">📸 Report</button>` : "") +
+        `</div>` +
         `<div class="zip-chips">` +
         added.map(z => `<span class="zip-chip rev-add">+ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
         removed.map(z => `<span class="zip-chip rev-del">− ${esc(z)}${placeSuffix(z)}</span>`).join("") +
         `</div></div>`;
     }).join("");
   }
+  if (covReports.length) {
+    html += `<div class="mv-label" style="cursor:pointer;user-select:none" onclick="crListOpen=!crListOpen;renderCovRevisions()">${crListOpen ? "▾" : "▸"} 🗂 Change reports (${covReports.length})</div>`;
+    if (crListOpen) {
+      html += covReports.map(r => {
+        const sent = r.sent_at
+          ? `<span style="color:#166534">✉️ sent ${esc(fmtDate(r.sent_at))} to ${(r.sent_to || []).length}</span>`
+          : `<span style="color:var(--muted)">not sent</span>`;
+        return `<div class="cr-report-row"><span>${esc(fmtDate(r.created_at))}</span>` +
+          (r.reason ? `<span class="cu-reason">${esc(r.reason)}</span>` : "") +
+          `<b style="color:#166534">+${(r.added || []).length}</b><b style="color:#b3261e">−${(r.removed || []).length}</b>${sent}` +
+          `<span style="margin-left:auto;display:flex;gap:4px">` +
+            (r.image_path ? `<button type="button" class="mv-btn" style="padding:1px 8px;font-size:11px" onclick="viewCoverageReportImage('${esc(r.id)}')">📎 View</button>` : "") +
+            (canEditPlan() ? `<button type="button" class="mv-btn" style="padding:1px 8px;font-size:11px" onclick="openSavedCoverageReport('${esc(r.id)}')">✉️ Send</button>` : "") +
+          `</span></div>`;
+      }).join("");
+    }
+  }
   host.innerHTML = html;
 }
 function toggleCovRevisions() { covRevOpen = !covRevOpen; renderCovRevisions(); }
+
+// ══════════════════════════════════════════════════════════════════
+// 📸 COVERAGE CHANGE REPORTS (migration 94 + send-coverage-report fn)
+// Engineering-markup before/after of what TherapyBoss actually changed
+// (a revision row). Always stored when saved; emailing is optional.
+// ══════════════════════════════════════════════════════════════════
+let covReports = [];
+let covReportsMissing = false;
+let crListOpen = false;
+let crState = null;      // { before, after, added, removed, revisionId, reason, note, blob, url, reportId }
+let crStaff = null;      // [{email, name}]
+
+async function loadCoverageReports() {
+  if (!canEditPlan() || !clinician) return;
+  const cid = clinician.id;
+  const res = await db.from("coverage_change_reports").select("*").eq("clinician_id", cid).order("created_at", { ascending: false });
+  if (!clinician || clinician.id !== cid) return;
+  covReportsMissing = !!res.error;
+  covReports = res.data || [];
+  renderCovRevisions();
+}
+
+function crLoadImg(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Map image didn't load"));
+    img.src = url;
+  });
+}
+function crRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Draws the marked-up map: header title strip, static basemap with every
+// ZIP labeled (green + added, red dashed struck removed, blue unchanged,
+// H = home), legend + title block footer. Returns a canvas.
+async function crRenderMarkup(st) {
+  const W = 900, H = 560, S = 2, HEAD = 78, FOOT = 60;
+  const zips = Array.from(new Set([...st.before, ...st.after, ...st.removed]));
+  await ensureZipPlaces(zips);
+  const pts = [];
+  for (const z of zips) {
+    const c = await getZipCentroid(z);
+    if (!c) continue;
+    pts.push({ z, c, kind: st.added.includes(z) ? "add" : st.removed.includes(z) ? "rem" : "keep" });
+  }
+  const hLat = toNum(clinician.lat), hLng = toNum(clinician.lng);
+  const home = (hLat != null && hLng != null) ? { lat: hLat, lng: hLng } : null;
+  const all = pts.map(p => p.c).concat(home ? [home] : []);
+  if (!all.length) throw new Error("No ZIP locations could be found for the map");
+
+  const mx = lng => (lng + 180) / 360;
+  const my = lat => { const r = lat * Math.PI / 180; return (1 - Math.log(Math.tan(r) + 1 / Math.cos(r)) / Math.PI) / 2; };
+  const xs = all.map(p => mx(p.lng)), ys = all.map(p => my(p.lat));
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const spanX = Math.max(maxX - minX, 0.0004), spanY = Math.max(maxY - minY, 0.0004);
+  let zoom = Math.log2(Math.min(W / (spanX * 1.5 * 512), H / (spanY * 1.5 * 512)));
+  zoom = Math.max(3, Math.min(13, Math.floor(zoom * 4) / 4));
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  const lngC = cx * 360 - 180;
+  const latC = Math.atan(Math.sinh(Math.PI * (1 - 2 * cy))) * 180 / Math.PI;
+  const url = "https://api.mapbox.com/styles/v1/mapbox/light-v11/static/" +
+    lngC.toFixed(5) + "," + latC.toFixed(5) + "," + zoom + ",0/" + W + "x" + H + "@2x?access_token=" +
+    encodeURIComponent(mapboxgl.accessToken);
+  const base = await crLoadImg(url);
+  const world = 512 * Math.pow(2, zoom);
+  const toPx = c => ({ x: (W / 2 + (mx(c.lng) - cx) * world) * S, y: (HEAD + H / 2 + (my(c.lat) - cy) * world) * S });
+
+  const cv = document.createElement("canvas");
+  cv.width = W * S; cv.height = (HEAD + H + FOOT) * S;
+  const ctx = cv.getContext("2d");
+  const font = (px, w) => (w || "700") + " " + (px * S) + "px Arial, Helvetica, sans-serif";
+
+  // Header strip
+  ctx.fillStyle = "#1E3A5F"; ctx.fillRect(0, 0, cv.width, HEAD * S);
+  ctx.fillStyle = "#c7d2fe"; ctx.font = font(11); ctx.fillText("COVERAGE CHANGE — THERAPYBOSS ZIP COVERAGE", 18 * S, 22 * S);
+  ctx.fillStyle = "#fff"; ctx.font = font(22, "800"); ctx.fillText(fmtName(clinician.name), 18 * S, 48 * S);
+  ctx.fillStyle = "#e2e8f0"; ctx.font = font(13, "600");
+  ctx.fillText((st.reason ? st.reason + " · " : "") + "Before " + st.before.length + " → After " + st.after.length +
+    "   +" + st.added.length + " added   −" + st.removed.length + " removed", 18 * S, 68 * S);
+  ctx.textAlign = "right"; ctx.fillStyle = "#c7d2fe"; ctx.font = font(12, "600");
+  ctx.fillText(st.changedLabel || "", (W - 18) * S, 22 * S);
+  ctx.textAlign = "left";
+
+  // Basemap + frame
+  ctx.drawImage(base, 0, HEAD * S, W * S, H * S);
+  ctx.strokeStyle = "#1E3A5F"; ctx.lineWidth = 2 * S; ctx.strokeRect(S, HEAD * S, (W - 2) * S, H * S);
+
+  // Badges — removed, then unchanged, then added on top
+  const order = { rem: 0, keep: 1, add: 2 };
+  pts.sort((a, b) => order[a.kind] - order[b.kind]).forEach(p => {
+    const { x, y } = toPx(p.c);
+    const label = (p.kind === "add" ? "+ " : p.kind === "rem" ? "− " : "") + p.z;
+    ctx.font = font(13, "800");
+    const tw = ctx.measureText(label).width;
+    const w = tw + 16 * S, h = 22 * S, bx = x - w / 2, by = y - h / 2;
+    if (p.kind === "add") {
+      crRoundRect(ctx, bx - 4 * S, by - 4 * S, w + 8 * S, h + 8 * S, 15 * S);
+      ctx.fillStyle = "rgba(22,163,74,.22)"; ctx.fill();
+    }
+    crRoundRect(ctx, bx, by, w, h, 11 * S);
+    ctx.fillStyle = p.kind === "add" ? "#16a34a" : p.kind === "rem" ? "#ffffff" : "#2463eb";
+    ctx.fill();
+    ctx.lineWidth = (p.kind === "rem" ? 2 : 1.5) * S;
+    ctx.setLineDash(p.kind === "rem" ? [5 * S, 3 * S] : []);
+    ctx.strokeStyle = p.kind === "rem" ? "#dc2626" : "#ffffff";
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = p.kind === "rem" ? "#b91c1c" : "#ffffff";
+    ctx.textBaseline = "middle"; ctx.textAlign = "center";
+    ctx.fillText(label, x, y + S);
+    if (p.kind === "rem") {
+      ctx.strokeStyle = "#b91c1c"; ctx.lineWidth = 1.6 * S;
+      ctx.beginPath(); ctx.moveTo(x - tw / 2, y + S); ctx.lineTo(x + tw / 2, y + S); ctx.stroke();
+    }
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+  });
+  if (home) {
+    const { x, y } = toPx(home);
+    ctx.beginPath(); ctx.arc(x, y, 12 * S, 0, Math.PI * 2);
+    ctx.fillStyle = "#b3261e"; ctx.fill(); ctx.lineWidth = 2 * S; ctx.strokeStyle = "#fff"; ctx.stroke();
+    ctx.fillStyle = "#fff"; ctx.font = font(13, "800"); ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText("H", x, y + S); ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+  }
+
+  // Footer legend + title block
+  const fy = (HEAD + H) * S;
+  ctx.fillStyle = "#f8fafc"; ctx.fillRect(0, fy, cv.width, FOOT * S);
+  ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = S; ctx.beginPath(); ctx.moveTo(0, fy); ctx.lineTo(cv.width, fy); ctx.stroke();
+  let lx = 18 * S;
+  const legend = (fill, stroke, dashed, text, txtColor) => {
+    crRoundRect(ctx, lx, fy + 20 * S, 26 * S, 16 * S, 8 * S);
+    ctx.fillStyle = fill; ctx.fill();
+    ctx.setLineDash(dashed ? [4 * S, 2 * S] : []); ctx.strokeStyle = stroke; ctx.lineWidth = 1.5 * S; ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = txtColor; ctx.font = font(12, "700"); ctx.fillText(text, lx + 32 * S, fy + 33 * S);
+    lx += (ctx.measureText(text).width / S + 56) * S;
+  };
+  legend("#16a34a", "#16a34a", false, "Added", "#166534");
+  legend("#ffffff", "#dc2626", true, "Removed", "#b91c1c");
+  legend("#2463eb", "#2463eb", false, "Unchanged", "#1a5fb4");
+  ctx.beginPath(); ctx.arc(lx + 8 * S, fy + 28 * S, 8 * S, 0, Math.PI * 2); ctx.fillStyle = "#b3261e"; ctx.fill();
+  ctx.fillStyle = "#334155"; ctx.font = font(12, "700"); ctx.fillText("Home", lx + 22 * S, fy + 33 * S);
+  ctx.textAlign = "right"; ctx.fillStyle = "#64748b"; ctx.font = font(11, "600");
+  ctx.fillText("Generated " + new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) +
+    ((currentUser && currentUser.email) ? " · " + currentUser.email : ""), (W - 18) * S, fy + 26 * S);
+  ctx.fillText("DependableCare portal · © Mapbox © OpenStreetMap", (W - 18) * S, fy + 44 * S);
+  ctx.textAlign = "left";
+  return cv;
+}
+
+function crEnsureOverlay() {
+  let ov = document.getElementById("cr-overlay");
+  if (!ov) {
+    ov = document.createElement("div");
+    ov.id = "cr-overlay";
+    ov.className = "cr-overlay";
+    ov.addEventListener("click", e => { if (e.target === ov) closeCoverageReport(); });
+    document.body.appendChild(ov);
+  }
+  ov.style.display = "flex";
+  return ov;
+}
+function closeCoverageReport() {
+  const ov = document.getElementById("cr-overlay");
+  if (ov) ov.style.display = "none";
+  if (crState && crState.url && crState.url.startsWith("blob:")) { try { URL.revokeObjectURL(crState.url); } catch (e) {} }
+  crState = null;
+}
+
+async function crLoadStaff() {
+  if (crStaff) return crStaff;
+  try {
+    const { data } = await db.rpc("list_staff");
+    crStaff = (data || [])
+      .filter(s => s.email && ["admin", "editor", "readonly"].includes(s.role))
+      .map(s => ({ email: String(s.email).toLowerCase(), name: s.display_name || String(s.email).split("@")[0] }));
+  } catch (e) { crStaff = []; }
+  return crStaff;
+}
+
+function crZipChips(zips, cls, prefix) {
+  return zips.length
+    ? zips.map(z => `<span class="zip-chip ${cls}">${prefix}${esc(z)}${placeSuffix(z)}</span>`).join("")
+    : "<span class='empty-note'>none</span>";
+}
+
+function renderCoverageReportModal() {
+  const ov = crEnsureOverlay();
+  const st = crState;
+  if (!st) return;
+  const unchanged = st.after.filter(z => !st.added.includes(z));
+  const staff = crStaff || [];
+  const reasons = (typeof COVERAGE_REASONS !== "undefined") ? COVERAGE_REASONS : ["Moved", "Expanding", "Cleanup", "Other"];
+  ov.innerHTML = `<div class="cr-box">
+    <div class="cr-title">📸 Coverage change report — ${esc(fmtName(clinician.name))}
+      ${st.reportId ? `<span class="cu-reason" style="background:#dcfce7;color:#166534">saved</span>` : ""}
+      <button type="button" class="cr-x" onclick="closeCoverageReport()" aria-label="Close">✕</button></div>
+    <div class="cr-grid">
+      <div>
+        <div class="cr-img" id="cr-img">${st.url ? `<img src="${esc(st.url)}" alt="Coverage change map">` : (st.error ? esc(st.error) : "Drawing the marked-up map…")}</div>
+        <div class="mv-label">Before ${st.before.length} → After ${st.after.length}</div>
+        <div style="font-size:11.5px;font-weight:800;color:#166534;margin:4px 0">Added (${st.added.length})</div>
+        <div class="zip-chips">${crZipChips(st.added, "rev-add", "+ ")}</div>
+        <div style="font-size:11.5px;font-weight:800;color:#b3261e;margin:8px 0 4px">Removed (${st.removed.length})</div>
+        <div class="zip-chips">${crZipChips(st.removed, "rev-del", "− ")}</div>
+        <div style="font-size:11.5px;font-weight:800;color:#1a5fb4;margin:8px 0 4px">Unchanged (${unchanged.length})</div>
+        <div class="zip-chips">${crZipChips(unchanged, "declared", "")}</div>
+      </div>
+      <div class="cr-side">
+        <div class="mv-label" style="margin-top:0">Reason</div>
+        <select id="cr-reason" ${st.reportId ? "disabled" : ""}><option value="">—</option>${reasons.map(r => `<option ${st.reason === r ? "selected" : ""}>${r}</option>`).join("")}</select>
+        <div class="mv-label">Note</div>
+        <input type="text" id="cr-note" value="${esc(st.note || "")}" placeholder="e.g. moved to Plainfield" ${st.reportId ? "disabled" : ""}>
+        <div class="mv-label">Email to (optional)</div>
+        <div class="cr-recips">${staff.length ? staff.map(s => `<label><input type="checkbox" class="cr-recip" value="${esc(s.email)}"> ${esc(s.name)} <span style="color:var(--muted)">${esc(s.email)}</span></label>`).join("") : "<span class='empty-note'>Loading staff…</span>"}</div>
+        <input type="text" id="cr-extra" placeholder="Other emails, comma-separated" style="margin-top:6px">
+        <div class="mv-label">Message (optional)</div>
+        <textarea id="cr-msg" rows="3" placeholder="Short note for the email"></textarea>
+      </div>
+    </div>
+    <div class="cr-actions">
+      <button type="button" class="mv-btn" onclick="downloadCoverageReport()" ${st.url ? "" : "disabled"}>⬇ Download PNG</button>
+      ${st.reportId ? "" : `<button type="button" class="mv-btn" id="cr-save" onclick="saveCoverageReport(true)" ${st.blob ? "" : "disabled"}>💾 Save report</button>`}
+      <button type="button" class="mv-btn primary" id="cr-send" onclick="sendCoverageReport()" ${(st.blob || st.reportId) ? "" : "disabled"}>✉️ ${st.reportId ? "Send" : "Save & send"}</button>
+      <button type="button" class="mv-btn" onclick="closeCoverageReport()">Close</button>
+    </div>
+  </div>`;
+}
+
+async function openCoverageReport(revisionId) {
+  if (!canEditPlan()) return;
+  if (covReportsMissing) { showToast("Run migration 94 (coverage change reports) first"); return; }
+  const rev = zipRevisions.find(r => r.id === revisionId);
+  if (!rev) { showToast("No TherapyBoss import recorded for this change yet"); return; }
+  const pn = (zipPlan && typeof splitPlanNote === "function") ? splitPlanNote(zipPlan.note) : { reason: "", text: "" };
+  const norm = a => (a || []).map(normZip).filter(Boolean).sort();
+  crState = {
+    revisionId: rev.id,
+    before: norm(rev.zips_before), after: norm(rev.zips_after),
+    added: norm(rev.added), removed: norm(rev.removed),
+    reason: pn.reason, note: pn.text,
+    changedLabel: "TB import " + fmtDate(rev.changed_at),
+    blob: null, url: null, reportId: null, error: null
+  };
+  renderCoverageReportModal();
+  crLoadStaff().then(() => { if (crState) { crCaptureInputs(); renderCoverageReportModal(); } });
+  try {
+    const cv = await crRenderMarkup(crState);
+    const blob = await new Promise(res => cv.toBlob(res, "image/png"));
+    if (!crState) return;
+    crState.blob = blob;
+    crState.url = URL.createObjectURL(blob);
+  } catch (e) {
+    if (crState) crState.error = "Couldn't draw the map: " + (e.message || e);
+  }
+  if (crState) { crCaptureInputs(); renderCoverageReportModal(); }
+}
+
+async function openSavedCoverageReport(reportId) {
+  const r = covReports.find(x => x.id === reportId);
+  if (!r) return;
+  crState = {
+    revisionId: r.revision_id, before: r.zips_before || [], after: r.zips_after || [],
+    added: r.added || [], removed: r.removed || [], reason: r.reason || "", note: r.note || "",
+    blob: null, url: null, reportId: r.id, error: null
+  };
+  renderCoverageReportModal();
+  await crLoadStaff();
+  if (r.image_path) {
+    const { data } = await db.storage.from("coverage-reports").createSignedUrl(r.image_path, 600);
+    if (crState && data) crState.url = data.signedUrl;
+  }
+  if (crState) { crCaptureInputs(); renderCoverageReportModal(); }
+}
+
+function crCaptureInputs() {
+  if (!crState) return;
+  const r = document.getElementById("cr-reason"), n = document.getElementById("cr-note");
+  if (r && !r.disabled) crState.reason = r.value;
+  if (n && !n.disabled) crState.note = n.value;
+}
+
+function downloadCoverageReport() {
+  if (!crState || !crState.url) return;
+  const a = document.createElement("a");
+  a.href = crState.url;
+  a.download = "Coverage change - " + fmtName(clinician.name) + " - " + new Date().toISOString().slice(0, 10) + ".png";
+  a.target = "_blank";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+async function saveCoverageReport(announce) {
+  if (!crState) return null;
+  if (crState.reportId) return crState.reportId;
+  if (!crState.blob) { showToast("The map is still drawing — try again in a moment"); return null; }
+  crCaptureInputs();
+  const btn = document.getElementById("cr-save");
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+  try {
+    const ins = await db.from("coverage_change_reports").insert({
+      clinician_id: clinician.id, revision_id: crState.revisionId || null,
+      zips_before: crState.before, zips_after: crState.after,
+      added: crState.added, removed: crState.removed,
+      reason: crState.reason || null, note: (crState.note || "").trim() || null,
+      created_by: currentUser ? currentUser.id : null,
+      created_by_email: currentUser ? currentUser.email : null
+    }).select().single();
+    if (ins.error) throw ins.error;
+    const path = clinician.id + "/" + ins.data.id + ".png";
+    const up = await db.storage.from("coverage-reports").upload(path, crState.blob, { contentType: "image/png", upsert: true });
+    let row = ins.data;
+    if (!up.error) {
+      const upd = await db.from("coverage_change_reports").update({ image_path: path }).eq("id", row.id).select().single();
+      if (!upd.error && upd.data) row = upd.data;
+    } else {
+      showToast("Report saved, but the image upload failed: " + up.error.message);
+    }
+    crState.reportId = row.id;
+    covReports.unshift(row);
+    crListOpen = true;
+    renderCovRevisions();
+    renderCoverageReportModal();
+    if (announce) showToast("💾 Report saved — find it under 🗂 Change reports");
+    return row.id;
+  } catch (e) {
+    showToast("Save failed: " + (e.message || e));
+    if (btn) { btn.disabled = false; btn.textContent = "💾 Save report"; }
+    return null;
+  }
+}
+
+async function sendCoverageReport() {
+  if (!crState) return;
+  const picked = Array.from(document.querySelectorAll(".cr-recip:checked")).map(el => el.value);
+  const extraEl = document.getElementById("cr-extra");
+  const extra = String((extraEl && extraEl.value) || "").split(/[,;\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean);
+  const recipients = Array.from(new Set(picked.concat(extra)));
+  if (!recipients.length) { showToast("Pick at least one recipient (or just 💾 Save the report)"); return; }
+  const badOnes = recipients.filter(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+  if (badOnes.length) { showToast("Not an email address: " + badOnes.join(", ")); return; }
+  const msgEl = document.getElementById("cr-msg");
+  const message = msgEl ? msgEl.value.trim() : "";
+  const reportId = await saveCoverageReport(false);
+  if (!reportId) return;
+  const btn = document.getElementById("cr-send");
+  if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
+  const { data, error } = await db.functions.invoke("send-coverage-report", { body: { reportId, recipients, message } });
+  if (error || (data && data.error)) {
+    let detail = (data && data.error) || (error && error.message) || "unknown error";
+    try { if (error && error.context && typeof error.context.json === "function") { const j = await error.context.json(); if (j && j.error) detail = j.error; } } catch (e) {}
+    showToast("Email didn't send: " + detail + " — the report IS saved; ⬇ download it to attach manually");
+    if (btn) { btn.disabled = false; btn.textContent = "✉️ Send"; }
+    return;
+  }
+  showToast("✉️ Sent to " + recipients.length + " recipient" + (recipients.length === 1 ? "" : "s"));
+  await loadCoverageReports();
+  closeCoverageReport();
+}
+
+async function viewCoverageReportImage(reportId) {
+  const r = covReports.find(x => x.id === reportId);
+  if (!r || !r.image_path) return;
+  const { data, error } = await db.storage.from("coverage-reports").createSignedUrl(r.image_path, 600);
+  if (error || !data) { showToast("Couldn't open: " + (error ? error.message : "no URL")); return; }
+  window.open(data.signedUrl, "_blank", "noopener");
+}
 
 // ══════════════════════════════════════════════════════════════════
 // 📥 LOCALIZED ZIP COVERAGE IMPORT — same TB "Zip coverage" export the
@@ -2236,7 +2646,9 @@ function renderPlanDiff(canEdit) {
   html += "<div class='mv-label'>3 · TB vs staged changes</div>";
   if (done) {
     html += "<div style='font-size:12.5px;font-weight:700;color:#166534;margin-bottom:6px'>🎉 TB matches the plan — the move is fully reflected in coverage.</div>";
-    if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button></div>";
+    if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button>" +
+      (zipRevisions.length ? "<button class='mv-btn' onclick='openCoverageReport(zipRevisions[0].id)' title='Before/after markup of what TherapyBoss changed — save it, optionally email it'>📸 Change report</button>" : "") +
+      "</div>";
   } else {
     html += "<div class='zip-chips'>" +
       matched.map(z => `<span class="zip-chip diff-ok" title="In TB and in the plan">✓ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
