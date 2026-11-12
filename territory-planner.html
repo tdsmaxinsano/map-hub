@@ -187,6 +187,11 @@
   .pt-row .mv-btn { padding: 3px 9px; font-size: 11.5px; }
   .pt-row .mv-btn.pt-copied { background: #fff; border: 1px dashed #1a5fb4; color: #1a5fb4; }
   .pt-row.pt-next { box-shadow: 0 0 0 2px rgba(26,95,180,.35); }
+  .pt-tag { display: inline-block; margin-left: 5px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 800; line-height: 16px; vertical-align: 1px; }
+  .pt-tag-new { background: #dbeafe; color: #1a5fb4; }
+  .pt-tag-keep { background: #e2e8f0; color: #334155; }
+  .pt-tag-served { background: #dcfce7; color: #166534; }
+  .pt-tag-none { background: #fef3c7; color: #92400e; }
   .pt-hint { font-size: 11.5px; color: var(--muted); margin: 6px 0; line-height: 1.5; }
   .cu-reason { display: inline-block; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 1px 8px; background: #e0e7ff; color: #3730a3; margin-right: 4px; }
   .mv-input { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
@@ -2652,36 +2657,52 @@ function renderPlanDiff(canEdit) {
   }
   html += "<div class='mv-label'>2 · Update TherapyBoss, then re-import ZIP coverage (TB Loaded ZIPs card or the Map)</div>";
   html += "<div class='mv-label'>3 · TB vs staged changes</div>";
-  if (done) {
+  const tbFullActive = canEdit && planTbMode && planTbFull;
+  if (done && !tbFullActive) {
     html += "<div style='font-size:12.5px;font-weight:700;color:#166534;margin-bottom:6px'>🎉 TB matches the plan — the move is fully reflected in coverage.</div>";
     if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button>" +
       (zipRevisions.length ? "<button class='mv-btn' onclick='openCoverageReport(zipRevisions[0].id)' title='Before/after markup of what TherapyBoss changed — save it, optionally email it'>📸 Change report</button>" : "") +
+      "<button class='mv-btn' onclick='startPlanTbFull()' title='Clear this clinician in TB and re-enter the whole list (Zip + Memo)'>🔁 Full re-entry in TB</button>" +
       "</div>";
   } else if (canEdit && planTbMode) {
-    planTbSync(toAdd);
-    const next = planTbNextStep(toAdd);
+    const list = planTbFull ? Array.from(target).sort() : toAdd;
+    const servedCounts = servedZipCounts();
+    planTbSync(list);
+    const next = planTbNextStep(list);
     html += `<div class="mv-row"><button class="mv-btn primary" onclick="togglePlanTbMode()">✕ Exit TB entry mode</button>` +
+      `<button class="mv-btn" onclick="togglePlanTbFull()" title="${planTbFull ? "Back to entering only what TB is missing" : "Clear this clinician in TB, then re-enter the WHOLE list in one pass"}">${planTbFull ? "↩ Only what's missing" : "🔁 Full re-entry"}</button>` +
       (next ? `<button class="mv-btn primary" onclick="planTbCopyNext()">Copy next → ${esc(next.kind === "zip" ? next.zip + " (Zip)" : (planTbMemo(next.zip) || next.zip) + " (Memo)")}</button>` : "") +
       `</div>`;
-    html += `<div class="pt-hint">In TherapyBoss's coverage box: paste the <b>ZIP</b> into <b>Zip</b>, the <b>Memo</b> into <b>Memo</b>, click <b>Add</b> — repeat — then <b>SUBMIT</b>. Copying doesn't confirm anything; re-import ZIP coverage from TB and each row drops off once TB really has it.</div>`;
-    if (toAdd.length) {
-      html += `<div style="font-size:11.5px;font-weight:800;color:#1a5fb4;margin:6px 0 4px">＋ Add in TB (${toAdd.length})</div>`;
-      html += toAdd.map(z => {
+    const removeList = planTbFull ? Array.from(declared).sort() : toRemove;
+    if (planTbFull) {
+      html += `<div class="pt-hint"><b>🔁 Full re-entry.</b> Step 1 — in TherapyBoss's coverage box, ⊗ remove <b>all ${removeList.length}</b> ZIPs listed below. Step 2 — enter all <b>${list.length}</b> ZIPs here (paste Zip → paste Memo → <b>Add</b>). Step 3 — <b>SUBMIT</b>, then re-import ZIP coverage here; this step shows ✅ when TB matches.</div>`;
+    } else {
+      html += `<div class="pt-hint">In TherapyBoss's coverage box: paste the <b>ZIP</b> into <b>Zip</b>, the <b>Memo</b> into <b>Memo</b>, click <b>Add</b> — repeat — then <b>SUBMIT</b>. Copying doesn't confirm anything; re-import ZIP coverage from TB and each row drops off once TB really has it.</div>`;
+    }
+    if (removeList.length) {
+      html += `<div style="font-size:11.5px;font-weight:800;color:#b3261e;margin:6px 0 4px">${planTbFull ? "Step 1 · ⊗ Remove ALL in TB" : "− Remove in TB"} (${removeList.length}) — click ⊗ on each in the coverage box</div>`;
+      html += "<div class='zip-chips'>" + removeList.map(z => `<span class="zip-chip diff-remove">− ${esc(z)}${placeSuffix(z)}</span>`).join("") + "</div>";
+    }
+    if (list.length) {
+      html += `<div style="font-size:11.5px;font-weight:800;color:#1a5fb4;margin:10px 0 4px">${planTbFull ? "Step 2 · Enter all in TB" : "＋ Add in TB"} (${list.length})</div>`;
+      html += list.map(z => {
         const memo = planTbMemo(z);
         const zc = planTbCopied.zip.has(z), mc = planTbCopied.memo.has(z);
         const isNext = next && next.zip === z;
+        const tag = declared.has(z)
+          ? `<span class="pt-tag pt-tag-keep" title="Already in TB now — re-enter it after clearing">↻ in TB now</span>`
+          : `<span class="pt-tag pt-tag-new" title="Not in TB yet">＋ new</span>`;
+        const hist = servedCounts[z]
+          ? `<span class="pt-tag pt-tag-served" title="Completed services in this ZIP">served ×${servedCounts[z]}</span>`
+          : `<span class="pt-tag pt-tag-none" title="No completed services in this ZIP yet">no visits</span>`;
         return `<div class="pt-row${isNext ? " pt-next" : ""}">` +
-          `<span class="pt-zip">＋ ${esc(z)}</span><span class="pt-memo">${memo ? esc(memo) : "<span class='empty-note'>no town name — type a memo</span>"}</span>` +
+          `<span class="pt-zip">${esc(z)}</span><span class="pt-memo">${memo ? esc(memo) : "<span class='empty-note'>no town name — type a memo</span>"} ${tag}${hist}</span>` +
           `<button type="button" class="mv-btn${zc ? " pt-copied" : ""}" onclick="planTbCopy('${esc(z)}','zip')" title="Copy ${esc(z)} for TB's Zip field">📋 Zip${zc ? " ✓" : ""}</button>` +
           `<button type="button" class="mv-btn${mc ? " pt-copied" : ""}" ${memo ? "" : "disabled"} onclick="planTbCopy('${esc(z)}','memo')" title="Copy the town name for TB's Memo field">📋 Memo${mc ? " ✓" : ""}</button>` +
         `</div>`;
       }).join("");
     }
-    if (toRemove.length) {
-      html += `<div style="font-size:11.5px;font-weight:800;color:#b3261e;margin:10px 0 4px">− Remove in TB (${toRemove.length}) — click ⊗ on each in the coverage box</div>`;
-      html += "<div class='zip-chips'>" + toRemove.map(z => `<span class="zip-chip diff-remove">− ${esc(z)}${placeSuffix(z)}</span>`).join("") + "</div>";
-    }
-    if (matched.length) {
+    if (!planTbFull && matched.length) {
       html += `<div style="font-size:11px;color:var(--muted);margin-top:8px">✓ Already in TB: ${matched.map(esc).join(", ")}</div>`;
     }
   } else {
@@ -2704,6 +2725,7 @@ function renderPlanDiff(canEdit) {
 // remembered per clinician (they survive a refresh) and are NOT a
 // confirmation: a row leaves the list only when a TB re-import has it.
 let planTbMode = false;
+let planTbFull = false;   // 🔁 full re-entry: clear TB, re-enter the whole target list
 let planTbCopied = { zip: new Set(), memo: new Set() };
 let planTbFor = null;
 
@@ -2738,7 +2760,23 @@ function planTbSync(toAdd) {
 function planTbToAdd() {
   if (!zipPlan) return [];
   const declared = declaredZipSet();
+  if (planTbFull) return Array.from(new Set((zipPlan.target_zips || []).map(normZip).filter(Boolean))).sort();
   return (zipPlan.target_zips || []).map(normZip).filter(z => z && !declared.has(z)).sort();
+}
+function togglePlanTbFull() {
+  planTbFull = !planTbFull;
+  // Fresh copy checklist for the new list (marks are per mode)
+  planTbCopied = { zip: new Set(), memo: new Set() };
+  planTbSave();
+  if (planTbFull) {
+    ensureZipPlaces(planTbToAdd().concat(Array.from(declaredZipSet()))).then(() => { if (planTbMode) renderMoveCard(); });
+    showToast("🔁 Full re-entry — remove everything in TB first, then enter the whole list");
+  }
+  renderMoveCard();
+}
+function startPlanTbFull() {
+  planTbMode = true;
+  if (!planTbFull) togglePlanTbFull(); else renderMoveCard();
 }
 function planTbNextStep(toAdd) {
   for (const z of toAdd) {
@@ -2961,7 +2999,7 @@ async function stageZipsInCircle(kind, center, rMi) {
   const declared = declaredZipSet();
   const inCircle = c => c && haversineMiles(center.lat, center.lng, c.lat, c.lng) <= rMi;
   try {
-    let picks = [], refused = [];
+    let picks = [], refused = [], keepInside = [];
     if (kind === "add") {
       showToast("🔍 Finding ZIPs inside the " + fmtRadiusLabel(rMi) + " circle…");
       const found = new Set();
@@ -2972,11 +3010,14 @@ async function stageZipsInCircle(kind, center, rMi) {
       }
       // Known ZIPs near the edge that the grid may have stepped over
       [...Object.keys(servedZipCounts()), ...requestedZipSet()].forEach(z => found.add(normZip(z)));
+      declared.forEach(z => found.add(z));   // TB ZIPs inside the circle stay in the list
       const excluded = excludedZipSet();
       const st0 = moveState || { added: [] };
       for (const z of found) {
-        if (!z || declared.has(z) || (st0.added || []).includes(z)) continue;
+        if (!z) continue;
         if (!inCircle(await getZipCentroid(z))) continue;   // ZIP's center must be inside
+        if (declared.has(z)) { keepInside.push(z); continue; }
+        if ((st0.added || []).includes(z)) continue;
         if (excluded.has(z)) refused.push(z); else picks.push(z);
       }
     } else {
@@ -2986,29 +3027,46 @@ async function stageZipsInCircle(kind, center, rMi) {
         if (inCircle(await getZipCentroid(z))) picks.push(z);
       }
     }
-    picks.sort(); refused.sort();
-    if (!picks.length) {
+    picks.sort(); refused.sort(); keepInside.sort();
+    if (!picks.length && !keepInside.length) {
       showToast(kind === "add"
-        ? "No new ZIPs centered inside this circle" + (refused.length ? " (" + refused.length + " skipped — won't-serve)" : "")
+        ? "No ZIPs centered inside this circle" + (refused.length ? " (" + refused.length + " skipped — won't-serve)" : "")
         : "No declared ZIPs centered inside this circle");
       return;
     }
-    await ensureZipPlaces(picks.concat(refused));
-    const line = z => "  " + z + placeSuffix(z);
-    const msg = (kind === "add"
-      ? "Stage " + picks.length + " ZIP ADDITION" + (picks.length === 1 ? "" : "S") + " in the ZIP plan?"
-      : "Stage " + picks.length + " ZIP REMOVAL" + (picks.length === 1 ? "" : "S") + " in the ZIP plan?") +
-      "\n\n" + picks.map(line).join("\n") +
-      (refused.length ? "\n\nSkipped — won't-serve / no-go:\n" + refused.map(line).join("\n") : "") +
-      "\n\nNothing changes in TherapyBoss until you save the plan and enter it there.";
+    await ensureZipPlaces(picks.concat(refused, keepInside));
+    const servedCounts = servedZipCounts();
+    const stPrev = moveState || { removed: new Set() };
+    const line = z => "  " + zipTitleName(z) + (servedCounts[z] ? " — served ×" + servedCounts[z] : "");
+    let msg;
+    if (kind === "add") {
+      const newServed = picks.filter(z => servedCounts[z]);
+      const newNone = picks.filter(z => !servedCounts[z]);
+      const reKept = keepInside.filter(z => stPrev.removed && stPrev.removed.has(z));
+      msg = "Stage everything centered inside this circle?\n" +
+        (newServed.length ? "\nNEW — has completed services, not in TB (" + newServed.length + "):\n" + newServed.map(line).join("\n") + "\n" : "") +
+        (newNone.length ? "\nNEW — no visit history yet (" + newNone.length + "):\n" + newNone.map(line).join("\n") + "\n" : "") +
+        (keepInside.length ? "\nALREADY IN TB — kept in the list (" + keepInside.length + ")" +
+          (reKept.length ? ", " + reKept.length + " un-removed" : "") + ":\n" + keepInside.map(line).join("\n") + "\n" : "") +
+        (refused.length ? "\nSkipped — won't-serve / no-go:\n" + refused.map(line).join("\n") + "\n" : "") +
+        "\nNothing changes in TherapyBoss until you save the plan and enter it there.";
+    } else {
+      msg = "Stage " + picks.length + " ZIP REMOVAL" + (picks.length === 1 ? "" : "S") + " in the ZIP plan?\n\n" +
+        picks.map(line).join("\n") +
+        "\n\nNothing changes in TherapyBoss until you save the plan and enter it there.";
+    }
     if (!confirm(msg)) return;
     const st = planEnsureEditing();
-    if (kind === "add") picks.forEach(z => { if (!st.added.includes(z)) st.added.push(z); });
-    else picks.forEach(z => st.removed.add(z));
+    if (kind === "add") {
+      picks.forEach(z => { if (!st.added.includes(z)) st.added.push(z); });
+      keepInside.forEach(z => st.removed.delete(z));
+    } else picks.forEach(z => st.removed.add(z));
     renderMoveCard();
     const card = document.getElementById("tp-move-card");
     if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
-    showToast((kind === "add" ? "＋ Staged " : "− Staged ") + picks.length + " ZIP" + (picks.length === 1 ? "" : "s") + " — review the plan, then 💾 Save plan");
+    showToast(kind === "add"
+      ? "＋ Staged " + picks.length + " new" + (keepInside.length ? " + kept " + keepInside.length + " already in TB" : "") + " — review the plan, then 💾 Save plan"
+      : "− Staged " + picks.length + " ZIP" + (picks.length === 1 ? "" : "s") + " — review the plan, then 💾 Save plan");
   } catch (e) {
     showToast("Staging failed: " + (e.message || e));
   } finally {
