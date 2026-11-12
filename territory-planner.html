@@ -259,6 +259,24 @@
   .rq-st.in { background: #dcfce7; color: #166534; }
   .rq-st.add { background: #dbeafe; color: #1a5fb4; }
   .rq-st.ref { background: #1f2937; color: #fff; }
+  .rq-cond-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 3px 0; border-bottom: 1px dashed #fde68a; }
+  .rq-cond-row:last-child { border-bottom: none; }
+  .rq-cond-row .rq-cond-txt { flex: 1; min-width: 180px; }
+  .rq-cond-row .mv-btn { padding: 2px 8px; font-size: 11px; }
+  .rq-memo-ok { font-size: 10.5px; font-weight: 800; color: #166534; }
+  .rq-memo-upd { font-size: 10.5px; font-weight: 800; color: #b3261e; }
+  .sbs-maps { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  @media (max-width: 860px) { .sbs-maps { grid-template-columns: 1fr; } }
+  .sbs-pane { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .sbs-head { font-size: 12.5px; font-weight: 800; color: var(--blue); padding: 7px 10px; background: #f8fafc; border-bottom: 1px solid var(--border); }
+  .sbs-map { height: 460px; }
+  .sbs-legend { font-size: 11px; color: var(--muted); padding: 6px 10px; display: flex; gap: 10px; flex-wrap: wrap; }
+  .sbs-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .sbs-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  @media (max-width: 860px) { .sbs-stats { grid-template-columns: 1fr; } }
+  .sbs-stat { border: 1px solid var(--border); border-radius: 8px; padding: 7px 10px; font-size: 12px; }
+  .sbs-stat b { display: block; font-size: 18px; }
+  .sbs-stat .zz { font-size: 11px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
   .rq-cond { font-size: 12px; line-height: 1.5; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 9px; margin: 4px 0 8px; }
   /* Plan-aware: staged in the 📦 ZIP plan, awaiting TherapyBoss */
   .tp-zip-badge.plan-removing { background: #fee2e2 !important; color: #991b1b !important; border: 1.5px dashed #dc2626 !important; text-decoration: line-through; }
@@ -2669,15 +2687,18 @@ function renderPlanDiff(canEdit) {
   }
   html += "<div class='mv-label'>2 · Update TherapyBoss, then re-import ZIP coverage (TB Loaded ZIPs card or the Map)</div>";
   html += "<div class='mv-label'>3 · TB vs staged changes</div>";
-  const tbFullActive = canEdit && planTbMode && planTbFull;
+  const memoUpdates = planTbMemoUpdates();
+  const memoUpdSet = new Set(memoUpdates);
+  const tbFullActive = canEdit && planTbMode && (planTbFull || memoUpdates.length > 0);
   if (done && !tbFullActive) {
     html += "<div style='font-size:12.5px;font-weight:700;color:#166534;margin-bottom:6px'>🎉 TB matches the plan — the move is fully reflected in coverage.</div>";
     if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button>" +
       (zipRevisions.length ? "<button class='mv-btn' onclick='openCoverageReport(zipRevisions[0].id)' title='Before/after markup of what TherapyBoss changed — save it, optionally email it'>📸 Change report</button>" : "") +
       "<button class='mv-btn' onclick='startPlanTbFull()' title='Clear this clinician in TB and re-enter the whole list (Zip + Memo)'>🔁 Full re-entry in TB</button>" +
+      (memoUpdates.length ? "<button class='mv-btn primary' onclick='startPlanTbMemos()' title='These ZIPs are in TB but their memo lacks the clinician\u2019s condition'>✎ Update " + memoUpdates.length + " TB memo" + (memoUpdates.length === 1 ? "" : "s") + "</button>" : "") +
       "</div>";
   } else if (canEdit && planTbMode) {
-    const list = planTbFull ? Array.from(target).sort() : toAdd;
+    const list = planTbFull ? Array.from(target).sort() : toAdd.concat(memoUpdates);
     const servedCounts = servedZipCounts();
     planTbSync(list);
     const next = planTbNextStep(list);
@@ -2685,7 +2706,7 @@ function renderPlanDiff(canEdit) {
       `<button class="mv-btn" onclick="togglePlanTbFull()" title="${planTbFull ? "Back to entering only what TB is missing" : "Clear this clinician in TB, then re-enter the WHOLE list in one pass"}">${planTbFull ? "↩ Only what's missing" : "🔁 Full re-entry"}</button>` +
       (next ? `<button class="mv-btn primary" onclick="planTbCopyNext()">Copy next → ${esc(next.kind === "zip" ? next.zip + " (Zip)" : (planTbMemo(next.zip) || next.zip) + " (Memo)")}</button>` : "") +
       `</div>`;
-    const removeList = planTbFull ? Array.from(declared).sort() : toRemove;
+    const removeList = planTbFull ? Array.from(declared).sort() : toRemove.concat(memoUpdates);
     if (planTbFull) {
       html += `<div class="pt-hint"><b>🔁 Full re-entry.</b> Step 1 — in TherapyBoss's coverage box, ⊗ remove <b>all ${removeList.length}</b> ZIPs listed below. Step 2 — enter all <b>${list.length}</b> ZIPs here (paste Zip → paste Memo → <b>Add</b>). Step 3 — <b>SUBMIT</b>, then re-import ZIP coverage here; this step shows ✅ when TB matches.</div>`;
     } else {
@@ -2701,7 +2722,9 @@ function renderPlanDiff(canEdit) {
         const memo = planTbMemo(z);
         const zc = planTbCopied.zip.has(z), mc = planTbCopied.memo.has(z);
         const isNext = next && next.zip === z;
-        const tag = declared.has(z)
+        const tag = (!planTbFull && memoUpdSet.has(z))
+          ? `<span class="pt-tag pt-tag-none" title="In TB with memo “${esc(tbMemoFor(z) || "none")}” — ⊗ remove it, then re-add with this memo">✎ update memo</span>`
+          : declared.has(z)
           ? `<span class="pt-tag pt-tag-keep" title="Already in TB now — re-enter it after clearing">↻ in TB now</span>`
           : `<span class="pt-tag pt-tag-new" title="Not in TB yet">＋ new</span>`;
         const hist = servedCounts[z]
@@ -2742,6 +2765,40 @@ let planTbCopied = { zip: new Set(), memo: new Set() };
 let planTbFor = null;
 
 function planTbKey(cid) { return "tp_plan_tb_" + cid; }
+function tbMemoFor(zip) {
+  const z = normZip(zip);
+  const row = (declaredRows || []).find(r => normZip(r.zip_code) === z);
+  return row && row.memo ? String(row.memo) : "";
+}
+// True when the ZIP has a requested-area condition that TB's current memo
+// doesn't carry yet (TB memos can't be edited — remove + re-add).
+function tbMemoNeedsCondition(zip) {
+  const cond = reqConditionFor(zip);
+  if (!cond) return false;
+  const norm = t => String(t || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const want = norm(cond).slice(0, 24);
+  return !norm(tbMemoFor(zip)).includes(want);
+}
+function planTbMemoUpdates() {
+  if (!zipPlan) return [];
+  const declared = declaredZipSet();
+  return (zipPlan.target_zips || []).map(normZip)
+    .filter(z => z && declared.has(z) && tbMemoNeedsCondition(z)).sort();
+}
+// Copy without touching the TB-mode checklist (used by the Conditions list).
+function planTbCopyText(zip, kind) {
+  const z = normZip(zip);
+  const text = kind === "memo" ? planTbMemo(z) : z;
+  if (!text) { showToast("Nothing to copy for " + z); return; }
+  const done = () => showToast("📋 " + (kind === "memo" ? "Memo copied — paste into TB's Memo field" : "Zip " + z + " copied"));
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyZipFallback(text, done));
+  } else {
+    copyZipFallback(text, done);
+  }
+}
+function startPlanTbMemos() { planTbMode = true; planTbFull = false; renderMoveCard(); }
+
 function planTbMemo(zip) {
   const z = normZip(zip);
   const req = (zipRequests || []).find(r => normZip(r.zip_code) === z && r.note);
@@ -2776,7 +2833,7 @@ function planTbToAdd() {
   if (!zipPlan) return [];
   const declared = declaredZipSet();
   if (planTbFull) return Array.from(new Set((zipPlan.target_zips || []).map(normZip).filter(Boolean))).sort();
-  return (zipPlan.target_zips || []).map(normZip).filter(z => z && !declared.has(z)).sort();
+  return (zipPlan.target_zips || []).map(normZip).filter(z => z && !declared.has(z)).sort().concat(planTbMemoUpdates());
 }
 function togglePlanTbFull() {
   planTbFull = !planTbFull;
@@ -3574,6 +3631,103 @@ function syncZipBadgeReqState() {
   });
 }
 
+// ⇆ SIDE BY SIDE — completed services (left) vs their list (right),
+// two synced Mapbox maps in an overlay. ZIP centroids via getZipCentroid.
+let sbsMaps = [];
+function closeSideBySide() {
+  sbsMaps.forEach(m => { try { m.remove(); } catch (e) {} });
+  sbsMaps = [];
+  const ov = document.getElementById("sbs-overlay");
+  if (ov) ov.remove();
+}
+async function openSideBySide() {
+  closeSideBySide();
+  const ov = document.createElement("div");
+  ov.id = "sbs-overlay";
+  ov.className = "cr-overlay";
+  ov.addEventListener("click", e => { if (e.target === ov) closeSideBySide(); });
+  document.body.appendChild(ov);
+  ov.innerHTML = `<div class="cr-box" style="width:1200px">
+    <div class="cr-title">⇆ ${esc(fmtName(clinician.name))} — completed services vs their list
+      <button type="button" class="cr-x" onclick="closeSideBySide()" aria-label="Close">✕</button></div>
+    <div class="sbs-maps">
+      <div class="sbs-pane"><div class="sbs-head">📍 Completed services${readIgnoreBefore(profileRow && profileRow.tags) ? " (since the cutoff)" : ""}</div><div id="sbs-left" class="sbs-map"></div>
+        <div class="sbs-legend"><span><i style="background:#2463eb"></i>Visit site</span><span><i style="background:#1d4ed8;border-radius:3px"></i>Served ZIP (×episodes)</span></div></div>
+      <div class="sbs-pane"><div class="sbs-head">✋ Their list</div><div id="sbs-right" class="sbs-map"></div>
+        <div class="sbs-legend"><span><i style="background:#0d9488"></i>On their list</span><span><i style="background:#d97706"></i>On their list ⚠ condition</span><span><i style="background:#94a3b8"></i>In TB, not on their list</span></div></div>
+    </div>
+    <div class="sbs-stats" id="sbs-stats"><div class="sbs-stat" style="grid-column:1/-1;color:var(--muted)">Locating ZIPs…</div></div>
+  </div>`;
+
+  const served = servedZipCounts();
+  const listZips = Array.from(requestedZipSet());
+  const declared = declaredZipSet();
+  const tbOnly = Array.from(declared).filter(z => !requestedZipSet().has(z));
+  const allZips = Array.from(new Set([...Object.keys(served), ...listZips, ...tbOnly]));
+  await ensureZipPlaces(allZips);
+  const cent = {};
+  for (const z of allZips) { const c = await getZipCentroid(z); if (c) cent[z] = c; }
+  if (!document.getElementById("sbs-overlay")) return;   // closed while locating
+
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const sites = buildSites().filter(st => st.lat != null && st.lng != null && !st.excluded &&
+    (cutoff ? st.rows.some(r => rowEligible(r, cutoff)) : true));
+  const fc = feats => ({ type: "FeatureCollection", features: feats });
+  const pt = (c, props) => ({ type: "Feature", geometry: { type: "Point", coordinates: [c.lng, c.lat] }, properties: props });
+  const leftSites = fc(sites.map(st => pt({ lat: st.lat, lng: st.lng }, { v: st.totalVisits })));
+  const leftZips = fc(Object.keys(served).filter(z => cent[z]).map(z => pt(cent[z], { label: z + " ×" + served[z] })));
+  const rightZips = fc([
+    ...listZips.filter(z => cent[z]).map(z => {
+      const cond = reqConditionFor(z);
+      return pt(cent[z], { label: (cond ? "⚠ " : "") + z, color: cond ? "#d97706" : "#0d9488" });
+    }),
+    ...tbOnly.filter(z => cent[z]).map(z => pt(cent[z], { label: z, color: "#94a3b8" }))
+  ]);
+
+  const bounds = new mapboxgl.LngLatBounds();
+  [...sites.map(st => [st.lng, st.lat]), ...Object.values(cent).map(c => [c.lng, c.lat])].forEach(ll => bounds.extend(ll));
+  const mk = id => new mapboxgl.Map({ container: id, style: "mapbox://styles/mapbox/light-v11", attributionControl: true });
+  const L = mk("sbs-left"), R = mk("sbs-right");
+  sbsMaps = [L, R];
+  const badgeLayers = (m, src, data, colorExpr) => {
+    m.addSource(src, { type: "geojson", data });
+    m.addLayer({ id: src + "-dot", type: "circle", source: src,
+      paint: { "circle-radius": 5, "circle-color": colorExpr, "circle-stroke-color": "#fff", "circle-stroke-width": 1.5 } });
+    m.addLayer({ id: src + "-lbl", type: "symbol", source: src,
+      layout: { "text-field": ["get", "label"], "text-size": 11, "text-offset": [0, -1.15], "text-anchor": "bottom",
+                "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"], "text-allow-overlap": false },
+      paint: { "text-color": colorExpr, "text-halo-color": "#fff", "text-halo-width": 1.6 } });
+  };
+  L.on("load", () => {
+    L.addSource("sbs-sites", { type: "geojson", data: leftSites });
+    L.addLayer({ id: "sbs-sites", type: "circle", source: "sbs-sites",
+      paint: { "circle-radius": ["interpolate", ["linear"], ["get", "v"], 1, 3.5, 20, 8], "circle-color": "#2463eb", "circle-opacity": 0.55 } });
+    badgeLayers(L, "sbs-lz", leftZips, "#1d4ed8");
+  });
+  R.on("load", () => { badgeLayers(R, "sbs-rz", rightZips, ["get", "color"]); });
+  if (!bounds.isEmpty()) [L, R].forEach(m => m.fitBounds(bounds, { padding: 40, duration: 0, maxZoom: 12 }));
+  // Keep the two views locked together
+  let syncing = false;
+  const sync = (a, b) => a.on("move", () => {
+    if (syncing) return;
+    syncing = true;
+    b.jumpTo({ center: a.getCenter(), zoom: a.getZoom(), bearing: a.getBearing(), pitch: a.getPitch() });
+    syncing = false;
+  });
+  sync(L, R); sync(R, L);
+
+  const listSet = new Set(listZips);
+  const both = listZips.filter(z => served[z]).sort();
+  const listNever = listZips.filter(z => !served[z]).sort();
+  const servedNotListed = Object.keys(served).filter(z => !listSet.has(z)).sort((a, b) => served[b] - served[a]);
+  const zl = arr => arr.length ? arr.map(z => esc(zipTitleName(z)) + (served[z] ? " ×" + served[z] : "")).join(" · ") : "—";
+  const statsEl = document.getElementById("sbs-stats");
+  if (statsEl) statsEl.innerHTML =
+    `<div class="sbs-stat" style="border-color:#bbf7d0"><span style="color:#166534;font-weight:800">On their list AND served</span><b style="color:#166534">${both.length}</b><div class="zz">${zl(both)}</div></div>` +
+    `<div class="sbs-stat" style="border-color:#99f6e4"><span style="color:#0f766e;font-weight:800">On their list, never served</span><b style="color:#0f766e">${listNever.length}</b><div class="zz">${zl(listNever)}</div></div>` +
+    `<div class="sbs-stat" style="border-color:#fde68a"><span style="color:#92400e;font-weight:800">Served, NOT on their list</span><b style="color:#92400e">${servedNotListed.length}</b><div class="zz">${zl(servedNotListed)}</div></div>`;
+}
+
 function renderReqCard() {
   const body = document.getElementById("tp-req-body");
   if (!body) return;
@@ -3614,9 +3768,22 @@ function renderReqCard() {
     const condRows = zipRequests.map(r => ({ z: normZip(r.zip_code), note: r.note || "" }))
       .filter(r => r.z && reqConditionFor(r.z)).sort((a, b) => a.z.localeCompare(b.z));
     if (condRows.length) {
-      html += `<div class="rq-cond"><b>⚠ Conditions (${condRows.length})</b><br>` +
-        condRows.map(r => `<b>${esc(r.z)}</b> · ${esc(r.note)}`).join("<br>") + "</div>";
+      const needUpd = condRows.filter(r => declared.has(r.z) && tbMemoNeedsCondition(r.z)).length;
+      html += `<div class="rq-cond"><b>⚠ Conditions (${condRows.length})</b>` +
+        (needUpd ? ` · <span class="rq-memo-upd">${needUpd} TB memo${needUpd === 1 ? "" : "s"} need the condition — in TB, ⊗ remove the ZIP and re-add it with this Memo</span>` : "") +
+        condRows.map(r => {
+          const inTb = declared.has(r.z);
+          const st = !inTb ? `<span style="font-size:10.5px;font-weight:800;color:#1a5fb4">＋ not in TB yet</span>`
+            : tbMemoNeedsCondition(r.z)
+              ? `<span class="rq-memo-upd" title="TB memo now: ${esc(tbMemoFor(r.z) || "(none)")}">TB memo needs update</span>`
+              : `<span class="rq-memo-ok">✓ TB memo has it</span>`;
+          return `<div class="rq-cond-row"><span class="rq-cond-txt"><b>${esc(r.z)}</b> · ${esc(r.note)}</span>${st}` +
+            (canEdit ? `<button type="button" class="mv-btn" onclick="planTbCopyText('${esc(r.z)}','zip')">📋 Zip</button>` +
+              `<button type="button" class="mv-btn" onclick="planTbCopyText('${esc(r.z)}','memo')">📋 Memo</button>` : "") +
+            `</div>`;
+        }).join("") + "</div>";
     }
+    html += `<div class="mv-row"><button class="mv-btn" onclick="openSideBySide()" title="Two synced maps: completed services vs their list">⇆ Side by side: completed services vs their list</button></div>`;
   } else {
     html += "<div class='empty-note' style='margin-bottom:8px'>No requested areas recorded.</div>";
   }
