@@ -180,6 +180,14 @@
   .cr-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-top: 14px; }
   .cr-report-row { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 5px 0; border-bottom: 1px dashed var(--border); }
   .cr-report-row:last-child { border-bottom: none; }
+  /* ➡ TB entry mode for staged changes (Zip + Memo fields in TB) */
+  .pt-row { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px; font-size: 12.5px; background: #fff; }
+  .pt-row .pt-zip { font-weight: 800; color: #1a5fb4; min-width: 64px; }
+  .pt-row .pt-memo { flex: 1; min-width: 0; color: #334155; }
+  .pt-row .mv-btn { padding: 3px 9px; font-size: 11.5px; }
+  .pt-row .mv-btn.pt-copied { background: #fff; border: 1px dashed #1a5fb4; color: #1a5fb4; }
+  .pt-row.pt-next { box-shadow: 0 0 0 2px rgba(26,95,180,.35); }
+  .pt-hint { font-size: 11.5px; color: var(--muted); margin: 6px 0; line-height: 1.5; }
   .cu-reason { display: inline-block; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 1px 8px; background: #e0e7ff; color: #3730a3; margin-right: 4px; }
   .mv-input { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
   .zip-chip.excl { background: #111827; color: #fff; border-color: #111827; }
@@ -2649,6 +2657,33 @@ function renderPlanDiff(canEdit) {
     if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button>" +
       (zipRevisions.length ? "<button class='mv-btn' onclick='openCoverageReport(zipRevisions[0].id)' title='Before/after markup of what TherapyBoss changed — save it, optionally email it'>📸 Change report</button>" : "") +
       "</div>";
+  } else if (canEdit && planTbMode) {
+    planTbSync(toAdd);
+    const next = planTbNextStep(toAdd);
+    html += `<div class="mv-row"><button class="mv-btn primary" onclick="togglePlanTbMode()">✕ Exit TB entry mode</button>` +
+      (next ? `<button class="mv-btn primary" onclick="planTbCopyNext()">Copy next → ${esc(next.kind === "zip" ? next.zip + " (Zip)" : (planTbMemo(next.zip) || next.zip) + " (Memo)")}</button>` : "") +
+      `</div>`;
+    html += `<div class="pt-hint">In TherapyBoss's coverage box: paste the <b>ZIP</b> into <b>Zip</b>, the <b>Memo</b> into <b>Memo</b>, click <b>Add</b> — repeat — then <b>SUBMIT</b>. Copying doesn't confirm anything; re-import ZIP coverage from TB and each row drops off once TB really has it.</div>`;
+    if (toAdd.length) {
+      html += `<div style="font-size:11.5px;font-weight:800;color:#1a5fb4;margin:6px 0 4px">＋ Add in TB (${toAdd.length})</div>`;
+      html += toAdd.map(z => {
+        const memo = planTbMemo(z);
+        const zc = planTbCopied.zip.has(z), mc = planTbCopied.memo.has(z);
+        const isNext = next && next.zip === z;
+        return `<div class="pt-row${isNext ? " pt-next" : ""}">` +
+          `<span class="pt-zip">＋ ${esc(z)}</span><span class="pt-memo">${memo ? esc(memo) : "<span class='empty-note'>no town name — type a memo</span>"}</span>` +
+          `<button type="button" class="mv-btn${zc ? " pt-copied" : ""}" onclick="planTbCopy('${esc(z)}','zip')" title="Copy ${esc(z)} for TB's Zip field">📋 Zip${zc ? " ✓" : ""}</button>` +
+          `<button type="button" class="mv-btn${mc ? " pt-copied" : ""}" ${memo ? "" : "disabled"} onclick="planTbCopy('${esc(z)}','memo')" title="Copy the town name for TB's Memo field">📋 Memo${mc ? " ✓" : ""}</button>` +
+        `</div>`;
+      }).join("");
+    }
+    if (toRemove.length) {
+      html += `<div style="font-size:11.5px;font-weight:800;color:#b3261e;margin:10px 0 4px">− Remove in TB (${toRemove.length}) — click ⊗ on each in the coverage box</div>`;
+      html += "<div class='zip-chips'>" + toRemove.map(z => `<span class="zip-chip diff-remove">− ${esc(z)}${placeSuffix(z)}</span>`).join("") + "</div>";
+    }
+    if (matched.length) {
+      html += `<div style="font-size:11px;color:var(--muted);margin-top:8px">✓ Already in TB: ${matched.map(esc).join(", ")}</div>`;
+    }
   } else {
     html += "<div class='zip-chips'>" +
       matched.map(z => `<span class="zip-chip diff-ok" title="In TB and in the plan">✓ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
@@ -2656,8 +2691,93 @@ function renderPlanDiff(canEdit) {
       toAdd.map(z => `<span class="zip-chip diff-add" title="Planned add — not in TB yet">＋ ${esc(z)}${placeSuffix(z)}</span>`).join("") +
       "</div>";
     html += `<div style="font-size:11px;color:var(--muted);margin-top:6px">${matched.length} matched · ${toRemove.length} to remove in TB · ${toAdd.length} to add in TB</div>`;
+    if (canEdit) {
+      html += `<div class="mv-row"><button class="mv-btn" onclick="togglePlanTbMode()" title="Step through each ZIP to add: copy the Zip, then the Memo (town), for TherapyBoss's two fields">➡ TB entry mode — Zip + Memo</button></div>`;
+    }
   }
   return html;
+}
+
+// ── ➡ TB entry mode for staged changes ───────────────────────────────
+// TherapyBoss's coverage box takes a Zip and a Memo (town name) as two
+// fields, so each ZIP to add gets two one-click copies. Copy marks are
+// remembered per clinician (they survive a refresh) and are NOT a
+// confirmation: a row leaves the list only when a TB re-import has it.
+let planTbMode = false;
+let planTbCopied = { zip: new Set(), memo: new Set() };
+let planTbFor = null;
+
+function planTbKey(cid) { return "tp_plan_tb_" + cid; }
+function planTbMemo(zip) {
+  const p = zipPlaceCache.get(normZip(zip));
+  return p ? String(p) : "";
+}
+function planTbSave() {
+  if (!clinician) return;
+  try {
+    localStorage.setItem(planTbKey(clinician.id), JSON.stringify({ zip: Array.from(planTbCopied.zip), memo: Array.from(planTbCopied.memo) }));
+  } catch (e) {}
+}
+// Load marks for this clinician; drop marks for ZIPs TB now has.
+function planTbSync(toAdd) {
+  if (!clinician) return;
+  if (planTbFor !== clinician.id) {
+    planTbFor = clinician.id;
+    planTbCopied = { zip: new Set(), memo: new Set() };
+    try {
+      const o = JSON.parse(localStorage.getItem(planTbKey(clinician.id)) || "{}") || {};
+      (o.zip || []).forEach(z => planTbCopied.zip.add(z));
+      (o.memo || []).forEach(z => planTbCopied.memo.add(z));
+    } catch (e) {}
+  }
+  const live = new Set(toAdd);
+  let changed = false;
+  ["zip", "memo"].forEach(k => planTbCopied[k].forEach(z => { if (!live.has(z)) { planTbCopied[k].delete(z); changed = true; } }));
+  if (changed) planTbSave();
+}
+function planTbToAdd() {
+  if (!zipPlan) return [];
+  const declared = declaredZipSet();
+  return (zipPlan.target_zips || []).map(normZip).filter(z => z && !declared.has(z)).sort();
+}
+function planTbNextStep(toAdd) {
+  for (const z of toAdd) {
+    if (!planTbCopied.zip.has(z)) return { zip: z, kind: "zip" };
+    if (planTbMemo(z) && !planTbCopied.memo.has(z)) return { zip: z, kind: "memo" };
+  }
+  return null;
+}
+function togglePlanTbMode() {
+  planTbMode = !planTbMode;
+  if (planTbMode) {
+    ensureZipPlaces(planTbToAdd()).then(() => { if (planTbMode) renderMoveCard(); });
+    showToast("➡ TB entry mode — copy each Zip, then its Memo, into TherapyBoss's coverage box");
+  }
+  renderMoveCard();
+}
+function planTbCopy(zip, kind) {
+  const z = normZip(zip);
+  if (!z) return;
+  const text = kind === "memo" ? planTbMemo(z) : z;
+  if (!text) { showToast("No town name known for " + z + " — type the memo in TB"); return; }
+  const done = () => {
+    planTbCopied[kind].add(z);
+    planTbSave();
+    renderMoveCard();
+    const next = planTbNextStep(planTbToAdd());
+    showToast("📋 " + (kind === "memo" ? "Memo \"" + text + "\"" : "Zip " + text) + " copied — paste into TB's " + (kind === "memo" ? "Memo" : "Zip") + " field" +
+      (next ? "" : " · last one — SUBMIT in TB, then re-import to confirm"));
+  };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => copyZipFallback(text, done));
+  } else {
+    copyZipFallback(text, done);
+  }
+}
+function planTbCopyNext() {
+  const next = planTbNextStep(planTbToAdd());
+  if (!next) { showToast("✓ Every Zip and Memo copied — SUBMIT in TB, then re-import to confirm"); return; }
+  planTbCopy(next.zip, next.kind);
 }
 
 // ── Cutoff writes: fresh re-read → merge → upsert (roster house style;
