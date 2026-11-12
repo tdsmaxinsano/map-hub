@@ -157,6 +157,14 @@
   .rv-notes { white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; margin-top: 5px; color: #1f2937; }
   .mv-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 8px 0; }
   .mv-label { font-size: 11px; font-weight: 800; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; margin: 12px 0 5px; }
+  .cu-status { font-size: 12px; font-weight: 800; border-radius: 8px; padding: 6px 10px; margin: 0 0 10px; }
+  .cu-status.idle { background: #f1f5f9; color: #475569; }
+  .cu-status.unsaved { background: #fef3c7; color: #92400e; }
+  .cu-status.awaiting { background: #ffedd5; color: #9a3412; }
+  .cu-status.done { background: #dcfce7; color: #166534; }
+  .cu-moved-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 800; color: #1e3a5f; cursor: pointer; user-select: none; padding: 6px 0; border-top: 1px dashed var(--border); border-bottom: 1px dashed var(--border); margin-bottom: 6px; }
+  .cu-moved-toggle .cu-moved-sub { font-weight: 600; color: var(--muted); }
+  .cu-reason { display: inline-block; font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 1px 8px; background: #e0e7ff; color: #3730a3; margin-right: 4px; }
   .mv-input { border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; font-size: 12px; }
   .zip-chip.excl { background: #111827; color: #fff; border-color: #111827; }
   .zip-chip.excl .x { cursor: pointer; margin-left: 6px; opacity: .65; }
@@ -382,8 +390,8 @@
         </div>
 
         <div class="card" id="tp-move-card">
-          <h3>📦 Therapist moved?</h3>
-          <p class="hint">Set the history cutoff, stage the new ZIP list, update TherapyBoss to match, then run the ZIP Coverage import on the Map — the diff below confirms when TB has caught up.</p>
+          <h3>📦 Coverage update</h3>
+          <p class="hint">Stage ZIP adds and removals (🟢/🔴 map circles, the Coverage gaps buttons, or by hand), save, update TherapyBoss to match, then re-import — the comparison below confirms when TB has caught up. Therapist moved? Open <b>🏠 They moved?</b> to set a history cutoff.</p>
           <div id="tp-move-body"><span class="empty-note">Loading…</span></div>
         </div>
 
@@ -2061,6 +2069,31 @@ function captureMoveInputs() {
   const st = ensureMoveState();
   const note = document.getElementById("mv-note");
   if (note) st.note = note.value;
+  const reason = document.getElementById("mv-reason");
+  if (reason) st.reason = reason.value;
+}
+
+// ── Coverage update helpers ─────────────────────────────────────────
+const COVERAGE_REASONS = ["Moved", "Expanding", "Cleanup", "Other"];
+let movedOpen = null;   // null = auto (open when address change / cutoff)
+function toggleMovedSection(open) { captureMoveInputs(); movedOpen = !!open; renderMoveCard(); }
+// The reason rides in the existing note column as "[Reason] text".
+function splitPlanNote(note) {
+  const m = String(note || "").match(/^\[(Moved|Expanding|Cleanup|Other)\]\s*/);
+  return m ? { reason: m[1], text: String(note).slice(m[0].length) } : { reason: "", text: String(note || "") };
+}
+function coverageStatusHtml() {
+  const ps = stagedPlanSets();
+  const n = ps.removing.size, m = ps.adding.size;
+  const counts = (n ? n + " to remove" : "") + (n && m ? " · " : "") + (m ? m + " to add" : "");
+  if (zipPlan && !planEditing) {
+    return (n || m)
+      ? `<div class="cu-status awaiting">🟠 Awaiting TherapyBoss — ${counts}</div>`
+      : `<div class="cu-status done">✅ TB matches the staged changes</div>`;
+  }
+  return (n || m)
+    ? `<div class="cu-status unsaved">💾 Not saved — ${counts}</div>`
+    : `<div class="cu-status idle">No changes staged</div>`;
 }
 function buildTargetList() {
   const st = ensureMoveState();
@@ -2076,6 +2109,16 @@ function renderMoveCard() {
   const cutoffIso = cutoff ? cutoff.toISOString().slice(0, 10) : "";
   let html = "";
 
+  // One-line status: what's staged and where it stands.
+  if (!planTableMissing) html += coverageStatusHtml();
+
+  // 🏠 Moved section — only relevant for a move. Auto-opens when TB
+  // flagged an address change or a cutoff is already set.
+  const movedAuto = !!(addrChanges.length || cutoffIso);
+  const movedIsOpen = movedOpen === null ? movedAuto : movedOpen;
+  html += `<div class="cu-moved-toggle" onclick="toggleMovedSection(${movedIsOpen ? "false" : "true"})">${movedIsOpen ? "▾" : "▸"} 🏠 They moved?` +
+    `<span class="cu-moved-sub">${cutoffIso ? "· history before " + esc(cutoffIso) + " ignored" : addrChanges.length ? "· address change detected" : "· set a history cutoff"}</span></div>`;
+  if (movedIsOpen) {
   // Step 0 — pending address change from a Sync Update import (migration
   // 62). TB never says WHEN they moved, so the banner asks for the move
   // date; saving the cutoff (or staging a plan) auto-marks it processed.
@@ -2091,8 +2134,8 @@ function renderMoveCard() {
       `</div>`;
   }
 
-  // Step 1 — the history cutoff
-  html += "<div class='mv-label' style='margin-top:0'>1 · Ignore history before</div>";
+  // History cutoff
+  html += "<div class='mv-label' style='margin-top:0'>Ignore history before</div>";
   if (canEdit) {
     html += `<div class="mv-row">
       <input type="date" id="mv-cutoff" class="mv-input" value="${cutoffIso}">
@@ -2102,20 +2145,23 @@ function renderMoveCard() {
   } else {
     html += `<div style="font-size:12px">${cutoffIso ? "Set: <b>" + esc(cutoffIso) + "</b>" : "<span class='empty-note'>Not set.</span>"}</div>`;
   }
+  }   // end 🏠 moved section
 
   if (planTableMissing) {
-    html += "<div class='mv-label'>2 · Target ZIP plan</div><div class='cutoff-note'>⚠ Run migration 55 (clinician_zip_plans) to enable staged ZIP plans.</div>";
+    html += "<div class='mv-label'>1 · Staged changes</div><div class='cutoff-note'>⚠ Run migration 55 (clinician_zip_plans) to enable staged ZIP plans.</div>";
   } else if (zipPlan && !planEditing) {
     html += renderPlanDiff(canEdit);
   } else if (canEdit) {
     html += renderPlanEditor();
   } else {
-    html += "<div class='mv-label'>2 · Target ZIP plan</div><span class='empty-note'>No staged plan.</span>";
+    html += "<div class='mv-label'>1 · Staged changes</div><span class='empty-note'>Nothing staged.</span>";
   }
 
   body.innerHTML = html;
   const noteInput = document.getElementById("mv-note");
   if (noteInput && moveState && moveState.note) noteInput.value = moveState.note;
+  const reasonSel = document.getElementById("mv-reason");
+  if (reasonSel && moveState && moveState.reason) reasonSel.value = moveState.reason;
   // Keep the gaps card + map badges in step with what's staged
   if (clinician) { renderZipPanels(); syncZipBadgePlanState(); }
 }
@@ -2125,7 +2171,7 @@ function renderPlanEditor() {
   const declared = Array.from(declaredZipSet()).sort();
   const served = servedZipCounts();
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
-  let html = "<div class='mv-label'>2 · Stage the new ZIP list</div>";
+  let html = "<div class='mv-label'>1 · Stage changes</div>";
   if (declared.length) {
     html += "<div style='font-size:11px;color:var(--muted);margin-bottom:6px'>Click a ZIP to keep / remove." +
       (cutoff ? " 💡 = no episodes since the cutoff — likely the old area." : "") + "</div>";
@@ -2157,6 +2203,10 @@ function renderPlanEditor() {
   const target = buildTargetList();
   html += `<div style="font-size:11.5px;color:var(--muted);margin:6px 0">Target list: <b>${target.length}</b> ZIP${target.length === 1 ? "" : "s"}</div>`;
   html += "<div class='mv-row'>" +
+    "<select id='mv-reason' class='mv-input' title='Why is coverage changing? Saved with the plan.'>" +
+      "<option value=''>Reason…</option>" +
+      COVERAGE_REASONS.map(r => "<option value='" + r + "'>" + r + "</option>").join("") +
+    "</select>" +
     "<input id='mv-note' class='mv-input' placeholder='Note (e.g. moved to Arlington Heights)' style='min-width:200px'>" +
     `<button class="mv-btn primary" onclick="saveZipPlan()" ${target.length ? "" : "disabled"}>💾 Save plan</button>` +
     (zipPlan ? "<button class='mv-btn' onclick='cancelRestage()'>Cancel</button>" : "") +
@@ -2174,15 +2224,16 @@ function renderPlanDiff(canEdit) {
     else toAdd.push(z);
   });
   const done = !toRemove.length && !toAdd.length;
-  let html = "<div class='mv-label'>2 · Target ZIP plan</div>";
-  html += `<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">Staged ${esc(fmtDate(zipPlan.set_at))}${zipPlan.set_by_email ? " by " + esc(zipPlan.set_by_email) : ""}${zipPlan.note ? " — “" + esc(zipPlan.note) + "”" : ""} · ${(zipPlan.target_zips || []).length} ZIPs</div>`;
+  const pn = splitPlanNote(zipPlan.note);
+  let html = "<div class='mv-label'>1 · Staged changes</div>";
+  html += `<div style="font-size:11.5px;color:var(--muted);margin-bottom:6px">${pn.reason ? `<span class="cu-reason">${esc(pn.reason)}</span>` : ""}Staged ${esc(fmtDate(zipPlan.set_at))}${zipPlan.set_by_email ? " by " + esc(zipPlan.set_by_email) : ""}${pn.text ? " — “" + esc(pn.text) + "”" : ""} · ${(zipPlan.target_zips || []).length} ZIPs in the target list</div>`;
   if (canEdit) {
     html += `<div class="mv-row"><button class="mv-btn" onclick="copyZipList()">📋 Copy target ZIP list</button>` +
       `<button class="mv-btn" onclick="restagePlan()">✎ Restage</button>` +
       `<button class="mv-btn danger" id="mv-discard" onclick="discardPlan()">🗑 Discard</button></div>`;
   }
-  html += "<div class='mv-label'>3 · Update TherapyBoss, then run the ZIP Coverage import on the Map</div>";
-  html += "<div class='mv-label'>4 · TB vs plan</div>";
+  html += "<div class='mv-label'>2 · Update TherapyBoss, then re-import ZIP coverage (TB Loaded ZIPs card or the Map)</div>";
+  html += "<div class='mv-label'>3 · TB vs staged changes</div>";
   if (done) {
     html += "<div style='font-size:12.5px;font-weight:700;color:#166534;margin-bottom:6px'>🎉 TB matches the plan — the move is fully reflected in coverage.</div>";
     if (canEdit) html += "<div class='mv-row'><button class='mv-btn primary' onclick='completePlan()'>✓ Mark complete</button></div>";
@@ -2439,7 +2490,8 @@ function restagePlan() {
   moveState = {
     removed: new Set(Array.from(declared).filter(z => !target.has(z))),
     added: Array.from(target).filter(z => !declared.has(z)),
-    note: zipPlan.note || ""
+    note: splitPlanNote(zipPlan.note).text,
+    reason: splitPlanNote(zipPlan.note).reason
   };
   planEditing = true;
   renderMoveCard();
@@ -2452,10 +2504,12 @@ async function saveZipPlan() {
   const target = buildTargetList();
   if (!target.length) { showToast("The target list is empty"); return; }
   const st = ensureMoveState();
+  const noteText = (st.note || "").trim();
+  const noteVal = st.reason ? "[" + st.reason + "]" + (noteText ? " " + noteText : "") : noteText;
   const payload = {
     clinician_id: clinician.id,
     target_zips: target,
-    note: (st.note || "").trim() || null,
+    note: noteVal || null,
     set_by_email: (currentUser && currentUser.email) || null,
     set_at: new Date().toISOString(),
     updated_at: new Date().toISOString()
