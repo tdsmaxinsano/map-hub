@@ -26084,6 +26084,7 @@
   var _refSuggestData = null;
   var _zipExclusionSet = null; // "clinicianId|zip" won't-serve pairs (migration 56), refreshed per suggest run
   var _zipRequestSet = null;   // "clinicianId|zip" requested-area pairs (migration 57)
+  var _zipRequestNotes = {};   // "clinicianId|zip" -> note ("Harvey / Dixmoor — address not beyond Halsted Street")
   var _refZipPlace = null;     // place name for the current referral's ZIP ("Skokie")
 
   function refDeriveZip(address) {
@@ -26191,6 +26192,7 @@
         active: clinician.active !== false,
         zipExcluded: !!(zip && _zipExclusionSet && _zipExclusionSet.has(String(clinician.id) + "|" + zip)),
         zipRequested: !!(zip && _zipRequestSet && _zipRequestSet.has(String(clinician.id) + "|" + zip)),
+        zipRequestNote: (zip && _zipRequestNotes[String(clinician.id) + "|" + zip]) || "",
         distance: distance,
         rating: rating,
         coversZip: coversZip,
@@ -26253,11 +26255,14 @@
     } catch (e) { _zipExclusionSet = new Set(); }
     // "Requested areas" — the positive mirror (migration 57), same tolerance.
     try {
-      var rqRes = await supabaseClient.from("clinician_zip_requests").select("clinician_id, zip_code");
+      var rqRes = await supabaseClient.from("clinician_zip_requests").select("clinician_id, zip_code, note");
+      _zipRequestNotes = {};
       _zipRequestSet = new Set((rqRes.data || []).map(function(r) {
-        return String(r.clinician_id) + "|" + String(r.zip_code || "").trim();
+        var k = String(r.clinician_id) + "|" + String(r.zip_code || "").trim();
+        if (r.note) _zipRequestNotes[k] = String(r.note);
+        return k;
       }));
-    } catch (e) { _zipRequestSet = new Set(); }
+    } catch (e) { _zipRequestSet = new Set(); _zipRequestNotes = {}; }
     // ZIP → place name for the header/flags ("60077 · Skokie") — shared
     // zip_places cache (migration 58) first, ZIP directory as fallback.
     _refZipPlace = null;
@@ -26375,7 +26380,14 @@
         var chips =
           (c.coversZip ? "<span class='rsg-chip rsg-zip'>✓ ZIP</span>" : "") +
           (c.servedNearby ? "<span class='rsg-chip rsg-rad'>📍 " + c.distance.toFixed(1) + " mi</span>" : "") +
-          (c.zipRequested ? "<span class='rsg-chip rsg-req' title='Asked to work this area'>✋ Requested</span>" : "");
+          (c.zipRequested ? (function() {
+            var note = c.zipRequestNote || "";
+            var cut = note.indexOf(" — ");
+            var cond = cut !== -1 ? note.slice(cut + 3).trim() : "";
+            return cond
+              ? "<span class='rsg-chip rsg-req' style='background:#fef3c7;color:#92400e;border-color:#f5d38a' title='" + escHtml("Requested with a condition: " + note) + "'>✋ Requested · ⚠ " + escHtml(cond.length > 48 ? cond.slice(0, 46) + "…" : cond) + "</span>"
+              : "<span class='rsg-chip rsg-req' title='" + escHtml(note ? "Asked to work this area — " + note : "Asked to work this area") + "'>✋ Requested</span>";
+          })() : "");
         var perf = "";
         if (c.avgSyncDays != null) {
           var tone = c.avgSyncDays <= 3 ? "rsg-good" : c.avgSyncDays <= 7 ? "rsg-warn" : "rsg-bad";
@@ -26529,7 +26541,7 @@
     var rows = list.map(function(c, i) {
       var restr = [];
       if (c.active === false) restr.push("⛔ INACTIVE — needs reactivation");
-      if (c.zipRequested) restr.push("✋ REQUESTED this area");
+      if (c.zipRequested) restr.push("✋ REQUESTED this area" + (c.zipRequestNote && c.zipRequestNote.indexOf(" — ") !== -1 ? " — ⚠ " + c.zipRequestNote.slice(c.zipRequestNote.indexOf(" — ") + 3) : ""));
       if (c.zipExcluded) restr.push("⛔ WON'T SERVE " + (data.zip || "this ZIP"));
       if (c.agencyConflict) restr.push("⛔ RESTRICTED from " + (data.agency || "agency"));
       if (c.restrAgencies.length) restr.push("agencies: " + c.restrAgencies.join(", "));

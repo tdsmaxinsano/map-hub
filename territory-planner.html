@@ -248,6 +248,18 @@
   .tp-zip-badge.declared { background: #d97706; }
   .tp-zip-badge.excluded { background: #111827; }
   .tp-zip-badge.requested { background: #0d9488; }
+  /* ✋ Compare their list (requested areas vs TB) */
+  .tp-zip-badge.req-on { box-shadow: 0 0 0 3px #0d9488, 0 1px 5px rgba(0,0,0,.3); }
+  .tp-zip-badge.req-missing { outline: 2px dashed #64748b; outline-offset: 2px; opacity: .8; }
+  .rq-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+  .rq-table th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--muted); padding: 4px 5px; border-bottom: 1px solid var(--border); }
+  .rq-table td { padding: 4px 5px; border-bottom: 1px dashed var(--border); vertical-align: middle; }
+  .rq-table input[type=text] { width: 100%; box-sizing: border-box; border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; }
+  .rq-st { font-size: 10.5px; font-weight: 800; border-radius: 999px; padding: 1px 7px; white-space: nowrap; }
+  .rq-st.in { background: #dcfce7; color: #166534; }
+  .rq-st.add { background: #dbeafe; color: #1a5fb4; }
+  .rq-st.ref { background: #1f2937; color: #fff; }
+  .rq-cond { font-size: 12px; line-height: 1.5; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 6px 9px; margin: 4px 0 8px; }
   /* Plan-aware: staged in the 📦 ZIP plan, awaiting TherapyBoss */
   .tp-zip-badge.plan-removing { background: #fee2e2 !important; color: #991b1b !important; border: 1.5px dashed #dc2626 !important; text-decoration: line-through; }
   .tp-zip-badge.plan-adding { background: #dcfce7 !important; color: #166534 !important; border: 1.5px dashed #16a34a !important; }
@@ -2586,7 +2598,7 @@ function renderMoveCard() {
   const reasonSel = document.getElementById("mv-reason");
   if (reasonSel && moveState && moveState.reason) reasonSel.value = moveState.reason;
   // Keep the gaps card + map badges in step with what's staged
-  if (clinician) { renderZipPanels(); syncZipBadgePlanState(); }
+  if (clinician) { renderZipPanels(); syncZipBadgePlanState(); syncZipBadgeReqState(); }
 }
 
 function renderPlanEditor() {
@@ -2731,7 +2743,10 @@ let planTbFor = null;
 
 function planTbKey(cid) { return "tp_plan_tb_" + cid; }
 function planTbMemo(zip) {
-  const p = zipPlaceCache.get(normZip(zip));
+  const z = normZip(zip);
+  const req = (zipRequests || []).find(r => normZip(r.zip_code) === z && r.note);
+  if (req && reqNoteLooksLikeArea(req.note)) return String(req.note);
+  const p = zipPlaceCache.get(z);
   return p ? String(p) : "";
 }
 function planTbSave() {
@@ -3384,6 +3399,181 @@ async function reloadExclusions() {
 function requestedZipSet() {
   return new Set(zipRequests.map(r => normZip(r.zip_code)).filter(Boolean));
 }
+// ══════════════════════════════════════════════════════════════════
+// 📨 CLINICIAN'S OWN LIST — paste an email ("60426 (Harvey / Dixmoor)
+// (address not beyond Halsted Street)") → one requested area per ZIP,
+// each with its own "Place — condition" note → compare with TB.
+// ══════════════════════════════════════════════════════════════════
+const REQ_COND_RE = /\b(address|addresses|not beyond|nothing beyond|depends|only|except|north of|south of|east of|west of|up to|no further)\b/i;
+let rqPasteOpen = false;
+let rqParsed = null;     // [{zip, place, cond, include}]
+let reqCompare = false;
+
+function reqConditionFor(zip) {
+  const r = (zipRequests || []).find(x => normZip(x.zip_code) === normZip(zip));
+  if (!r || !r.note) return "";
+  const i = String(r.note).indexOf(" — ");
+  if (i === -1) return "";
+  const tail = String(r.note).slice(i + 3).trim();
+  return REQ_COND_RE.test(tail) ? tail : "";
+}
+// A note written by the list importer ("Place" or "Place — condition"),
+// not a free-form office note ("asked 8/19 — wants work") → safe as TB memo.
+function reqNoteLooksLikeArea(note) {
+  const n = String(note || "").trim();
+  if (!n || n.length > 120) return false;
+  const i = n.indexOf(" — ");
+  return i === -1 ? !/\d/.test(n) : REQ_COND_RE.test(n.slice(i + 3));
+}
+
+function parseClinicianZipList(text) {
+  const byZip = new Map();
+  String(text || "").split(/\r?\n/).forEach(line => {
+    const zips = line.match(/\b\d{5}\b/g);
+    if (!zips) return;
+    const groups = [];
+    line.replace(/\(([^)]*)\)/g, (m, g) => { groups.push(g.trim()); return m; });
+    let rest = line.replace(/\([^)]*\)/g, " ").replace(/\b\d{5}\b/g, " ").replace(/[\/,;:\-–—]+/g, " ").replace(/\s+/g, " ").trim();
+    if (!groups.length && rest) groups.push(rest);
+    let place = "", cond = "";
+    groups.forEach(g => {
+      const m = g.match(REQ_COND_RE);
+      if (m) {
+        const before = g.slice(0, m.index).replace(/[\s\-–—,:]+$/, "").trim();
+        const after = g.slice(m.index).trim();
+        if (before && !place) place = before;
+        cond = cond ? cond + "; " + after : after;
+      } else if (!place) {
+        place = g;
+      } else {
+        place = place + " / " + g;
+      }
+    });
+    zips.forEach(z => {
+      const cur = byZip.get(z) || { zip: z, places: [], conds: [] };
+      if (place && !cur.places.includes(place)) cur.places.push(place);
+      if (cond && !cur.conds.includes(cond)) cur.conds.push(cond);
+      byZip.set(z, cur);
+    });
+  });
+  const excluded = excludedZipSet();
+  return Array.from(byZip.values()).sort((a, b) => a.zip.localeCompare(b.zip)).map(r => ({
+    zip: r.zip, place: r.places.join("; "), cond: r.conds.join("; "), include: !excluded.has(r.zip)
+  }));
+}
+
+function renderReqPasteHtml(declared) {
+  if (!rqPasteOpen) {
+    return `<div class="mv-row"><button class="mv-btn" onclick="rqPasteOpen=true;renderReqCard()" title="Paste the clinician's own email/text listing the ZIPs they'll cover — conditions like 'not beyond Halsted St' are kept per ZIP">📨 Paste their list</button></div>`;
+  }
+  let html = "<div class='mv-label'>📨 Paste their list</div>";
+  if (!rqParsed) {
+    html += `<textarea id="rq-paste" class="mv-input" style="width:100%;min-height:120px;box-sizing:border-box" placeholder="Paste the whole email — e.g.\n60406 (Blue Island)\n60426 (Harvey / Dixmoor) (address not beyond Halsted Street)\n60422/60478/60429 (Flossmoor/Country Club Hills/Hazel Crest)"></textarea>` +
+      `<div class="mv-row"><button class="mv-btn primary" onclick="rqParsePaste()">Read list</button>` +
+      `<button class="mv-btn" onclick="rqPasteOpen=false;rqParsed=null;renderReqCard()">Cancel</button></div>`;
+    return html;
+  }
+  const served = servedZipCounts();
+  const listSet = new Set(rqParsed.map(r => r.zip));
+  const tbOnly = Array.from(declared).filter(z => !listSet.has(z)).sort();
+  const inTb = rqParsed.filter(r => declared.has(r.zip)).length;
+  const toAdd = rqParsed.filter(r => r.include && !declared.has(r.zip)).length;
+  html += `<div style="font-size:11.5px;color:var(--muted)">${rqParsed.length} ZIPs on their list · <b style="color:#166534">${inTb} already in TB</b> · <b style="color:#1a5fb4">${toAdd} not in TB</b> · ${tbOnly.length} in TB but not on their list. Edit place / condition if needed — the condition becomes TB's Memo.</div>`;
+  html += `<table class="rq-table"><thead><tr><th></th><th>ZIP</th><th>Place</th><th>Condition</th><th>TB</th></tr></thead><tbody>` +
+    rqParsed.map((r, i) => {
+      const excluded = excludedZipSet().has(r.zip);
+      const st = excluded ? `<span class="rq-st ref" title="On the Won't-serve list — remove it there first if this is now OK">⛔ won't serve</span>`
+        : declared.has(r.zip) ? `<span class="rq-st in">✓ in TB</span>` : `<span class="rq-st add">＋ not in TB</span>`;
+      return `<tr><td><input type="checkbox" ${r.include ? "checked" : ""} onchange="rqParsed[${i}].include=this.checked;renderReqCard()"></td>` +
+        `<td><b>${esc(r.zip)}</b>${served[r.zip] ? `<div style="font-size:10px;color:#166534">served ×${served[r.zip]}</div>` : ""}</td>` +
+        `<td><input type="text" value="${esc(r.place)}" oninput="rqParsed[${i}].place=this.value"></td>` +
+        `<td><input type="text" value="${esc(r.cond)}" placeholder="—" oninput="rqParsed[${i}].cond=this.value"></td>` +
+        `<td>${st}</td></tr>`;
+    }).join("") + `</tbody></table>`;
+  if (tbOnly.length) {
+    html += `<div class="rq-cond" style="color:#475569;background:#f8fafc;border-color:var(--border)"><b>In TB but NOT on their list (${tbOnly.length})</b> — kept, nothing is removed. Confirm with the clinician whether they still cover these:<br>` +
+      tbOnly.map(z => esc(zipTitleName(z))).join(" · ") + "</div>";
+  }
+  html += `<div class="mv-row"><button class="mv-btn primary" onclick="rqSaveParsed(false)">✋ Save as requested areas</button>` +
+    (toAdd ? `<button class="mv-btn primary" onclick="rqSaveParsed(true)" title="Save, and stage the ${toAdd} ZIPs that aren't in TB yet in the 📦 Coverage update">📦 Save + stage ${toAdd} not in TB</button>` : "") +
+    `<button class="mv-btn" onclick="rqParsed=null;renderReqCard()">↩ Re-paste</button>` +
+    `<button class="mv-btn" onclick="rqPasteOpen=false;rqParsed=null;renderReqCard()">Cancel</button></div>`;
+  return html;
+}
+
+async function rqParsePaste() {
+  const el = document.getElementById("rq-paste");
+  const parsed = parseClinicianZipList(el ? el.value : "");
+  if (!parsed.length) { showToast("No 5-digit ZIPs found in what was pasted"); return; }
+  rqParsed = parsed;
+  await ensureZipPlaces(parsed.map(r => r.zip));
+  rqParsed.forEach(r => { if (!r.place) r.place = zipPlaceCache.get(r.zip) || ""; });
+  renderReqCard();
+}
+
+async function rqSaveParsed(stage) {
+  if (!canEditPlan() || !rqParsed) return;
+  const rows = rqParsed.filter(r => r.include).map(r => {
+    const place = String(r.place || "").trim(), cond = String(r.cond || "").trim();
+    return {
+      clinician_id: clinician.id,
+      zip_code: r.zip,
+      note: (place || zipPlaceCache.get(r.zip) || r.zip) + (cond ? " — " + cond : ""),
+      set_by_email: (currentUser && currentUser.email) || null
+    };
+  });
+  if (!rows.length) { showToast("Nothing checked to save"); return; }
+  const res = await db.from("clinician_zip_requests").upsert(rows, { onConflict: "clinician_id,zip_code" });
+  if (res.error) { showToast("Couldn't save: " + res.error.message); return; }
+  const declared = declaredZipSet();
+  const excluded = excludedZipSet();
+  const missing = rows.map(r => r.zip_code).filter(z => !declared.has(z) && !excluded.has(z));
+  rqParsed = null; rqPasteOpen = false;
+  await reloadRequests();
+  if (stage && missing.length) {
+    const st = planEnsureEditing();
+    missing.forEach(z => { st.removed.delete(z); if (!st.added.includes(z)) st.added.push(z); });
+    renderMoveCard();
+    const card = document.getElementById("tp-move-card");
+    if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+    showToast("✋ " + rows.length + " saved · 📦 staged " + missing.length + " not in TB — review, then 💾 Save plan");
+  } else {
+    showToast("✋ " + rows.length + " requested area" + (rows.length === 1 ? "" : "s") + " saved with their conditions");
+  }
+  renderMapLayerChips();
+  syncZipBadgeReqState();
+}
+
+function toggleReqCompare() {
+  reqCompare = !reqCompare;
+  renderMapLayerChips();
+  syncZipBadgeReqState();
+  if (reqCompare) showToast("✋ Teal ring = on their list · ⚠ = has a condition · dashed = in TB but not on their list");
+}
+function syncZipBadgeReqState() {
+  const requested = requestedZipSet();
+  const declared = declaredZipSet();
+  (tpZipMarkers || []).forEach(el => {
+    const z = el && el.dataset ? el.dataset.zip : "";
+    if (!z) return;
+    if (el.dataset.baseText == null) el.dataset.baseText = el.textContent;
+    const onList = requested.has(z), cond = onList ? reqConditionFor(z) : "";
+    const ring = reqCompare && onList && declared.has(z);
+    const missing = reqCompare && declared.has(z) && !onList;
+    el.classList.toggle("req-on", ring);
+    el.classList.toggle("req-missing", missing);
+    el.textContent = (reqCompare && cond ? "⚠ " : "") + el.dataset.baseText;
+    // Own suffix on top of whatever the plan-state sync wrote
+    let t = el.title || "";
+    const prev = el.dataset.reqSuffix || "";
+    if (prev && t.endsWith(prev)) t = t.slice(0, t.length - prev.length);
+    const suf = (reqCompare && onList ? " · ✋ on their list" + (cond ? " — ⚠ " + cond : "") : "") +
+      (missing ? " · in TB, NOT on their list" : "");
+    el.title = t + suf;
+    el.dataset.reqSuffix = suf;
+  });
+}
+
 function renderReqCard() {
   const body = document.getElementById("tp-req-body");
   if (!body) return;
@@ -3403,7 +3593,8 @@ function renderReqCard() {
       [r.note, r.set_by_email, r.created_at ? fmtDate(r.created_at) : ""].filter(Boolean).join(" · ")]));
     const reqChip = z => {
       const inTb = declared.has(z);
-      return `<span class="zip-chip req" title="${esc(metaByZip.get(z) || "requested")}">✋ ${esc(z)}${placeSuffix(z)}` +
+      const cond = reqConditionFor(z);
+      return `<span class="zip-chip req" title="${esc(metaByZip.get(z) || "requested")}">${cond ? "⚠ " : ""}✋ ${esc(z)}${placeSuffix(z)}` +
         `<span style="font-weight:600;opacity:.8;margin-left:4px">${inTb ? "✓ in TB" : "· not in TB"}</span>` +
         (canEdit ? `<span class="x" onclick="rqDelete('${esc(z)}')" title="Remove the request">✕</span>` : "") + "</span>";
     };
@@ -3420,9 +3611,16 @@ function renderReqCard() {
       }
     });
     html += "<div class='zip-chips' style='margin-bottom:8px'>" + chips + "</div>";
+    const condRows = zipRequests.map(r => ({ z: normZip(r.zip_code), note: r.note || "" }))
+      .filter(r => r.z && reqConditionFor(r.z)).sort((a, b) => a.z.localeCompare(b.z));
+    if (condRows.length) {
+      html += `<div class="rq-cond"><b>⚠ Conditions (${condRows.length})</b><br>` +
+        condRows.map(r => `<b>${esc(r.z)}</b> · ${esc(r.note)}`).join("<br>") + "</div>";
+    }
   } else {
     html += "<div class='empty-note' style='margin-bottom:8px'>No requested areas recorded.</div>";
   }
+  if (canEdit) html += renderReqPasteHtml(declared);
 
   // Requested-but-not-declared → offer to stage them straight into the move plan.
   const missing = Array.from(requested).filter(z => !declared.has(z)).sort();
@@ -3574,6 +3772,9 @@ function renderMapLayerChips() {
   }
   chips.push(`<button type="button" class="ml-chip${mapLayers.zips ? " on" : ""}"${tlDis} onclick="toggleMapLayer('zips')">🏷 ZIP badges</button>`);
   chips.push(`<button type="button" class="ml-chip${mapLayers.pins ? " on" : ""}" onclick="toggleMapLayer('pins')">📍 Pins</button>`);
+  if (zipRequests.length) {
+    chips.push(`<button type="button" class="ml-chip${reqCompare ? " on" : ""}" title="Compare the clinician's own list (✋ requested areas) with TB: teal ring = on their list, ⚠ = has a condition, dashed = in TB but NOT on their list" onclick="toggleReqCompare()">✋ Compare their list</button>`);
+  }
   // Measuring tools — portal-consistent Ruler + Lens + typical-reach preset.
   chips.push(`<span class="ml-divider"></span>`);
   chips.push(`<button type="button" class="ml-chip${toolMode === "ruler" ? " armed" : ""}" onclick="toggleTool('ruler')">📏 Ruler</button>`);
@@ -4654,6 +4855,7 @@ function initTerritoryMap() {
       tpZipMarkers.push(el);
     }
     syncZipBadgePlanState();
+    syncZipBadgeReqState();
   });
 }
 
