@@ -108,6 +108,13 @@
   .map-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 
   .zip-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  /* Muted sub-sections under the gap chips (refused / removed): full-width
+     block with its own header line + chip row, not mixed into the flex row. */
+  .gap-sub { flex-basis: 100%; margin-top: 8px; padding-top: 7px; border-top: 1px dashed #e5e7eb; }
+  .gap-sub-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: #6b7280; margin-bottom: 5px; }
+  .gap-sub-head b { color: #4b5563; }
+  .gap-sub-head .mv-btn { margin-left: auto; padding: 2px 9px; font-size: 11px; }
+  .gap-sub .zip-chips { gap: 5px; }
   .zip-chip { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; border: 1px solid; }
   .zip-chip.declared { background: #eef7f0; color: #166534; border-color: #bfe3c9; }
   .zip-chip.served   { background: #e4f0ff; color: #1a5fb4; border-color: #c3d9ff; }
@@ -1613,15 +1620,17 @@ function renderZipPanels() {
   };
 
   const refusedHtml = gapRefused.length
-    ? `<div style="margin-top:7px;font-size:11px;color:#6b7280"><b>⛔ Refused but has history</b> — not counted as gaps: ` +
-      gapRefused.map(z => `<span class="zip-chip gap-refused" title="On the won't-serve list — do NOT add to TB">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join(" ") +
-      `</div>`
+    ? `<div class="gap-sub"><div class="gap-sub-head"><span><b>⛔ Refused but has history</b> — on the won't-serve list, not counted as gaps</span></div>` +
+      `<div class="zip-chips">` +
+      gapRefused.map(z => `<span class="zip-chip gap-refused" title="On the won't-serve list — do NOT add to TB">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join("") +
+      `</div></div>`
     : "";
   const removedHtml = gapRemoved.length
-    ? `<div style="margin-top:7px;font-size:11px;color:#6b7280"><b>➖ Removed from TB in a coverage change</b> — not counted as gaps: ` +
-      gapRemoved.map(z => `<span class="zip-chip gap-refused" title="Taken out of TB on purpose (📜 Coverage changes). Has visits since the cutoff — mark ⛔ Won't serve so the roster flag and Suggest agree.">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join(" ") +
-      (canEditPlan() ? ` <button type="button" class="mv-btn" style="padding:1px 8px;font-size:11px" onclick="offerWontServeForZips(${esc(JSON.stringify(gapRemoved))})" title="Roster gap flag, map status bar and Suggest only know ⛔ won't-serve — this makes them agree">⛔ Mark won't serve</button>` : "") +
-      `</div>`
+    ? `<div class="gap-sub"><div class="gap-sub-head"><span><b>➖ Removed from TB in a coverage change</b> — not counted as gaps</span>` +
+      (canEditPlan() ? `<button type="button" class="mv-btn" onclick="offerWontServeForZips(${esc(JSON.stringify(gapRemoved))})" title="Roster gap flag, map status bar and Suggest only know ⛔ won't-serve — this makes them agree">⛔ Mark won't serve</button>` : "") +
+      `</div><div class="zip-chips">` +
+      gapRemoved.map(z => `<span class="zip-chip gap-refused" title="Taken out of TB on purpose (📜 Coverage changes). Has visits since the cutoff — mark ⛔ Won't serve so the roster flag and Suggest agree.">${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span></span>`).join("") +
+      `</div></div>`
     : "";
   document.getElementById("tp-gap-add").innerHTML = (gapAdd.length
     ? gapAdd.map(z => gapChip(z, "gap-add", `${esc(z)}${placeSuffix(z)}<span class="cnt">×${served[z]}</span>`, "")).join("")
@@ -3613,6 +3622,7 @@ async function reloadExclusions() {
   const r = await db.from("clinician_zip_exclusions").select("*").eq("clinician_id", clinician.id).order("zip_code");
   zipExclusions = (r && !r.error && r.data) ? r.data : zipExclusions;
   renderExclCard();
+  renderZipPanels();
   if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
   initTerritoryMap();
 }
