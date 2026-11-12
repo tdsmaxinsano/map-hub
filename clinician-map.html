@@ -12570,6 +12570,7 @@
       const zipCounts = {};
 
       function isRowEligible(row) {
+        if (isCompletedServiceRowSiteExcluded(clinicianId, row)) return false;
         if (!cutoffDate) return true;
         var anchorDate = getCompletedServiceCoverageAnchorDate(row);
         if (!anchorDate) return true;
@@ -13157,8 +13158,9 @@
           return assignment.service_row_id;
         }));
         const matchingRows = (site.rows || []).filter(function(row) {
-          return matchingRowIds.has(row.id);
+          return matchingRowIds.has(row.id) && !isCompletedServiceRowSiteExcluded(normalizedClinicianId, row);
         });
+        if (!matchingRows.length) return null;
         const uniquePatients = Array.from(new Set(matchingRows.map(function(row) {
           return String(row.patient_name || row.patient_external_id || "").trim();
         }).filter(Boolean)));
@@ -13519,9 +13521,10 @@
           (assignmentResponse.data || []).concat(fallbackHistoryResponse.assignments || [])
         );
 
+        const allHistoryRows = Array.from(allRowsById.values());
         const history = buildClinicianCompletedServiceHistoryFromRows(
           normalizedClinicianId,
-          Array.from(allRowsById.values()),
+          allHistoryRows.filter(function(row) { return !isCompletedServiceRowSiteExcluded(normalizedClinicianId, row); }),
           mergedAssignments
         ) || {
           siteCount: 0,
@@ -13533,10 +13536,18 @@
           sites: []
         };
 
+        // Raw rows kept so a site-exclusion change can rebuild without refetching.
+        history._rawRows = allHistoryRows;
+        history._rawAssignments = mergedAssignments;
         appState.clinicianCompletedServiceHistoryByClinicianId.set(normalizedClinicianId, history);
 
-        if (history.earliestServiceDate) {
-          await persistClinicianDerivedStartDate(normalizedClinicianId, history.earliestServiceDate);
+        // Start date = first visit EVER — site exclusions must not move it.
+        const anyExcluded = allHistoryRows.some(function(row) { return isCompletedServiceRowSiteExcluded(normalizedClinicianId, row); });
+        const fullHistoryForStart = anyExcluded
+          ? (buildClinicianCompletedServiceHistoryFromRows(normalizedClinicianId, allHistoryRows, mergedAssignments) || history)
+          : history;
+        if (fullHistoryForStart.earliestServiceDate) {
+          await persistClinicianDerivedStartDate(normalizedClinicianId, fullHistoryForStart.earliestServiceDate);
         }
 
         if (appState.clinicianPinMode === "work") {
@@ -17176,8 +17187,23 @@
           const changed = prev.size !== keys.size || Array.from(keys).some(function(k) { return !prev.has(k); });
           appState.siteExclusionKeys = keys;
           siteExclusionsLoadedAt = Date.now();
-          if (changed && appState.hasLoadedCompletedServices && !(options && options.silent)) {
-            refreshCompletedServiceIsolationViews();
+          if (changed && !(options && options.silent)) {
+            appState.clinicianCompletedServiceHistoryByClinicianId.forEach(function(h, cid) {
+              if (!h || !h._rawRows) return;
+              const rebuilt = buildClinicianCompletedServiceHistoryFromRows(
+                cid,
+                h._rawRows.filter(function(row) { return !isCompletedServiceRowSiteExcluded(cid, row); }),
+                h._rawAssignments
+              ) || { siteCount: 0, totalServiceRows: 0, totalServiceVisits: 0, uniquePatientCount: 0, latestServiceDate: null, earliestServiceDate: null, sites: [] };
+              rebuilt._rawRows = h._rawRows;
+              rebuilt._rawAssignments = h._rawAssignments;
+              appState.clinicianCompletedServiceHistoryByClinicianId.set(cid, rebuilt);
+            });
+            if (appState.hasLoadedCompletedServices) refreshCompletedServiceIsolationViews();
+            else if (appState.currentProfileClinicianId) renderClinicianCompletedServiceHistory();
+            if (appState.clinicianPinMode === "work" && typeof refreshClinicianCoordinateDependentViews === "function") {
+              refreshClinicianCoordinateDependentViews();
+            }
           }
         } finally {
           siteExclusionsLoading = null;
@@ -26181,12 +26207,14 @@
     for (var i = 0; i < keys.length; i++) {
       var site = appState.completedServiceSitesByKey.get(keys[i]);
       if (!site || !hasCompletedServiceCoordinates(site)) continue;
-      if (cutoffDate) {
+      if (cutoffDate || (appState.siteExclusionKeys && appState.siteExclusionKeys.size)) {
         var rowIds = new Set((site.assignments || []).filter(function(a) {
           return String(a.matched_clinician_id || "").trim() === cid;
         }).map(function(a) { return a.service_row_id; }));
         var hasEligibleRow = (site.rows || []).some(function(row) {
           if (!rowIds.has(row.id)) return false;
+          if (isCompletedServiceRowSiteExcluded(cid, row)) return false;
+          if (!cutoffDate) return true;
           var anchor = getCompletedServiceCoverageAnchorDate(row);
           if (!anchor) return true;
           return new Date(anchor) >= cutoffDate;
