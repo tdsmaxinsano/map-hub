@@ -211,6 +211,15 @@
   .tp-zip-badge.declared { background: #d97706; }
   .tp-zip-badge.excluded { background: #111827; }
   .tp-zip-badge.requested { background: #0d9488; }
+  /* Plan-aware: staged in the 📦 ZIP plan, awaiting TherapyBoss */
+  .tp-zip-badge.plan-removing { background: #fee2e2 !important; color: #991b1b !important; border: 1.5px dashed #dc2626 !important; text-decoration: line-through; }
+  .tp-zip-badge.plan-adding { background: #dcfce7 !important; color: #166534 !important; border: 1.5px dashed #16a34a !important; }
+  .zip-chip.plan-removing-chip { background: #fff5f5; color: #b3261e; border: 1px dashed #dc2626; text-decoration: line-through; }
+  .zip-chip.plan-adding-chip { background: #f0fdf4 !important; color: #166534 !important; border: 1px dashed #16a34a !important; }
+  .gap-sub { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; margin: 10px 0 2px; }
+  .gap-sub .gap-sub-n { font-weight: 700; color: var(--muted); }
+  .gap-sub .mv-btn { margin-left: auto; padding: 3px 9px; font-size: 11px; text-transform: none; letter-spacing: 0; }
+  .gap-sub-hint { font-size: 11px; color: var(--muted); margin: 0 0 5px; }
 
   .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--blue); color: #fff; padding: 11px 22px; border-radius: 8px; font-size: 13px; font-weight: 700; z-index: 200; opacity: 0; transition: opacity .2s; pointer-events: none; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
   .toast.show { opacity: 1; }
@@ -1456,6 +1465,7 @@ function renderZipPanels() {
   const declared = declaredZipSet();
   const served = servedZipCounts();
   tbSyncCopiedWithDeclared(declared);
+  const planSets = stagedPlanSets();
   const servedZips = Object.keys(served).sort((a, b) => served[b] - served[a]);
   const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
 
@@ -1508,6 +1518,9 @@ function renderZipPanels() {
   }
 
   const gapChip = (z, cls, inner, title) => {
+    if (cls === "gap-add" && planSets.adding.has(z)) {
+      return `<span class="zip-chip gap-add plan-adding-chip" title="${esc("Staged to ADD in the 📦 ZIP plan — " + (planSets.saved ? "awaiting TherapyBoss (add it there, then re-import)" : "💾 plan not saved yet"))}">＋ ${inner}</span>`;
+    }
     const copied = cls === "gap-add" && tbEntryDone.has(z);
     const click = tbEntryMode ? ` onclick="tbCopyOne('${esc(z)}')"` : "";
     let t = tbEntryMode ? "Click to copy just this ZIP for TherapyBoss" + (title ? " — " + title : "") : (title || "");
@@ -1537,16 +1550,79 @@ function renderZipPanels() {
     });
   }
   const idleHead = document.getElementById("tp-gap-idle-head");
-  if (idleHead) idleHead.textContent = cutoff ? "Declared but not served since the cutoff" : "Declared but never served";
-  document.getElementById("tp-gap-idle").innerHTML = gapIdle.length
-    ? gapIdle.map(z => {
-        const preCutoffOnly = cutoff && servedAllTime.has(z);
-        const title = preCutoffOnly
-          ? "Served before the cutoff — no episodes since " + cutoff.toISOString().slice(0, 10)
-          : "No completed-service history in this ZIP at all";
-        return gapChip(z, "gap-idle", `${preCutoffOnly ? "🕰 " : ""}${esc(z)}${placeSuffix(z)}`, title);
-      }).join("")
-    : "<span class='empty-note'>None — every declared ZIP has " + (cutoff ? "recent " : "") + "history.</span>";
+  if (idleHead) idleHead.textContent = "Declared in TB but not served" + (cutoff ? " since the cutoff" : "");
+  const cutoffIso = cutoff ? cutoff.toISOString().slice(0, 10) : "";
+  const removingIdle = gapIdle.filter(z => planSets.removing.has(z));
+  const liveIdle = gapIdle.filter(z => !planSets.removing.has(z));
+  const oldArea = cutoff ? liveIdle.filter(z => servedAllTime.has(z)) : [];
+  const neverServed = liveIdle.filter(z => !(cutoff && servedAllTime.has(z)));
+  gapIdleGroups = { old: oldArea, never: neverServed };
+  const canStage = canEditPlan() && !planTableMissing;
+  const grp = (title, color, hint, zips, kind, chipFn) => !zips.length ? "" :
+    `<div class="gap-sub" style="color:${color}">${title} <span class="gap-sub-n">${zips.length}</span>` +
+      (canStage && kind ? `<button type="button" class="mv-btn" onclick="stageIdleRemoval('${kind}')" title="Stage all of these for removal in the 📦 ZIP plan">− Stage removal (${zips.length})</button>` : "") +
+    `</div><div class="gap-sub-hint">${hint}</div><div class="zip-chips">${zips.map(chipFn).join("")}</div>`;
+  const html =
+    grp("🕰 Old area — served before the cutoff", "#92400e",
+      "Had visits before " + esc(cutoffIso) + ", none since — likely the territory they moved away from.",
+      oldArea, "old",
+      z => gapChip(z, "gap-idle", `🕰 ${esc(z)}${placeSuffix(z)}`, "Served before the cutoff — no episodes since " + cutoffIso)) +
+    grp("Never served — in TB since the original load", "#92400e",
+      "Declared in TherapyBoss but no completed visits ever. Remove, or keep if it's still reasonable reach.",
+      neverServed, "never",
+      z => gapChip(z, "gap-idle", `${esc(z)}${placeSuffix(z)}`, "No completed-service history in this ZIP at all")) +
+    grp("Staged for removal — " + (planSets.saved ? "awaiting TB" : "💾 plan not saved yet"), "#b3261e",
+      planSets.saved
+        ? "Remove these in TherapyBoss, then re-import — they disappear from here once TB no longer has them."
+        : "Save the plan in the 📦 card, remove these in TherapyBoss, then re-import.",
+      removingIdle, "",
+      z => `<span class="zip-chip plan-removing-chip" title="Staged for removal in the 📦 ZIP plan — still in TB until removed there and re-imported">− ${esc(z)}${placeSuffix(z)}</span>`);
+  document.getElementById("tp-gap-idle").innerHTML = html ||
+    "<span class='empty-note'>None — every declared ZIP has " + (cutoff ? "recent " : "") + "history.</span>";
+}
+
+// ── Plan awareness: what the 📦 ZIP plan has staged, for the gaps card
+// and map badges. Unsaved edits win while the editor is open.
+let gapIdleGroups = { old: [], never: [] };
+function stagedPlanSets() {
+  const declared = declaredZipSet();
+  if (moveState && (planEditing || !zipPlan)) {
+    return {
+      removing: new Set(Array.from(moveState.removed || []).filter(z => declared.has(z))),
+      adding: new Set((moveState.added || []).filter(z => !declared.has(z))),
+      saved: false
+    };
+  }
+  if (zipPlan) {
+    const target = new Set((zipPlan.target_zips || []).map(normZip));
+    return {
+      removing: new Set(Array.from(declared).filter(z => !target.has(z))),
+      adding: new Set(Array.from(target).filter(z => !declared.has(z))),
+      saved: true
+    };
+  }
+  return { removing: new Set(), adding: new Set(), saved: false };
+}
+function stageIdleRemoval(kind) {
+  if (!canEditPlan() || planTableMissing) return;
+  const zips = (gapIdleGroups[kind] || []).slice();
+  if (!zips.length) return;
+  const st = planEnsureEditing();
+  zips.forEach(z => st.removed.add(z));
+  renderMoveCard();
+  showToast("− Staged " + zips.length + " ZIP" + (zips.length === 1 ? "" : "s") + " for removal — 💾 Save plan in the 📦 card to keep it");
+}
+function syncZipBadgePlanState() {
+  const ps = stagedPlanSets();
+  (tpZipMarkers || []).forEach(el => {
+    const z = el && el.dataset ? el.dataset.zip : "";
+    if (!z) return;
+    const rem = ps.removing.has(z), add = ps.adding.has(z);
+    el.classList.toggle("plan-removing", rem);
+    el.classList.toggle("plan-adding", add);
+    el.title = (el.dataset.baseTitle || "") +
+      (rem ? " · 🔴 staged for REMOVAL — awaiting TB" : add ? " · 🟢 staged to ADD — awaiting TB" : "");
+  });
 }
 
 // ── Coverage-gap copy tools ─────────────────────────────────────────
@@ -2040,6 +2116,8 @@ function renderMoveCard() {
   body.innerHTML = html;
   const noteInput = document.getElementById("mv-note");
   if (noteInput && moveState && moveState.note) noteInput.value = moveState.note;
+  // Keep the gaps card + map badges in step with what's staged
+  if (clinician) { renderZipPanels(); syncZipBadgePlanState(); }
 }
 
 function renderPlanEditor() {
@@ -3926,9 +4004,12 @@ function initTerritoryMap() {
         : cls === "served" ? "served (" + served[zip] + " episodes) — NOT declared in TB"
         : "declared in TB — never served");
       if (!mapLayers.zips) el.style.display = "none"; // badges arrive async — honor the toggle
+      el.dataset.zip = zip;
+      el.dataset.baseTitle = el.title;
       new mapboxgl.Marker({ element: el, anchor: "center" }).setLngLat([c.lng, c.lat]).addTo(tpMap);
       tpZipMarkers.push(el);
     }
+    syncZipBadgePlanState();
   });
 }
 
