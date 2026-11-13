@@ -2751,7 +2751,7 @@ function renderPlanEditor() {
   } else {
     html += "<span class='empty-note'>No TB-declared ZIPs to start from — add the new-area ZIPs below.</span>";
   }
-  html += "<div style='font-size:11px;color:var(--muted);margin-top:8px'>💡 Stage by area: on the map, use <b>🟢 Stage adds</b> (green circle) or <b>🔴 Stage removals</b> (red circle).</div>";
+  html += "<div style='font-size:11px;color:var(--muted);margin-top:8px'>💡 Stage by area: on the map, use <b>🟢 Stage adds</b> or <b>🔴 Stage removals</b> — circle, square or a custom shape.</div>";
   html += "<div class='mv-row' style='margin-top:10px'>" +
     "<input id='mv-add-zips' class='mv-input' placeholder='Add new-area ZIPs (e.g. 60056, 60005)' style='min-width:200px'>" +
     "<button class='mv-btn' onclick='addPlanZips()'>＋ Add</button></div>";
@@ -3179,15 +3179,15 @@ async function reverseZipAt(pt) {
 // cutoff would wrongly hide their current area too). Tagged with a note
 // so "↩ Restore all from the red circle" can undo it in one click.
 const CIRCLE_EXCL_NOTE = "Red circle — area no longer served";
-async function offerExcludeSitesInCircle(center, rMi) {
-  if (!canEditPlan() || !center) return 0;
+async function offerExcludeSitesInCircle(contains, noun) {
+  if (!canEditPlan() || typeof contains !== "function") return 0;
   if (siteExclTableMissing) return 0;
   const inside = buildSites().filter(st => st.lat != null && st.lng != null && !st.excluded &&
-    haversineMiles(center.lat, center.lng, st.lat, st.lng) <= rMi);
+    contains(st.lat, st.lng));
   if (!inside.length) return 0;
   const visits = inside.reduce((t, st) => t + (st.totalVisits || 0), 0);
   const msg = "Also exclude the " + inside.length + " visit location" + (inside.length === 1 ? "" : "s") +
-    " inside the red circle (" + visits + " visit" + (visits === 1 ? "" : "s") + ")?\n\n" +
+    " inside the red " + (noun || "circle") + " (" + visits + " visit" + (visits === 1 ? "" : "s") + ")?\n\n" +
     "• They stop counting in served ZIPs, coverage gaps, work center, travel stats, and the roster's gap flag.\n" +
     "• The dots turn gray (🚫 Excluded layer). The visit history table keeps every row.\n" +
     "• Undo in one click: 🚫 Excluded locations → ↩ Restore all from the red circle.";
@@ -3250,18 +3250,19 @@ async function offerWontServeForZips(zips) {
   await reloadExclusions();
 }
 
-async function stageZipsInCircle(kind, center, rMi) {
-  if (!canEditPlan() || !center || lensStageBusy) return;
+async function stageZipsInShape(kind) {
+  if (!canEditPlan() || !stageShapeReady() || lensStageBusy) return;
   if (planTableMissing) { showToast("Run migration 55 (clinician_zip_plans) first"); return; }
   lensStageBusy = true;
   const declared = declaredZipSet();
-  const inCircle = c => c && haversineMiles(center.lat, center.lng, c.lat, c.lng) <= rMi;
+  const noun = stageShapeNoun();
+  const inCircle = c => c && stageShapeContains(c.lat, c.lng);
   try {
     let picks = [], refused = [], keepInside = [], servedOnlyInside = [];
     if (kind === "add") {
-      showToast("🔍 Finding ZIPs inside the " + fmtRadiusLabel(rMi) + " circle…");
+      showToast("🔍 Finding ZIPs inside the " + stageShapeLabel() + "…");
       const found = new Set();
-      const pts = lensSamplePoints(center, rMi);
+      const pts = stageShapeSamplePoints();
       for (let k = 0; k < pts.length; k += 8) {
         const batch = await Promise.all(pts.slice(k, k + 8).map(reverseZipAt));
         batch.forEach(z => { if (z) found.add(z); });
@@ -3294,16 +3295,16 @@ async function stageZipsInCircle(kind, center, rMi) {
       servedOnlyInside.sort();
       if (!picks.length) {
         if (servedOnlyInside.length) await offerWontServeForZips(servedOnlyInside);
-        const nSites = await offerExcludeSitesInCircle(center, rMi);
-        if (!servedOnlyInside.length && !nSites) showToast("No ZIPs or visit locations inside this circle");
+        const nSites = await offerExcludeSitesInCircle(stageShapeContains, noun);
+        if (!servedOnlyInside.length && !nSites) showToast("No ZIPs or visit locations inside this " + noun);
         return;
       }
     }
     picks.sort(); refused.sort(); keepInside.sort();
     if (!picks.length && !keepInside.length) {
       showToast(kind === "add"
-        ? "No ZIPs centered inside this circle" + (refused.length ? " (" + refused.length + " skipped — won't-serve)" : "")
-        : "No declared ZIPs centered inside this circle");
+        ? "No ZIPs centered inside this " + noun + (refused.length ? " (" + refused.length + " skipped — won't-serve)" : "")
+        : "No declared ZIPs centered inside this " + noun);
       return;
     }
     await ensureZipPlaces(picks.concat(refused, keepInside));
@@ -3315,7 +3316,7 @@ async function stageZipsInCircle(kind, center, rMi) {
       const newServed = picks.filter(z => servedCounts[z]);
       const newNone = picks.filter(z => !servedCounts[z]);
       const reKept = keepInside.filter(z => stPrev.removed && stPrev.removed.has(z));
-      msg = "Stage everything centered inside this circle?\n" +
+      msg = "Stage everything centered inside this " + noun + "?\n" +
         (newServed.length ? "\nNEW — has completed services, not in TB (" + newServed.length + "):\n" + newServed.map(line).join("\n") + "\n" : "") +
         (newNone.length ? "\nNEW — no visit history yet (" + newNone.length + "):\n" + newNone.map(line).join("\n") + "\n" : "") +
         (keepInside.length ? "\nALREADY IN TB — kept in the list (" + keepInside.length + ")" +
@@ -3340,7 +3341,7 @@ async function stageZipsInCircle(kind, center, rMi) {
       ? "＋ Staged " + picks.length + " new" + (keepInside.length ? " + kept " + keepInside.length + " already in TB" : "") + " — review the plan, then 💾 Save plan"
       : "− Staged " + picks.length + " ZIP" + (picks.length === 1 ? "" : "s") + " — review the plan, then 💾 Save plan");
     if (kind === "remove" && servedOnlyInside.length) await offerWontServeForZips(servedOnlyInside);
-    if (kind === "remove") await offerExcludeSitesInCircle(center, rMi);
+    if (kind === "remove") await offerExcludeSitesInCircle(stageShapeContains, noun);
   } catch (e) {
     showToast("Staging failed: " + (e.message || e));
   } finally {
@@ -4154,8 +4155,8 @@ function renderMapLayerChips() {
   if (canEditPlan()) {
     chips.push(`<button type="button" class="ml-chip" title="Flag every site plotted more than 15 mi from its own ZIP (a wrong-town geocode) and re-pin them in one pass" onclick="verifySiteLocations()">🧭 Verify locations</button>`);
     if (!planTableMissing) {
-      chips.push(`<button type="button" class="ml-chip${toolMode === "stageAdd" ? " armed" : ""}" style="${toolMode === "stageAdd" ? "border-color:#16a34a;color:#166534" : ""}" title="Green circle: drop it on an area to ADD to this clinician's TherapyBoss coverage — every ZIP centered inside gets staged in the 📦 ZIP plan" onclick="toggleTool('stageAdd')">🟢 Stage adds</button>`);
-      chips.push(`<button type="button" class="ml-chip${toolMode === "stageRemove" ? " armed" : ""}" style="${toolMode === "stageRemove" ? "border-color:#dc2626;color:#991b1b" : ""}" title="Red circle: drop it on an area to REMOVE from TherapyBoss coverage — every declared ZIP centered inside gets staged for removal" onclick="toggleTool('stageRemove')">🔴 Stage removals</button>`);
+      chips.push(`<button type="button" class="ml-chip${toolMode === "stageAdd" ? " armed" : ""}" style="${toolMode === "stageAdd" ? "border-color:#16a34a;color:#166534" : ""}" title="Green circle, square or custom shape: drop it on an area to ADD to this clinician's TherapyBoss coverage — every ZIP centered inside gets staged in the 📦 ZIP plan" onclick="toggleTool('stageAdd')">🟢 Stage adds</button>`);
+      chips.push(`<button type="button" class="ml-chip${toolMode === "stageRemove" ? " armed" : ""}" style="${toolMode === "stageRemove" ? "border-color:#dc2626;color:#991b1b" : ""}" title="Red circle, square or custom shape: drop it on an area to REMOVE from TherapyBoss coverage — every declared ZIP centered inside gets staged for removal" onclick="toggleTool('stageRemove')">🔴 Stage removals</button>`);
     }
     chips.push(`<button type="button" class="ml-chip${toolMode === "nogo" ? " armed" : ""}"${tlDis} title="Draw hard no-go boundaries (several zones, up to ${NO_GO_MAX_POINTS} draggable corners each) — Accept marks every ZIP inside them won't-serve, portal-wide" onclick="toggleTool('nogo')">⛔ No-go zones${noGoZones.length ? " (" + noGoZones.length + ")" : ""}</button>`);
     if (toolMode === "nogo") {
@@ -4172,12 +4173,23 @@ function renderMapLayerChips() {
   }
   if ((toolMode === "stageAdd" || toolMode === "stageRemove") && canEditPlan()) {
     const isAdd = toolMode === "stageAdd";
+    const col = isAdd ? "#166534" : "#991b1b";
+    const shapeBtn = (key, label, tip) =>
+      `<button type="button" class="tstep" style="width:auto;padding:0 8px;${stageShape === key ? "font-weight:800;color:" + col + ";border-color:" + col + ";background:" + (isAdd ? "#ecfdf3" : "#fef2f2") : ""}" title="${tip}" onclick="setStageShape('${key}')">${label}</button>`;
+    const sizeCtl = stageShape === "custom"
+      ? `<span class="treadout" style="width:auto;padding:0 6px;color:${col}">${stagePoly.length} corner${stagePoly.length === 1 ? "" : "s"}</span>` +
+        `<button type="button" class="tstep" style="width:auto;padding:0 8px" ${stagePoly.length ? "" : "disabled"} onclick="stagePolyUndo()" title="Remove the last corner">↶ Undo</button>`
+      : `<button type="button" class="tstep" onclick="stepStageRadius(-1)" ${stageRadius <= RADIUS_MIN_MI ? "disabled" : ""} aria-label="Shrink">−</button>` +
+        `<span class="treadout" style="color:${col};width:auto;padding:0 6px">${esc(stageShape === "square" ? fmtMiles(stageRadius * 2) + " wide" : fmtRadiusLabel(stageRadius))}</span>` +
+        `<button type="button" class="tstep" onclick="stepStageRadius(1)" ${stageRadius >= RADIUS_MAX_MI ? "disabled" : ""} aria-label="Grow">+</button>`;
     chips.push(`<span class="tp-tool-controls">` +
-      `<button type="button" class="tstep" onclick="stepStageRadius(-1)" ${stageRadius <= RADIUS_MIN_MI ? "disabled" : ""} aria-label="Shrink circle">−</button>` +
-      `<span class="treadout" style="color:${isAdd ? "#166534" : "#991b1b"}">${esc(fmtRadiusLabel(stageRadius))}</span>` +
-      `<button type="button" class="tstep" onclick="stepStageRadius(1)" ${stageRadius >= RADIUS_MAX_MI ? "disabled" : ""} aria-label="Grow circle">+</button>` +
-      `<button type="button" class="tstep" style="width:auto;padding:0 10px;font-weight:800;color:#fff;background:${isAdd ? "#16a34a" : "#dc2626"};border-color:${isAdd ? "#16a34a" : "#dc2626"}" ${stageCenter ? "" : "disabled"} onclick="stageZipsInCircle('${isAdd ? "add" : "remove"}', stageCenter, stageRadius)">✓ Stage ${isAdd ? "adds" : "removals"}</button>` +
-      `<button type="button" class="tstep" style="color:#b3261e" title="Remove the circle" onclick="clearStageTool();renderMapLayerChips();renderToolStatus()">✕</button>` +
+      shapeBtn("circle", "◯", "Circle — click to drop, − / + to resize") +
+      shapeBtn("square", "▢", "Square — click to drop, − / + to resize") +
+      shapeBtn("custom", "✎ Custom", "Custom shape — click the map to add corners (drag to adjust, right-click to delete), at least 3") +
+      `<span class="ml-divider"></span>` +
+      sizeCtl +
+      `<button type="button" class="tstep" style="width:auto;padding:0 10px;font-weight:800;color:#fff;background:${isAdd ? "#16a34a" : "#dc2626"};border-color:${isAdd ? "#16a34a" : "#dc2626"}" ${stageShapeReady() ? "" : "disabled"} onclick="stageZipsInShape('${isAdd ? "add" : "remove"}')">✓ Stage ${isAdd ? "adds" : "removals"}</button>` +
+      `<button type="button" class="tstep" style="color:#b3261e" title="Remove the shape" onclick="clearStageTool();renderMapLayerChips();renderToolStatus()">✕</button>` +
       `</span>`);
   }
   if (toolMode === "lens" || lensCenter) {
@@ -4227,18 +4239,150 @@ function getRadiusStepDelta(current, direction) {
 }
 // ── 🟢/🔴 Staging circle (separate from the measuring Lens) ──────────
 let stageCenter = null;
-let stageRadius = 2;
+let stageRadius = 2;          // circle radius; square half-width
 let stageCenterMarker = null;
+// Shape of the staging area: ◯ circle · ▢ square · ✎ custom (click corners).
+let stageShape = "circle";
+let stagePoly = [];           // custom-shape corners [{lat,lng}]
+let stagePolyMarkers = [];
+const STAGE_POLY_MAX = 20;
+function stageShapeNoun() { return stageShape === "square" ? "square" : stageShape === "custom" ? "shape" : "circle"; }
+function stageShapeReady() { return stageShape === "custom" ? stagePoly.length >= 3 : !!stageCenter; }
+function fmtMiles(n) { return (Number.isInteger(n) ? String(n) : n.toFixed(1)) + " mi"; }
+function stageShapeLabel() {
+  if (stageShape === "square") return fmtMiles(stageRadius * 2) + " square";
+  if (stageShape === "custom") return "custom shape (" + stagePoly.length + " corner" + (stagePoly.length === 1 ? "" : "s") + ")";
+  return fmtRadiusLabel(stageRadius) + " circle";
+}
+function stageSquareCorners() {
+  const dLat = stageRadius / 69;
+  const dLng = stageRadius / (69 * Math.cos(stageCenter.lat * Math.PI / 180));
+  return [
+    { lat: stageCenter.lat + dLat, lng: stageCenter.lng - dLng },
+    { lat: stageCenter.lat + dLat, lng: stageCenter.lng + dLng },
+    { lat: stageCenter.lat - dLat, lng: stageCenter.lng + dLng },
+    { lat: stageCenter.lat - dLat, lng: stageCenter.lng - dLng }
+  ];
+}
+function stageShapeContains(lat, lng) {
+  if (lat == null || lng == null) return false;
+  if (stageShape === "custom") return pointInPoly(stagePoly, lat, lng);
+  if (!stageCenter) return false;
+  if (stageShape === "square") {
+    const dy = Math.abs(lat - stageCenter.lat) * 69;
+    const dx = Math.abs(lng - stageCenter.lng) * 69 * Math.cos(stageCenter.lat * Math.PI / 180);
+    return dy <= stageRadius && dx <= stageRadius;
+  }
+  return haversineMiles(stageCenter.lat, stageCenter.lng, lat, lng) <= stageRadius;
+}
+// Reverse-geocode sample grid for "find every ZIP inside" (≈110 points max).
+function stageShapeSamplePoints() {
+  if (stageShape === "circle") return lensSamplePoints(stageCenter, stageRadius);
+  const pts = stageShape === "custom" ? stagePoly : stageSquareCorners();
+  const minLat = Math.min(...pts.map(p => p.lat)), maxLat = Math.max(...pts.map(p => p.lat));
+  const minLng = Math.min(...pts.map(p => p.lng)), maxLng = Math.max(...pts.map(p => p.lng));
+  const midLat = (minLat + maxLat) / 2;
+  const hMi = (maxLat - minLat) * 69, wMi = (maxLng - minLng) * 69 * Math.cos(midLat * Math.PI / 180);
+  const spacing = Math.max(0.5, Math.sqrt(Math.max(hMi * wMi, 0.25) / 110));
+  const dLat = spacing / 69, dLng = spacing / (69 * Math.cos(midLat * Math.PI / 180));
+  const out = [];
+  const c = { lat: pts.reduce((t, p) => t + p.lat, 0) / pts.length, lng: pts.reduce((t, p) => t + p.lng, 0) / pts.length };
+  if (stageShapeContains(c.lat, c.lng)) out.push(c);
+  for (let la = minLat + dLat / 2; la <= maxLat; la += dLat) {
+    for (let ln = minLng + dLng / 2; ln <= maxLng; ln += dLng) {
+      if (stageShapeContains(la, ln)) out.push({ lat: la, lng: ln });
+    }
+  }
+  if (!out.length) out.push(c);
+  return out;
+}
+function stageShapeFeature() {
+  if (stageShape === "custom") {
+    if (stagePoly.length < 2) return null;
+    const ring = stagePoly.map(p => [p.lng, p.lat]);
+    if (stagePoly.length === 2) return { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: ring } };
+    ring.push(ring[0]);
+    return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } };
+  }
+  if (!stageCenter) return null;
+  if (stageShape === "square") {
+    const ring = stageSquareCorners().map(p => [p.lng, p.lat]);
+    ring.push(ring[0]);
+    return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } };
+  }
+  return createCircleGeoJson(stageCenter, stageRadius);
+}
+function stagePolyDisarm() {
+  stagePolyMarkers.forEach(m => { try { m.remove(); } catch (e) {} });
+  stagePolyMarkers = [];
+}
+function stagePolyRenderMarkers() {
+  stagePolyDisarm();
+  if (!tpMap || stageShape !== "custom") return;
+  stagePoly.forEach((p, pi) => {
+    const el = document.createElement("div");
+    el.className = "nogo-vertex";
+    el.style.background = stageColor();
+    el.textContent = String(pi + 1);
+    el.title = "Corner " + (pi + 1) + " — drag to move · right-click to delete";
+    el.addEventListener("click", ev => ev.stopPropagation());
+    el.addEventListener("contextmenu", ev => {
+      ev.preventDefault();
+      stagePoly.splice(pi, 1);
+      stagePolyRenderMarkers();
+      updateStageVisuals();
+      renderMapLayerChips();
+      renderToolStatus();
+    });
+    const marker = new mapboxgl.Marker({ element: el, draggable: true, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(tpMap);
+    marker.on("drag", () => {
+      const ll = marker.getLngLat();
+      stagePoly[pi] = { lat: ll.lat, lng: ll.lng };
+      updateStageVisuals();
+    });
+    stagePolyMarkers.push(marker);
+  });
+}
+function setStageShape(shape) {
+  if (stageShape === shape) return;
+  // Keep the spot when switching circle ⇄ square; custom starts fresh.
+  if (shape === "custom") { stageCenter = null; if (stageCenterMarker) { try { stageCenterMarker.remove(); } catch (e) {} stageCenterMarker = null; } }
+  else if (stageShape === "custom" && stagePoly.length) {
+    stageCenter = { lat: stagePoly.reduce((t, p) => t + p.lat, 0) / stagePoly.length, lng: stagePoly.reduce((t, p) => t + p.lng, 0) / stagePoly.length };
+  }
+  stagePoly = [];
+  stagePolyDisarm();
+  stageShape = shape;
+  updateStageVisuals();
+  renderMapLayerChips();
+  renderToolStatus();
+}
+function stagePolyUndo() {
+  if (!stagePoly.length) return;
+  stagePoly.pop();
+  stagePolyRenderMarkers();
+  updateStageVisuals();
+  renderMapLayerChips();
+  renderToolStatus();
+}
 function stageColor() { return toolMode === "stageRemove" ? "#dc2626" : "#16a34a"; }
 function updateStageVisuals() {
   if (!tpMap) return;
   ensureToolLayers();
   const source = tpMap.getSource("tp-stage-circle");
   if (!source) return;
-  if (!stageCenter) { source.setData({ type: "FeatureCollection", features: [] }); return; }
-  const f = createCircleGeoJson(stageCenter, stageRadius);
+  const f = stageShapeFeature();
+  if (!f) {
+    source.setData({ type: "FeatureCollection", features: [] });
+    if (stageShape === "custom") stagePolyMarkers.forEach(m => { const el = m.getElement(); if (el) el.style.background = stageColor(); });
+    return;
+  }
   f.properties = Object.assign({}, f.properties || {}, { color: stageColor() });
   source.setData({ type: "FeatureCollection", features: [f] });
+  if (stageShape === "custom") {
+    stagePolyMarkers.forEach(m => { const el = m.getElement(); if (el) el.style.background = stageColor(); });
+    return;
+  }
   if (!stageCenterMarker) {
     const node = document.createElement("div");
     node.className = "radius-center";
@@ -4249,6 +4393,8 @@ function updateStageVisuals() {
 }
 function clearStageTool() {
   stageCenter = null;
+  stagePoly = [];
+  stagePolyDisarm();
   if (stageCenterMarker) { try { stageCenterMarker.remove(); } catch (e) {} stageCenterMarker = null; }
   if (tpMap && tpMap.getSource("tp-stage-circle")) {
     tpMap.getSource("tp-stage-circle").setData({ type: "FeatureCollection", features: [] });
@@ -4377,7 +4523,7 @@ function toggleTool(mode) {
     if (!isStage(mode)) clearStageTool();   // add⇄remove keeps the circle, recolored
     toolMode = mode;
     if (mode === "nogo") noGoRenderMarkers();
-    if (isStage(mode)) updateStageVisuals();
+    if (isStage(mode)) { if (stageShape === "custom") stagePolyRenderMarkers(); updateStageVisuals(); }
   }
   renderMapLayerChips();
   renderToolStatus();
@@ -4668,10 +4814,17 @@ function renderToolStatus() {
   if (!el) return;
   if (toolMode === "stageAdd" || toolMode === "stageRemove") {
     const add = toolMode === "stageAdd";
+    const dot = add ? "🟢 " : "🔴 ";
+    const what = add ? "ADD to" : "REMOVE from";
+    if (stageShape === "custom") {
+      el.textContent = stagePoly.length >= 3
+        ? dot + "Custom shape with " + stagePoly.length + " corners — click to add more, drag a corner to adjust, right-click to delete, then press ✓ Stage " + (add ? "adds" : "removals") + "."
+        : dot + "Click the map to place corners around the area to " + what + " TherapyBoss coverage (" + stagePoly.length + " of at least 3).";
+      return;
+    }
     el.textContent = stageCenter
-      ? (add ? "🟢 " : "🔴 ") + fmtRadiusLabel(stageRadius) + " circle placed — resize with − / +, click elsewhere to move it, then press ✓ Stage " + (add ? "adds" : "removals") + "."
-      : (add ? "🟢 Click the map to drop the GREEN circle on the area to ADD to TherapyBoss coverage."
-             : "🔴 Click the map to drop the RED circle on the area to REMOVE from TherapyBoss coverage.");
+      ? dot + stageShapeLabel() + " placed — resize with − / +, click elsewhere to move it, then press ✓ Stage " + (add ? "adds" : "removals") + "."
+      : dot + "Click the map to drop the " + (add ? "GREEN " : "RED ") + stageShapeNoun() + " on the area to " + what + " TherapyBoss coverage.";
     return;
   }
   if (toolMode === "ruler") {
@@ -5109,7 +5262,9 @@ function initTerritoryMap() {
     }
     if (lensCenter) updateLensVisuals();
     stageCenterMarker = null;
-    if (stageCenter) updateStageVisuals();
+    stagePolyMarkers = [];
+    if (stageShape === "custom" && stagePoly.length && (toolMode === "stageAdd" || toolMode === "stageRemove")) stagePolyRenderMarkers();
+    if (stageCenter || stagePoly.length) updateStageVisuals();
     // ⛔ No-go zone always renders (it's a standing boundary, visible to
     // every role); draggable corner handles only while the tool is armed.
     noGoMarkers = [];
@@ -5140,7 +5295,13 @@ function initTerritoryMap() {
         renderToolStatus();
       } else if (toolMode === "stageAdd" || toolMode === "stageRemove") {
         if (!canEditPlan()) return;
-        stageCenter = pt;   // re-click moves the circle
+        if (stageShape === "custom") {
+          if (stagePoly.length >= STAGE_POLY_MAX) { showToast("Up to " + STAGE_POLY_MAX + " corners — drag or right-click to adjust"); return; }
+          stagePoly.push(pt);
+          stagePolyRenderMarkers();
+        } else {
+          stageCenter = pt;   // re-click moves the circle / square
+        }
         updateStageVisuals();
         renderMapLayerChips();
         renderToolStatus();
