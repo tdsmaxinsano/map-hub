@@ -260,7 +260,7 @@
   .tp-zip-badge.requested { background: #0d9488; }
   /* ✋ Compare their list (requested areas vs TB) */
   .tp-zip-badge.req-on { box-shadow: 0 0 0 3px #2dd4bf, 0 0 0 5px rgba(13,148,136,.35), 0 1px 5px rgba(0,0,0,.3); }
-  .tp-zip-badge.req-hl { position: relative; cursor: pointer; }
+  .tp-zip-badge.req-hl { cursor: pointer; }  /* NO position override — mapboxgl-marker must stay absolute */
   .tp-zip-badge .req-cond { position: absolute; top: 100%; left: 50%; transform: translateX(-50%); margin-top: 5px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; border-radius: 6px; padding: 1px 6px; font-size: 9.5px; font-weight: 700; box-shadow: 0 1px 3px rgba(0,0,0,.2); pointer-events: none; }
   .tp-zip-badge.req-hide-cond .req-cond { display: none; }
   .tp-req-pop b { color: #0f766e; }
