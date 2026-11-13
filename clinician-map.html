@@ -3145,6 +3145,8 @@
     /* Clickable contact status + panel nav */
     button.ref-contact-status { border: none; cursor: pointer; font-family: inherit; }
     button.ref-contact-status:hover { filter: brightness(0.94); }
+    .ref-contact-remove { flex-shrink: 0; margin-left: 4px; padding: 0 5px; background: none; border: none; color: #94a3b8; font-size: 12px; line-height: 18px; border-radius: 5px; cursor: pointer; }
+    .ref-contact-remove:hover { background: #fee2e2; color: #b91c1c; }
     .ref-staffed-cta { display: none; width: 100%; margin: 6px 0 2px; padding: 6px 10px; background: #16a34a; color: #fff; border: none; border-radius: 7px; font-size: 12px; font-weight: 700; cursor: pointer; }
     .ref-staffed-cta.show { display: block; }
     .ref-panel-nav { display: flex; gap: 6px; margin-top: 6px; }
@@ -26117,8 +26119,23 @@
         "<span class='ref-contact-name' title='" + escHtml(c.clinician_name) + "'>" + escHtml(c.clinician_name) + "</span>" +
         "<span class='ref-contact-disc' style='background:" + col + "'>" + escHtml(c.discipline || "—") + "</span>" +
         statusHtml +
+        (c.id ? "<button type='button' class='ref-contact-remove' onclick='refRemoveContact(\"" + c.id + "\")' title='Remove from this referral'>✕</button>" : "") +
       "</div>";
     }).join("");
+  }
+
+  // Remove a logged contact (same confirm as the full Referral Board's ✕).
+  // Live-sync DELETE events from other tabs are handled by applyContactEvent.
+  async function refRemoveContact(contactId) {
+    var contacts = appState.referralOverlayContacts || [];
+    var c = contacts.find(function(x) { return String(x.id) === String(contactId); });
+    if (!c) return;
+    if (!confirm("Remove " + c.clinician_name + " from this referral?")) return;
+    var { error } = await supabaseClient.from("referral_contacts").delete().eq("id", c.id);
+    if (error) { showToast("Couldn't remove: " + error.message, "error"); return; }
+    appState.referralOverlayContacts = contacts.filter(function(x) { return String(x.id) !== String(c.id); });
+    refreshRefPanelContacts(c.referral_id);
+    showToast(c.clinician_name + " removed", "success", 1800);
   }
 
   // Pending → Accepted → Declined → Pending (solo acceptances and
