@@ -9794,7 +9794,12 @@ const VDR = (function() {
       // Billable visit with no charge entered — the Charge must be filled in
       // TherapyBoss BEFORE "Create bills" runs, or the bill goes out at $0.
       // chargeNum is already 0 for blank or "$0.00"; <= 0 also guards negatives.
-      const billableNoCharge = (billable === "Y") && (chargeNum <= 0);
+      // Care-coordination visits (PTCC / OTCC / STCC) are NEVER billed to the
+      // agency. Billable=Y or any charge on one is an entry error to fix in
+      // TherapyBoss before "Create bills" — it reached an invoice in Sep 2026.
+      const neverBilledType = /^(PT|OT|ST)CC$/.test(type);
+      const nonBillableBilled = neverBilledType && (billable === "Y" || chargeNum > 0);
+      const billableNoCharge = (billable === "Y") && (chargeNum <= 0) && !neverBilledType;
 
       prepared.push({
         Date: dateObj, Submitted: submittedObj, Type: type, Clinician: clinician, Payer: payer,
@@ -9803,7 +9808,8 @@ const VDR = (function() {
         DaysBetween: daysBetween,
         OutOfRange: outOfRange, ShortAndBillable: shortAndBillable,
         MissedVisit: missedVisit, EvalTimeAlert: evalTimeAlert,
-        BillableNoCharge: billableNoCharge
+        BillableNoCharge: billableNoCharge,
+        NonBillableBilled: nonBillableBilled
       });
     });
 
@@ -9847,7 +9853,7 @@ const VDR = (function() {
   // ── Inline preview rendering ──
   function renderStats() {
     const flaggedCount =
-      rawRows.filter(r => r.OutOfRange || r.ShortAndBillable || r.MissedVisit || r.EvalTimeAlert || r.BillableNoCharge).length;
+      rawRows.filter(r => r.OutOfRange || r.ShortAndBillable || r.MissedVisit || r.EvalTimeAlert || r.BillableNoCharge || r.NonBillableBilled).length;
     const avgDaysOverall = rawRows.length
       ? (rawRows.reduce((s, r) => s + r.DaysBetween, 0) / rawRows.length).toFixed(1)
       : "—";
@@ -9909,7 +9915,9 @@ const VDR = (function() {
     const missN  = rawRows.filter(r => r.MissedVisit).length;
     const evalN  = rawRows.filter(r => r.EvalTimeAlert).length;
     const bncN   = rawRows.filter(r => r.BillableNoCharge).length;
+    const ptccN  = rawRows.filter(r => r.NonBillableBilled).length;
     const tabs = [
+      { id: "ptcc",     label: "🚫 PTCC billed",     n: ptccN },
       { id: "both",     label: "Both Conditions",    n: bothN },
       { id: "oor",      label: "OutOfRange Only",    n: oorN },
       { id: "short",    label: "Short & Billable",   n: sbN  },
@@ -9934,6 +9942,7 @@ const VDR = (function() {
       case "miss":  return { rows: rawRows.filter(r => r.MissedVisit),                        highlight: ["Type"]        };
       case "eval":  return { rows: rawRows.filter(r => r.EvalTimeAlert),                      highlight: ["Time"]        };
       case "nocharge": return { rows: rawRows.filter(r => r.BillableNoCharge),                highlight: ["Billable","Charge"] };
+      case "ptcc":     return { rows: rawRows.filter(r => r.NonBillableBilled),               highlight: ["Type","Billable","Charge"] };
       default: return { rows: [], highlight: [] };
     }
   }
@@ -9983,9 +9992,10 @@ const VDR = (function() {
       { title: "ShortAndBillable Only",rows: rawRows.filter(r => !r.OutOfRange && r.ShortAndBillable), highlight: ["Time"] },
       { title: "Missed Visit Alerts",  rows: rawRows.filter(r => r.MissedVisit), highlight: ["Type"] },
       { title: "Eval Time Alerts",     rows: rawRows.filter(r => r.EvalTimeAlert), highlight: ["Time"] },
-      { title: "Billable · No Charge", rows: rawRows.filter(r => r.BillableNoCharge), highlight: ["Billable", "Charge"] }
+      { title: "Billable · No Charge", rows: rawRows.filter(r => r.BillableNoCharge), highlight: ["Billable", "Charge"] },
+      { title: "PTCC / care coordination billed — NEVER bill these", rows: rawRows.filter(r => r.NonBillableBilled), highlight: ["Type", "Billable", "Charge"] }
     ];
-    const cols = ["Date", "VTime", "Clinician", "Payer", "Type", "Time", "Billable", "Charge", "DaysBetween", "Submitted", "OutOfRange", "ShortAndBillable", "MissedVisit", "EvalTimeAlert", "BillableNoCharge"];
+    const cols = ["Date", "VTime", "Clinician", "Payer", "Type", "Time", "Billable", "Charge", "DaysBetween", "Submitted", "OutOfRange", "ShortAndBillable", "MissedVisit", "EvalTimeAlert", "BillableNoCharge", "NonBillableBilled"];
 
     sections.forEach(sec => {
       s1.addRow([sec.title]);
@@ -9994,7 +10004,7 @@ const VDR = (function() {
       sec.rows.forEach(r => {
         const dateStr = r.Date.toISOString().slice(0, 10);
         const subStr = r.Submitted.toISOString().slice(0, 10);
-        s1.addRow([dateStr, r.VTime, r.Clinician, r.Payer, r.Type, r.Time, r.Billable, r.Charge, r.DaysBetween, subStr, r.OutOfRange, r.ShortAndBillable, r.MissedVisit, r.EvalTimeAlert, r.BillableNoCharge]);
+        s1.addRow([dateStr, r.VTime, r.Clinician, r.Payer, r.Type, r.Time, r.Billable, r.Charge, r.DaysBetween, subStr, r.OutOfRange, r.ShortAndBillable, r.MissedVisit, r.EvalTimeAlert, r.BillableNoCharge, r.NonBillableBilled]);
       });
       // Yellow highlight on the flagged columns
       if (sec.rows.length) {
@@ -10120,7 +10130,8 @@ const VDR = (function() {
         VTime: r.VTime, DaysBetween: r.DaysBetween,
         OutOfRange: r.OutOfRange, ShortAndBillable: r.ShortAndBillable,
         MissedVisit: r.MissedVisit, EvalTimeAlert: r.EvalTimeAlert,
-        BillableNoCharge: r.BillableNoCharge
+        BillableNoCharge: r.BillableNoCharge,
+        NonBillableBilled: r.NonBillableBilled
       }));
       const runRow = {
         total_visits: summaries.totalVisits,
@@ -10224,7 +10235,12 @@ const VDR = (function() {
         // existed (their snapshots already carry Billable + Charge).
         BillableNoCharge: row.BillableNoCharge !== undefined
           ? row.BillableNoCharge
-          : (String(row.Billable || "").trim().toUpperCase() === "Y" && Number(row.Charge || 0) <= 0)
+          : (String(row.Billable || "").trim().toUpperCase() === "Y" && Number(row.Charge || 0) <= 0),
+        // Derived for older runs too: any PTCC/OTCC/STCC marked billable or charged.
+        NonBillableBilled: row.NonBillableBilled !== undefined
+          ? row.NonBillableBilled
+          : (/^(PT|OT|ST)CC$/.test(String(row.Type || "").trim().toUpperCase()) &&
+             (String(row.Billable || "").trim().toUpperCase() === "Y" || Number(row.Charge || 0) > 0))
       })).filter(r => r.Date && r.Submitted);
 
       summaries = buildSummaries(rawRows);
@@ -10753,10 +10769,25 @@ const IIF = (function() {
       };
       const amount = idxAmt >= 0 ? linesMoney(r[idxAmt]) : NaN;
       const bill = billsLines && billsLines.get(inv);
-      const sumOk = bill && Number.isFinite(amount) && Math.abs(bill.total - amount) <= 0.011;
+      // PTCC / OTCC / STCC (care coordination) is NEVER billed. Drop those
+      // lines; the bill reconciles if the IIF total matches with OR without
+      // them (TB may or may not have already been corrected).
+      const neverBilled = ln => /^(PT|OT|ST)CC$/i.test(String(ln.type || "").trim());
+      const ccLines = bill ? bill.lines.filter(neverBilled) : [];
+      const ccTotal = ccLines.reduce((t, ln) => t + (ln.charge || 0), 0);
+      const sumOk = bill && Number.isFinite(amount) &&
+        (Math.abs(bill.total - amount) <= 0.011 || (ccLines.length && Math.abs(bill.total - ccTotal - amount) <= 0.011));
+      if (bill && ccLines.length) {
+        warns.push({
+          inv: inv,
+          reason: "🚫 " + ccLines.length + " care-coordination line" + (ccLines.length === 1 ? "" : "s") + " removed (" +
+            ccLines.map(ln => linesDateToMDY(ln.dateVal) + " " + ln.type + " " + ln.clinician + (ln.charge ? " $" + ln.charge.toFixed(2) : "")).join("; ") +
+            ") — PTCC is never billed" + (ccTotal > 0.004 ? "; invoice total is $" + ccTotal.toFixed(2) + " lower than TB's — zero the charge in TherapyBoss" : "")
+        });
+      }
       if (bill && sumOk) {
         matched++;
-        bill.lines.forEach(ln => {
+        bill.lines.filter(ln => !neverBilled(ln)).forEach(ln => {
           // Rate and Amount are BOTH mandatory for SaaSant invoices, and QB
           // recomputes amount = qty × rate — so when the charge doesn't
           // divide cleanly by units, collapse to qty 1 × rate = charge so
@@ -10779,9 +10810,9 @@ const IIF = (function() {
         fallback++;
         warns.push({
           inv: inv,
-          reason: !bill
+          reason: (ccTotal > 0.004 ? "⚠ includes $" + ccTotal.toFixed(2) + " PTCC — subtract it before sending · " : "") + (!bill
             ? "not in Bills.xlsx — exported as one aggregate line"
-            : "lines sum $" + bill.total.toFixed(2) + " vs invoice $" + (Number.isFinite(amount) ? amount.toFixed(2) : "?") + " — exported as one aggregate line"
+            : "lines sum $" + bill.total.toFixed(2) + " vs invoice $" + (Number.isFinite(amount) ? amount.toFixed(2) : "?") + " — exported as one aggregate line")
         });
         const aggAmt = Number.isFinite(amount) ? Math.round(amount * 100) / 100 : 0;
         rows.push({
