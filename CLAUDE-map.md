@@ -550,6 +550,25 @@ This section documents the design intent of five interlocking changes. Don't und
 - Results are cached in `clinician_ai_profiles` (migration 96), keyed by a SHA-256 of the facts (excluding the daily-ticking tenure years). A "facts changed — ↻" pill appears when the hash differs.
 - The card is hidden in the clinician's own PHI-safe view.
 
+**Map profile layout: read first, edit last.** The order is:
+1. The pinned header shows name, status, stars, a `#profile-header-contact` line (tap-to-call phone and last active), and the Isolate buttons.
+2. Pinned notes.
+3. **🎯 Staffer Snapshot** (`#profile-snapshot-card`, `renderProfileStafferSnapshot`, called from `renderClinicianFieldIntel`):
+   - a red `#profile-hard-stops` strip (DNR, inactive or paused, upcoming pause, TB unavailable, restricted agencies and clinicians, won't-serve count);
+   - Where (`renderSnapshotWhere`: town, ZIP and the TB sync pill, fed by `appState.profileZipStatusSummary` from `renderProfileZipStatus`);
+   - Range (the travel row);
+   - Workload (the VDR rows plus ≈ open episodes: no ended date and a visit within 30 days);
+   - Referrals in the last 90 days (`referral_contacts` matched by `clinician_id` or name; accepted/declined/waiting counts);
+   - EMR and pause rows, languages, top 3 agencies, and the 🧠 headline.
+4. ZIP Coverage Status.
+5. Field Intelligence.
+6. Completed Services History.
+7. **✏️ Edit details** (`#profile-edit-details`, collapsed `<details>`) holding the whole former Profile Shell plus start date, DOB and LLC. It auto-opens in create mode.
+8. Quick Actions, which is sticky while Edit details is open.
+9. Version history.
+
+The quick-fact rows kept their original IDs, so `renderProfileHeaderQuickFacts` and `renderVdrQuickFacts` fill them in place.
+
 **Map:** `renderFieldIntelProfileSummary()` shows the cached headline plus 2 bullets in Field Intelligence, or tenure + last active when there's no cached read. It has a "Full profile →" link. The map never calls the AI.
 
 ---
