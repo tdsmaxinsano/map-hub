@@ -20690,6 +20690,7 @@
       let queuedAddressChangeCount = 0;      // Sync Update moves queued for territory review
       const addressChangeCandidates = [];    // {clinician_id, clinician_name, discipline, old/new address+zip}
       const createdNames = [];               // WHO got added (result detail panel)
+      const createdClinicians = [];          // {id, name, discipline, address, zip} → setup tasks + email
       const dobBackfillNames = [];           // whose DOB was backfilled (Additions Only)
       const syncChangeLog = [];              // Sync Update: [{name, items[]}] — real diffs only
       const processedCliniciansByKey = new Map();
@@ -20844,6 +20845,15 @@
         }
 
         if (response.error) throw response.error;
+        if (!existingClinician && response.data && response.data.id) {
+          createdClinicians.push({
+            id: response.data.id,
+            name: response.data.name || payload.name || "(unnamed)",
+            discipline: response.data.discipline || payload.discipline || "",
+            address: response.data.address || payload.address || "",
+            zip: getNormalizedZip(response.data.zip || payload.zip || "")
+          });
+        }
         await upsertClinicianProfileRecord(response.data.id, row, existingClinician);
 
         // 📥 Date-loaded stamp (migration 63) — NEW clinicians only, and
@@ -20977,7 +20987,8 @@
       {
         const parts = [];
         if (createdNames.length) {
-          parts.push("<div><b>➕ Added (" + createdNames.length + "):</b> " + createdNames.map(escapeHtml).join(", ") + "</div>");
+          parts.push("<div><b>➕ Added (" + createdNames.length + "):</b> " + createdNames.map(escapeHtml).join(", ") +
+            " <span style='color:#64748b'>— 🆕 setup task created for each (Roster Review · Territory Planner · Home board)</span></div>");
         }
         if (dobBackfillNames.length) {
           parts.push("<div><b>🎂 DOB backfilled (" + dobBackfillNames.length + "):</b> " + dobBackfillNames.map(escapeHtml).join(", ") + "</div>");
@@ -20998,6 +21009,46 @@
         }
         setImportResultDetail(parts.join(""));
       }
+      // 🆕 New-clinician onboarding: one open setup task per clinician the
+      // import created (Roster Review 📋 badge, Territory Planner checklist,
+      // Home 🆕 card), and an ➕ Added section in the emailed import report
+      // so staff who didn't run the import hear about it too.
+      if (createdClinicians.length) {
+        try {
+          const due = new Date(); due.setDate(due.getDate() + 7);
+          const dueIso = due.getFullYear() + "-" + String(due.getMonth() + 1).padStart(2, "0") + "-" + String(due.getDate()).padStart(2, "0");
+          const actor = appCurrentUser || null;
+          const taskRows = createdClinicians.map(function(c) {
+            return {
+              clinician_id: c.id,
+              title: NEW_CLINICIAN_SETUP_TITLE,
+              due_date: dueIso,
+              created_by: actor ? actor.id : null,
+              created_by_email: actor ? (actor.email || null) : null
+            };
+          });
+          const tRes = await supabaseClient.from("clinician_review_tasks").insert(taskRows);
+          if (tRes.error) console.warn("[onboarding] setup tasks not created (run migration 93?):", tRes.error.message);
+        } catch (e) { console.warn("[onboarding] setup tasks failed:", e && e.message); }
+
+        const addedHtml =
+          "<h3 style='font-size:13px;margin:14px 0 6px;color:#166534'>➕ Added (" + createdClinicians.length + ") — new clinicians</h3>" +
+          createdClinicians.map(function(c) {
+            return "<div style='padding:8px 10px;border-radius:6px;background:#f0fdf4;margin-bottom:5px'>" +
+              "<strong>" + escapeHtml(c.name) + "</strong>" + (c.discipline ? " · " + escapeHtml(c.discipline) : "") + "<br>" +
+              escapeHtml(c.address || "No address") + (c.zip && String(c.address || "").indexOf(c.zip) === -1 ? " · " + escapeHtml(c.zip) : "") + "<br>" +
+              "<span style='color:#64748b'>Setup task created — open their Territory Planner to set the home pin, TB ZIPs and requested areas.</span>" +
+              "</div>";
+          }).join("");
+        const addedSummary = "➕ " + createdClinicians.length + " new clinician" + (createdClinicians.length === 1 ? "" : "s") + " added";
+        if (_pendingImportReport) {
+          _pendingImportReport.sectionsHtml = addedHtml + (_pendingImportReport.sectionsHtml || "");
+          _pendingImportReport.summary = addedSummary + " · " + (_pendingImportReport.summary || "");
+        } else {
+          _pendingImportReport = { reportType: "clinician_master", summary: addedSummary, sectionsHtml: addedHtml };
+        }
+      }
+
       try { await supabaseClient.rpc("log_import", { p_key: "map_clinicians", p_label: "Clinicians (master)", p_area: "Map", p_row_count: createdCount + updatedCount }); } catch (e) { console.warn("[log_import]", e && e.message); }
       await loadClinicians();
     }
@@ -21293,6 +21344,9 @@
     }
 
     var _pendingImportReport = null;
+    // Shared with territory-planner.html + index.html (they match the
+    // "🆕 New clinician" prefix) — keep the prefix stable.
+    var NEW_CLINICIAN_SETUP_TITLE = "🆕 New clinician — set up territory (home pin, TB ZIPs, requested areas)";
 
     async function sendImportReport(payload) {
       try {
