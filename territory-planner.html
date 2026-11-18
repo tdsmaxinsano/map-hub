@@ -108,6 +108,13 @@
   .map-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
 
   .zip-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .ob-step { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px dashed #d1fae5; font-size: 12.5px; }
+  .ob-step:last-child { border-bottom: 0; }
+  .ob-step .ob-n { flex: 0 0 22px; height: 22px; border-radius: 50%; background: #e5e7eb; color: #475569; font-weight: 800; font-size: 11px; display: flex; align-items: center; justify-content: center; }
+  .ob-step.ok .ob-n { background: #16a34a; color: #fff; }
+  .ob-step .ob-t { flex: 1; }
+  .ob-step .ob-t small { display: block; color: #64748b; font-size: 11px; }
+  .ob-step .mv-btn { padding: 2px 9px; font-size: 11px; white-space: nowrap; }
   /* Muted sub-sections under the gap chips (refused / removed): full-width
      block with its own header line + chip row, not mixed into the flex row. */
   .gap-sub { flex-basis: 100%; margin-top: 8px; padding-top: 7px; border-top: 1px dashed #e5e7eb; }
@@ -432,6 +439,11 @@
       </div>
 
       <div>
+        <div class="card" id="tp-onboard-card" style="display:none;border:2px solid #86efac;background:#f7fef9">
+          <h3>🆕 New clinician setup</h3>
+          <div id="tp-onboard-body"></div>
+        </div>
+
         <div class="card" id="tp-review-card" style="display:none">
           <h3>📝 Review meetings <span id="tp-review-count" style="font-weight:600;color:var(--muted);font-size:12px"></span></h3>
           <p class="hint">Internal notes from review meetings with this clinician, plus action items. Open items show up in Roster Review. Visible to admins and editors only.</p>
@@ -1097,7 +1109,79 @@ function reviewTaskRowHtml(t) {
   "</div>";
 }
 
+// ── 🆕 New clinician setup — checklist for clinicians the Map import just
+// created (open "🆕 New clinician" review task) or anyone with no TB ZIPs.
+// Steps reflect live state; "Mark setup done" closes the task, which also
+// clears the Home 🆕 card and the Roster Review badge.
+const NEW_CLINICIAN_SETUP_TITLE = "🆕 New clinician — set up territory (home pin, TB ZIPs, requested areas)";
+function setupTaskOpen() {
+  return reviewTasks.find(t => t.status === "open" && String(t.title || "").indexOf("🆕 New clinician") === 0) || null;
+}
+function obScrollTo(id) {
+  const el = document.getElementById(id);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function obScrollMap() {
+  const m = document.getElementById("tp-map");
+  const card = m && m.closest(".card");
+  if (card) card.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function renderOnboardCard() {
+  const card = document.getElementById("tp-onboard-card");
+  const body = document.getElementById("tp-onboard-body");
+  if (!card || !body) return;
+  if (!clinician || currentRole === "clinician" || !canEditPlan()) { card.style.display = "none"; return; }
+  const task = setupTaskOpen();
+  const declaredN = declaredZipSet().size;
+  if (!task && declaredN > 0) { card.style.display = "none"; return; }
+  card.style.display = "";
+  const hasPin = toNum(clinician.lat) != null && toNum(clinician.lng) != null;
+  const reqN = (zipRequests || []).length;
+  const planSaved = !!(zipPlan && (zipPlan.target_zips || []).length);
+  const staged = moveState ? ((moveState.added || []).length + (moveState.removed ? moveState.removed.size : 0)) : 0;
+  const step = (ok, n, title, sub, btn) =>
+    `<div class="ob-step${ok ? " ok" : ""}"><span class="ob-n">${ok ? "✓" : n}</span>` +
+    `<span class="ob-t">${title}${sub ? `<small>${sub}</small>` : ""}</span>${btn || ""}</div>`;
+  let html = "<p class='hint' style='margin-top:0'>" +
+    (task ? "Added by the TherapyBoss import" + (task.due_date ? " — due " + esc(fmtDate(task.due_date)) : "") + ". " : "No TB ZIPs yet. ") +
+    "Work top to bottom; steps tick themselves as the data arrives.</p>";
+  html += step(hasPin, 1, "Home pin is right",
+    hasPin ? "Check the 🏠 pin sits on their real home — if not, fix the address in TB and re-import." : "⚠ No home pin — the TB address didn't geocode. Fix it in TB and re-import.",
+    `<button type="button" class="mv-btn" onclick="obScrollMap()">🗺 Map</button>`);
+  html += step(false, 2, "Check their reach",
+    "Drop a 🎯 typical-reach ring (or the ⭕ Lens) to see what's realistic from home.",
+    `<button type="button" class="mv-btn" onclick="obScrollMap();showTypicalReach()">🎯 Reach</button>`);
+  html += step(reqN > 0, 3, "Their requested areas",
+    reqN ? reqN + " requested ZIP" + (reqN === 1 ? "" : "s") + " saved — conditions go to the TB memo." : "Paste the towns/ZIPs they said they'll cover (and any conditions).",
+    `<button type="button" class="mv-btn" onclick="obScrollTo('tp-req-card')">✋ Requested</button>`);
+  html += step(planSaved, 4, "Stage their TB ZIPs",
+    planSaved ? "Plan saved — " + (zipPlan.target_zips || []).length + " ZIPs." : (staged ? staged + " staged — 💾 Save plan." : "Green ◯ / ▢ / ✎ shape over their area, or stage their requested list."),
+    `<button type="button" class="mv-btn" onclick="obScrollMap();if(toolMode!=='stageAdd')toggleTool('stageAdd')">🟢 Stage adds</button>`);
+  html += step(declaredN > 0, 5, "Enter in TB, then re-import",
+    declaredN ? declaredN + " ZIPs loaded from TB ✓" : "➡ TB entry mode (Zip + Memo), SUBMIT in TB, then Import from TB here.",
+    `<button type="button" class="mv-btn" onclick="obScrollTo('tp-move-card')">📦 Plan</button>`);
+  html += "<div style='margin-top:8px;display:flex;justify-content:flex-end;gap:6px'>" +
+    (task
+      ? `<button type="button" class="mv-btn primary" onclick="toggleReviewTask('${esc(task.id)}', true)" title="Closes the setup task — clears the Home 🆕 card and the Roster Review badge">✓ Mark setup done</button>`
+      : (reviewTableMissing ? "" : `<button type="button" class="mv-btn" onclick="addSetupTask()" title="Track this as an open action item (Roster Review + Home board)">＋ Add setup task</button>`)) +
+    "</div>";
+  body.innerHTML = html;
+}
+async function addSetupTask() {
+  if (!clinician || setupTaskOpen()) return;
+  const due = new Date(); due.setDate(due.getDate() + 7);
+  const res = await db.from("clinician_review_tasks").insert({
+    clinician_id: clinician.id, title: NEW_CLINICIAN_SETUP_TITLE, due_date: localIsoDate(due),
+    created_by: currentUser ? currentUser.id : null, created_by_email: currentUser ? currentUser.email : null
+  }).select().single();
+  if (res.error) { showToast("Couldn't add: " + res.error.message); return; }
+  reviewTasks.push(res.data);
+  renderReviewCard();
+  showToast("🆕 Setup task added — due " + fmtDate(localIsoDate(due)));
+}
+
 function renderReviewCard() {
+  renderOnboardCard();
   const body = document.getElementById("tp-review-body");
   const countEl = document.getElementById("tp-review-count");
   if (!body) return;
@@ -1559,6 +1643,7 @@ function declaredZipSet() {
 }
 
 function renderZipPanels() {
+  renderOnboardCard();
   const declared = declaredZipSet();
   const served = servedZipCounts();
   tbSyncCopiedWithDeclared(declared);

@@ -1153,7 +1153,10 @@
     // Address-change review queue (migration 62 — plain table SELECT, not an
     // RPC). A Sync Update import detected a move; TB doesn't say when, so a
     // human sets the territory cutoff in the planner.
-    address_change_pending: { icon: "🏠", tint: "amber", verb: "moved" }
+    address_change_pending: { icon: "🏠", tint: "amber", verb: "moved" },
+    // New clinician from a TB import — an open "🆕 New clinician" setup task
+    // (clinician_review_tasks, migration 93). Clears when the task is done.
+    new_clinician_setup: { icon: "🆕", tint: "green", verb: "joined" }
   };
 
   function fmtDateShort(d) {
@@ -1187,6 +1190,7 @@
     if (alert.alert_type === "renewal_due_today")       return "DUE TODAY";
     if (alert.alert_type === "renewal_due_soon")        return "in " + o + (o === 1 ? " day" : " days");
     if (alert.alert_type === "address_change_pending")  return o === 0 ? "TODAY" : o + (o === 1 ? " day ago" : " days ago");
+    if (alert.alert_type === "new_clinician_setup")     return o === 0 ? "NEW TODAY" : "new · " + o + (o === 1 ? " day" : " days");
     return "";
   }
 
@@ -1217,6 +1221,7 @@
       case "renewal_due_today": return `filing due today — file + pay to avoid the late penalty`;
       case "renewal_due_soon":  return `filing due ${fmtDateShort(alert.due_date)}`;
       case "address_change_pending": return `${meta.verb} · ${alert.old_address || "—"} → ${alert.new_address || "—"} — set their territory cutoff`;
+      case "new_clinician_setup":    return `${meta.verb} from TherapyBoss · ${alert.home_label || "no address"} — set up their territory (home pin, TB ZIPs, requested areas)` + (alert.overdue ? " · ⚠ overdue" : "");
       default: return reason;
     }
   }
@@ -1380,7 +1385,7 @@
       catch (e) { console.warn("[alerts]", label, "failed:", e && e.message); return []; }
     }
     try {
-      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, renewalRows, addrChangeRaw] = await Promise.all([
+      const [pauseRows, bdayRows, staffBdayRows, staffVacRows, renewalRows, addrChangeRaw, setupTaskRaw] = await Promise.all([
         safeRpc("list_pause_alerts"),
         safeRpc("list_birthday_alerts"),
         safeRpc("list_staff_birthday_alerts"),
@@ -1389,8 +1394,37 @@
         safeSelect("clinician_address_changes", db.from("clinician_address_changes")
           .select("clinician_id, clinician_name, discipline, old_address, new_address, detected_at")
           .eq("status", "pending")
-          .order("detected_at", { ascending: false }))
+          .order("detected_at", { ascending: false })),
+        safeSelect("clinician_review_tasks", db.from("clinician_review_tasks")
+          .select("clinician_id, created_at, due_date")
+          .eq("status", "open")
+          .like("title", "🆕 New clinician%")
+          .order("created_at", { ascending: false }))
       ]);
+      // 🆕 New-clinician setup cards — one per clinician with an open setup
+      // task; names/discipline/home town come from clinician_v2.
+      let setupRows = [];
+      if ((setupTaskRaw || []).length) {
+        const seen = new Set();
+        const tasks = setupTaskRaw.filter(t => t.clinician_id && !seen.has(t.clinician_id) && seen.add(t.clinician_id));
+        const ids = tasks.map(t => t.clinician_id);
+        const cRows = await safeSelect("clinician_v2", db.from("clinician_v2").select("id, name, discipline, address, zip").in("id", ids));
+        const byId = new Map((cRows || []).map(c => [c.id, c]));
+        const todayIso = new Date().toISOString().slice(0, 10);
+        setupRows = tasks.filter(t => byId.has(t.clinician_id)).map(t => {
+          const c = byId.get(t.clinician_id);
+          const parts = String(c.address || "").split(",").map(x => x.trim()).filter(Boolean);
+          return {
+            alert_type: "new_clinician_setup",
+            clinician_id: c.id,
+            clinician_name: c.name,
+            discipline: c.discipline,
+            home_label: parts.length >= 2 ? parts[parts.length - 2] + (c.zip ? " " + c.zip : "") : (c.address || c.zip || ""),
+            overdue: !!(t.due_date && t.due_date < todayIso),
+            days_offset: Math.max(0, Math.floor((Date.now() - new Date(t.created_at).getTime()) / 86400000))
+          };
+        });
+      }
       // Shape queue rows to the board's alert vocabulary; days_offset = age
       // of the detection in days (0 = detected today).
       const addrRows = (addrChangeRaw || []).map(function(r) {
@@ -1407,6 +1441,7 @@
       function alertSortKey(a) {
         if (a.alert_type === "renewal_overdue") return -2;
         if (a.alert_type === "address_change_pending") return -1;
+        if (a.alert_type === "new_clinician_setup") return -1;
         const o = a.days_offset != null ? a.days_offset : (a.days_until != null ? a.days_until : 99);
         return o === 0 ? -1 : Math.abs(o);
       }
@@ -1416,6 +1451,7 @@
         .concat(staffVacRows)
         .concat(renewalRows)
         .concat(addrRows)
+        .concat(setupRows)
         .sort(function(a, b) { return alertSortKey(a) - alertSortKey(b); });
       if (!rows.length) {
         list.innerHTML = "";
@@ -1434,7 +1470,7 @@
         const isStaff = a.alert_type && a.alert_type.indexOf("staff_") === 0;
         const isRenewal = a.alert_type && a.alert_type.indexOf("renewal_") === 0;
         // Address-change cards route to the Territory Planner (not the Map).
-        const isPlanner = a.alert_type === "address_change_pending";
+        const isPlanner = a.alert_type === "address_change_pending" || a.alert_type === "new_clinician_setup";
         const name    = isRenewal ? (a.renewal_name || "Company filing")
                       : isStaff ? (a.staff_name    || "—") : (a.clinician_name || "—");
         const disc    = isRenewal ? "FILING" : isStaff ? (a.staff_role    || "") : (a.discipline      || "");
