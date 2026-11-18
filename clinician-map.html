@@ -4243,6 +4243,30 @@
       white-space: nowrap;
     }
 
+    /* ── 🎯 Staffer snapshot (read-first profile layout) ── */
+    .profile-snapshot-card { border: 1.5px solid #bcd3f5; }
+    .profile-hard-stops { background: #fef2f2; border: 1px solid #fecaca; color: #991b1b; border-radius: 10px; padding: 7px 10px; font-size: 12.5px; line-height: 1.45; margin-bottom: 8px; }
+    .snap-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .snap-tile { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 7px 9px; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+    .snap-k { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .snap-v { font-size: 14px; font-weight: 800; color: var(--text); line-height: 1.3; }
+    .snap-s { font-size: 11.5px; color: var(--muted); line-height: 1.4; }
+    .snap-tile .profile-header-quickfact-label { min-width: 0; font-size: 10px; }
+    .snap-bare .profile-header-quickfact-label { display: none; }
+    .snap-bare .profile-header-quickfact-value { font-weight: 700; }
+    .snap-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .snap-chip-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+    .snap-chip-row .snap-k { min-width: 60px; margin-right: 6px; }
+    .snap-chip { display: inline-flex; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; background: #f1f5f9; border: 1px solid #e2e8f0; color: #334155; white-space: nowrap; }
+    .snap-chip.lang { background: #f5f3ff; border-color: #ddd6fe; color: #5b21b6; }
+    .snap-headline { font-size: 12.5px; line-height: 1.45; background: #fbfaff; border: 1px solid #e9e5ff; border-radius: 10px; padding: 6px 9px; }
+    .profile-header-contact { font-size: 12.5px; color: var(--text); margin-top: 2px; }
+    .profile-header-contact a { color: var(--accent-strong); font-weight: 700; text-decoration: none; }
+    .profile-edit-details-hint { display: block; font-size: 11px; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); margin-top: 2px; }
+    .profile-edit-extra { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin: 6px 0 10px; }
+    .profile-panel-body:has(#profile-edit-details[open]) .profile-quick-actions { position: sticky; bottom: 0; z-index: 3; box-shadow: 0 -6px 16px rgba(15, 23, 42, 0.08); }
+    @media (max-width: 420px) { .snap-grid { grid-template-columns: 1fr; } }
+
     /* ── Profile header quick-facts (Travel + EMR) ── */
     .profile-header-quickfacts {
       display: flex;
@@ -6784,44 +6808,7 @@
               </div>
               <span id="profile-header-date" class="profile-header-date"></span>
               <span id="profile-header-note" class="profile-header-note"></span>
-              <div class="profile-header-start-date">
-                <label for="profile-start-date">Start Date</label>
-                <input id="profile-start-date" type="date">
-              </div>
-              <div class="profile-header-quickfacts">
-                <div class="profile-header-quickfact-row" id="profile-header-travel-row" style="display:none;">
-                  <span class="profile-header-quickfact-label">📍 Travel</span>
-                  <span id="profile-header-travel" class="profile-header-quickfact-value"></span>
-                </div>
-                <div class="profile-header-quickfact-row" id="profile-header-emr-row" style="display:none;">
-                  <span class="profile-header-quickfact-label">🏥 EMR</span>
-                  <span id="profile-header-emr" class="profile-header-quickfact-value profile-header-emr-chips"></span>
-                </div>
-                <div class="profile-header-quickfact-row" id="profile-header-vdr-sync-row" style="display:none;" title="">
-                  <span class="profile-header-quickfact-label">⏱ Sync</span>
-                  <span id="profile-header-vdr-sync" class="profile-header-quickfact-value"></span>
-                </div>
-                <div class="profile-header-quickfact-row" id="profile-header-vdr-visits-row" style="display:none;" title="">
-                  <span class="profile-header-quickfact-label">📋 Visits/Run</span>
-                  <span id="profile-header-vdr-visits" class="profile-header-quickfact-value"></span>
-                </div>
-                <div class="profile-header-quickfact-row" id="profile-header-vdr-visitmins-row" style="display:none;" title="">
-                  <span class="profile-header-quickfact-label">🕐 Avg Visit</span>
-                  <span id="profile-header-vdr-visitmins" class="profile-header-quickfact-value"></span>
-                </div>
-                <div class="profile-header-quickfact-row" id="profile-header-pause-row" style="display:none;" title="">
-                  <span class="profile-header-quickfact-label">🏖 Pause</span>
-                  <span id="profile-header-pause" class="profile-header-quickfact-value"></span>
-                </div>
-                <div class="profile-header-quickfact-row" id="profile-header-dob-row" style="display:none;" title="Date of birth (from clinician import)">
-                  <span class="profile-header-quickfact-label">🎂 DOB</span>
-                  <span id="profile-header-dob" class="profile-header-quickfact-value"></span>
-                </div>
-                <div class="profile-header-quickfact-row" id="profile-header-llc-row" style="display:none;" title="LLC / business entity — bills are made out to this name (from Roster Review)">
-                  <span class="profile-header-quickfact-label">🏢 LLC</span>
-                  <span id="profile-header-llc" class="profile-header-quickfact-value"></span>
-                </div>
-              </div>
+              <div id="profile-header-contact" class="profile-header-contact" style="display:none"></div>
               <div class="profile-header-actions">
                 <button id="profile-isolate-clinician" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Clinician</button>
                 <button id="profile-isolate-visits" type="button" class="btn-secondary profile-header-action-btn" disabled>Isolate Visits</button>
@@ -6853,8 +6840,146 @@
           <textarea id="profile-notes-input" placeholder="Coordinator notes, fit guidance, or special coverage instructions"></textarea>
         </div>
         <div class="profile-panel-body">
+          <section class="profile-card profile-snapshot-card" id="profile-snapshot-card">
+            <div id="profile-hard-stops" class="profile-hard-stops" style="display:none"></div>
+            <h3 class="profile-card-title">🎯 Staffer Snapshot</h3>
+            <div class="snap-grid">
+              <div class="snap-tile">
+                <div class="snap-k">📍 Where</div>
+                <div id="snap-where">—</div>
+              </div>
+              <div class="snap-tile snap-bare">
+                <div class="snap-k">🚗 Range</div>
+                <div class="profile-header-quickfact-row" id="profile-header-travel-row" style="display:none;">
+                  <span class="profile-header-quickfact-label">📍 Travel</span>
+                  <span id="profile-header-travel" class="profile-header-quickfact-value"></span>
+                </div>
+              </div>
+              <div class="snap-tile">
+                <div class="snap-k">📋 Workload</div>
+                <div class="profile-header-quickfact-row" id="profile-header-vdr-sync-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">⏱ Sync</span>
+                  <span id="profile-header-vdr-sync" class="profile-header-quickfact-value"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-vdr-visits-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">📋 Visits/Run</span>
+                  <span id="profile-header-vdr-visits" class="profile-header-quickfact-value"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-vdr-visitmins-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">🕐 Avg Visit</span>
+                  <span id="profile-header-vdr-visitmins" class="profile-header-quickfact-value"></span>
+                </div>
+                <div id="snap-caseload" class="snap-s"></div>
+              </div>
+              <div class="snap-tile">
+                <div class="snap-k">📞 Referrals · 90 days</div>
+                <div id="snap-referrals">—</div>
+              </div>
+            </div>
+            <div class="snap-rows">
+                <div class="profile-header-quickfact-row" id="profile-header-emr-row" style="display:none;">
+                  <span class="profile-header-quickfact-label">🏥 EMR</span>
+                  <span id="profile-header-emr" class="profile-header-quickfact-value profile-header-emr-chips"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-pause-row" style="display:none;" title="">
+                  <span class="profile-header-quickfact-label">🏖 Pause</span>
+                  <span id="profile-header-pause" class="profile-header-quickfact-value"></span>
+                </div>
+              <div id="snap-chips"></div>
+              <div id="snap-headline" class="snap-headline" style="display:none"></div>
+            </div>
+          </section>
+
           <section class="profile-card">
-            <h3 class="profile-card-title">Profile Shell</h3>
+            <h3 class="profile-card-title">ZIP Coverage Status</h3>
+            <div id="profile-zip-status" class="zip-status">
+              <div class="zip-status-empty">Loading visit history…</div>
+            </div>
+            <div class="zip-status-actions">
+              <button type="button" class="btn-secondary btn-zip-compare" onclick="openTerritoryPlannerForCurrentClinician()" title="Stage adds/removals, TB entry, before/after report">🗺 Fix in Territory Planner</button>
+            </div>
+            <!-- Legacy ZIP Planning fields — hidden; still populated by JS. -->
+            <div class="profile-grid" style="display:none">
+              <div class="profile-kv">
+                <div class="profile-kv-label">ZIP</div>
+                <div id="profile-zip" class="profile-kv-value">Not set</div>
+              </div>
+              <div class="profile-kv">
+                <div class="profile-kv-label">Referral ZIPs</div>
+                <div id="profile-referral-zips-snapshot" class="profile-kv-value referral-zips-display">—</div>
+              </div>
+              <div class="profile-kv">
+                <div class="profile-kv-label">Address</div>
+                <div id="profile-address" class="profile-kv-value">No address</div>
+              </div>
+              <div class="profile-kv">
+                <div class="profile-kv-label">TB Loaded ZIPs</div>
+                <div id="profile-preferred-zips" class="profile-kv-value">None</div>
+              </div>
+            </div>
+            <div class="zip-compare-row" style="display:none">
+              <button type="button" id="profile-zip-compare-btn" class="btn-secondary btn-zip-compare" onclick="openZipComparePanel()">
+                🔍 Compare ZIPs
+              </button>
+            </div>
+            <div id="profile-zip-compare-panel" class="zip-compare-panel" style="display:none;">
+              <div class="zip-compare-header">
+                <span class="zip-compare-title">ZIPs visited but not in TB</span>
+                <button type="button" class="btn-secondary btn-zip-compare-copy" onclick="copyCurrentZipGap()">📋 Copy to clipboard</button>
+                <button type="button" class="btn-icon-close" title="Close" onclick="hideZipComparePanel()">✕</button>
+              </div>
+              <div id="profile-zip-compare-notice" class="zip-compare-notice" style="display:none;"></div>
+              <div id="profile-zip-compare-list" class="zip-compare-list"></div>
+            </div>
+          </section>
+
+          <section class="profile-card" id="profile-field-intel-card">
+            <h3 class="profile-card-title">Field Intelligence</h3>
+            <div class="profile-grid" id="profile-field-intel-grid">
+              <div class="profile-kv">
+                <div class="profile-kv-label">Last Active</div>
+                <div id="profile-last-active" class="profile-kv-value">—</div>
+              </div>
+              <div class="profile-kv">
+                <div class="profile-kv-label">Travel Range</div>
+                <div id="profile-travel-range" class="profile-kv-value">—</div>
+              </div>
+              <div class="profile-kv full">
+                <div class="profile-kv-label">Agency History</div>
+                <div id="profile-agency-relationships" class="profile-kv-value" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;">—</div>
+              </div>
+              <div class="profile-kv full">
+                <div class="profile-kv-label">🧠 Profile</div>
+                <div id="profile-ai-summary" class="profile-kv-value" style="font-size:12.5px;line-height:1.45;">—</div>
+              </div>
+            </div>
+          </section>
+
+          <details class="profile-card profile-card-collapsible" id="profile-completed-history-card" open>
+            <summary class="profile-card-title">Completed Services History</summary>
+            <div id="profile-completed-history" class="profile-history-shell">
+              <div class="profile-placeholder">Latest completed-service matches will appear here once the TherapyBoss history import is loaded.</div>
+            </div>
+          </details>
+
+          <details class="profile-card profile-card-collapsible profile-edit-details" id="profile-edit-details">
+            <summary class="profile-card-title">✏️ Edit details <span class="profile-edit-details-hint">status, pause, contact, EMR, languages, restrictions, work center</span></summary>
+            <div class="profile-edit-extra">
+              <div class="profile-header-start-date">
+                <label for="profile-start-date">Start Date</label>
+                <input id="profile-start-date" type="date">
+              </div>
+              <div class="profile-header-quickfacts">
+                <div class="profile-header-quickfact-row" id="profile-header-dob-row" style="display:none;" title="Date of birth (from clinician import)">
+                  <span class="profile-header-quickfact-label">🎂 DOB</span>
+                  <span id="profile-header-dob" class="profile-header-quickfact-value"></span>
+                </div>
+                <div class="profile-header-quickfact-row" id="profile-header-llc-row" style="display:none;" title="LLC / business entity — bills are made out to this name (from Roster Review)">
+                  <span class="profile-header-quickfact-label">🏢 LLC</span>
+                  <span id="profile-header-llc" class="profile-header-quickfact-value"></span>
+                </div>
+              </div>
+            </div>
             <div class="profile-form-grid">
               <div id="profile-create-fields" class="profile-create-fields full" hidden>
                 <div class="profile-create-grid">
@@ -7051,81 +7176,9 @@
                 </div>
               </div>
             </div>
-          </section>
-
-          <section class="profile-card">
-            <h3 class="profile-card-title">ZIP Coverage Status</h3>
-            <div id="profile-zip-status" class="zip-status">
-              <div class="zip-status-empty">Loading visit history…</div>
-            </div>
-            <div class="zip-status-actions">
-              <button type="button" class="btn-secondary btn-zip-compare" onclick="openTerritoryPlannerForCurrentClinician()" title="Stage adds/removals, TB entry, before/after report">🗺 Fix in Territory Planner</button>
-            </div>
-            <!-- Legacy ZIP Planning fields — hidden; still populated by JS. -->
-            <div class="profile-grid" style="display:none">
-              <div class="profile-kv">
-                <div class="profile-kv-label">ZIP</div>
-                <div id="profile-zip" class="profile-kv-value">Not set</div>
-              </div>
-              <div class="profile-kv">
-                <div class="profile-kv-label">Referral ZIPs</div>
-                <div id="profile-referral-zips-snapshot" class="profile-kv-value referral-zips-display">—</div>
-              </div>
-              <div class="profile-kv">
-                <div class="profile-kv-label">Address</div>
-                <div id="profile-address" class="profile-kv-value">No address</div>
-              </div>
-              <div class="profile-kv">
-                <div class="profile-kv-label">TB Loaded ZIPs</div>
-                <div id="profile-preferred-zips" class="profile-kv-value">None</div>
-              </div>
-            </div>
-            <div class="zip-compare-row" style="display:none">
-              <button type="button" id="profile-zip-compare-btn" class="btn-secondary btn-zip-compare" onclick="openZipComparePanel()">
-                🔍 Compare ZIPs
-              </button>
-            </div>
-            <div id="profile-zip-compare-panel" class="zip-compare-panel" style="display:none;">
-              <div class="zip-compare-header">
-                <span class="zip-compare-title">ZIPs visited but not in TB</span>
-                <button type="button" class="btn-secondary btn-zip-compare-copy" onclick="copyCurrentZipGap()">📋 Copy to clipboard</button>
-                <button type="button" class="btn-icon-close" title="Close" onclick="hideZipComparePanel()">✕</button>
-              </div>
-              <div id="profile-zip-compare-notice" class="zip-compare-notice" style="display:none;"></div>
-              <div id="profile-zip-compare-list" class="zip-compare-list"></div>
-            </div>
-          </section>
-
-          <section class="profile-card" id="profile-field-intel-card">
-            <h3 class="profile-card-title">Field Intelligence</h3>
-            <div class="profile-grid" id="profile-field-intel-grid">
-              <div class="profile-kv">
-                <div class="profile-kv-label">Last Active</div>
-                <div id="profile-last-active" class="profile-kv-value">—</div>
-              </div>
-              <div class="profile-kv">
-                <div class="profile-kv-label">Travel Range</div>
-                <div id="profile-travel-range" class="profile-kv-value">—</div>
-              </div>
-              <div class="profile-kv full">
-                <div class="profile-kv-label">Agency History</div>
-                <div id="profile-agency-relationships" class="profile-kv-value" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;">—</div>
-              </div>
-              <div class="profile-kv full">
-                <div class="profile-kv-label">🧠 Profile</div>
-                <div id="profile-ai-summary" class="profile-kv-value" style="font-size:12.5px;line-height:1.45;">—</div>
-              </div>
-            </div>
-          </section>
-
-          <details class="profile-card profile-card-collapsible" id="profile-completed-history-card" open>
-            <summary class="profile-card-title">Completed Services History</summary>
-            <div id="profile-completed-history" class="profile-history-shell">
-              <div class="profile-placeholder">Latest completed-service matches will appear here once the TherapyBoss history import is loaded.</div>
-            </div>
           </details>
 
-          <section class="profile-card">
+          <section class="profile-card profile-quick-actions">
             <h3 class="profile-card-title">Quick Actions</h3>
             <div class="button-row">
           <button id="profile-save-shell" type="button" class="btn-primary edit-only">Save Profile</button>
@@ -12756,6 +12809,9 @@
         return n ? "<span class='" + c + "' style='flex:" + n + "' title='" + n + " " + label + "'></span>" : "";
       }
       const cutoff = getClinicianIgnoreHistoryBeforeValue(clinician);
+      appState.profileZipStatusSummary = { clinicianId: clinicianId, pill: pill, cls: cls, pct: pct, tbSize: tb.size };
+      renderSnapshotWhere();
+      renderSnapshotHardStops(clinicianId, getProfileDraftForClinician(clinician) || {});
       el.innerHTML =
         "<div class='zip-status-head'><span class='zip-status-pill " + cls + "'>" + pill + "</span>" +
           (pct === null ? "" : "<span class='zip-status-pct'><b>" + pct + "%</b> of visits fall in TB ZIPs</span>") +
@@ -13835,6 +13891,187 @@
       renderFieldIntelTravelRange(clinicianId, history); // async — updates when ready
       renderProfileHeaderQuickFacts(clinicianId, history); // also async (travel)
       renderFieldIntelProfileSummary(clinicianId, history); // async — cached AI read
+      renderProfileStafferSnapshot(clinicianId, history);
+    }
+
+    /* ── 🎯 Staffer snapshot — the read-first top of the profile.
+       Answers "can I give them this referral?" before any edit form:
+       ⚠ hard stops (DNR, pause, TB-unavailable, restrictions, won't-serve),
+       Where (home town + TB sync), Range (travel row), Workload (VDR rows +
+       ≈ open episodes), Referrals in the last 90 days (referral_contacts),
+       EMR / languages / top agencies, and the cached 🧠 headline. The
+       travel / EMR / VDR / pause rows keep their original IDs, so their
+       existing renderers fill them in place. */
+    var _snapRefCache = new Map(); // clinicianId -> { at, html }
+    var SNAP_REF_TTL_MS = 2 * 60 * 1000;
+    function snapTownFromAddress(addr) {
+      var parts = String(addr || "").split(",").map(function(x) { return x.trim(); }).filter(Boolean);
+      return parts.length >= 2 ? parts[parts.length - 2] : "";
+    }
+    function snapParseDate(v) {
+      var str = String(v || "");
+      var d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(str) ? str + "T00:00:00" : str);
+      return isNaN(d.getTime()) ? null : d;
+    }
+    function snapFmtDate(v) {
+      var d = snapParseDate(v);
+      return d ? d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : String(v || "");
+    }
+    function snapDaysAgo(v) {
+      var d = snapParseDate(v);
+      if (!d) return "";
+      var n = Math.floor((Date.now() - d.getTime()) / 86400000);
+      return n <= 0 ? "today" : n === 1 ? "yesterday" : n + " days ago";
+    }
+
+    function renderProfileStafferSnapshot(clinicianId, history) {
+      var card = document.getElementById("profile-snapshot-card");
+      if (!card) return;
+      var clinician = clinicianId ? appState.clinicians.find(function(c) { return c.id === clinicianId; }) : null;
+      if (!clinician) { card.style.display = "none"; return; }
+      card.style.display = "";
+      var draft = getProfileDraftForClinician(clinician) || {};
+
+      // Header contact line: tap-to-call phone + last active.
+      var contact = document.getElementById("profile-header-contact");
+      if (contact) {
+        var bits = [];
+        var phone = String(draft.phone || "").trim();
+        if (phone) bits.push("📞 <a href='tel:" + escapeHtml(phone.replace(/[^\d+]/g, "")) + "'>" + escapeHtml(phone) + "</a>");
+        if (history && history.latestServiceDate) bits.push("Last active <b>" + escapeHtml(snapDaysAgo(history.latestServiceDate)) + "</b>");
+        contact.innerHTML = bits.join(" &nbsp;·&nbsp; ");
+        contact.style.display = bits.length ? "" : "none";
+      }
+
+      renderSnapshotHardStops(clinicianId, draft);
+      renderSnapshotWhere();
+
+      // ≈ open episodes: no ended date + a visit in the last 30 days.
+      var caseEl = document.getElementById("snap-caseload");
+      if (caseEl) {
+        var since = Date.now() - 30 * 86400000;
+        var open = new Set();
+        ((history && history.sites) || []).forEach(function(site) {
+          (site.rows || []).forEach(function(r) {
+            if (r.ended_date) return;
+            var lv = snapParseDate(String(r.last_visit_date || "").slice(0, 10));
+            if (lv && lv.getTime() >= since) open.add(String(r.patient_external_id || r.referral_external_id || r.id) + "|" + String(r.service || ""));
+          });
+        });
+        caseEl.innerHTML = "≈ <b>" + open.size + "</b> open episode" + (open.size === 1 ? "" : "s") +
+          " <span title='Episodes with no ended date and a visit in the last 30 days (from the TB import)' style='cursor:help'>ⓘ</span>";
+      }
+
+      // Languages + top 3 agencies.
+      var chipsEl = document.getElementById("snap-chips");
+      if (chipsEl) {
+        var langs = normalizeProfileLanguageList(draft.languages);
+        var payer = new Map();
+        ((history && history.sites) || []).forEach(function(site) {
+          (site.rows || []).forEach(function(row) {
+            var pn = normalizeRestrictionName(row.primary_payer || "").trim();
+            if (pn) payer.set(pn, (payer.get(pn) || 0) + 1);
+          });
+        });
+        var top = Array.from(payer.entries()).sort(function(a, b) { return b[1] - a[1]; }).slice(0, 3);
+        var html = "";
+        if (langs.length) html += "<div class='snap-chip-row'><span class='snap-k'>🗣 Speaks</span>" +
+          langs.map(function(l) { return "<span class='snap-chip lang'>" + escapeHtml(l) + "</span>"; }).join("") + "</div>";
+        if (top.length) html += "<div class='snap-chip-row'><span class='snap-k'>🏢 Top agencies</span>" +
+          top.map(function(e) { return "<span class='snap-chip'>" + escapeHtml(e[0]) + " ×" + e[1] + "</span>"; }).join("") + "</div>";
+        chipsEl.innerHTML = html;
+      }
+
+      renderSnapshotReferrals(clinicianId, clinician);
+    }
+
+    function renderSnapshotHardStops(clinicianId, draft) {
+      var el = document.getElementById("profile-hard-stops");
+      if (!el) return;
+      var items = [];
+      if (draft.doNotRehire) items.push("⛔ Do Not Rehire");
+      var st = String(draft.status || "").toLowerCase();
+      if (st === "inactive") items.push("Inactive");
+      var today = new Date().toISOString().slice(0, 10);
+      var ps = String(draft.pauseStart || "").slice(0, 10), pe = String(draft.pauseEnd || "").slice(0, 10);
+      if (st === "paused") items.push("🏖 Paused" + (pe ? " until " + snapFmtDate(pe) : ""));
+      else if (ps && ps >= today) items.push("🏖 Pause starts " + snapFmtDate(ps) + (pe ? " → " + snapFmtDate(pe) : ""));
+      if (draft.therapyBossUnavailable) items.push("Can't work in TherapyBoss");
+      var ag = normalizeProfileRestrictionList(draft.restrictedAgencies);
+      var cl = normalizeProfileRestrictionList(draft.restrictedClinicians);
+      if (ag.length) items.push("Won't take: " + ag.join(", "));
+      if (cl.length) items.push("Not with: " + cl.join(", "));
+      var wont = profileZipWontServeCache.get(clinicianId);
+      if (wont && wont.size) items.push("⛔ " + wont.size + " won't-serve ZIP" + (wont.size === 1 ? "" : "s"));
+      el.style.display = items.length ? "" : "none";
+      el.innerHTML = items.length ? "<b>⚠ Before you offer:</b> " + items.map(escapeHtml).join(" · ") : "";
+    }
+
+    function renderSnapshotWhere() {
+      var el = document.getElementById("snap-where");
+      if (!el) return;
+      var id = appState.currentProfileClinicianId;
+      var c = id ? appState.clinicians.find(function(x) { return x.id === id; }) : null;
+      if (!c) { el.innerHTML = "—"; return; }
+      var draft = getProfileDraftForClinician(c) || {};
+      var town = snapTownFromAddress(draft.address || c.address);
+      var zip = String(draft.zip || c.zip || "").trim();
+      var sum = appState.profileZipStatusSummary;
+      var html = "<div class='snap-v'>" + escapeHtml(town || "—") + (zip ? " · " + escapeHtml(zip) : "") + "</div>";
+      if (sum && sum.clinicianId === id) {
+        html += "<div class='snap-s'>" + sum.tbSize + " TB ZIPs · <span class='zip-status-pill " + sum.cls + "'>" + escapeHtml(sum.pill) + "</span>" +
+          (sum.pct != null ? " " + sum.pct + "% of visits" : "") + "</div>";
+      }
+      el.innerHTML = html;
+    }
+
+    async function renderSnapshotReferrals(clinicianId, clinician) {
+      var el = document.getElementById("snap-referrals");
+      if (!el) return;
+      var cached = _snapRefCache.get(clinicianId);
+      if (cached && Date.now() - cached.at < SNAP_REF_TTL_MS) { el.innerHTML = cached.html; return; }
+      el.innerHTML = "<span class='snap-s'>Loading…</span>";
+      var since = new Date(Date.now() - 90 * 86400000).toISOString();
+      // referral_contacts usually carries only clinician_name (display
+      // form) — match the id when present plus both name spellings.
+      var names = [];
+      [clinician.name, formatClinicianDisplayName(clinician.name || "")].forEach(function(n) {
+        var v = String(n || "").replace(/[%_]/g, "").trim();
+        if (v && names.indexOf(v.toLowerCase()) === -1) names.push(v.toLowerCase());
+      });
+      var html;
+      try {
+        var queries = [supabaseClient.from("referral_contacts").select("id, response, contacted_at")
+          .eq("clinician_id", String(clinicianId)).gte("contacted_at", since)];
+        names.forEach(function(n) {
+          queries.push(supabaseClient.from("referral_contacts").select("id, response, contacted_at")
+            .ilike("clinician_name", n).gte("contacted_at", since));
+        });
+        var results = await Promise.all(queries);
+        var failed = results.find(function(r) { return r && r.error; });
+        if (failed) throw failed.error;
+        var byId = new Map();
+        results.forEach(function(r) { (r.data || []).forEach(function(row) { byId.set(row.id, row); }); });
+        var acc = 0, dec = 0, wait = 0, other = 0;
+        byId.forEach(function(row) {
+          var x = String(row.response || "waiting").toLowerCase();
+          if (x.indexOf("accepted") === 0) acc++;
+          else if (x.indexOf("declined") === 0) dec++;
+          else if (x === "waiting") wait++;
+          else other++;
+        });
+        var total = byId.size;
+        html = total
+          ? "<div class='snap-v'>" + acc + " of " + total + " taken</div><div class='snap-s'>" + dec + " declined" +
+            (wait ? " · " + wait + " waiting" : "") + (other ? " · " + other + " other" : "") + "</div>"
+          : "<div class='snap-v'>No offers</div><div class='snap-s'>none logged in 90 days</div>";
+      } catch (e) {
+        console.warn("[snapshot] referral_contacts:", e && e.message);
+        html = "<span class='snap-s'>Couldn't load the referral log</span>";
+      }
+      _snapRefCache.set(clinicianId, { at: Date.now(), html: html });
+      if (appState.currentProfileClinicianId !== clinicianId) return;
+      el.innerHTML = html;
     }
 
     /* ── 🧠 Profile — compact view of the Territory Planner's Clinician
@@ -13881,11 +14118,17 @@
         _profileAiCache.set(clinicianId, { row: row, at: Date.now() });
       }
       if (appState.currentProfileClinicianId !== clinicianId) return;
-      if (!row || !row.narrative) { el.innerHTML = fallback; return; }
+      var snapHead = document.getElementById("snap-headline");
+      if (!row || !row.narrative) {
+        el.innerHTML = fallback;
+        if (snapHead) { snapHead.style.display = "none"; snapHead.innerHTML = ""; }
+        return;
+      }
 
       var lines = String(row.narrative).split(/\r?\n/).map(function(l) { return l.trim(); }).filter(Boolean);
       var headline = lines[0] || "";
       var bullets = lines.slice(1).filter(function(l) { return l.charAt(0) === "•"; }).slice(0, 2);
+      if (snapHead) { snapHead.innerHTML = "🧠 " + escapeHtml(headline); snapHead.style.display = headline ? "" : "none"; }
       el.innerHTML = "<div style='font-weight:700'>" + escapeHtml(headline) + "</div>" +
         bullets.map(function(b) { return "<div style='margin-top:2px'>" + escapeHtml(b) + "</div>"; }).join("") +
         "<div style='color:var(--muted);font-size:11px;margin-top:3px'>✨ " + escapeHtml(row.model || "AI") + " · " + escapeHtml(fmtD(row.generated_at)) + "</div>" +
@@ -14789,6 +15032,12 @@
     function syncProfileModeUi() {
       const isCreateMode = appState.profileCreateMode;
       elements.profileCreateFields.hidden = !isCreateMode;
+      // New clinician: the name/discipline/address fields live in the
+      // collapsed ✏️ Edit details card — open it so they're visible.
+      var editDetailsEl = document.getElementById("profile-edit-details");
+      if (editDetailsEl && isCreateMode) editDetailsEl.open = true;
+      var snapshotCardEl = document.getElementById("profile-snapshot-card");
+      if (snapshotCardEl) snapshotCardEl.style.display = isCreateMode ? "none" : "";
       elements.profileSaveShell.textContent = isCreateMode ? "Create Clinician" : "Save Profile";
       elements.profileOpenHistory.textContent = isCreateMode
         ? "History Unavailable"
