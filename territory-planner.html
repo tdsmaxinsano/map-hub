@@ -64,6 +64,32 @@
   .tp-facts b { color: var(--text); font-weight: 700; }
   .tp-facts .chip { background: #e0ecff; color: #1e3a8a; border-radius: 999px; padding: 2px 10px; font-weight: 700; font-size: 11.5px; }
 
+  /* 🧠 Clinician profile */
+  .pf-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1.35fr); gap: 16px; align-items: start; }
+  @media (max-width: 1100px) { .pf-grid { grid-template-columns: 1fr; } }
+  .pf-col h4 { margin: 0 0 8px; font-size: 11px; letter-spacing: .5px; text-transform: uppercase; color: var(--muted); font-weight: 800; }
+  .pf-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .pf-tile { border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; background: #f8fafc; min-width: 0; }
+  .pf-tile .pf-k { font-size: 10.5px; color: var(--muted); font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+  .pf-tile .pf-v { font-size: 18px; font-weight: 800; color: var(--text); line-height: 1.25; }
+  .pf-tile .pf-s { font-size: 11px; color: var(--muted); }
+  .pf-tile.wide { grid-column: 1 / -1; }
+  .pf-bar { display: flex; height: 8px; border-radius: 6px; overflow: hidden; background: #e5e7eb; margin: 5px 0 3px; }
+  .pf-bar span { display: block; height: 100%; }
+  .pf-arrow { display: inline-block; font-size: 15px; line-height: 1; transition: transform .2s; }
+  .pf-pill { display: inline-block; font-size: 10.5px; font-weight: 800; padding: 1px 8px; border-radius: 999px; vertical-align: middle; }
+  .pf-pill.shift { background: #fef3c7; color: #92400e; }
+  .pf-pill.stable { background: #dcfce7; color: #166534; }
+  .pf-pill.na { background: #e5e7eb; color: #475569; }
+  .pf-pill.stale { background: #fee2e2; color: #991b1b; cursor: pointer; }
+  .pf-chip { display: inline-block; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 700; margin: 0 4px 4px 0; border: 0; cursor: pointer; }
+  .pf-chip.em { background: #dcfce7; color: #166534; }
+  .pf-chip.fa { background: #fef3c7; color: #92400e; }
+  .pf-chip.tw { background: #e0ecff; color: #1e3a8a; cursor: default; }
+  .pf-line { font-size: 12.5px; margin: 4px 0; }
+  .pf-read { white-space: pre-wrap; font-size: 13px; line-height: 1.5; background: #fbfaff; border: 1px solid #e9e5ff; border-radius: 10px; padding: 10px 12px; }
+  .pf-meta { font-size: 11px; color: var(--muted); margin-top: 6px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
   .tp-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(320px, 1fr); gap: 14px; align-items: start; }
   @media (max-width: 980px) { .tp-grid { grid-template-columns: 1fr; } }
 
@@ -368,6 +394,11 @@
       <span class="tp-stars" id="tp-stars"></span>
     </div>
     <div class="tp-facts" id="tp-facts"></div>
+
+    <div class="card" id="tp-profile-card" style="display:none">
+      <h3>🧠 Clinician profile</h3>
+      <div id="tp-profile-body"></div>
+    </div>
 
     <div class="tp-grid">
       <div>
@@ -1024,6 +1055,7 @@ async function openWorkspace(clinicianId) {
     renderReqCard();
     renderVisitTable(true);
     renderTravelStats();
+    renderProfileCard();
     initTerritoryMap();
     renderSiteExclList();
     loadReviewCard();
@@ -1046,6 +1078,7 @@ async function openWorkspace(clinicianId) {
       if (!xzStaged.length) renderExclCard();
       if (!rqStaged.length) renderReqCard();
       renderVisitTable(true);
+      renderProfileCard();   // town names now resolved
     })();
   } catch (e) {
     loading.style.display = "none";
@@ -1058,6 +1091,426 @@ async function openWorkspace(clinicianId) {
 // ══════════════════════════════════════════════════════════════════
 // HEADER + TRAVEL STATS
 // ══════════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// 🧠 CLINICIAN PROFILE — computed facts + an AI "Analyst read".
+// Layer 1 (always): deterministic facts from data this page already
+// loaded — tenure, volume trend, city/suburb mix, top towns, range,
+// work center, SHIFT DETECTION (early vs recent window), TB alignment.
+// Layer 2 (optional): the clinician-profile-ai edge function (OpenAI)
+// writes a short narrative from the facts ONLY — aggregates, never
+// patient names or addresses — cached in clinician_ai_profiles
+// (migration 96) keyed by a hash of the facts. ↻ regenerates.
+// Hidden in the clinician's own (PHI-safe) view.
+// ══════════════════════════════════════════════════════════════════
+let profileFacts = null;
+let profileFactsHash = "";
+let profileFactsFor = null;
+let profileAi = null;           // cached clinician_ai_profiles row
+let profileAiMissing = false;   // migration 96 not run
+let profileAiBusy = false;
+let profileAiErr = "";
+let profileMetrics = [];        // clinician_visit_period_metrics, newest first
+let profileLoadFor = null;
+let profileLoadPromise = null;
+let profileRenderSeq = 0;
+
+function pfDate(v) {
+  if (!v) return null;
+  const str = String(v);
+  const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(str) ? str + "T00:00:00" : str);
+  return (isNaN(d.getTime()) || d.getFullYear() < 2000) ? null : d;   // same floor as the map
+}
+function pfRound(n, d) { const p = Math.pow(10, d || 0); return Math.round(n * p) / p; }
+function pfMi(n) { return n < 10 ? pfRound(n, 1) : Math.round(n); }   // matches the 🚗 Travel chip
+function pfPct(a, b) { return b ? Math.round(a * 100 / b) : 0; }
+function pfVisits(row) { return Math.max(Number(row.service_visits || 0) || 0, 1); }
+function pfRowZip(row) {
+  let z = normZip(row.zip_code);
+  if (!z) { const m = String(row.full_address || "").match(/\b(\d{5})\b/); if (m) z = m[1]; }
+  return z;
+}
+function pfRowTown(row) {
+  const z = pfRowZip(row);
+  return (z && zipPlaceCache.get(z)) || (row.city ? titleCasePlace(row.city) : null);
+}
+function pfBearing(lat1, lng1, lat2, lng2) {
+  const r = Math.PI / 180;
+  const y = Math.sin((lng2 - lng1) * r) * Math.cos(lat2 * r);
+  const x = Math.cos(lat1 * r) * Math.sin(lat2 * r) - Math.sin(lat1 * r) * Math.cos(lat2 * r) * Math.cos((lng2 - lng1) * r);
+  return (Math.atan2(y, x) / r + 360) % 360;
+}
+function pfCompass(deg) { return ["N", "NE", "E", "SE", "S", "SW", "W", "NW"][Math.round(deg / 45) % 8]; }
+
+// Start date — same precedence as the map's getClinicianDisplayStartDateValue
+// (manual → derived), then the earliest plausible visit.
+function pfStartDate() {
+  const tags = (profileRow && profileRow.tags && typeof profileRow.tags === "object" && !Array.isArray(profileRow.tags)) ? profileRow.tags : {};
+  const pick = keys => {
+    for (const o of [clinician, profileRow, tags]) {
+      if (!o) continue;
+      for (const k of keys) { const v = o[k]; if (v != null && String(v).trim()) return String(v).trim(); }
+    }
+    return "";
+  };
+  const manual = pick(["start_date", "startDate", "hire_date", "hireDate", "onboard_date", "onboardDate"]);
+  if (pfDate(manual)) return { date: manual.slice(0, 10), source: "manual" };
+  const derived = pick(["derived_start_date", "derivedStartDate", "auto_start_date", "autoStartDate"]);
+  if (pfDate(derived)) return { date: derived.slice(0, 10), source: "derived" };
+  let first = null;
+  historyRows.forEach(r => { const a = anchorDate(r); if (pfDate(a) && (!first || String(a).slice(0, 10) < first)) first = String(a).slice(0, 10); });
+  return first ? { date: first, source: "first visit" } : null;
+}
+
+function pfWindowStats(rows) {
+  let visits = 0, wLat = 0, wLng = 0, wGeo = 0;
+  const byTown = {};
+  rows.forEach(r => {
+    const v = pfVisits(r);
+    visits += v;
+    const lat = toNum(r.patient_lat), lng = toNum(r.patient_lng);
+    if (lat != null && lng != null) { wLat += lat * v; wLng += lng * v; wGeo += v; }
+    const t = pfRowTown(r);
+    if (t) byTown[t] = (byTown[t] || 0) + v;
+  });
+  return { visits, center: wGeo ? { lat: wLat / wGeo, lng: wLng / wGeo } : null, byTown };
+}
+function pfP75(rows, origin) {
+  if (!origin) return null;
+  const d = rows.map(r => {
+    const lat = toNum(r.patient_lat), lng = toNum(r.patient_lng);
+    return (lat != null && lng != null) ? haversineMiles(origin.lat, origin.lng, lat, lng) : null;
+  }).filter(x => x != null).sort((a, b) => a - b);
+  return d.length ? d[Math.floor(d.length * 0.75)] : null;
+}
+// Shift detection — Early (24→12 months before the latest visit) vs
+// Recent (last 6 months of activity). Uses ALL non-excluded history on
+// purpose: an Ignore-History-Before cutoff usually marks exactly the
+// kind of move this is meant to surface.
+const PF_MIN_WINDOW_VISITS = 15;
+function pfShift(rows, refIso, origin) {
+  if (!refIso) return { flag: false, note: "not enough history" };
+  const ref = new Date(refIso + "T00:00:00");
+  const mAgo = n => { const d = new Date(ref); d.setMonth(d.getMonth() - n); return localIsoDate(d); };
+  const recentFrom = mAgo(6), earlyFrom = mAgo(24), earlyTo = mAgo(12);
+  const inWin = (r, a, b) => { const d = anchorDate(r); if (!d) return false; const x = String(d).slice(0, 10); return x >= a && x <= b; };
+  const E = pfWindowStats(rows.filter(r => inWin(r, earlyFrom, earlyTo)));
+  const recentRows = rows.filter(r => inWin(r, recentFrom, refIso));
+  const R = pfWindowStats(recentRows);
+  const out = { early_window: earlyFrom + " to " + earlyTo, recent_window: recentFrom + " to " + refIso,
+                early_visits: E.visits, recent_visits: R.visits };
+  if (E.visits < PF_MIN_WINDOW_VISITS || R.visits < PF_MIN_WINDOW_VISITS) {
+    out.flag = false; out.note = "not enough history to compare"; return out;
+  }
+  if (E.center && R.center) {
+    const d = haversineMiles(E.center.lat, E.center.lng, R.center.lat, R.center.lng);
+    const b = pfBearing(E.center.lat, E.center.lng, R.center.lat, R.center.lng);
+    out.center_moved_mi = pfMi(d);
+    out.direction = d >= 0.5 ? pfCompass(b) : null;
+    out.bearing_deg = Math.round(b);
+  }
+  const share = (S, t) => S.visits ? (S.byTown[t] || 0) * 100 / S.visits : 0;
+  const towns = new Set(Object.keys(E.byTown).concat(Object.keys(R.byTown)));
+  out.emerging_towns = []; out.fading_towns = [];
+  towns.forEach(t => {
+    const e = share(E, t), r = share(R, t);
+    if (r >= 10 && e < 3) out.emerging_towns.push({ town: t, recent_pct: Math.round(r), early_pct: Math.round(e) });
+    if (e >= 10 && r < 3) out.fading_towns.push({ town: t, early_pct: Math.round(e), recent_pct: Math.round(r) });
+  });
+  out.emerging_towns.sort((a, b) => b.recent_pct - a.recent_pct);
+  out.fading_towns.sort((a, b) => b.early_pct - a.early_pct);
+  const ep = pfP75(rows.filter(r => inWin(r, earlyFrom, earlyTo)), origin), rp = pfP75(recentRows, origin);
+  if (ep != null && rp != null) { out.p75_range_early_mi = pfMi(ep); out.p75_range_recent_mi = pfMi(rp); }
+  out.flag = (out.center_moved_mi || 0) >= 3 || out.emerging_towns.length > 0 || out.fading_towns.length > 0;
+  return out;
+}
+
+// Aggregates only — this object is what the AI sees. No patient names,
+// no street addresses, no row-level data (the edge function also
+// rejects any key that looks like PHI).
+async function buildProfileFacts() {
+  const cutoff = readIgnoreBefore(profileRow && profileRow.tags);
+  const exclSet = excludedSiteAddrSet();
+  const all = historyRows.filter(r => !rowSiteExcluded(r, exclSet));
+  const cur = all.filter(r => rowEligible(r, cutoff));
+  const f = {
+    clinician: fmtName(clinician.name) || "Unnamed",
+    discipline: clinician.discipline || null,
+    status: clinicianStatus(),
+    history_cutoff: cutoff ? localIsoDate(cutoff) : null
+  };
+
+  const st = pfStartDate();
+  f.tenure = st ? { start_date: st.date, source: st.source,
+    years: pfRound(Math.max(0, (Date.now() - new Date(st.date + "T00:00:00").getTime()) / (365.25 * 86400000)), 1) } : null;
+
+  let lastActive = null, ref = null;
+  all.forEach(r => {
+    const d = r.last_visit_date || r.ended_date || anchorDate(r);
+    if (pfDate(d) && (!lastActive || String(d).slice(0, 10) > lastActive)) lastActive = String(d).slice(0, 10);
+    const a = anchorDate(r);
+    if (pfDate(a) && (!ref || String(a).slice(0, 10) > ref)) ref = String(a).slice(0, 10);
+  });
+  f.volume = { episodes: all.length, visits: all.reduce((t, r) => t + pfVisits(r), 0), last_active: lastActive };
+  const m = profileMetrics || [];
+  if (m.length >= 4) {
+    const avg = a => a.reduce((t, x) => t + (Number(x.visit_count) || 0), 0) / a.length;
+    const recent = m.slice(0, 6), prior = m.slice(6, 12);
+    const ra = avg(recent);
+    f.volume.visits_per_pay_period_recent = pfRound(ra, 1);
+    if (prior.length >= 3) {
+      const pa = avg(prior);
+      f.volume.visits_per_pay_period_prior = pfRound(pa, 1);
+      if (pa > 0) {
+        const ch = Math.round((ra - pa) * 100 / pa);
+        f.volume.trend_pct = ch;
+        f.volume.trend = ch >= 15 ? "up" : ch <= -15 ? "down" : "steady";
+      }
+    }
+  }
+
+  const curVisits = cur.reduce((t, r) => t + pfVisits(r), 0);
+  const payer = {}, byTown = {}, byZip = {};
+  let cityV = 0, knownV = 0;
+  cur.forEach(r => {
+    const v = pfVisits(r);
+    const p = String(r.primary_payer || "").trim();
+    if (p) payer[p] = (payer[p] || 0) + v;
+    const z = pfRowZip(r);
+    if (z) byZip[z] = (byZip[z] || 0) + v;
+    const t = pfRowTown(r);
+    if (t) { byTown[t] = (byTown[t] || 0) + v; knownV += v; if (t.toLowerCase() === "chicago") cityV += v; }
+  });
+  f.agency_mix = Object.entries(payer).sort((a, b) => b[1] - a[1]).slice(0, 3)
+    .map(([name, v]) => ({ name, share_pct: pfPct(v, curVisits) }));
+  const cityPct = knownV ? pfPct(cityV, knownV) : null;
+  f.city_vs_suburb = cityPct == null ? null : { chicago_pct: cityPct, suburbs_pct: 100 - cityPct,
+    lean: cityPct >= 60 ? "city-leaning" : cityPct <= 40 ? "suburb-leaning" : "mixed" };
+  f.top_towns = Object.entries(byTown).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    .map(([town, v]) => ({ town, share_pct: pfPct(v, curVisits) }));
+  f.top_zips = Object.entries(byZip).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    .map(([zip, v]) => ({ zip, town: zipPlaceCache.get(zip) || null, share_pct: pfPct(v, curVisits) }));
+  f.towns_served = Object.keys(byTown).length;
+  f.zips_served = Object.keys(byZip).length;
+
+  // Range — same origin + math as renderTravelStats (🚗 Travel chip).
+  const wc = resolveWorkCenter();
+  let origin = clinician.zip ? await getZipCentroid(clinician.zip) : null;
+  const originLabel = origin ? "home ZIP" : "work center";
+  if (!origin && wc && wc.lat != null) origin = { lat: wc.lat, lng: wc.lng };
+  const dists = origin ? buildSites().filter(x => x.lat != null && x.lng != null && !x.excluded)
+    .map(x => haversineMiles(origin.lat, origin.lng, x.lat, x.lng)).sort((a, b) => a - b) : [];
+  f.range = dists.length ? { from: originLabel, typical_low_mi: pfMi(dists[Math.floor(dists.length * 0.25)]),
+    typical_high_mi: pfMi(dists[Math.floor(dists.length * 0.75)]), max_mi: pfMi(dists[dists.length - 1]), sites: dists.length } : null;
+
+  const home = homeCenter("home pin");
+  if (wc && home && wc.label !== "home pin") {
+    const d = haversineMiles(home.lat, home.lng, wc.lat, wc.lng);
+    const b = pfBearing(home.lat, home.lng, wc.lat, wc.lng);
+    f.work_center = { source: wc.label, miles_from_home: pfMi(d), direction_from_home: d >= 0.5 ? pfCompass(b) : null, bearing_deg: Math.round(b) };
+  } else f.work_center = wc ? { source: wc.label, miles_from_home: 0 } : null;
+
+  f.shift = pfShift(all, ref, origin);
+
+  const declared = declaredZipSet();
+  let zipV = 0, inTb = 0;
+  Object.entries(byZip).forEach(([z, v]) => { zipV += v; if (declared.has(z)) inTb += v; });
+  f.tb_alignment = { tb_zips: declared.size, visits_in_tb_zips_pct: zipV ? pfPct(inTb, zipV) : null,
+    requested_zips: requestedZipSet().size, wont_serve_zips: excludedZipSet().size };
+  return f;
+}
+
+function profileTemplateText(f) {
+  const out = [];
+  let a = f.clinician + (f.discipline ? " (" + f.discipline + ")" : "");
+  a += f.tenure ? " has been with us " + f.tenure.years + " yrs (since " + fmtDate(f.tenure.start_date) + ")" : " — start date not recorded";
+  a += "; " + f.volume.visits + " visits over " + f.volume.episodes + " episodes" +
+    (f.volume.last_active ? ", last active " + fmtDate(f.volume.last_active) : "") +
+    (f.volume.trend ? ", volume " + f.volume.trend + " (" + (f.volume.trend_pct > 0 ? "+" : "") + f.volume.trend_pct + "% vs the prior pay periods)" : "") + ".";
+  out.push(a);
+  const where = [];
+  if (f.city_vs_suburb) where.push(f.city_vs_suburb.lean + " (" + f.city_vs_suburb.chicago_pct + "% Chicago)");
+  if (f.top_towns.length) where.push("mostly " + f.top_towns.slice(0, 3).map(t => t.town + " " + t.share_pct + "%").join(", "));
+  if (where.length) out.push("Works " + where.join(", ") + ".");
+  if (f.range) out.push("Typically " + f.range.typical_low_mi + "–" + f.range.typical_high_mi + " mi from " + f.range.from + ", max " + f.range.max_mi + " mi.");
+  const sh = f.shift || {};
+  if (sh.note) out.push("Shift check: " + sh.note + ".");
+  else if (sh.flag) {
+    const bits = [];
+    if ((sh.center_moved_mi || 0) >= 3) bits.push("center moved " + sh.center_moved_mi + " mi" + (sh.direction ? " " + sh.direction : ""));
+    if (sh.emerging_towns.length) bits.push("new: " + sh.emerging_towns.map(t => t.town).join(", "));
+    if (sh.fading_towns.length) bits.push("fading: " + sh.fading_towns.map(t => t.town).join(", "));
+    out.push("Footprint is shifting — " + bits.join("; ") + ".");
+  } else out.push("Footprint is stable between the early and recent windows.");
+  const tb = f.tb_alignment;
+  if (tb && tb.visits_in_tb_zips_pct != null && tb.tb_zips) out.push(tb.visits_in_tb_zips_pct + "% of visits fall inside their " + tb.tb_zips + " TB ZIPs.");
+  else if (tb && !tb.tb_zips) out.push("No TB ZIPs on file yet.");
+  return out.join(" ");
+}
+
+function pfStable(v) {
+  if (Array.isArray(v)) return "[" + v.map(pfStable).join(",") + "]";
+  if (v && typeof v === "object") return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + pfStable(v[k])).join(",") + "}";
+  return JSON.stringify(v === undefined ? null : v);
+}
+async function pfHash(f) {
+  // tenure.years ticks daily — hash the start date only, so the
+  // "facts changed" pill means the DATA changed.
+  const h = Object.assign({}, f, { tenure: f.tenure ? { start_date: f.tenure.start_date, source: f.tenure.source } : null });
+  try {
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(pfStable(h)));
+    return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  } catch (e) { return String(pfStable(h).length); }
+}
+
+async function pfLoadSide(cid) {
+  const [mRes, aRes] = await Promise.all([
+    db.from("clinician_visit_period_metrics").select("pay_period_start, visit_count")
+      .eq("clinician_id", cid).order("pay_period_start", { ascending: false }).limit(12),
+    db.from("clinician_ai_profiles").select("*").eq("clinician_id", cid).maybeSingle()
+  ]);
+  profileMetrics = (mRes && !mRes.error && mRes.data) ? mRes.data : [];
+  profileAiMissing = !!(aRes && aRes.error);
+  profileAi = (aRes && !aRes.error && aRes.data) ? aRes.data : null;
+}
+
+async function renderProfileCard() {
+  const card = document.getElementById("tp-profile-card");
+  const body = document.getElementById("tp-profile-body");
+  if (!card || !body || !clinician) return;
+  if (phiSafeView || currentRole === "clinician") { card.style.display = "none"; return; }
+  const cid = clinician.id;
+  const seq = ++profileRenderSeq;
+  card.style.display = "";
+  if (profileFactsFor !== cid) {
+    profileFacts = null; profileFactsHash = ""; profileAiErr = ""; profileAiBusy = false;
+    body.innerHTML = "<p class='hint' style='margin:0'>Building profile…</p>";
+  }
+  if (profileLoadFor !== cid) { profileLoadFor = cid; profileLoadPromise = pfLoadSide(cid).catch(() => {}); }
+  try {
+    await profileLoadPromise;
+    const facts = await buildProfileFacts();
+    const hash = await pfHash(facts);
+    if (seq !== profileRenderSeq || !clinician || clinician.id !== cid) return;
+    profileFacts = facts; profileFactsHash = hash; profileFactsFor = cid;
+    body.innerHTML = profileCardHtml(facts);
+  } catch (e) {
+    if (seq === profileRenderSeq) body.innerHTML = "<p class='hint' style='margin:0'>Couldn't build the profile: " + esc(e.message || e) + "</p>";
+  }
+}
+function pfRedraw() {
+  const body = document.getElementById("tp-profile-body");
+  if (body && profileFacts) body.innerHTML = profileCardHtml(profileFacts);
+}
+
+function profileCardHtml(f) {
+  const tile = (k, v, sub, wide) => `<div class="pf-tile${wide ? " wide" : ""}"><div class="pf-k">${k}</div><div class="pf-v">${v}</div>${sub ? `<div class="pf-s">${sub}</div>` : ""}</div>`;
+  const arrow = deg => `<span class="pf-arrow" style="transform:rotate(${Number(deg) || 0}deg)">↑</span>`;
+
+  // ── Left: fact tiles ──
+  let left = "<div class='pf-tiles'>";
+  left += tile("With us", f.tenure ? esc(f.tenure.years) + " yrs" : "—",
+    f.tenure ? "since " + esc(fmtDate(f.tenure.start_date)) + " · " + esc(f.tenure.source) : "start date not recorded");
+  const v = f.volume;
+  const trendIcon = v.trend === "up" ? "↑" : v.trend === "down" ? "↓" : v.trend ? "→" : "";
+  left += tile("Volume", v.trend ? trendIcon + " " + (v.trend_pct > 0 ? "+" : "") + esc(v.trend_pct) + "%" : esc(v.visits) + " visits",
+    (v.visits_per_pay_period_recent != null ? esc(v.visits_per_pay_period_recent) + "/pay period · " : esc(v.episodes) + " episodes · ") +
+    (v.last_active ? "last " + esc(fmtDate(v.last_active)) : "no recent activity"));
+  if (f.city_vs_suburb) {
+    const c = f.city_vs_suburb;
+    left += tile("City vs suburb", esc(c.lean.charAt(0).toUpperCase() + c.lean.slice(1)),
+      `<div class="pf-bar"><span style="width:${c.chicago_pct}%;background:#2463eb"></span><span style="width:${c.suburbs_pct}%;background:#22c55e"></span></div>` +
+      `<b style="color:#2463eb">${c.chicago_pct}% Chicago</b> · <b style="color:#16a34a">${c.suburbs_pct}% suburbs</b>`, true);
+  }
+  left += tile("Range", f.range ? esc(f.range.typical_low_mi) + "–" + esc(f.range.typical_high_mi) + " mi" : "—",
+    f.range ? "typical · max " + esc(f.range.max_mi) + " mi from " + esc(f.range.from) : "no mapped sites");
+  const w = f.work_center;
+  left += tile("Work center", w && w.miles_from_home ? (w.direction_from_home ? arrow(w.bearing_deg) + " " : "") + esc(w.miles_from_home) + " mi" : "At home",
+    w && w.miles_from_home ? (w.direction_from_home ? esc(w.direction_from_home) + " of home · " : "") + esc(w.source) : (w ? esc(w.source) : "no pin"));
+  left += "</div>";
+  if (f.top_towns.length) left += "<div class='pf-line' style='margin-top:8px'><b>Top towns</b><br>" +
+    f.top_towns.map(t => `<span class="pf-chip tw">${esc(t.town)} ${t.share_pct}%</span>`).join("") + "</div>";
+  if (f.agency_mix.length) left += "<div class='pf-line'><b>Agency mix</b> · " +
+    f.agency_mix.map(a => esc(a.name) + " " + a.share_pct + "%").join(" · ") + "</div>";
+  if (f.history_cutoff) left += "<div class='pf-line hint'>Current-territory facts start " + esc(fmtDate(f.history_cutoff)) + " (Ignore-History-Before).</div>";
+
+  // ── Middle: shift detection ──
+  const sh = f.shift || {};
+  let mid = "<h4>Shift detection " + (sh.note ? "<span class='pf-pill na'>Not enough history</span>"
+    : sh.flag ? "<span class='pf-pill shift'>Shifting</span>" : "<span class='pf-pill stable'>Stable</span>") + "</h4>";
+  if (sh.note) {
+    mid += "<p class='hint' style='margin:0'>Needs " + PF_MIN_WINDOW_VISITS + "+ visits in both windows (early " + esc(sh.early_visits || 0) + ", recent " + esc(sh.recent_visits || 0) + ").</p>";
+  } else {
+    if (sh.center_moved_mi != null) mid += "<div class='pf-line'>" + (sh.direction ? arrow(sh.bearing_deg) + " " : "") +
+      "Center of work moved <b>" + esc(sh.center_moved_mi) + " mi" + (sh.direction ? " " + esc(sh.direction) : "") + "</b></div>";
+    if (sh.p75_range_early_mi != null) mid += "<div class='pf-line'>Reach (p75): <b>" + esc(sh.p75_range_early_mi) + " → " + esc(sh.p75_range_recent_mi) + " mi</b></div>";
+    mid += "<div class='pf-line'><b>Emerging</b><br>" + (sh.emerging_towns.length
+      ? sh.emerging_towns.map(t => `<button type="button" class="pf-chip em" onclick="pfFlyTown('${encSiteAddr(t.town)}')" title="${t.early_pct}% → ${t.recent_pct}% of visits — show on map">🌱 ${esc(t.town)} ${t.recent_pct}%</button>`).join("")
+      : "<span class='hint'>none</span>") + "</div>";
+    mid += "<div class='pf-line'><b>Fading</b><br>" + (sh.fading_towns.length
+      ? sh.fading_towns.map(t => `<button type="button" class="pf-chip fa" onclick="pfFlyTown('${encSiteAddr(t.town)}')" title="${t.early_pct}% → ${t.recent_pct}% of visits — show on map">🍂 ${esc(t.town)} ${t.early_pct}%→${t.recent_pct}%</button>`).join("")
+      : "<span class='hint'>none</span>") + "</div>";
+  }
+  if (sh.early_window) mid += "<div class='pf-line hint'>Early " + esc(sh.early_window) + " (" + esc(sh.early_visits) + " visits) vs recent " + esc(sh.recent_window) + " (" + esc(sh.recent_visits) + ").</div>";
+  const tb = f.tb_alignment;
+  if (tb) mid += "<div class='pf-line' style='margin-top:8px'><b>TB fit</b> · " +
+    (tb.tb_zips ? (tb.visits_in_tb_zips_pct != null ? tb.visits_in_tb_zips_pct + "% of visits in their " : "") + tb.tb_zips + " TB ZIPs" : "no TB ZIPs yet") +
+    (tb.requested_zips ? " · ✋ " + tb.requested_zips + " requested" : "") + (tb.wont_serve_zips ? " · ⛔ " + tb.wont_serve_zips + " won't serve" : "") + "</div>";
+
+  // ── Right: Analyst read ──
+  const ai = profileAi;
+  const stale = ai && ai.facts_hash !== profileFactsHash;
+  const canGen = canEditPlan() && !profileAiMissing;
+  let right = "<h4>🧠 Analyst read</h4>";
+  right += "<div class='pf-read'>" + esc(ai ? ai.narrative : profileTemplateText(f)) + "</div>";
+  right += "<div class='pf-meta'>";
+  if (ai) right += "<span>✨ " + esc(ai.model || "AI") + " · " + esc(fmtDate(ai.generated_at)) + "</span>";
+  else right += "<span>Computed summary" + (profileAiMissing ? " · run migration 96 to enable the AI read" : "") + "</span>";
+  if (stale) right += canGen
+    ? "<span class='pf-pill stale' onclick='pfGenerateAi()' title='The facts changed since this was written'>facts changed — ↻</span>"
+    : "<span class='pf-pill stale' style='cursor:default'>facts changed since written</span>";
+  if (canGen) right += "<button type='button' class='mv-btn' style='margin-left:auto' onclick='pfGenerateAi()'" + (profileAiBusy ? " disabled" : "") + ">" +
+    (profileAiBusy ? "Writing…" : ai ? "↻ Regenerate" : "✨ Write analyst read") + "</button>";
+  right += "</div>";
+  if (profileAiErr) right += "<div class='pf-line' style='color:#b91c1c'>⚠ " + esc(profileAiErr) + "</div>";
+  if (ai) right += "<details class='pf-line'><summary class='hint' style='cursor:pointer'>Computed summary</summary><div class='hint'>" + esc(profileTemplateText(f)) + "</div></details>";
+
+  return "<div class='pf-grid'><div class='pf-col'><h4>At a glance</h4>" + left + "</div><div class='pf-col'>" + mid + "</div><div class='pf-col'>" + right + "</div></div>";
+}
+
+async function pfFlyTown(encTown) {
+  const town = decodeURIComponent(encTown);
+  const c = await getPlaceCentroid(town);
+  if (!c || !tpMap) { showToast("Couldn't locate " + town + " on the map"); return; }
+  obScrollMap();
+  tpMap.flyTo({ center: [c.lng, c.lat], zoom: Math.max(tpMap.getZoom(), 11.5), speed: 1.2, essential: true });
+}
+
+async function pfGenerateAi() {
+  if (!profileFacts || profileAiBusy || !clinician || !canEditPlan()) return;
+  const cid = clinician.id;
+  profileAiBusy = true; profileAiErr = "";
+  pfRedraw();
+  try {
+    const { data, error } = await db.functions.invoke("clinician-profile-ai", {
+      body: { clinician_id: cid, facts: profileFacts, facts_hash: profileFactsHash }
+    });
+    if (error) {
+      let msg = error.message || String(error);
+      try { if (error.context && typeof error.context.json === "function") { const j = await error.context.json(); if (j && j.error) msg = j.error; } } catch (e) {}
+      throw new Error(msg);
+    }
+    if (!data || !data.narrative) throw new Error((data && data.error) || "No narrative came back");
+    if (clinician && clinician.id === cid) {
+      profileAi = { clinician_id: cid, facts_hash: profileFactsHash, narrative: data.narrative, model: data.model, generated_at: data.generated_at };
+      if (data.cached === false) showToast("Written, but not saved — run migration 96");
+    }
+  } catch (e) {
+    profileAiErr = "Couldn't write the analyst read: " + (e.message || e) + " — the computed summary is shown instead.";
+  }
+  profileAiBusy = false;
+  pfRedraw();
+}
+
 function clinicianStatus() {
   const s = String((profileRow && profileRow.status) || (clinician.active === false ? "Inactive" : "Active"));
   return s || "Active";
@@ -2027,6 +2480,7 @@ function refreshAfterSiteExcl() {
   _sitesCache = null;
   renderZipPanels();
   renderTravelStats();
+  renderProfileCard();
   renderVisitTable(true);
   renderSiteExclList();
   if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
@@ -3738,6 +4192,7 @@ async function reloadExclusions() {
   zipExclusions = (r && !r.error && r.data) ? r.data : zipExclusions;
   renderExclCard();
   renderZipPanels();
+  renderProfileCard();
   if (tpMap) { try { tpMap.remove(); } catch (e) {} tpMap = null; }
   initTerritoryMap();
 }
