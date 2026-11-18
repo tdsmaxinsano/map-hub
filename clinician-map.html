@@ -7111,6 +7111,10 @@
                 <div class="profile-kv-label">Agency History</div>
                 <div id="profile-agency-relationships" class="profile-kv-value" style="display:flex;flex-wrap:wrap;gap:5px;margin-top:2px;">—</div>
               </div>
+              <div class="profile-kv full">
+                <div class="profile-kv-label">🧠 Profile</div>
+                <div id="profile-ai-summary" class="profile-kv-value" style="font-size:12.5px;line-height:1.45;">—</div>
+              </div>
             </div>
           </section>
 
@@ -13830,6 +13834,62 @@
       renderFieldIntelAgencyRelationships(history);
       renderFieldIntelTravelRange(clinicianId, history); // async — updates when ready
       renderProfileHeaderQuickFacts(clinicianId, history); // also async (travel)
+      renderFieldIntelProfileSummary(clinicianId, history); // async — cached AI read
+    }
+
+    /* ── 🧠 Profile — compact view of the Territory Planner's Clinician
+       Profile. Shows the cached "Analyst read" (clinician_ai_profiles,
+       migration 96: headline + first 2 bullets) when one exists, else a
+       short computed summary. The map never calls the AI — generation
+       happens in the planner (✨ Write analyst read / ↻). */
+    var _profileAiCache = new Map(); // clinicianId -> { row, at }
+    var PROFILE_AI_TTL_MS = 5 * 60 * 1000;
+    async function renderFieldIntelProfileSummary(clinicianId, history) {
+      var el = document.getElementById("profile-ai-summary");
+      if (!el) return;
+      if (!clinicianId) { el.textContent = "—"; return; }
+      var link = "<div style='margin-top:4px'><a href='#' onclick='openTerritoryPlannerForCurrentClinician();return false;' style='font-weight:700;font-size:12px;'>Full profile →</a></div>";
+      var fmtD = function(v) {
+        var d = new Date(String(v).length === 10 ? v + "T00:00:00" : v);
+        return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+      };
+
+      // Computed fallback: tenure + last active (+ travel lives just above).
+      var c = appState.clinicians.find(function(x) { return x.id === clinicianId; }) || null;
+      var bits = [];
+      var start = c ? getClinicianDisplayStartDateValue(c) : "";
+      var sd = start ? new Date(String(start).slice(0, 10) + "T00:00:00") : null;
+      if (sd && !isNaN(sd.getTime()) && sd.getFullYear() >= 2000) {
+        var yrs = Math.max(0, (Date.now() - sd.getTime()) / (365.25 * 86400000));
+        bits.push("With us <b>" + (Math.round(yrs * 10) / 10) + " yrs</b> (since " + escapeHtml(fmtD(String(start).slice(0, 10))) + ")");
+      }
+      if (history && history.latestServiceDate) bits.push("Last active <b>" + escapeHtml(fmtD(history.latestServiceDate)) + "</b>");
+      var fallback = (bits.length ? bits.join(" · ") : "<span style='color:var(--muted)'>No history yet.</span>") +
+        "<div style='color:var(--muted);font-size:11.5px;margin-top:2px'>Shift detection + analyst read in the Territory Planner.</div>" + link;
+
+      var cached = _profileAiCache.get(clinicianId);
+      var row = null;
+      if (cached && Date.now() - cached.at < PROFILE_AI_TTL_MS) {
+        row = cached.row;
+      } else {
+        el.innerHTML = fallback;
+        try {
+          var res = await supabaseClient.from("clinician_ai_profiles")
+            .select("narrative, model, generated_at").eq("clinician_id", clinicianId).maybeSingle();
+          row = (res && !res.error && res.data) ? res.data : null;   // table missing (migration 96) → fallback
+        } catch (e) { row = null; }
+        _profileAiCache.set(clinicianId, { row: row, at: Date.now() });
+      }
+      if (appState.currentProfileClinicianId !== clinicianId) return;
+      if (!row || !row.narrative) { el.innerHTML = fallback; return; }
+
+      var lines = String(row.narrative).split(/\r?\n/).map(function(l) { return l.trim(); }).filter(Boolean);
+      var headline = lines[0] || "";
+      var bullets = lines.slice(1).filter(function(l) { return l.charAt(0) === "•"; }).slice(0, 2);
+      el.innerHTML = "<div style='font-weight:700'>" + escapeHtml(headline) + "</div>" +
+        bullets.map(function(b) { return "<div style='margin-top:2px'>" + escapeHtml(b) + "</div>"; }).join("") +
+        "<div style='color:var(--muted);font-size:11px;margin-top:3px'>✨ " + escapeHtml(row.model || "AI") + " · " + escapeHtml(fmtD(row.generated_at)) + "</div>" +
+        link;
     }
 
     /* ── Header quick-facts: inactive flag + travel + EMR chips ──

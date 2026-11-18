@@ -528,6 +528,32 @@ This section documents the design intent of five interlocking changes. Don't und
 
 ---
 
+## 🧠 Clinician Profiler (territory-planner.html + Field Intelligence)
+
+**Layer 1 — computed facts** (`buildProfileFacts()` in territory-planner.html, always shown, free):
+- tenure (same manual → derived start-date precedence as `getClinicianDisplayStartDateValue`, then the first visit),
+- volume trend (`clinician_visit_period_metrics`, last 6 pay periods vs the prior 6),
+- agency mix (`primary_payer`), city vs suburb (place "Chicago" = city), top towns/ZIPs,
+- range (same math as the 🚗 Travel chip), work center vs home,
+- **shift detection** (`pfShift`):
+  - compares an early window (24→12 months before the latest visit) with a recent window (the last 6 months);
+  - reports centroid drift (flagged at ≥3 mi), emerging towns (≥10% now, <3% before) and fading towns, plus the p75 reach change;
+  - needs 15+ visits in both windows;
+  - uses all non-excluded history, ignoring the cutoff on purpose;
+- TB alignment.
+
+`profileTemplateText()` is the deterministic fallback summary.
+
+**Layer 2 — AI "Analyst read":**
+- The `clinician-profile-ai` edge function (OpenAI `gpt-4o`, existing `OPENAI_API_KEY` secret, admin/editor only) writes from the facts JSON only.
+- Facts are aggregates; the function rejects any key that looks like PHI (patient/address/street/dob/phone/email/mrn).
+- Results are cached in `clinician_ai_profiles` (migration 96), keyed by a SHA-256 of the facts (excluding the daily-ticking tenure years). A "facts changed — ↻" pill appears when the hash differs.
+- The card is hidden in the clinician's own PHI-safe view.
+
+**Map:** `renderFieldIntelProfileSummary()` shows the cached headline plus 2 bullets in Field Intelligence, or tenure + last active when there's no cached read. It has a "Full profile →" link. The map never calls the AI.
+
+---
+
 ## Development Tips
 
 - **Start new sessions per feature** — the file is 21,000+ lines; focused sessions crash less
