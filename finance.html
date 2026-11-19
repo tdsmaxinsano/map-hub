@@ -15975,7 +15975,7 @@ const RENEW = (() => {
           "<span style='background:#eef2ff;color:#3730a3;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;white-space:nowrap'>" + escR(DOC_TYPES[d.doc_type] || d.doc_type) + "</span>" +
           "<a href='javascript:void(0)' onclick='RENEW.openDoc(\"" + escR(d.document_path) + "\")' style='color:#2463eb;font-weight:700'>📎 " + escR(d.document_name || "document") + "</a>" +
           "<span style='color:#94a3b8;font-size:11px'>" + fmtDate(d.uploaded_at) + (d.notes ? " · " + escR(d.notes) : "") + "</span>" +
-          (d.doc_type === "coi" && !sendsMissing ? "<a href='javascript:void(0)' onclick='RENEW.insSendOpen(\"" + d.id + "\")' title='Send this certificate to a vendor' style='margin-left:auto;color:#1e4d8c;font-weight:700;text-decoration:none;font-size:11.5px'>📤 Send</a>" : "") +
+          (d.doc_type === "coi" && !sendsMissing ? "<a href='javascript:void(0)' onclick='RENEW.insSendOpen(\"" + d.id + "\")' title='Send this certificate to a vendor' style='margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:5px 14px;background:#1e9b58;color:#fff;font-weight:800;text-decoration:none;font-size:12px;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.15);white-space:nowrap'>📤 Send to vendor</a>" : "") +
           "<a href='javascript:void(0)' onclick='RENEW.insDeleteDoc(\"" + d.id + "\")' title='Delete this document' style='color:#94a3b8;" + (d.doc_type === "coi" && !sendsMissing ? "" : "margin-left:auto;") + "text-decoration:none'>🗑</a>" +
         "</div>").join("")
         : "<div style='font-size:11.5px;color:#94a3b8'>No documents yet — upload the certificate of insurance.</div>") +
