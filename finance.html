@@ -15989,6 +15989,7 @@ const RENEW = (() => {
         "<label style='display:flex;flex-direction:column;gap:3px'>Note<input id='ins-up-note-" + pl.id + "' placeholder='e.g. holder: Northeast Bank' style='" + insIn + ";width:200px'></label>" +
         "<button onclick='RENEW.insPickFile(" + id + ")' id='ins-file-btn-" + pl.id + "' style='padding:6px 10px;background:#fff;border:1px dashed #94a3b8;border-radius:6px;font-size:11.5px;cursor:pointer'>" + (insFile ? "📎 " + escR(insFile.name) : "📎 Choose file…") + "</button>" +
         "<button onclick='RENEW.insUpload(" + id + ")' style='padding:6px 14px;background:#1e9b58;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer'>Upload</button>" +
+        "<span style='font-size:10.5px;color:#94a3b8;flex-basis:100%'>Saved as e.g. <b>" + escR(autoDocName(pl.id, "coi", { name: "x.pdf" })) + "</b> / <b>" + escR(autoDocName(pl.id, "policy", { name: "x.pdf" })) + "</b> — named from the policy and coverage years.</span>" +
         "<button onclick='RENEW.insOpen(" + id + ",null)' style='padding:6px 10px;background:none;border:none;color:#64748b;cursor:pointer'>Cancel</button>" +
         "</div>";
     } else if (panel === "renew") {
@@ -16043,12 +16044,34 @@ const RENEW = (() => {
     };
     inp.click();
   }
-  async function insAddDoc(renewalId, file, docType, note, filingId) {
+  // Uploaded files are auto-named from the policy + coverage term, e.g.
+  // "COI 2026-2027.pdf", "Workers Comp Policy 2026-2027.pdf".
+  const INS_SHORT = {
+    general_liability: "General & Professional Liability", professional_liability: "Professional Liability",
+    workers_comp: "Workers Comp", auto: "Commercial Auto", umbrella: "Umbrella", cyber: "Cyber", other: ""
+  };
+  const DOC_SHORT = { coi: "COI", dec: "Dec Page", policy: "Policy", invoice: "Invoice", audit: "Audit", endorsement: "Endorsement", other: "Document" };
+  function termYears(eff, exp) {
+    const y2 = String(exp || "").slice(0, 4);
+    const y1 = String(eff || "").slice(0, 4) || (y2 ? String(Number(y2) - 1) : "");
+    return y1 && y2 ? y1 + "-" + y2 : (y2 || y1 || "");
+  }
+  function autoDocName(renewalId, docType, file, eff, exp) {
+    const pl = policies.find(x => x.id === renewalId) || {};
+    const ext = (String(file.name || "").match(/\.[A-Za-z0-9]{2,5}$/) || [".pdf"])[0].toLowerCase();
+    const years = termYears(eff || pl.effective_date, exp || pl.next_due_date);
+    const kind = DOC_SHORT[docType] || "Document";
+    const policyName = docType === "coi" ? "" : (INS_SHORT[pl.coverage_type] || pl.name || "");
+    return [policyName, kind, years].filter(Boolean).join(" ") + ext;
+  }
+  async function insAddDoc(renewalId, file, docType, note, filingId, eff, exp) {
     if (file.size > 10 * 1024 * 1024) throw new Error("File must be under 10MB");
-    const path = await uploadDoc(renewalId, file);
+    const name = autoDocName(renewalId, docType || "other", file, eff, exp);
+    const path = await uploadDoc(renewalId, file, name);
     const ins = await db.from("company_renewal_documents").insert({
       renewal_id: renewalId, filing_id: filingId || null, doc_type: docType || "other",
-      document_path: path, document_name: file.name, notes: note || null,
+      document_path: path, document_name: name,
+      notes: note || (file.name && file.name !== name ? "uploaded as " + file.name : null),
       uploaded_by: (typeof currentUser !== "undefined" && currentUser) ? currentUser.id : null
     });
     if (ins.error) throw ins.error;
@@ -16086,7 +16109,7 @@ const RENEW = (() => {
         updated_at: new Date().toISOString()
       }).eq("id", id);
       if (upd.error) throw upd.error;
-      if (insFile) await insAddDoc(id, insFile, "coi", eff.slice(0, 4) + "–" + exp.slice(0, 4) + " term", filingId);
+      if (insFile) await insAddDoc(id, insFile, "coi", null, filingId, eff, exp);
       insPanel = {}; insFile = null;
       showToast("✓ Renewed — reminder moved to " + fmtDate(exp));
       await load();
@@ -16171,8 +16194,8 @@ const RENEW = (() => {
     inp.click();
   }
 
-  async function uploadDoc(renewalId, file) {
-    const safe = String(file.name || "doc.pdf").replace(/[^A-Za-z0-9._-]/g, "_");
+  async function uploadDoc(renewalId, file, nameOverride) {
+    const safe = String(nameOverride || file.name || "doc.pdf").replace(/[^A-Za-z0-9._-]/g, "_");
     const path = renewalId + "/" + Date.now() + "_" + safe;
     const up = await db.storage.from("company-documents").upload(path, file, { contentType: file.type || "application/pdf" });
     if (up.error) throw new Error("Upload failed: " + up.error.message);
