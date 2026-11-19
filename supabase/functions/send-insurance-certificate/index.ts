@@ -24,6 +24,7 @@ const CORS = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const COMPANY = "Dependable Care Staffing LLC";
+const LOGO_URL = "https://www.dependablecareportal.com/email-logo.png";
 const MAX_RECIPIENTS = 10;
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -37,6 +38,15 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...CORS, "Content-Type": "application/json" },
   });
+}
+function fmtDate(d: unknown): string {
+  const m = String(d || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : "";
+}
+function termYears(eff: unknown, exp: unknown): string {
+  const y2 = String(exp || "").slice(0, 4);
+  const y1 = String(eff || "").slice(0, 4) || (y2 ? String(Number(y2) - 1) : "");
+  return y1 && y2 ? `${y1}–${y2}` : (y2 || y1);
 }
 function mimeFor(name: string): string {
   const ext = (name.split(".").pop() || "").toLowerCase();
@@ -89,15 +99,37 @@ serve(async (req) => {
     if (bytes.length > MAX_BYTES) return json({ error: "File is over 10MB — too big to email" }, 400);
     const filename = String(doc.document_name || "certificate-of-insurance.pdf");
 
+    // Coverage on the certificate: every active insurance policy + its term.
+    const { data: pols } = await admin.from("company_renewals")
+      .select("id,name,carrier,policy_number,effective_date,next_due_date")
+      .eq("category", "insurance").eq("is_active", true).order("name");
+    const policies = (pols || []) as Array<Record<string, unknown>>;
+    const own = policies.find((p) => p.id === doc.renewal_id) || policies[0];
+    const years = own ? termYears(own.effective_date, own.next_due_date) : "";
+    const coverageRows = policies.map((p) =>
+      `<tr><td style="padding:6px 8px;border-top:1px solid #e2e8f0;font-weight:700;color:#1e2d4a">${esc(p.name)}</td>` +
+      `<td style="padding:6px 8px;border-top:1px solid #e2e8f0;color:#475569">${esc(p.carrier || "")}${p.policy_number ? `<br><span style="font-size:11px;color:#94a3b8">Policy ${esc(p.policy_number)}</span>` : ""}</td>` +
+      `<td style="padding:6px 8px;border-top:1px solid #e2e8f0;white-space:nowrap;color:#1e2d4a">${esc(fmtDate(p.effective_date))} – ${esc(fmtDate(p.next_due_date))}</td></tr>`
+    ).join("");
+
     const sender = caller.user.email || "";
     const html = `<!doctype html><html><body style="margin:0;background:#f4f6fa;font-family:Arial,Helvetica,sans-serif;color:#1f2937">
 <div style="max-width:640px;margin:0 auto;padding:20px">
   <div style="background:#1E3A5F;color:#fff;border-radius:12px 12px 0 0;padding:16px 20px">
-    <div style="font-size:12px;letter-spacing:.6px;text-transform:uppercase;opacity:.8">Certificate of insurance</div>
-    <div style="font-size:20px;font-weight:800">${esc(COMPANY)}</div>
+    <table cellpadding="0" cellspacing="0" style="width:100%"><tr>
+      <td style="width:64px;vertical-align:middle"><img src="${LOGO_URL}" width="52" height="52" alt="" style="display:block;border-radius:10px;background:#fff"></td>
+      <td style="vertical-align:middle;color:#fff">
+        <div style="font-size:12px;letter-spacing:.6px;text-transform:uppercase;opacity:.8">Certificate of insurance${years ? " · " + esc(years) + " coverage" : ""}</div>
+        <div style="font-size:20px;font-weight:800">${esc(COMPANY)}</div>
+      </td>
+    </tr></table>
   </div>
   <div style="background:#fff;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 12px 12px;padding:18px 20px">
     ${note ? `<p style="margin:0 0 14px;font-size:14px;line-height:1.5;white-space:pre-wrap">${esc(note)}</p>` : ""}
+    ${coverageRows ? `<table cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;font-size:13px;margin:0 0 14px;border:1px solid #e2e8f0;border-radius:8px">
+      <tr style="background:#f8fafc;color:#64748b;font-size:11px;text-transform:uppercase;letter-spacing:.04em"><td style="padding:6px 8px">Coverage</td><td style="padding:6px 8px">Carrier</td><td style="padding:6px 8px">Policy period</td></tr>
+      ${coverageRows}
+    </table>` : ""}
     <p style="margin:0;font-size:13px;color:#475569">📎 Attached: <b>${esc(filename)}</b></p>
     <p style="margin:18px 0 0;font-size:12px;color:#64748b">Sent${sender ? " by " + esc(sender) : ""} on behalf of ${esc(COMPANY)}. Reply to this email with any questions.</p>
   </div>
@@ -111,7 +143,7 @@ serve(async (req) => {
         personalizations: [{ to: list.map((email) => ({ email })) }],
         from: { email: fromEmail, name: COMPANY },
         reply_to: sender ? { email: sender } : undefined,
-        subject: `Certificate of Insurance — ${COMPANY}`,
+        subject: `Certificate of Insurance${years ? " " + years : ""} — ${COMPANY}`,
         content: [{ type: "text/html", value: html }],
         attachments: [{
           content: b64encode(bytes),
