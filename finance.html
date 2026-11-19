@@ -2391,6 +2391,47 @@
        filing in the PRIVATE company-documents bucket (signed URLs).
        Backed by migration 54. See RENEW IIFE module. -->
   <div class="view" id="view-renewals">
+    <div class="card" id="ins-card">
+      <h3>🛡 Insurance <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— liability, workers' comp and other policies, with their certificates</span></h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:6px 0 12px">
+        One card per policy. The expiration date drives the Home 📰 reminder (60 days out). Upload the certificate of insurance,
+        declarations page, policy or invoice to each policy, and use <b>↻ Mark renewed</b> when the new term starts — it logs the
+        premium, rolls the term forward and keeps the old term's documents in history.
+      </p>
+      <div id="ins-status" style="font-size:12px;color:var(--muted);margin:4px 0 8px"></div>
+      <div id="ins-cards" style="display:flex;flex-direction:column;gap:12px"></div>
+      <div id="ins-add" style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0">
+        <strong style="font-size:13px">＋ Add a policy</strong>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;font-size:12px">
+          <label style="display:flex;flex-direction:column;gap:3px">Coverage
+            <select id="ins-add-type" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px">
+              <option value="general_liability">General liability</option>
+              <option value="professional_liability">Professional liability</option>
+              <option value="workers_comp">Workers' compensation</option>
+              <option value="auto">Commercial auto</option>
+              <option value="umbrella">Umbrella / excess</option>
+              <option value="cyber">Cyber</option>
+              <option value="other">Other</option>
+            </select></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Name (optional)
+            <input id="ins-add-name" placeholder="defaults to the coverage" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:190px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Carrier
+            <input id="ins-add-carrier" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:170px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Policy #
+            <input id="ins-add-policy" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:150px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Effective
+            <input type="date" id="ins-add-eff" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Expires
+            <input type="date" id="ins-add-exp" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Limits
+            <input id="ins-add-limits" placeholder="$1M occ / $3M agg" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:180px"></label>
+          <label style="display:flex;flex-direction:column;gap:3px">Agent / broker
+            <input id="ins-add-producer" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:180px"></label>
+          <button onclick="RENEW.addPolicy()" style="padding:7px 16px;background:#1e4d8c;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer">Add policy</button>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h3>🏛 Company Renewals <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— annual filings, reminders, and the filed PDFs</span></h3>
       <p style="font-size:12.5px;color:var(--muted);margin:6px 0 12px">
@@ -2404,7 +2445,7 @@
         <strong style="font-size:13px">＋ Add a renewal</strong>
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;align-items:flex-end;font-size:12px">
           <label style="display:flex;flex-direction:column;gap:3px">Name
-            <input id="rnw-add-name" placeholder="e.g. General liability insurance" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:240px"></label>
+            <input id="rnw-add-name" placeholder="e.g. City business license" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;width:240px"></label>
           <label style="display:flex;flex-direction:column;gap:3px">Next due
             <input type="date" id="rnw-add-due" style="padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px"></label>
           <label style="display:flex;flex-direction:column;gap:3px">Every (months)
@@ -15458,6 +15499,13 @@ const RENEW = (() => {
   let markOpen = {};      // renewal_id -> bool
   let attachTarget = null; // { filingId, renewalId } while the file picker is open
   let markFile = null;     // File chosen in the mark-filed form
+  // 🛡 Insurance (migration 97)
+  let policies = [];       // company_renewals rows with category = 'insurance'
+  let docsByRenewal = {};  // renewal_id -> company_renewal_documents rows (newest first)
+  let insMissing = false;  // migration 97 not run
+  let insPanel = {};       // renewal_id -> "upload" | "renew" | "edit" | null
+  let insTermsOpen = {};   // renewal_id -> bool
+  let insFile = null;      // File chosen in an insurance panel
 
   const escR = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const money = (n) => (n == null || n === "") ? "—" : ("$" + Number(n).toFixed(2));
@@ -15473,7 +15521,16 @@ const RENEW = (() => {
       status.textContent = "Couldn't load renewals — has migration 54 been run? (" + escR((r.error || f.error).message) + ")";
       return;
     }
-    renewals = r.data || [];
+    const allRows = r.data || [];
+    insMissing = allRows.length > 0 && !Object.prototype.hasOwnProperty.call(allRows[0], "category");
+    renewals = allRows.filter(x => x.category !== "insurance");
+    policies = allRows.filter(x => x.category === "insurance");
+    docsByRenewal = {};
+    if (!insMissing) {
+      const d = await db.from("company_renewal_documents").select("*").order("uploaded_at", { ascending: false });
+      if (d.error) insMissing = true;
+      else (d.data || []).forEach(row => { (docsByRenewal[row.renewal_id] = docsByRenewal[row.renewal_id] || []).push(row); });
+    }
     filingsByRenewal = {};
     (f.data || []).forEach(row => {
       (filingsByRenewal[row.renewal_id] = filingsByRenewal[row.renewal_id] || []).push(row);
@@ -15482,6 +15539,7 @@ const RENEW = (() => {
       ? renewals.length + " renewal" + (renewals.length === 1 ? "" : "s") + " tracked · reminders start 60 days before each due date"
       : "Nothing tracked yet — add your first renewal below.";
     render();
+    renderInsurance();
   }
 
   function duePill(days) {
@@ -15564,6 +15622,248 @@ const RENEW = (() => {
         }
         return html;
       }).join("") + "</tbody></table>";
+  }
+
+  // ═══ 🛡 INSURANCE ═══════════════════════════════════════════════════
+  const INS_TYPES = {
+    general_liability:      { icon: "🛡", label: "General liability" },
+    professional_liability: { icon: "🩺", label: "Professional liability" },
+    workers_comp:           { icon: "👷", label: "Workers' compensation" },
+    auto:                   { icon: "🚗", label: "Commercial auto" },
+    umbrella:               { icon: "☂", label: "Umbrella / excess" },
+    cyber:                  { icon: "💻", label: "Cyber" },
+    other:                  { icon: "📄", label: "Other" }
+  };
+  const DOC_TYPES = {
+    coi: "Certificate of insurance", dec: "Declarations page", policy: "Policy",
+    invoice: "Invoice / receipt", audit: "Audit", endorsement: "Endorsement", other: "Other"
+  };
+  const insIn = "padding:5px 7px;border:1px solid #cbd5e1;border-radius:6px";
+
+  function expiryPill(days) {
+    let bg, fg, label;
+    if (days < 0)        { bg = "#fee2e2"; fg = "#991b1b"; label = "EXPIRED " + Math.abs(days) + "d ago"; }
+    else if (days === 0) { bg = "#fee2e2"; fg = "#991b1b"; label = "EXPIRES TODAY"; }
+    else if (days <= 60) { bg = "#fef3c7"; fg = "#92400e"; label = "expires in " + days + "d"; }
+    else                 { bg = "#dcfce7"; fg = "#166534"; label = "active · " + days + "d left"; }
+    return "<span style='background:" + bg + ";color:" + fg + ";font-size:10.5px;font-weight:800;padding:2px 8px;border-radius:9px;white-space:nowrap'>" + label + "</span>";
+  }
+
+  function renderInsurance() {
+    const box = document.getElementById("ins-cards");
+    const status = document.getElementById("ins-status");
+    const add = document.getElementById("ins-add");
+    if (!box) return;
+    if (insMissing) {
+      status.innerHTML = "⚠ Run <b>supabase/policies/97_company_insurance_policies.sql</b> to turn on the insurance section.";
+      box.innerHTML = ""; if (add) add.style.display = "none";
+      return;
+    }
+    if (add) add.style.display = "";
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const expired = policies.filter(pl => pl.is_active && new Date(String(pl.next_due_date).slice(0, 10) + "T00:00:00") < today).length;
+    status.innerHTML = policies.length
+      ? policies.length + " polic" + (policies.length === 1 ? "y" : "ies") + " tracked" +
+        (expired ? " · <b style='color:#b3261e'>" + expired + " past expiration — confirm the renewal</b>" : "")
+      : "No policies yet — add your general liability and workers' comp below.";
+    box.innerHTML = policies.map(pl => insCardHtml(pl, today)).join("");
+  }
+
+  function insCardHtml(pl, today) {
+    const t = INS_TYPES[pl.coverage_type] || INS_TYPES.other;
+    const days = Math.round((new Date(String(pl.next_due_date).slice(0, 10) + "T00:00:00") - today) / 86400000);
+    const docs = docsByRenewal[pl.id] || [];
+    const terms = filingsByRenewal[pl.id] || [];
+    const panel = insPanel[pl.id] || null;
+    const border = days < 0 ? "#fca5a5" : days <= 60 ? "#fcd34d" : "#e2e8f0";
+    const btn = (label, fn, primary) => "<button onclick='" + fn + "' style='padding:5px 10px;" +
+      (primary ? "background:#1e4d8c;color:#fff;border:none;font-weight:700" : "background:#fff;border:1px solid #cbd5e1") +
+      ";border-radius:6px;font-size:11.5px;cursor:pointer'>" + label + "</button>";
+    const id = "\"" + pl.id + "\"";
+
+    let h = "<div style='border:1.5px solid " + border + ";border-radius:10px;padding:12px 14px;background:#fff" + (pl.is_active ? "" : ";opacity:.55") + "'>";
+    h += "<div style='display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap'>" +
+      "<div style='font-size:22px;line-height:1'>" + t.icon + "</div>" +
+      "<div style='flex:1;min-width:220px'>" +
+        "<div style='font-weight:800;color:#1e2d4a;font-size:14px'>" + escR(pl.name) + "</div>" +
+        "<div style='font-size:12px;color:#475569;margin-top:2px'>" + escR(pl.carrier || "Carrier not set") +
+          (pl.carrier_naic ? " <span style='color:#94a3b8'>· NAIC " + escR(pl.carrier_naic) + "</span>" : "") +
+          (pl.policy_number ? " · Policy <b>" + escR(pl.policy_number) + "</b>" : "") + "</div>" +
+        "<div style='font-size:12px;margin-top:4px'>Term " + fmtDate(pl.effective_date) + " → <b>" + fmtDate(pl.next_due_date) + "</b> " + expiryPill(days) + "</div>" +
+      "</div>" +
+      "<div style='display:flex;gap:6px;flex-wrap:wrap'>" +
+        btn("📎 Upload", "RENEW.insOpen(" + id + ",\"upload\")", true) +
+        btn("↻ Mark renewed", "RENEW.insOpen(" + id + ",\"renew\")") +
+        btn("✏ Edit", "RENEW.insOpen(" + id + ",\"edit\")") +
+      "</div></div>";
+
+    const line = (k, v) => v ? "<div style='font-size:11.5px;color:#475569;margin-top:4px'><b style='color:#64748b'>" + k + "</b> " + escR(v) + "</div>" : "";
+    h += line("Limits", pl.limits) + line("Agent / broker", pl.producer) + line("Additional insured", pl.additional_insureds) + line("Notes", pl.notes);
+
+    // Documents
+    h += "<div style='margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0'>" +
+      "<div style='font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px'>Documents (" + docs.length + ")</div>" +
+      (docs.length ? docs.map(d =>
+        "<div style='font-size:12px;display:flex;gap:8px;align-items:center;padding:2px 0'>" +
+          "<span style='background:#eef2ff;color:#3730a3;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;white-space:nowrap'>" + escR(DOC_TYPES[d.doc_type] || d.doc_type) + "</span>" +
+          "<a href='javascript:void(0)' onclick='RENEW.openDoc(\"" + escR(d.document_path) + "\")' style='color:#2463eb;font-weight:700'>📎 " + escR(d.document_name || "document") + "</a>" +
+          "<span style='color:#94a3b8;font-size:11px'>" + fmtDate(d.uploaded_at) + (d.notes ? " · " + escR(d.notes) : "") + "</span>" +
+          "<a href='javascript:void(0)' onclick='RENEW.insDeleteDoc(\"" + d.id + "\")' title='Delete this document' style='color:#94a3b8;margin-left:auto;text-decoration:none'>🗑</a>" +
+        "</div>").join("")
+        : "<div style='font-size:11.5px;color:#94a3b8'>No documents yet — upload the certificate of insurance.</div>") +
+      "</div>";
+
+    // Inline panels
+    if (panel === "upload") {
+      h += "<div style='margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;font-size:12px'>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Type<select id='ins-up-type-" + pl.id + "' style='" + insIn + "'>" +
+          Object.keys(DOC_TYPES).map(k => "<option value='" + k + "'>" + DOC_TYPES[k] + "</option>").join("") + "</select></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Note<input id='ins-up-note-" + pl.id + "' placeholder='e.g. holder: Northeast Bank' style='" + insIn + ";width:200px'></label>" +
+        "<button onclick='RENEW.insPickFile(" + id + ")' id='ins-file-btn-" + pl.id + "' style='padding:6px 10px;background:#fff;border:1px dashed #94a3b8;border-radius:6px;font-size:11.5px;cursor:pointer'>" + (insFile ? "📎 " + escR(insFile.name) : "📎 Choose file…") + "</button>" +
+        "<button onclick='RENEW.insUpload(" + id + ")' style='padding:6px 14px;background:#1e9b58;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer'>Upload</button>" +
+        "<button onclick='RENEW.insOpen(" + id + ",null)' style='padding:6px 10px;background:none;border:none;color:#64748b;cursor:pointer'>Cancel</button>" +
+        "</div>";
+    } else if (panel === "renew") {
+      const newEff = String(pl.next_due_date).slice(0, 10);
+      h += "<div style='margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;font-size:12px'>" +
+        "<div style='display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end'>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>New effective<input type='date' id='ins-rn-eff-" + pl.id + "' value='" + newEff + "' style='" + insIn + "'></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>New expiration<input type='date' id='ins-rn-exp-" + pl.id + "' value='" + addMonths(newEff, pl.interval_months) + "' style='" + insIn + "'></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Policy #<input id='ins-rn-pol-" + pl.id + "' value='" + escR(pl.policy_number || "") + "' style='" + insIn + ";width:170px'></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Premium $<input type='number' step='0.01' id='ins-rn-prem-" + pl.id + "' style='" + insIn + ";width:100px'></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Notes<input id='ins-rn-notes-" + pl.id + "' style='" + insIn + ";width:180px'></label>" +
+        "<button onclick='RENEW.insPickFile(" + id + ")' id='ins-file-btn-" + pl.id + "' style='padding:6px 10px;background:#fff;border:1px dashed #94a3b8;border-radius:6px;font-size:11.5px;cursor:pointer'>" + (insFile ? "📎 " + escR(insFile.name) : "📎 New certificate…") + "</button>" +
+        "<button onclick='RENEW.insRenew(" + id + ")' style='padding:6px 14px;background:#1e9b58;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer'>Save renewal</button>" +
+        "<button onclick='RENEW.insOpen(" + id + ",null)' style='padding:6px 10px;background:none;border:none;color:#64748b;cursor:pointer'>Cancel</button>" +
+        "</div><div style='font-size:10.5px;color:#94a3b8;margin-top:5px'>Logs this term (premium + certificate) in the policy's history and moves the reminder to the new expiration.</div></div>";
+    } else if (panel === "edit") {
+      const f = (label, key, w, type) => "<label style='display:flex;flex-direction:column;gap:3px'>" + label +
+        "<input" + (type ? " type='" + type + "'" : "") + " id='ins-ed-" + key + "-" + pl.id + "' value='" + escR(pl[key] == null ? "" : String(pl[key]).slice(0, type === "date" ? 10 : 1000)) + "' style='" + insIn + (w ? ";width:" + w + "px" : "") + "'></label>";
+      h += "<div style='margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;font-size:12px'>" +
+        "<div style='display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end'>" +
+        f("Name", "name", 220) + f("Carrier", "carrier", 180) + f("NAIC", "carrier_naic", 70) + f("Policy #", "policy_number", 170) +
+        f("Effective", "effective_date", 0, "date") + f("Expires", "next_due_date", 0, "date") +
+        f("Limits", "limits", 420) + f("Agent / broker", "producer", 420) + f("Additional insured", "additional_insureds", 260) + f("Notes", "notes", 420) +
+        "<label style='display:flex;align-items:center;gap:5px'><input type='checkbox' id='ins-ed-active-" + pl.id + "'" + (pl.is_active ? " checked" : "") + "> Active</label>" +
+        "<button onclick='RENEW.insSaveEdit(" + id + ")' style='padding:6px 14px;background:#1e9b58;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer'>Save</button>" +
+        "<button onclick='RENEW.insOpen(" + id + ",null)' style='padding:6px 10px;background:none;border:none;color:#64748b;cursor:pointer'>Cancel</button>" +
+        "</div></div>";
+    }
+
+    // Term history
+    if (terms.length) {
+      h += "<div style='margin-top:8px'><a href='javascript:void(0)' onclick='RENEW.insToggleTerms(" + id + ")' style='font-size:11.5px;color:#64748b'>" +
+        (insTermsOpen[pl.id] ? "▾" : "▸") + " Past terms (" + terms.length + ")</a>";
+      if (insTermsOpen[pl.id]) h += terms.map(fl =>
+        "<div style='font-size:11.5px;color:#334155;padding:3px 0 3px 14px'>📅 " + (fl.period_label ? escR(fl.period_label) : fmtDate(fl.filed_on)) +
+        " · premium " + money(fl.fee_paid) + (fl.notes ? " · <span style='color:#94a3b8'>" + escR(fl.notes) + "</span>" : "") + "</div>").join("");
+      h += "</div>";
+    }
+    return h + "</div>";
+  }
+
+  function insOpen(id, panel) { insPanel = {}; if (panel) insPanel[id] = panel; insFile = null; renderInsurance(); }
+  function insToggleTerms(id) { insTermsOpen[id] = !insTermsOpen[id]; renderInsurance(); }
+  function insPickFile(id) {
+    const inp = document.getElementById("rnw-file");
+    inp.onchange = () => {
+      insFile = inp.files[0] || null;
+      inp.value = "";
+      const b = document.getElementById("ins-file-btn-" + id);
+      if (b && insFile) b.textContent = "📎 " + insFile.name;
+    };
+    inp.click();
+  }
+  async function insAddDoc(renewalId, file, docType, note, filingId) {
+    if (file.size > 10 * 1024 * 1024) throw new Error("File must be under 10MB");
+    const path = await uploadDoc(renewalId, file);
+    const ins = await db.from("company_renewal_documents").insert({
+      renewal_id: renewalId, filing_id: filingId || null, doc_type: docType || "other",
+      document_path: path, document_name: file.name, notes: note || null,
+      uploaded_by: (typeof currentUser !== "undefined" && currentUser) ? currentUser.id : null
+    });
+    if (ins.error) throw ins.error;
+  }
+  async function insUpload(id) {
+    if (!insFile) { showToast("Choose a file first"); return; }
+    try {
+      showToast("Uploading…");
+      await insAddDoc(id, insFile, document.getElementById("ins-up-type-" + id).value, (document.getElementById("ins-up-note-" + id).value || "").trim());
+      insPanel = {}; insFile = null;
+      showToast("📎 Document uploaded");
+      await load();
+    } catch (e) { showToast("Upload failed: " + (e.message || e)); }
+  }
+  async function insRenew(id) {
+    const pl = policies.find(x => x.id === id);
+    if (!pl) return;
+    const v = k => (document.getElementById("ins-rn-" + k + "-" + id) || {}).value || "";
+    const eff = v("eff"), exp = v("exp");
+    if (!eff || !exp || exp <= eff) { showToast("Enter a new effective date and a later expiration"); return; }
+    try {
+      const prem = v("prem");
+      const out = await db.rpc("record_company_renewal_filing", {
+        p_renewal_id: id, p_filed_on: eff,
+        p_period_label: eff.slice(0, 4) + "–" + exp.slice(0, 4),
+        p_fee_paid: prem === "" ? null : Number(prem), p_penalty_paid: null,
+        p_document_path: null, p_document_name: null,
+        p_notes: v("notes").trim() || null
+      });
+      if (out.error) throw out.error;
+      const filingId = out.data && out.data[0] ? out.data[0].filing_id : null;
+      // The RPC advances by interval_months; set the exact new term.
+      const upd = await db.from("company_renewals").update({
+        effective_date: eff, next_due_date: exp, policy_number: v("pol").trim() || pl.policy_number,
+        updated_at: new Date().toISOString()
+      }).eq("id", id);
+      if (upd.error) throw upd.error;
+      if (insFile) await insAddDoc(id, insFile, "coi", eff.slice(0, 4) + "–" + exp.slice(0, 4) + " term", filingId);
+      insPanel = {}; insFile = null;
+      showToast("✓ Renewed — reminder moved to " + fmtDate(exp));
+      await load();
+    } catch (e) { showToast("Couldn't save the renewal: " + (e.message || e)); }
+  }
+  async function insSaveEdit(id) {
+    const g = k => { const n = document.getElementById("ins-ed-" + k + "-" + id); return n ? n.value.trim() : ""; };
+    const name = g("name"), exp = g("next_due_date");
+    if (!name || !exp) { showToast("Name and expiration are required"); return; }
+    const patch = {
+      name, carrier: g("carrier") || null, carrier_naic: g("carrier_naic") || null, policy_number: g("policy_number") || null,
+      effective_date: g("effective_date") || null, next_due_date: exp, limits: g("limits") || null,
+      producer: g("producer") || null, additional_insureds: g("additional_insureds") || null, notes: g("notes") || null,
+      is_active: !!(document.getElementById("ins-ed-active-" + id) || {}).checked, updated_at: new Date().toISOString()
+    };
+    const upd = await db.from("company_renewals").update(patch).eq("id", id);
+    if (upd.error) { showToast("Couldn't save: " + upd.error.message); return; }
+    insPanel = {};
+    showToast("✓ Policy updated");
+    await load();
+  }
+  async function insDeleteDoc(docId) {
+    let doc = null;
+    Object.keys(docsByRenewal).forEach(k => { const f = docsByRenewal[k].find(d => d.id === docId); if (f) doc = f; });
+    if (!doc || !confirm("Delete \"" + (doc.document_name || "this document") + "\"?\n\nThe file is removed from storage and can't be recovered.")) return;
+    const del = await db.from("company_renewal_documents").delete().eq("id", docId);
+    if (del.error) { showToast("Couldn't delete: " + del.error.message); return; }
+    try { await db.storage.from("company-documents").remove([doc.document_path]); } catch (e) {}
+    showToast("🗑 Document deleted");
+    await load();
+  }
+  async function addPolicy() {
+    const g = id => (document.getElementById(id).value || "").trim();
+    const type = g("ins-add-type"), eff = g("ins-add-eff"), exp = g("ins-add-exp");
+    if (!exp) { showToast("Enter the policy expiration date"); return; }
+    const name = g("ins-add-name") || (INS_TYPES[type] || INS_TYPES.other).label;
+    const ins = await db.from("company_renewals").insert({
+      name, category: "insurance", coverage_type: type, interval_months: 12,
+      next_due_date: exp, effective_date: eff || null,
+      carrier: g("ins-add-carrier") || null, policy_number: g("ins-add-policy") || null,
+      limits: g("ins-add-limits") || null, producer: g("ins-add-producer") || null
+    });
+    if (ins.error) { showToast("Couldn't add: " + ins.error.message); return; }
+    ["ins-add-name", "ins-add-carrier", "ins-add-policy", "ins-add-eff", "ins-add-exp", "ins-add-limits", "ins-add-producer"].forEach(i => { document.getElementById(i).value = ""; });
+    showToast("✓ Policy added — upload its certificate next");
+    await load();
   }
 
   function addMonths(dateStr, months) {
@@ -15689,7 +15989,8 @@ const RENEW = (() => {
     load();
   }
 
-  return { init, toggleHistory, toggleMark, pickMarkFile, saveFiling, attachDoc, openDoc, addRenewal };
+  return { init, toggleHistory, toggleMark, pickMarkFile, saveFiling, attachDoc, openDoc, addRenewal,
+           insOpen, insToggleTerms, insPickFile, insUpload, insRenew, insSaveEdit, insDeleteDoc, addPolicy };
 })();
 
 function maybeInitVdr() {
