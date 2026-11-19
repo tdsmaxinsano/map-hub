@@ -15513,6 +15513,9 @@ const RENEW = (() => {
   let sendOpen = false;
   let sendDocId = null;
   let sendsShowAll = false;
+  let sendAgencies = [];   // home_health_agencies rows (name, is_active) for the 📤 picker
+  let vendorContacts = {}; // vendor_key -> insurance_vendor_contacts row (migration 99)
+  let contactsMissing = false;
 
   const escR = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const money = (n) => (n == null || n === "") ? "—" : ("$" + Number(n).toFixed(2));
@@ -15537,6 +15540,16 @@ const RENEW = (() => {
       const d = await db.from("company_renewal_documents").select("*").order("uploaded_at", { ascending: false });
       if (d.error) insMissing = true;
       else (d.data || []).forEach(row => { (docsByRenewal[row.renewal_id] = docsByRenewal[row.renewal_id] || []).push(row); });
+    }
+    vendorContacts = {}; contactsMissing = false;
+    if (!insMissing) {
+      const [ag, vc] = await Promise.all([
+        db.from("home_health_agencies").select("*").order("name", { ascending: true }).limit(5000),
+        db.from("insurance_vendor_contacts").select("*")
+      ]);
+      if (!ag.error) sendAgencies = (ag.data || []).filter(a => a && a.name);
+      if (vc.error) contactsMissing = true;
+      else (vc.data || []).forEach(c => { vendorContacts[c.vendor_key] = c; });
     }
     sends = []; sendsMissing = false;
     if (!insMissing) {
@@ -15732,8 +15745,11 @@ const RENEW = (() => {
         "<label style='display:flex;flex-direction:column;gap:3px'>Document<select id='ins-send-doc' style='" + insIn + ";max-width:300px'>" +
           docs.map(d => "<option value='" + d.id + "'" + (d.id === docId ? " selected" : "") + ">" + escR(d.document_name || "certificate") + " · " + fmtDate(d.uploaded_at) + "</option>").join("") +
         "</select></label>" +
-        "<label style='display:flex;flex-direction:column;gap:3px'>Vendor / company<input id='ins-send-vendor' list='ins-vendor-list' oninput='RENEW.insVendorPick()' placeholder='e.g. ABC Home Health' style='" + insIn + ";width:210px'>" +
-          "<datalist id='ins-vendor-list'>" + Object.keys(hist).map(k => "<option value='" + escR(hist[k].vendor_name) + "'>").join("") + "</datalist></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Send to<select id='ins-send-agency' onchange='RENEW.insVendorPick()' style='" + insIn + ";max-width:260px'>" +
+          "<option value=''>— pick an agency —</option>" + agencyOptionsHtml() +
+          "<option value='__custom'>✎ Other / custom…</option></select></label>" +
+        "<label id='ins-send-custom-wrap' style='display:none;flex-direction:column;gap:3px'>Vendor / company<input id='ins-send-vendor' list='ins-vendor-list' oninput='RENEW.insVendorPick()' placeholder='e.g. Northeast Bank' style='" + insIn + ";width:210px'>" +
+          "<datalist id='ins-vendor-list'>" + customVendorNames(hist).map(n => "<option value='" + escR(n) + "'>").join("") + "</datalist></label>" +
         "<label style='display:flex;flex-direction:column;gap:3px;flex:1;min-width:240px'>Email(s) — comma separated<input id='ins-send-to' placeholder='credentialing@agency.com' style='" + insIn + "'></label>" +
         "</div>" +
         "<div id='ins-send-hint' style='font-size:11px;color:#64748b;margin-top:4px'></div>" +
@@ -15741,6 +15757,7 @@ const RENEW = (() => {
         "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center'>" +
           "<button id='ins-send-btn' onclick='RENEW.insSendEmail()' style='padding:7px 16px;background:#1e9b58;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer'>✉️ Email it</button>" +
           "<button onclick='RENEW.insSendLog()' title='You sent it from your own email — just record it' style='padding:7px 12px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;font-size:12px;cursor:pointer'>✓ I sent it myself — log it</button>" +
+          (contactsMissing ? "" : "<button onclick='RENEW.insSaveContact()' title='Save these emails for this vendor without sending anything' style='padding:7px 12px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;font-size:12px;cursor:pointer'>💾 Save emails</button>") +
           "<button onclick='RENEW.insSendClose()' style='padding:7px 10px;background:none;border:none;color:#64748b;cursor:pointer'>Cancel</button>" +
           "<span style='font-size:11px;color:#94a3b8'>Replies come back to your email.</span>" +
         "</div>";
@@ -15771,40 +15788,101 @@ const RENEW = (() => {
     box.innerHTML = h + "</div>";
   }
 
+  const vKey = name => String(name || "").trim().toLowerCase();
+  function agencyOptionsHtml() {
+    const opt = a => "<option value='a:" + escR(a.name) + "'>" + escR(a.name) +
+      (vendorContacts[vKey(a.name)] && vendorContacts[vKey(a.name)].emails.length ? " ✉" : "") + "</option>";
+    const active = sendAgencies.filter(a => a.is_active !== false);
+    const inactive = sendAgencies.filter(a => a.is_active === false);
+    return (active.length ? "<optgroup label='Agencies'>" + active.map(opt).join("") + "</optgroup>" : "") +
+      (inactive.length ? "<optgroup label='Inactive agencies'>" + inactive.map(opt).join("") + "</optgroup>" : "");
+  }
+  function isAgencyName(name) { const k = vKey(name); return sendAgencies.some(a => vKey(a.name) === k); }
+  function customVendorNames(hist) {
+    const names = {};
+    Object.keys(vendorContacts).forEach(k => { if (!isAgencyName(vendorContacts[k].vendor_name)) names[k] = vendorContacts[k].vendor_name; });
+    Object.keys(hist).forEach(k => { if (!names[k] && !isAgencyName(hist[k].vendor_name)) names[k] = hist[k].vendor_name; });
+    return Object.keys(names).map(k => names[k]).sort();
+  }
+  function currentVendor() {
+    const sel = document.getElementById("ins-send-agency");
+    const v = sel ? sel.value : "";
+    if (v.indexOf("a:") === 0) return v.slice(2);
+    if (v === "__custom") return ((document.getElementById("ins-send-vendor") || {}).value || "").trim();
+    return "";
+  }
+  function setVendor(name) {
+    const sel = document.getElementById("ins-send-agency"); if (!sel) return;
+    const agency = sendAgencies.find(a => vKey(a.name) === vKey(name));
+    if (agency) sel.value = "a:" + agency.name;
+    else { sel.value = "__custom"; const v = document.getElementById("ins-send-vendor"); if (v) v.value = name || ""; }
+  }
+  function parseEmails(str) { return String(str || "").split(/[,;\s]+/).map(e => e.trim().toLowerCase()).filter(Boolean); }
+  async function saveContact(vendor, emails, quiet) {
+    if (contactsMissing || !vendor || !emails.length) return true;
+    const up = await db.from("insurance_vendor_contacts").upsert({
+      vendor_key: vKey(vendor), vendor_name: vendor.trim(), is_agency: isAgencyName(vendor), emails,
+      updated_at: new Date().toISOString(),
+      updated_by: (typeof currentUser !== "undefined" && currentUser) ? currentUser.id : null
+    }, { onConflict: "vendor_key" });
+    if (up.error) { if (!quiet) showToast("Couldn't save the emails: " + up.error.message); return false; }
+    return true;
+  }
+  async function insSaveContact() {
+    const vendor = currentVendor();
+    const emails = parseEmails((document.getElementById("ins-send-to") || {}).value);
+    if (!vendor) { showToast("Pick an agency or enter a vendor first"); return; }
+    if (!emails.length) { showToast("Enter at least one email"); return; }
+    const bad = emails.filter(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (bad.length) { showToast("Check this email: " + bad.join(", ")); return; }
+    if (!(await saveContact(vendor, emails))) return;
+    vendorContacts[vKey(vendor)] = Object.assign({}, vendorContacts[vKey(vendor)] || {}, { vendor_key: vKey(vendor), vendor_name: vendor, emails, updated_at: new Date().toISOString() });
+    const to = document.getElementById("ins-send-to"); if (to) to.dataset.autofill = to.value;
+    showToast("💾 Saved emails for " + vendor);
+    insVendorPick();
+  }
+
   function insSendOpen(docId) {
     sendOpen = true; sendDocId = docId || null;
     renderInsSend();
     const box = document.getElementById("ins-send");
     if (box) box.scrollIntoView({ behavior: "smooth", block: "center" });
-    const v = document.getElementById("ins-send-vendor"); if (v) v.focus();
+    const v = document.getElementById("ins-send-agency"); if (v) v.focus();
   }
   function insSendClose() { sendOpen = false; sendDocId = null; renderInsSend(); }
   function insSendsToggle() { sendsShowAll = !sendsShowAll; renderInsSend(); }
   function insVendorPick() {
-    const v = (document.getElementById("ins-send-vendor").value || "").trim().toLowerCase();
-    const prev = vendorHistory()[v];
+    const sel = document.getElementById("ins-send-agency");
+    const wrap = document.getElementById("ins-send-custom-wrap");
+    if (wrap) wrap.style.display = sel && sel.value === "__custom" ? "flex" : "none";
+    const vendor = currentVendor();
+    const k = vKey(vendor);
+    const saved = k ? vendorContacts[k] : null;
+    const prev = k ? vendorHistory()[k] : null;
+    const emails = saved && saved.emails && saved.emails.length ? saved.emails : (prev ? prev.recipients || [] : []);
     const to = document.getElementById("ins-send-to");
     const hint = document.getElementById("ins-send-hint");
     // Replace the emails only if the box is empty or still holds what we auto-filled
     // (switching vendors swaps them; anything typed by hand is kept).
     const untouched = to && (!to.value.trim() || to.value === to.dataset.autofill);
-    if (prev) {
-      if (untouched) { to.value = (prev.recipients || []).join(", "); to.dataset.autofill = to.value; }
-      if (hint) hint.textContent = "Last sent to " + prev.vendor_name + " on " + fmtDateTime(prev.sent_at) +
-        " — emails filled from that send; change them here if they've changed.";
-    } else {
-      if (untouched && to.dataset.autofill) { to.value = ""; to.dataset.autofill = ""; }
-      if (hint) hint.textContent = "";
-    }
+    if (untouched) { to.value = emails.join(", "); to.dataset.autofill = to.value; }
+    if (!hint) return;
+    const bits = [];
+    if (prev) bits.push("Last sent " + fmtDateTime(prev.sent_at) + (prev.method === "manual" ? " (logged)" : ""));
+    else if (vendor) bits.push("Never sent to " + vendor + " yet");
+    if (saved && saved.emails && saved.emails.length) bits.push("emails from the saved contact — edit them here and they're saved when you send, log or 💾 Save");
+    else if (prev) bits.push("emails from the last send — they're saved when you send, log or 💾 Save");
+    else if (vendor) bits.push("type their email(s) — they'll be remembered for next time");
+    hint.textContent = bits.join(" · ");
   }
   function readSendForm() {
     const val = id => ((document.getElementById(id) || {}).value || "").trim();
     const doc = coiDocs().find(d => d.id === val("ins-send-doc"));
-    const vendor = val("ins-send-vendor");
-    const recipients = val("ins-send-to").split(/[,;\s]+/).map(e => e.trim().toLowerCase()).filter(Boolean);
+    const vendor = currentVendor();
+    const recipients = parseEmails(val("ins-send-to"));
     const message = ((document.getElementById("ins-send-msg") || {}).value || "").trim();
     if (!doc) { showToast("Pick the certificate to send"); return null; }
-    if (!vendor) { showToast("Enter the vendor / company name"); return null; }
+    if (!vendor) { showToast("Pick an agency, or choose Other / custom and enter the vendor"); return null; }
     return { doc, vendor, recipients, message };
   }
   async function insSendEmail() {
@@ -15824,6 +15902,7 @@ const RENEW = (() => {
       if (btn) { btn.disabled = false; btn.textContent = "✉️ Email it"; }
       return;
     }
+    await saveContact(f.vendor, f.recipients, true);
     showToast("✉️ Sent to " + f.vendor + (data && data.warning ? " — " + data.warning : ""));
     sendOpen = false; sendDocId = null;
     await load();
@@ -15837,6 +15916,7 @@ const RENEW = (() => {
       sent_by_email: (typeof currentUser !== "undefined" && currentUser) ? currentUser.email : null
     });
     if (ins.error) { showToast("Couldn't log it: " + ins.error.message); return; }
+    await saveContact(f.vendor, f.recipients, true);
     showToast("✓ Logged — sent to " + f.vendor);
     sendOpen = false; sendDocId = null;
     await load();
@@ -15844,8 +15924,7 @@ const RENEW = (() => {
   function insSendAgain(sendId) {
     const x = sends.find(r => r.id === sendId); if (!x) return;
     insSendOpen(null);
-    const v = document.getElementById("ins-send-vendor"); if (v) v.value = x.vendor_name || "";
-    const to = document.getElementById("ins-send-to"); if (to) to.value = (x.recipients || []).join(", ");
+    setVendor(x.vendor_name || "");
     insVendorPick();
   }
   async function insSendDelete(sendId) {
@@ -16198,7 +16277,7 @@ const RENEW = (() => {
            insOpen, insToggleTerms, insPickFile,
            insUpload: once(insUpload), insRenew: once(insRenew), insSaveEdit: once(insSaveEdit),
            insDeleteDoc: once(insDeleteDoc), insDeleteTerm: once(insDeleteTerm), addPolicy: once(addPolicy),
-           insSendOpen, insSendClose, insSendsToggle, insVendorPick, insSendAgain,
+           insSendOpen, insSendClose, insSendsToggle, insVendorPick, insSendAgain, insSaveContact: once(insSaveContact),
            insSendEmail: once(insSendEmail), insSendLog: once(insSendLog), insSendDelete: once(insSendDelete) };
 })();
 
