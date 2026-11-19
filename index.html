@@ -1217,9 +1217,15 @@
       case "staff_vacation_today":    return `on vacation today${vacRange}`;
       case "staff_vacation_active":   return `on vacation now${vacRange}`;
       case "staff_vacation_soon":     return `vacation${vacRange}`;
-      case "renewal_overdue":   return `filing was due ${fmtDateShort(alert.due_date)} — late penalties may apply. File + pay now.`;
-      case "renewal_due_today": return `filing due today — file + pay to avoid the late penalty`;
-      case "renewal_due_soon":  return `filing due ${fmtDateShort(alert.due_date)}`;
+      case "renewal_overdue":   return alert.category === "insurance"
+        ? `🛡 policy expired ${fmtDateShort(alert.due_date)} — confirm the renewal and upload the new certificate`
+        : `filing was due ${fmtDateShort(alert.due_date)} — late penalties may apply. File + pay now.`;
+      case "renewal_due_today": return alert.category === "insurance"
+        ? `🛡 policy expires today — confirm the renewal`
+        : `filing due today — file + pay to avoid the late penalty`;
+      case "renewal_due_soon":  return alert.category === "insurance"
+        ? `🛡 policy expires ${fmtDateShort(alert.due_date)} — get the renewal + new certificate`
+        : `filing due ${fmtDateShort(alert.due_date)}`;
       case "address_change_pending": return `${meta.verb} · ${alert.old_address || "—"} → ${alert.new_address || "—"} — set their territory cutoff`;
       case "new_clinician_setup":    return `${meta.verb} from TherapyBoss · ${alert.home_label || "no address"} — set up their territory (home pin, TB ZIPs, requested areas)` + (alert.overdue ? " · ⚠ overdue" : "");
       default: return reason;
