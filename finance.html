@@ -15785,10 +15785,17 @@ const RENEW = (() => {
     const prev = vendorHistory()[v];
     const to = document.getElementById("ins-send-to");
     const hint = document.getElementById("ins-send-hint");
+    // Replace the emails only if the box is empty or still holds what we auto-filled
+    // (switching vendors swaps them; anything typed by hand is kept).
+    const untouched = to && (!to.value.trim() || to.value === to.dataset.autofill);
     if (prev) {
-      if (to && !to.value.trim()) to.value = (prev.recipients || []).join(", ");
-      if (hint) hint.textContent = "Last sent to " + prev.vendor_name + " on " + fmtDateTime(prev.sent_at) + ".";
-    } else if (hint) hint.textContent = "";
+      if (untouched) { to.value = (prev.recipients || []).join(", "); to.dataset.autofill = to.value; }
+      if (hint) hint.textContent = "Last sent to " + prev.vendor_name + " on " + fmtDateTime(prev.sent_at) +
+        " — emails filled from that send; change them here if they've changed.";
+    } else {
+      if (untouched && to.dataset.autofill) { to.value = ""; to.dataset.autofill = ""; }
+      if (hint) hint.textContent = "";
+    }
   }
   function readSendForm() {
     const val = id => ((document.getElementById(id) || {}).value || "").trim();
