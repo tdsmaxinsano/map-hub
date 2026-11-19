@@ -15756,7 +15756,8 @@ const RENEW = (() => {
         (insTermsOpen[pl.id] ? "▾" : "▸") + " Past terms (" + terms.length + ")</a>";
       if (insTermsOpen[pl.id]) h += terms.map(fl =>
         "<div style='font-size:11.5px;color:#334155;padding:3px 0 3px 14px'>📅 " + (fl.period_label ? escR(fl.period_label) : fmtDate(fl.filed_on)) +
-        " · premium " + money(fl.fee_paid) + (fl.notes ? " · <span style='color:#94a3b8'>" + escR(fl.notes) + "</span>" : "") + "</div>").join("");
+        " · premium " + money(fl.fee_paid) + (fl.notes ? " · <span style='color:#94a3b8'>" + escR(fl.notes) + "</span>" : "") +
+        " <a href='javascript:void(0)' onclick='RENEW.insDeleteTerm(\"" + fl.id + "\")' title='Delete this term entry' style='color:#94a3b8;text-decoration:none;margin-left:6px'>🗑</a></div>").join("");
       h += "</div>";
     }
     return h + "</div>";
@@ -15847,6 +15848,21 @@ const RENEW = (() => {
     if (del.error) { showToast("Couldn't delete: " + del.error.message); return; }
     try { await db.storage.from("company-documents").remove([doc.document_path]); } catch (e) {}
     showToast("🗑 Document deleted");
+    await load();
+  }
+  // One action at a time — a double-click used to upload / renew twice.
+  let insBusy = false;
+  const once = fn => async (...a) => {
+    if (insBusy) return;
+    insBusy = true;
+    document.body.style.cursor = "progress";
+    try { return await fn(...a); } finally { insBusy = false; document.body.style.cursor = ""; }
+  };
+  async function insDeleteTerm(filingId) {
+    if (!confirm("Delete this past-term entry?\n\nOnly the history line is removed — the policy dates and documents stay as they are.")) return;
+    const del = await db.from("company_renewal_filings").delete().eq("id", filingId);
+    if (del.error) { showToast("Couldn't delete: " + del.error.message); return; }
+    showToast("🗑 Term entry deleted");
     await load();
   }
   async function addPolicy() {
@@ -15990,7 +16006,9 @@ const RENEW = (() => {
   }
 
   return { init, toggleHistory, toggleMark, pickMarkFile, saveFiling, attachDoc, openDoc, addRenewal,
-           insOpen, insToggleTerms, insPickFile, insUpload, insRenew, insSaveEdit, insDeleteDoc, addPolicy };
+           insOpen, insToggleTerms, insPickFile,
+           insUpload: once(insUpload), insRenew: once(insRenew), insSaveEdit: once(insSaveEdit),
+           insDeleteDoc: once(insDeleteDoc), insDeleteTerm: once(insDeleteTerm), addPolicy: once(addPolicy) };
 })();
 
 function maybeInitVdr() {
