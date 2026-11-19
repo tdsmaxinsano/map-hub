@@ -2399,6 +2399,7 @@
         premium, rolls the term forward and keeps the old term's documents in history.
       </p>
       <div id="ins-status" style="font-size:12px;color:var(--muted);margin:4px 0 8px"></div>
+      <div id="ins-send" style="margin:0 0 12px"></div>
       <div id="ins-cards" style="display:flex;flex-direction:column;gap:12px"></div>
       <div id="ins-add" style="margin-top:16px;padding-top:12px;border-top:1px solid #e2e8f0">
         <strong style="font-size:13px">＋ Add a policy</strong>
@@ -15506,6 +15507,12 @@ const RENEW = (() => {
   let insPanel = {};       // renewal_id -> "upload" | "renew" | "edit" | null
   let insTermsOpen = {};   // renewal_id -> bool
   let insFile = null;      // File chosen in an insurance panel
+  // 📤 Vendor sends (migration 98)
+  let sends = [];          // company_insurance_sends rows, newest first
+  let sendsMissing = false;
+  let sendOpen = false;
+  let sendDocId = null;
+  let sendsShowAll = false;
 
   const escR = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const money = (n) => (n == null || n === "") ? "—" : ("$" + Number(n).toFixed(2));
@@ -15530,6 +15537,11 @@ const RENEW = (() => {
       const d = await db.from("company_renewal_documents").select("*").order("uploaded_at", { ascending: false });
       if (d.error) insMissing = true;
       else (d.data || []).forEach(row => { (docsByRenewal[row.renewal_id] = docsByRenewal[row.renewal_id] || []).push(row); });
+    }
+    sends = []; sendsMissing = false;
+    if (!insMissing) {
+      const sd = await db.from("company_insurance_sends").select("*").order("sent_at", { ascending: false }).limit(500);
+      if (sd.error) sendsMissing = true; else sends = sd.data || [];
     }
     filingsByRenewal = {};
     (f.data || []).forEach(row => {
@@ -15657,6 +15669,7 @@ const RENEW = (() => {
     if (insMissing) {
       status.innerHTML = "⚠ Run <b>supabase/policies/97_company_insurance_policies.sql</b> to turn on the insurance section.";
       box.innerHTML = ""; if (add) add.style.display = "none";
+      const sb = document.getElementById("ins-send"); if (sb) sb.innerHTML = "";
       return;
     }
     if (add) add.style.display = "";
@@ -15667,6 +15680,174 @@ const RENEW = (() => {
         (expired ? " · <b style='color:#b3261e'>" + expired + " past expiration — confirm the renewal</b>" : "")
       : "No policies yet — add your general liability and workers' comp below.";
     box.innerHTML = policies.map(pl => insCardHtml(pl, today)).join("");
+    renderInsSend();
+  }
+
+  // ═══ 📤 SEND CERTIFICATE TO A VENDOR ═════════════════════════════════
+  const SEND_DEFAULT_MSG = "Hello,\n\nAttached is the current Certificate of Insurance for Dependable Care Staffing LLC " +
+    "(general & professional liability and workers' compensation).\n\nPlease let us know if you need anything else.\n\nThank you,";
+
+  function coiDocs() {
+    const seen = {}, out = [];
+    Object.keys(docsByRenewal).forEach(k => docsByRenewal[k].forEach(d => {
+      if (d.doc_type === "coi" && !seen[d.document_path]) { seen[d.document_path] = 1; out.push(d); }
+    }));
+    return out.sort((a, b) => String(b.uploaded_at).localeCompare(String(a.uploaded_at)));
+  }
+  function vendorHistory() {
+    const m = {};
+    sends.forEach(x => { const k = (x.vendor_name || "").trim().toLowerCase(); if (k && !m[k]) m[k] = x; });
+    return m;  // lower-cased vendor -> most recent send
+  }
+  function fmtDateTime(ts) {
+    const d = new Date(ts);
+    return isNaN(d) ? "—" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) +
+      " " + d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+
+  function renderInsSend() {
+    const box = document.getElementById("ins-send");
+    if (!box) return;
+    if (sendsMissing) {
+      box.innerHTML = "<div style='font-size:12px;color:#92400e;background:#fef3c7;border-radius:8px;padding:8px 10px'>" +
+        "⚠ Run <b>supabase/policies/98_company_insurance_sends.sql</b> to turn on 📤 Send to a vendor + the sent log.</div>";
+      return;
+    }
+    const docs = coiDocs();
+    const last = sends[0];
+    let h = "<div style='border:1.5px solid #bfdbfe;background:#eff6ff;border-radius:10px;padding:10px 14px'>" +
+      "<div style='display:flex;gap:10px;align-items:center;flex-wrap:wrap'>" +
+        "<b style='color:#1e3a8a;font-size:13.5px'>📤 Send certificate to a vendor</b>" +
+        "<span style='font-size:11.5px;color:#475569'>" + (last
+          ? "Last sent " + fmtDateTime(last.sent_at) + " to <b>" + escR(last.vendor_name) + "</b> · " + sends.length + " send" + (sends.length === 1 ? "" : "s") + " logged"
+          : "Nothing sent yet") + "</span>" +
+        (sendOpen ? "" : "<button onclick='RENEW.insSendOpen(null)' style='margin-left:auto;padding:6px 14px;background:#1e4d8c;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer'" +
+          (docs.length ? "" : " disabled title='Upload a certificate of insurance first'") + ">📤 Send to a vendor</button>") +
+      "</div>";
+
+    if (sendOpen) {
+      const hist = vendorHistory();
+      const docId = sendDocId && docs.some(d => d.id === sendDocId) ? sendDocId : (docs[0] && docs[0].id);
+      h += "<div style='margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;font-size:12px'>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Document<select id='ins-send-doc' style='" + insIn + ";max-width:300px'>" +
+          docs.map(d => "<option value='" + d.id + "'" + (d.id === docId ? " selected" : "") + ">" + escR(d.document_name || "certificate") + " · " + fmtDate(d.uploaded_at) + "</option>").join("") +
+        "</select></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Vendor / company<input id='ins-send-vendor' list='ins-vendor-list' oninput='RENEW.insVendorPick()' placeholder='e.g. ABC Home Health' style='" + insIn + ";width:210px'>" +
+          "<datalist id='ins-vendor-list'>" + Object.keys(hist).map(k => "<option value='" + escR(hist[k].vendor_name) + "'>").join("") + "</datalist></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px;flex:1;min-width:240px'>Email(s) — comma separated<input id='ins-send-to' placeholder='credentialing@agency.com' style='" + insIn + "'></label>" +
+        "</div>" +
+        "<div id='ins-send-hint' style='font-size:11px;color:#64748b;margin-top:4px'></div>" +
+        "<textarea id='ins-send-msg' rows='5' style='" + insIn + ";width:100%;box-sizing:border-box;margin-top:6px;font-family:inherit;font-size:12.5px'>" + escR(SEND_DEFAULT_MSG) + "</textarea>" +
+        "<div style='display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;align-items:center'>" +
+          "<button id='ins-send-btn' onclick='RENEW.insSendEmail()' style='padding:7px 16px;background:#1e9b58;color:#fff;border:none;border-radius:7px;font-size:12px;font-weight:700;cursor:pointer'>✉️ Email it</button>" +
+          "<button onclick='RENEW.insSendLog()' title='You sent it from your own email — just record it' style='padding:7px 12px;background:#fff;border:1px solid #cbd5e1;border-radius:7px;font-size:12px;cursor:pointer'>✓ I sent it myself — log it</button>" +
+          "<button onclick='RENEW.insSendClose()' style='padding:7px 10px;background:none;border:none;color:#64748b;cursor:pointer'>Cancel</button>" +
+          "<span style='font-size:11px;color:#94a3b8'>Replies come back to your email.</span>" +
+        "</div>";
+    }
+
+    // Sent log
+    if (sends.length) {
+      const rows = sendsShowAll ? sends : sends.slice(0, 8);
+      h += "<div style='margin-top:10px;border-top:1px dashed #bfdbfe;padding-top:8px'>" +
+        "<div style='font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px'>Sent log</div>" +
+        "<table style='width:100%;border-collapse:collapse;font-size:12px'>" +
+        "<tr style='color:#64748b;text-align:left'><th style='padding:3px 6px'>When</th><th style='padding:3px 6px'>Vendor</th><th style='padding:3px 6px'>To</th><th style='padding:3px 6px'>Document</th><th style='padding:3px 6px'>How</th><th></th></tr>" +
+        rows.map(x => "<tr style='border-top:1px solid #dbeafe'>" +
+          "<td style='padding:4px 6px;white-space:nowrap'>" + fmtDateTime(x.sent_at) + "</td>" +
+          "<td style='padding:4px 6px;font-weight:700;color:#1e2d4a'>" + escR(x.vendor_name) + "</td>" +
+          "<td style='padding:4px 6px;color:#475569'>" + escR((x.recipients || []).join(", ") || "—") + "</td>" +
+          "<td style='padding:4px 6px;color:#475569'>" + escR(x.document_name || "—") + "</td>" +
+          "<td style='padding:4px 6px;color:#475569;white-space:nowrap'>" + (x.method === "manual" ? "✓ logged" : "✉️ emailed") +
+            (x.sent_by_email ? " <span style='color:#94a3b8'>by " + escR(x.sent_by_email.split("@")[0]) + "</span>" : "") + "</td>" +
+          "<td style='padding:4px 6px;text-align:right;white-space:nowrap'>" +
+            "<a href='javascript:void(0)' onclick='RENEW.insSendAgain(\"" + x.id + "\")' title='Send again' style='color:#2463eb;text-decoration:none'>↻</a> " +
+            "<a href='javascript:void(0)' onclick='RENEW.insSendDelete(\"" + x.id + "\")' title='Remove from log' style='color:#94a3b8;text-decoration:none'>🗑</a></td>" +
+        "</tr>").join("") + "</table>" +
+        (sends.length > 8 ? "<a href='javascript:void(0)' onclick='RENEW.insSendsToggle()' style='font-size:11.5px;color:#64748b'>" +
+          (sendsShowAll ? "▴ Show fewer" : "▾ Show all " + sends.length) + "</a>" : "") +
+        "</div>";
+    }
+    box.innerHTML = h + "</div>";
+  }
+
+  function insSendOpen(docId) {
+    sendOpen = true; sendDocId = docId || null;
+    renderInsSend();
+    const box = document.getElementById("ins-send");
+    if (box) box.scrollIntoView({ behavior: "smooth", block: "center" });
+    const v = document.getElementById("ins-send-vendor"); if (v) v.focus();
+  }
+  function insSendClose() { sendOpen = false; sendDocId = null; renderInsSend(); }
+  function insSendsToggle() { sendsShowAll = !sendsShowAll; renderInsSend(); }
+  function insVendorPick() {
+    const v = (document.getElementById("ins-send-vendor").value || "").trim().toLowerCase();
+    const prev = vendorHistory()[v];
+    const to = document.getElementById("ins-send-to");
+    const hint = document.getElementById("ins-send-hint");
+    if (prev) {
+      if (to && !to.value.trim()) to.value = (prev.recipients || []).join(", ");
+      if (hint) hint.textContent = "Last sent to " + prev.vendor_name + " on " + fmtDateTime(prev.sent_at) + ".";
+    } else if (hint) hint.textContent = "";
+  }
+  function readSendForm() {
+    const val = id => ((document.getElementById(id) || {}).value || "").trim();
+    const doc = coiDocs().find(d => d.id === val("ins-send-doc"));
+    const vendor = val("ins-send-vendor");
+    const recipients = val("ins-send-to").split(/[,;\s]+/).map(e => e.trim().toLowerCase()).filter(Boolean);
+    const message = ((document.getElementById("ins-send-msg") || {}).value || "").trim();
+    if (!doc) { showToast("Pick the certificate to send"); return null; }
+    if (!vendor) { showToast("Enter the vendor / company name"); return null; }
+    return { doc, vendor, recipients, message };
+  }
+  async function insSendEmail() {
+    const f = readSendForm(); if (!f) return;
+    if (!f.recipients.length) { showToast("Enter at least one email"); return; }
+    const bad = f.recipients.filter(e => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e));
+    if (bad.length) { showToast("Check this email: " + bad.join(", ")); return; }
+    const btn = document.getElementById("ins-send-btn");
+    if (btn) { btn.disabled = true; btn.textContent = "Sending…"; }
+    const { data, error } = await db.functions.invoke("send-insurance-certificate", {
+      body: { documentId: f.doc.id, vendorName: f.vendor, recipients: f.recipients, message: f.message }
+    });
+    if (error || (data && data.error)) {
+      let detail = (data && data.error) || (error && error.message) || "unknown error";
+      try { if (error && error.context && typeof error.context.json === "function") { const j = await error.context.json(); if (j && j.error) detail = j.error; } } catch (e) {}
+      showToast("Email didn't send: " + detail);
+      if (btn) { btn.disabled = false; btn.textContent = "✉️ Email it"; }
+      return;
+    }
+    showToast("✉️ Sent to " + f.vendor + (data && data.warning ? " — " + data.warning : ""));
+    sendOpen = false; sendDocId = null;
+    await load();
+  }
+  async function insSendLog() {
+    const f = readSendForm(); if (!f) return;
+    const ins = await db.from("company_insurance_sends").insert({
+      document_id: f.doc.id, document_name: f.doc.document_name, vendor_name: f.vendor,
+      recipients: f.recipients, message: f.message || null, method: "manual",
+      sent_by: (typeof currentUser !== "undefined" && currentUser) ? currentUser.id : null,
+      sent_by_email: (typeof currentUser !== "undefined" && currentUser) ? currentUser.email : null
+    });
+    if (ins.error) { showToast("Couldn't log it: " + ins.error.message); return; }
+    showToast("✓ Logged — sent to " + f.vendor);
+    sendOpen = false; sendDocId = null;
+    await load();
+  }
+  function insSendAgain(sendId) {
+    const x = sends.find(r => r.id === sendId); if (!x) return;
+    insSendOpen(null);
+    const v = document.getElementById("ins-send-vendor"); if (v) v.value = x.vendor_name || "";
+    const to = document.getElementById("ins-send-to"); if (to) to.value = (x.recipients || []).join(", ");
+    insVendorPick();
+  }
+  async function insSendDelete(sendId) {
+    const x = sends.find(r => r.id === sendId); if (!x) return;
+    if (!confirm("Remove the " + fmtDateTime(x.sent_at) + " send to " + (x.vendor_name || "this vendor") + " from the log?\n\nThis only deletes the log line — it can't un-send an email.")) return;
+    const del = await db.from("company_insurance_sends").delete().eq("id", sendId);
+    if (del.error) { showToast("Couldn't remove: " + del.error.message); return; }
+    showToast("🗑 Removed from the log");
+    await load();
   }
 
   function insCardHtml(pl, today) {
@@ -15708,7 +15889,8 @@ const RENEW = (() => {
           "<span style='background:#eef2ff;color:#3730a3;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;white-space:nowrap'>" + escR(DOC_TYPES[d.doc_type] || d.doc_type) + "</span>" +
           "<a href='javascript:void(0)' onclick='RENEW.openDoc(\"" + escR(d.document_path) + "\")' style='color:#2463eb;font-weight:700'>📎 " + escR(d.document_name || "document") + "</a>" +
           "<span style='color:#94a3b8;font-size:11px'>" + fmtDate(d.uploaded_at) + (d.notes ? " · " + escR(d.notes) : "") + "</span>" +
-          "<a href='javascript:void(0)' onclick='RENEW.insDeleteDoc(\"" + d.id + "\")' title='Delete this document' style='color:#94a3b8;margin-left:auto;text-decoration:none'>🗑</a>" +
+          (d.doc_type === "coi" && !sendsMissing ? "<a href='javascript:void(0)' onclick='RENEW.insSendOpen(\"" + d.id + "\")' title='Send this certificate to a vendor' style='margin-left:auto;color:#1e4d8c;font-weight:700;text-decoration:none;font-size:11.5px'>📤 Send</a>" : "") +
+          "<a href='javascript:void(0)' onclick='RENEW.insDeleteDoc(\"" + d.id + "\")' title='Delete this document' style='color:#94a3b8;" + (d.doc_type === "coi" && !sendsMissing ? "" : "margin-left:auto;") + "text-decoration:none'>🗑</a>" +
         "</div>").join("")
         : "<div style='font-size:11.5px;color:#94a3b8'>No documents yet — upload the certificate of insurance.</div>") +
       "</div>";
@@ -16008,7 +16190,9 @@ const RENEW = (() => {
   return { init, toggleHistory, toggleMark, pickMarkFile, saveFiling, attachDoc, openDoc, addRenewal,
            insOpen, insToggleTerms, insPickFile,
            insUpload: once(insUpload), insRenew: once(insRenew), insSaveEdit: once(insSaveEdit),
-           insDeleteDoc: once(insDeleteDoc), insDeleteTerm: once(insDeleteTerm), addPolicy: once(addPolicy) };
+           insDeleteDoc: once(insDeleteDoc), insDeleteTerm: once(insDeleteTerm), addPolicy: once(addPolicy),
+           insSendOpen, insSendClose, insSendsToggle, insVendorPick, insSendAgain,
+           insSendEmail: once(insSendEmail), insSendLog: once(insSendLog), insSendDelete: once(insSendDelete) };
 })();
 
 function maybeInitVdr() {
