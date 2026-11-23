@@ -5540,6 +5540,10 @@ function drawLiveReferrals() {
   if (src) src.setData(fc);
   else {
     tpMap.addSource("tp-live-refs", { type: "geojson", data: fc });
+    tpMap.addLayer({ id: "tp-live-refs-pulse", type: "circle", source: "tp-live-refs", paint: {
+      "circle-color": ["case", [">=", ["get", "days"], 3], "#dc2626", "#f59e0b"],
+      "circle-radius": 8, "circle-opacity": 0.4, "circle-stroke-width": 0
+    }});
     tpMap.addLayer({ id: "tp-live-refs-dot", type: "circle", source: "tp-live-refs", paint: {
       "circle-color": ["case", [">=", ["get", "days"], 3], "#dc2626", [">=", ["get", "days"], 2], "#f59e0b", "#d97706"],
       "circle-radius": 8,
@@ -5569,7 +5573,24 @@ function drawLiveReferrals() {
     tpMap.on("mouseleave", "tp-live-refs-dot", () => { tpMap.getCanvas().style.cursor = ""; });
   }
   // Keep the pins on top of site dots / ZIP badges added later.
-  ["tp-live-refs-dot", "tp-live-refs-lbl"].forEach(id => { if (tpMap.getLayer(id)) tpMap.moveLayer(id); });
+  ["tp-live-refs-pulse", "tp-live-refs-dot", "tp-live-refs-lbl"].forEach(id => { if (tpMap.getLayer(id)) tpMap.moveLayer(id); });
+  startLiveRefPulse();
+}
+
+// Gentle sonar pulse: the halo grows 8 → 22 px and fades out every ~1.6 s.
+let liveRefPulseRaf = null;
+function startLiveRefPulse() {
+  if (liveRefPulseRaf || !liveRefOn) return;
+  const tick = (t) => {
+    if (!liveRefOn || !tpMap || !tpMap.getLayer("tp-live-refs-pulse")) { liveRefPulseRaf = null; return; }
+    const ph = (t % 1600) / 1600;
+    try {
+      tpMap.setPaintProperty("tp-live-refs-pulse", "circle-radius", 8 + ph * 14);
+      tpMap.setPaintProperty("tp-live-refs-pulse", "circle-opacity", 0.45 * (1 - ph));
+    } catch (e) { liveRefPulseRaf = null; return; }
+    liveRefPulseRaf = requestAnimationFrame(tick);
+  };
+  liveRefPulseRaf = requestAnimationFrame(tick);
 }
 
 function subscribeLiveReferrals() {
