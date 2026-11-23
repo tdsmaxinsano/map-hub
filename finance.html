@@ -11614,7 +11614,10 @@ const BANK = (() => {
     const payableTrn = /PAYABLE TRN:\s*X*([0-9]+)/i.exec(s)?.[1] || "";
     const carrierM   = /ORIG CO NAME:([A-Z0-9 &/\-.]+?)(?:\s*ORIG ID:|\s{2,})/i.exec(s);
     const carrier    = carrierM ? carrierM[1].trim() : "";
-    return { trace, indId, eed, payableTrn, carrier };
+    // X12 TRN segment: TRN*1*<check/EFT #>*<1 + payer EIN>. Zelis passes the
+    // real insurer's ID through, so PayPlus deposits name their payer here.
+    const trnPayerId = /TRN\*1\*[^*\\\s]+\*(\d{10})/i.exec(s)?.[1] || "";
+    return { trace, indId, eed, payableTrn, carrier, trnPayerId };
   }
 
   function classifyPattern(parsed, descLower) {
@@ -11926,6 +11929,13 @@ const BANK = (() => {
     if (/blue\s*cross|bcbs|hcsc/i.test(n)) return "BCBS";
     return n || "Zelis";
   }
+  // Payer from the bank line's TRN originator ID (1 + payer EIN), used when
+  // the Zelis CSV doesn't have the payment (Zelis only exports EOP detail for
+  // some payers — BCBS IL payments don't come out in the Batch EOP CSV).
+  const ZELIS_TRN_PAYERS = {
+    "1361236610": "BlueCross BlueShield of Illinois",   // HCSC, EIN 36-1236610
+    "1390138065": "Anthem Blue Cross (WI)",             // EIN 39-0138065
+  };
   function zelisCustomer(name, c) {
     const short = zelisPayerShort(name);
     return short === "Anthem" ? c.anthem : short === "BCBS" ? c.cust : (name || c.zelis);
@@ -11938,7 +11948,7 @@ const BANK = (() => {
     const used = new Set();
     const cents = n => Math.round(Number(n) * 100);
     const zRows = rows.filter(r => r.pattern === "zelis");
-    zRows.forEach(r => { r.zelis = null; });
+    zRows.forEach(r => { r.zelis = null; r.zelisTrnPayer = null; });
     zRows.forEach(r => {
       const tr = r.parsed && r.parsed.trace;
       const prior = tr && zelisPays.find(z => z.deposit_trace === tr && cents(z.amount) === cents(r.amount));
@@ -11971,6 +11981,12 @@ const BANK = (() => {
           z.deposit_date = rowDateIso(r); z.deposit_trace = (r.parsed && r.parsed.trace) || null;
           toSave.push({ id: z.payment_id, deposit_date: z.deposit_date, deposit_trace: z.deposit_trace });
         }
+      } else if (r.parsed && ZELIS_TRN_PAYERS[r.parsed.trnPayerId]) {
+        const name = ZELIS_TRN_PAYERS[r.parsed.trnPayerId];
+        r.zelisTrnPayer = name;
+        r.customer = zelisCustomer(name, c);
+        r.refNo = buildRefNo(r.parsed);
+        r.description = "Zelis " + zelisPayerShort(name) + " (payer from bank TRN)" + (r.parsed.trace ? " · TRN " + r.parsed.trace : "");
       } else {
         r.customer = c.zelis;
         r.refNo = buildRefNo(r.parsed || {});
@@ -12003,12 +12019,14 @@ const BANK = (() => {
     if (!box) return;
     const z = rows.filter(r => r.pattern === "zelis");
     if (!z.length) { box.style.display = "none"; return; }
-    const open = z.filter(r => !r.zelis);
+    const open = z.filter(r => !r.zelis && !r.zelisTrnPayer);
     const ZA_BASE = "margin:0 0 10px;border-radius:10px;padding:10px 14px;font-size:12.5px;line-height:1.5";
     box.style.display = "";
     if (!open.length) {
       box.style.cssText = ZA_BASE + ";background:#dcfce7;border:1px solid #86efac;color:#14532d";
-      box.innerHTML = "✓ All " + z.length + " Zelis (PAY PLUS) deposit" + (z.length === 1 ? "" : "s") + " matched to Zelis payments — labelled with the real payer and ZEL# ref.";
+      const byTrn = z.filter(r => !r.zelis).length;
+      box.innerHTML = "✓ All " + z.length + " Zelis (PAY PLUS) deposit" + (z.length === 1 ? "" : "s") + " labelled with the real payer" +
+        (byTrn ? " — " + (z.length - byTrn) + " matched to Zelis payments (ZEL# ref), " + byTrn + " identified from the bank TRN" : " and ZEL# ref") + ".";
       return;
     }
     const isos = open.map(rowDateIso).filter(Boolean).sort();
@@ -12121,7 +12139,9 @@ const BANK = (() => {
     const zNote = r.pattern !== "zelis" ? ""
       : r.zelis
         ? `<span class="bank-zelis-note ok" title="Zelis payment ${escAttr(r.zelis.payment_id)} · paid ${escAttr(r.zelis.paid_date || "")}">✓ ${escAttr(zelisPayerShort(r.zelis.payer_name))} · ${escAttr(r.zelis.payment_id)}</span>`
-        : `<span class="bank-zelis-note warn" title="No Zelis payment with this amount in the last 10 days — download that payment's CSV from Zelis and drop it here">⚠ no Zelis payment</span>`;
+        : r.zelisTrnPayer
+          ? `<span class="bank-zelis-note ok" title="Payer identified from the bank TRN (${escAttr(r.parsed.trnPayerId)}) — no Zelis CSV needed">✓ ${escAttr(zelisPayerShort(r.zelisTrnPayer))} · from TRN</span>`
+          : `<span class="bank-zelis-note warn" title="No Zelis payment with this amount in the last 10 days and no payer ID on the bank line — download that payment's CSV from Zelis and drop it here">⚠ no Zelis payment</span>`;
     return `
       <tr class="${skip}" data-id="${r.id}">
         <td class="bank-col-incl">
@@ -12218,7 +12238,7 @@ const BANK = (() => {
     const check    = rows.filter(r => r.pattern === "check").length;
     const cc       = rows.filter(r => r.pattern === "cc").length;
     const zel      = rows.filter(r => r.pattern === "zelis").length;
-    const zelOk    = rows.filter(r => r.pattern === "zelis" && r.zelis).length;
+    const zelOk    = rows.filter(r => r.pattern === "zelis" && (r.zelis || r.zelisTrnPayer)).length;
     const included = rows.filter(r => r.include).length;
     const sumIncluded = rows.filter(r => r.include).reduce((s, r) => s + r.amount, 0);
     document.getElementById("bank-stats").innerHTML = `
@@ -12227,7 +12247,7 @@ const BANK = (() => {
       <div class="stat-pill"><div class="lbl">Sum (included)</div><div class="val">$${sumIncluded.toFixed(2)}</div></div>
       <div class="stat-pill"><div class="lbl">BCBS</div><div class="val">${bcbs}</div></div>
       <div class="stat-pill"><div class="lbl">Medicare</div><div class="val">${mcare}</div></div>
-      ${zel ? `<div class="stat-pill${zelOk < zel ? ' flag' : ''}"><div class="lbl">🟣 Zelis matched</div><div class="val">${zelOk} / ${zel}</div></div>` : ''}
+      ${zel ? `<div class="stat-pill${zelOk < zel ? ' flag' : ''}"><div class="lbl">🟣 Zelis labelled</div><div class="val">${zelOk} / ${zel}</div></div>` : ''}
       ${check ? `<div class="stat-pill"><div class="lbl">📷 Checks</div><div class="val">${check}</div></div>` : ''}
       ${cc ? `<div class="stat-pill"><div class="lbl">💳 CC</div><div class="val">${cc}</div></div>` : ''}
       ${other ? `<div class="stat-pill flag"><div class="lbl">Other (review)</div><div class="val">${other}</div></div>` : ''}
