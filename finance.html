@@ -2119,6 +2119,50 @@
         </table>
       </div>
     </div>
+
+    <!-- ③ QB customers to create (migration 103) — every Received From
+         name Bank Match sends to QB, until it's marked as created in QB. -->
+    <div class="card" id="qbc-card">
+      <h3>③ QB Customers to create <span style="font-size:11.5px;font-weight:600;color:var(--muted);">— names Bank Match sends to QuickBooks that may not exist there yet</span></h3>
+      <p style="font-size:12.5px;color:var(--muted);margin:0 0 12px;line-height:1.55;">
+        Collected automatically from every Bank Match XLSX download and check scan. QuickBooks only attaches the <b>Received From</b> name to an imported deposit when that customer already exists — so create these <b>before</b> importing deposits.
+        <b>⬇ QB import CSV</b> → QuickBooks → Sales → Customers → <b>New customer ▾ → Import customers</b> → then <b>✓ Mark exported as In QB</b>. Names marked In QB stay done.
+      </p>
+      <div id="qbc-missing" style="display:none;margin:0 0 10px;padding:10px 14px;border-radius:10px;background:#fffbeb;border:1.5px solid #fcd34d;color:#78350f;font-size:12.5px;">
+        ⚠ Run <b>supabase/policies/103_qb_customer_queue.sql</b> in the Supabase SQL editor to turn on this list.
+      </div>
+      <div class="stat-strip" id="qbc-stats"></div>
+      <div class="hist-tools">
+        <span class="hist-chip" data-qbc-filter="todo">To create</span>
+        <span class="hist-chip" data-qbc-filter="all">All</span>
+        <span class="hist-chip" data-qbc-filter="in_qb">In QB</span>
+        <input type="search" class="hist-search" id="qbc-search" placeholder="Search names…" />
+        <button type="button" class="btn-secondary" id="qbc-add">+ Add name</button>
+        <button type="button" class="btn-primary" id="qbc-export">⬇ QB import CSV</button>
+        <button type="button" class="btn-secondary" id="qbc-done">✓ Mark exported as In QB</button>
+        <button type="button" class="btn-secondary" id="qbc-all-done" title="One-time cleanup: names that already exist in QuickBooks">✓ Mark all as already in QB</button>
+        <button type="button" class="btn-secondary" id="qbc-refresh">↻</button>
+      </div>
+      <div class="hist-table-wrap">
+        <table class="hist-table">
+          <thead>
+            <tr>
+              <th style="width:28px;"><input type="checkbox" id="qbc-check-all" title="Select all shown" /></th>
+              <th>Customer name</th>
+              <th>Type</th>
+              <th>Source</th>
+              <th>First seen</th>
+              <th>Used</th>
+              <th>Status</th>
+              <th class="hist-col-act">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="qbc-tbody">
+            <tr><td colspan="8" style="padding:24px;text-align:center;color:var(--muted);">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
     </div><!-- /#qbt-bank-section -->
 
     <!-- 🅿️ PARKING REIMBURSEMENTS (migration 89) — clinicians text parking
@@ -12263,6 +12307,24 @@ const BANK = (() => {
   }
 
   // ── XLSX writer (SaaSant Bank Deposit) ───────────────────────────
+  // Note every Received From name in the download in the ③ QB customers
+  // list (migration 103) and warn about any not yet marked In QB.
+  function noteRowCustomers(incl) {
+    if (typeof QBCUST === "undefined") return;
+    const kindOf = r => /accounts receivable|^ar$/i.test(r.gl || "") ? "patient"
+      : (["bcbs", "medicare", "zelis", "check"].includes(r.pattern) ? "insurance" : "other");
+    const by = { insurance: new Set(), patient: new Set(), other: new Set() };
+    incl.forEach(r => { const n = String(r.customer || "").trim(); if (n) by[kindOf(r)].add(n); });
+    const all = [...by.insurance, ...by.patient, ...by.other];
+    const open = QBCUST.notInQb(all);
+    Object.keys(by).forEach(k => { if (by[k].size) QBCUST.note([...by[k]], k, "bank-match"); });
+    if (open && open.length) {
+      setTimeout(() => showToast("⚠ " + open.length + " customer" + (open.length === 1 ? "" : "s") + " in this file " +
+        (open.length === 1 ? "isn't" : "aren't") + " marked In QB yet (" + open.slice(0, 3).join(", ") + (open.length > 3 ? "…" : "") +
+        ") — create them first (③ QB Customers to create) or those deposits import without a name.", "error"), 1800);
+    }
+  }
+
   async function downloadXlsx() {
     if (typeof ExcelJS === "undefined") {
       showToast("XLSX writer didn't load. Hard-refresh and retry.", "error");
@@ -12270,6 +12332,7 @@ const BANK = (() => {
     }
     const incl = rows.filter(r => r.include);
     if (!incl.length) { showToast("No rows included.", "error"); return; }
+    noteRowCustomers(incl);
     const cfg = currentSettings();
     saveSettings();   // persist whatever defaults are in the panel now
 
@@ -12516,6 +12579,7 @@ const BANK = (() => {
     }
     const incl = rows.filter(r => r.include);
     if (!incl.length) { showToast("No rows included.", "error"); return; }
+    noteRowCustomers(incl);
 
     const store = loadReconStore();
     const batches = ccBatchSummary();
@@ -12942,6 +13006,7 @@ const BANK = (() => {
         parsed: { trace: "", indId: "", eed: "", payableTrn: "", carrier: "" }
       }, fields));
       if (scanOcrPayer) { const m = insMapLoad(); m[scanOcrPayer] = { customer: payer, gl }; insMapSave(m); }
+      if (typeof QBCUST !== "undefined") QBCUST.note([payer], "insurance", "ins-scan");
       document.getElementById("bank-preview-card").style.display = "block";
       render();
       closeScanModal();
@@ -12973,6 +13038,7 @@ const BANK = (() => {
     // Learn-as-you-go: remember (payer → gl) so next time the same
     // payer is scanned, the tool auto-picks the same GL. Fire and
     // forget — errors are non-fatal.
+    if (typeof QBCUST !== "undefined") QBCUST.note([payer], /accounts receivable|^ar$/i.test(gl) ? "patient" : "insurance", "patient-scan");
     db.rpc("remember_payer_routing", { p_payer: payer, p_gl: gl })
       .then(({ error }) => {
         if (error) console.warn("Payer routing memory save failed:", error.message);
@@ -13490,6 +13556,271 @@ const HIST = (() => {
   }
 
   return { init, refreshAfterAdd };
+})();
+
+// ══════════════════════════════════════════════════════════════════
+// QBCUST — ③ QB Customers to create (migration 103, qb_customer_queue)
+// Bank Match notes every Received From name here; the user exports the
+// pending ones as a QuickBooks customer-import CSV and marks them In QB.
+// ══════════════════════════════════════════════════════════════════
+const QBCUST = (() => {
+  let all = [];
+  let filter = "todo";           // "todo" | "all" | "in_qb"
+  let search = "";
+  let initialized = false;
+  let loaded = false;
+  let missing = false;
+  let delId = null;
+  const selected = new Set();
+
+  const esc = s => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const key = n => String(n || "").trim().toLowerCase();
+  const fmtDay = iso => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(+d) ? String(iso) : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  async function load() {
+    const { data, error } = await db.from("qb_customer_queue").select("*")
+      .order("last_seen", { ascending: false }).limit(2000);
+    if (error) {
+      missing = /qb_customer_queue|does not exist|schema cache|relation/i.test(error.message || "");
+      if (!missing) showToast("QB customer list load failed: " + error.message, "error");
+      all = [];
+    } else { missing = false; all = data || []; loaded = true; }
+    render();
+  }
+
+  function shown() {
+    let r = all;
+    if (filter === "todo")  r = r.filter(x => x.status !== "in_qb");
+    if (filter === "in_qb") r = r.filter(x => x.status === "in_qb");
+    if (search) { const q = search.toLowerCase(); r = r.filter(x => String(x.name).toLowerCase().includes(q)); }
+    const order = { pending: 0, exported: 1, in_qb: 2 };
+    return r.slice().sort((a, b) => (order[a.status] - order[b.status]) || String(a.name).localeCompare(String(b.name)));
+  }
+
+  function render() {
+    if (!initialized) return;
+    document.getElementById("qbc-missing").style.display = missing ? "" : "none";
+    const pend = all.filter(x => x.status === "pending").length;
+    const exp  = all.filter(x => x.status === "exported").length;
+    const inqb = all.filter(x => x.status === "in_qb").length;
+    document.getElementById("qbc-stats").innerHTML = `
+      <div class="stat-pill${pend ? " flag" : ""}"><div class="lbl">To create</div><div class="val">${pend}</div></div>
+      <div class="stat-pill"><div class="lbl">Exported (not confirmed)</div><div class="val">${exp}</div></div>
+      <div class="stat-pill ok"><div class="lbl">In QB</div><div class="val">${inqb}</div></div>`;
+    const list = shown();
+    [...selected].forEach(id => { if (!all.some(x => x.id === id)) selected.delete(id); });
+    const nSel = list.filter(x => selected.has(x.id)).length;
+    document.getElementById("qbc-export").textContent = "⬇ QB import CSV (" + (nSel || pend) + ")";
+    document.getElementById("qbc-check-all").checked = !!list.length && nSel === list.length;
+    const tbody = document.getElementById("qbc-tbody");
+    if (!list.length) {
+      tbody.innerHTML = `<tr><td colspan="8" style="padding:28px;text-align:center;color:var(--muted);">${
+        missing ? "Run migration 103 to start collecting names." :
+        filter === "todo" ? "🎉 Nothing to create — every customer Bank Match uses is marked In QB." : "No names to show."}</td></tr>`;
+      return;
+    }
+    const pill = st => st === "in_qb"
+      ? `<span style="background:#dcfce7;color:#166534;border-radius:999px;padding:2px 8px;font-weight:700;font-size:11px;">✓ In QB</span>`
+      : st === "exported"
+        ? `<span style="background:#dbeafe;color:#1e40af;border-radius:999px;padding:2px 8px;font-weight:700;font-size:11px;">⬇ Exported</span>`
+        : `<span style="background:#fef3c7;color:#92400e;border-radius:999px;padding:2px 8px;font-weight:700;font-size:11px;">To create</span>`;
+    tbody.innerHTML = list.map(x => `
+      <tr data-id="${esc(x.id)}" class="${x.status === "in_qb" ? "is-cleared" : ""}">
+        <td><input type="checkbox" data-qbc="sel" data-id="${esc(x.id)}" ${selected.has(x.id) ? "checked" : ""} /></td>
+        <td><input class="hist-memo-input" type="text" data-qbc="name" data-id="${esc(x.id)}" value="${esc(x.name)}" title="Exact QuickBooks customer name — edit to fix" style="font-weight:700;" /></td>
+        <td><select data-qbc="kind" data-id="${esc(x.id)}" style="font-size:12px;">
+          ${["insurance", "patient", "other"].map(k => `<option value="${k}"${x.kind === k ? " selected" : ""}>${k}</option>`).join("")}
+        </select></td>
+        <td style="color:var(--muted);font-size:12px;">${esc(x.source || "—")}</td>
+        <td style="font-size:12px;" title="Last used ${esc(fmtDay(x.last_seen))}">${esc(fmtDay(x.first_seen))}</td>
+        <td style="text-align:center;">${Number(x.seen_count || 0)}×</td>
+        <td>${pill(x.status)}</td>
+        <td class="hist-col-act" style="white-space:nowrap;">
+          ${x.status === "in_qb"
+            ? `<button class="hist-clear-btn" data-qbc="pending" data-id="${esc(x.id)}" title="Back to To create">↩</button>`
+            : `<button class="hist-clear-btn" data-qbc="inqb" data-id="${esc(x.id)}">✓ In QB</button>`}
+          <button class="hist-del-btn${delId === x.id ? " confirm" : ""}" data-qbc="del" data-id="${esc(x.id)}">${delId === x.id ? "Confirm delete" : "🗑"}</button>
+        </td>
+      </tr>`).join("");
+  }
+
+  async function setStatus(ids, status) {
+    if (!ids.length) return;
+    const now = new Date().toISOString();
+    const patch = { status };
+    if (status === "exported") patch.exported_at = now;
+    if (status === "in_qb") patch.in_qb_at = now;
+    if (status === "pending") patch.in_qb_at = null;
+    const { error } = await db.from("qb_customer_queue").update(patch).in("id", ids);
+    if (error) { showToast("Update failed: " + error.message, "error"); return false; }
+    all.forEach(x => { if (ids.includes(x.id)) Object.assign(x, patch); });
+    render();
+    return true;
+  }
+
+  function csvCell(v) {
+    const s = String(v == null ? "" : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  }
+  async function exportCsv() {
+    if (missing) { showToast("Run migration 103 first.", "error"); return; }
+    const sel = all.filter(x => selected.has(x.id));
+    const list = sel.length ? sel : all.filter(x => x.status === "pending");
+    if (!list.length) { showToast("Nothing to export — no names waiting to be created.", "error"); return; }
+    const head = ["Name", "Company", "Email", "Phone", "Street", "City", "State", "ZIP", "Country"];
+    const lines = [head.join(",")].concat(list.map(x =>
+      [x.name, x.kind === "patient" ? "" : x.name, "", "", "", "", "", "", ""].map(csvCell).join(",")));
+    const blob = new Blob([lines.join("\r\n") + "\r\n"], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "QB_Customers_to_create_" + new Date().toISOString().slice(0, 10) + ".csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    const ids = list.filter(x => x.status !== "in_qb").map(x => x.id);
+    selected.clear();
+    await setStatus(ids, "exported");
+    showToast("Downloaded " + list.length + " customer" + (list.length === 1 ? "" : "s") +
+      ". In QuickBooks: Sales → Customers → New customer ▾ → Import customers. Then click ✓ Mark exported as In QB.");
+  }
+
+  // Keep Bank Match's remembered names in step with a rename here.
+  function propagateRename(oldName, newName) {
+    try {
+      const k = "dcs_finance_ins_check_payers_v1";
+      const m = JSON.parse(localStorage.getItem(k) || "{}") || {};
+      let hit = false;
+      Object.keys(m).forEach(p => { if (m[p] && m[p].customer === oldName) { m[p].customer = newName; hit = true; } });
+      if (hit) localStorage.setItem(k, JSON.stringify(m));
+    } catch (e) {}
+    ["bank-set-cust", "bank-set-anthem", "bank-set-zelis"].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.value.trim() === oldName) el.value = newName;
+    });
+    try {
+      const k = "dcs_finance_bank_settings_v1";
+      const c = JSON.parse(localStorage.getItem(k) || "null");
+      if (c) {
+        ["cust", "anthem", "zelis"].forEach(f => { if (c[f] === oldName) c[f] = newName; });
+        localStorage.setItem(k, JSON.stringify(c));
+      }
+    } catch (e) {}
+  }
+
+  async function rename(id, value, inp) {
+    const x = all.find(r => r.id === id);
+    const v = String(value || "").trim();
+    if (!x || !v || v === x.name) { if (inp && x) inp.value = x.name; return; }
+    if (all.some(r => r.id !== id && key(r.name) === key(v))) {
+      showToast("“" + v + "” is already on the list.", "error"); inp.value = x.name; return;
+    }
+    const { error } = await db.from("qb_customer_queue").update({ name: v }).eq("id", id);
+    if (error) { showToast("Rename failed: " + error.message, "error"); inp.value = x.name; return; }
+    const old = x.name; x.name = v;
+    propagateRename(old, v);
+    showToast("Renamed to “" + v + "” — Bank Match will use the new name.");
+    render();
+  }
+
+  // Public: note names (insert new as pending; bump existing; status kept).
+  async function note(names, kind, source) {
+    const uniq = [...new Map((names || []).map(n => String(n || "").trim()).filter(Boolean).map(n => [key(n), n])).values()];
+    if (!uniq.length || missing) return;
+    const { error } = await db.rpc("note_qb_customers", { p_names: uniq, p_kind: kind || "other", p_source: source || "bank-match" });
+    if (error) {
+      if (/note_qb_customers|does not exist|schema cache/i.test(error.message || "")) { missing = true; render(); }
+      else console.warn("[qb_customer_queue]", error.message);
+      return;
+    }
+    if (initialized) load();
+  }
+  // Public: which of these names aren't confirmed In QB (null = unknown).
+  function notInQb(names) {
+    if (!loaded || missing) return null;
+    const done = new Set(all.filter(x => x.status === "in_qb").map(x => key(x.name)));
+    return [...new Set((names || []).map(n => String(n || "").trim()).filter(Boolean))].filter(n => !done.has(key(n)));
+  }
+
+  function init() {
+    if (initialized) return;
+    initialized = true;
+    document.querySelectorAll("[data-qbc-filter]").forEach(chip => {
+      chip.classList.toggle("active", chip.dataset.qbcFilter === filter);
+      chip.addEventListener("click", () => {
+        filter = chip.dataset.qbcFilter;
+        document.querySelectorAll("[data-qbc-filter]").forEach(c => c.classList.toggle("active", c.dataset.qbcFilter === filter));
+        render();
+      });
+    });
+    document.getElementById("qbc-search").addEventListener("input", e => { search = e.target.value.trim(); render(); });
+    document.getElementById("qbc-refresh").addEventListener("click", load);
+    document.getElementById("qbc-export").addEventListener("click", exportCsv);
+    document.getElementById("qbc-done").addEventListener("click", () => {
+      const ids = all.filter(x => x.status === "exported").map(x => x.id);
+      if (!ids.length) { showToast("No exported names waiting — download the QB import CSV first.", "error"); return; }
+      setStatus(ids, "in_qb").then(ok => { if (ok) showToast("✓ " + ids.length + " marked In QB."); });
+    });
+    document.getElementById("qbc-all-done").addEventListener("click", () => {
+      const ids = all.filter(x => x.status !== "in_qb").map(x => x.id);
+      if (!ids.length) { showToast("Everything is already marked In QB."); return; }
+      if (!confirm("Mark all " + ids.length + " names as already existing in QuickBooks?\n\nOnly do this if they really are in QB — new names Bank Match uses later will still show up as To create.")) return;
+      setStatus(ids, "in_qb").then(ok => { if (ok) showToast("✓ " + ids.length + " marked In QB."); });
+    });
+    document.getElementById("qbc-add").addEventListener("click", async () => {
+      if (missing) { showToast("Run migration 103 first.", "error"); return; }
+      const n = (prompt("Customer name exactly as it should appear in QuickBooks:") || "").trim();
+      if (!n) return;
+      const kind = confirm("Is “" + n + "” an insurance payer?\n\nOK = insurance · Cancel = patient / other") ? "insurance" : "other";
+      await note([n], kind, "manual");
+      showToast("Added “" + n + "”.");
+    });
+    document.getElementById("qbc-check-all").addEventListener("change", e => {
+      shown().forEach(x => { if (e.target.checked) selected.add(x.id); else selected.delete(x.id); });
+      render();
+    });
+    const tb = document.getElementById("qbc-tbody");
+    tb.addEventListener("click", e => {
+      const b = e.target.closest("button[data-qbc]");
+      if (!b) return;
+      const id = b.dataset.id, a = b.dataset.qbc;
+      if (a === "inqb") setStatus([id], "in_qb");
+      else if (a === "pending") setStatus([id], "pending");
+      else if (a === "del") {
+        if (delId !== id) {
+          delId = id; render();
+          setTimeout(() => { if (delId === id) { delId = null; render(); } }, 4000);
+          return;
+        }
+        delId = null;
+        db.from("qb_customer_queue").delete().eq("id", id).then(({ error }) => {
+          if (error) { showToast("Delete failed: " + error.message, "error"); return; }
+          all = all.filter(x => x.id !== id); selected.delete(id); render();
+        });
+      }
+    });
+    tb.addEventListener("change", e => {
+      const t = e.target;
+      if (t.dataset.qbc === "sel") { if (t.checked) selected.add(t.dataset.id); else selected.delete(t.dataset.id); render(); }
+      else if (t.dataset.qbc === "name") rename(t.dataset.id, t.value, t);
+      else if (t.dataset.qbc === "kind") {
+        db.from("qb_customer_queue").update({ kind: t.value }).eq("id", t.dataset.id).then(({ error }) => {
+          if (error) { showToast("Update failed: " + error.message, "error"); return; }
+          const x = all.find(r => r.id === t.dataset.id); if (x) x.kind = t.value;
+        });
+      }
+    });
+    tb.addEventListener("keydown", e => {
+      if (e.key === "Enter" && e.target.dataset.qbc === "name") { e.preventDefault(); e.target.blur(); }
+    });
+    load();
+  }
+
+  return { init, note, notInQb };
 })();
 
 // ══════════════════════════════════════════════════════════════════
@@ -16706,6 +17037,7 @@ function maybeInitVdr() {
 function maybeInitQbTools() {
   if (currentRole === "admin") BANK.init();
   if (currentRole === "admin") HIST.init();
+  if (currentRole === "admin") QBCUST.init();
   if (currentRole === "admin") PARK.init();
 }
 function maybeInitExpenses() {
@@ -16738,7 +17070,7 @@ launchApp = async function(user) {
     const params = new URLSearchParams(location.search);
     const v = params.get("view") || "landing";
     if (v === "billing")  { VDR.init(); IIF.init(); ATTACH.init(); }
-    if (v === "qbtools")  { BANK.init(); HIST.init(); PARK.init(); }
+    if (v === "qbtools")  { BANK.init(); HIST.init(); QBCUST.init(); PARK.init(); }
     if (v === "expenses") { EXP.init(); EDOC.init(); }
     if (v === "payroll")  { cprPayRatesInit(); }
     if (v === "renewals") { RENEW.init(); }
