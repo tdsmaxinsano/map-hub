@@ -966,6 +966,9 @@
   .bank-pattern-pill.p-bcbs   { background: #dbeafe; color: #1e3a8a; }
   .bank-pattern-pill.p-medicare { background: #dcfce7; color: #14532d; }
   .bank-pattern-pill.p-other  { background: #fef3c7; color: #92400e; }
+  .bank-pattern-pill.p-zelis  { background: #ede9fe; color: #5b21b6; }
+  .bank-zelis-note { display:block; font-size:10.5px; margin-top:2px; white-space:nowrap; }
+  .bank-zelis-note.ok { color:#166534; } .bank-zelis-note.warn { color:#b45309; }
   .bank-pattern-pill.p-check  { background: #fef9c3; color: #854d0e; border: 1px solid #facc15; }
   .bank-pattern-pill.p-cc     { background: #e0e7ff; color: #3730a3; border: 1px solid #a5b4fc; }
 
@@ -1943,6 +1946,16 @@
             <span class="bank-settings-hint">QB Customer name. Must exist in QB or SaaSant will skip the row.</span>
           </label>
           <label>
+            <span class="bank-settings-lbl">Anthem customer (Zelis / PAY PLUS)</span>
+            <input type="text" id="bank-set-anthem" placeholder="Anthem Blue Cross" />
+            <span class="bank-settings-hint">Used for PayPlus deposits matched to an Anthem / Elevance Zelis payment. BCBS ones use the customer above.</span>
+          </label>
+          <label>
+            <span class="bank-settings-lbl">Unmatched Zelis customer</span>
+            <input type="text" id="bank-set-zelis" placeholder="Zelis (unmatched)" />
+            <span class="bank-settings-hint">PayPlus deposits with no Zelis payment in the CSV yet — fix the row or drop the Zelis CSV.</span>
+          </label>
+          <label>
             <span class="bank-settings-lbl">Default Payment Method</span>
             <input type="text" id="bank-set-pmt" placeholder="ACH" list="bank-pmt-suggestions" />
             <datalist id="bank-pmt-suggestions">
@@ -1969,7 +1982,9 @@
       <div class="dropzone bank-dropzone" id="bank-dropzone" tabindex="0" role="button" aria-label="Drop Chase bank CSV">
         <div class="bank-dz-icon">🏦</div>
         <div class="bank-dz-title">Drop Chase CSV here or click to browse</div>
-        <div class="bank-dz-sub">Accepts either Chase Online export — "Spent / Received" columns, or the "Activity" export (Details / Posting Date / Description / Amount).</div>
+        <div class="bank-dz-sub">Accepts either Chase Online export — "Spent / Received" columns, or the "Activity" export (Details / Posting Date / Description / Amount).<br>
+          Also drop the <b>Zelis "Batch EOP" CSV</b> (Zelis → Payments → select all → Download) to label Chase <b>PayPlus / PAY PLUS</b> deposits with the real payer. Only payment totals are kept — never patient names or claim detail.</div>
+        <div id="bank-zelis-status" style="margin-top:6px;font-size:12px;color:#5b21b6;"></div>
       </div>
       <input type="file" id="bank-file-input" accept=".csv,.xlsx,.xls" style="display:none;" />
 
@@ -1992,6 +2007,7 @@
 
       <!-- Preview -->
       <div id="bank-preview-card" style="display:none;margin-top:14px;">
+        <div id="bank-zelis-alert" style="display:none;margin:0 0 10px;border-radius:10px;padding:10px 14px;font-size:12.5px;line-height:1.5;"></div>
         <div class="stat-strip" id="bank-stats"></div>
 
         <div class="bank-row-tools">
@@ -11561,7 +11577,9 @@ const BANK = (() => {
       bank: cfg.bank || "Chase Bank #5133",
       gl:   cfg.gl   || "Service Income",
       cust: cfg.cust || "BCBS of Illinois",
-      pmt:  cfg.pmt  || "ACH"
+      pmt:  cfg.pmt  || "ACH",
+      anthem: cfg.anthem || "Anthem Blue Cross",
+      zelis:  cfg.zelis  || "Zelis (unmatched)"
     };
   }
   function saveSettings() {
@@ -11569,7 +11587,9 @@ const BANK = (() => {
       bank: document.getElementById("bank-set-bank").value.trim(),
       gl:   document.getElementById("bank-set-gl").value.trim(),
       cust: document.getElementById("bank-set-cust").value.trim(),
-      pmt:  document.getElementById("bank-set-pmt").value.trim()
+      pmt:  document.getElementById("bank-set-pmt").value.trim(),
+      anthem: document.getElementById("bank-set-anthem").value.trim(),
+      zelis:  document.getElementById("bank-set-zelis").value.trim()
     };
     localStorage.setItem(LS_KEY, JSON.stringify(cfg));
     return cfg;
@@ -11579,7 +11599,9 @@ const BANK = (() => {
       bank: document.getElementById("bank-set-bank").value.trim() || "Chase Bank #5133",
       gl:   document.getElementById("bank-set-gl").value.trim()   || "Service Income",
       cust: document.getElementById("bank-set-cust").value.trim() || "BCBS of Illinois",
-      pmt:  document.getElementById("bank-set-pmt").value.trim()  || "ACH"
+      pmt:  document.getElementById("bank-set-pmt").value.trim()  || "ACH",
+      anthem: document.getElementById("bank-set-anthem").value.trim() || "Anthem Blue Cross",
+      zelis:  document.getElementById("bank-set-zelis").value.trim()  || "Zelis (unmatched)"
     };
   }
 
@@ -11596,6 +11618,9 @@ const BANK = (() => {
   }
 
   function classifyPattern(parsed, descLower) {
+    // Zelis-routed insurance payments post as "PayPlus" / "PAY PLUS" (Anthem
+    // and BCBS both) — check first, the real payer comes from the Zelis CSV.
+    if (/pay\s*plus|zelis/i.test(parsed.carrier) || /orig co name:\s*pay\s*plus|zelis trn/i.test(descLower)) return "zelis";
     if (/bcbs|blue\s*cross|blue\s*shield/i.test(parsed.carrier) || /bcbs|blue\s*cross/i.test(descLower)) return "bcbs";
     if (/medicare/i.test(parsed.carrier) || /medicare/i.test(descLower)) return "medicare";
     return "other";
@@ -11667,10 +11692,12 @@ const BANK = (() => {
         showToast(`No rows found in ${file.name}.`, "error");
         return;
       }
+      if (isZelisCsv(raw[0])) { await handleZelisRows(raw, file.name); return; }
       const defaults = currentSettings();
       rows = raw
         .map((r, i) => buildRow(r, i, defaults))
         .filter(Boolean);
+      matchZelis();
       if (!rows.length) {
         showToast(`No deposit rows found in ${file.name}. Accepts either Chase export — "Spent / Received" columns, or the "Activity" export (Details / Posting Date / Description / Amount).`, "error");
         return;
@@ -11812,6 +11839,201 @@ const BANK = (() => {
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════
+  // Zelis (PayPlus) — payer + payment ID for Zelis-routed ACH deposits
+  // The Zelis "Batch EOP" CSV is claim-line detail incl. PHI. It is
+  // collapsed here to one record per PaymentID (payer, paid date, amount,
+  // claim count) — no patient / claim column is kept or sent anywhere.
+  // ══════════════════════════════════════════════════════════════════
+  let zelisPays = [];        // [{ payment_id, payer_name, paid_date (ISO), amount, claim_count, deposit_date, deposit_trace }]
+  let zelisMissing = false;  // migration 102 not run → in-memory only
+
+  function isZelisCsv(first) {
+    const keys = Object.keys(first || {}).map(k => k.replace(/^﻿/, "").trim());
+    return keys.includes("PaymentID") && keys.includes("PaidAmount") && keys.includes("PayerName");
+  }
+  function zelisIsoDate(v) {
+    if (typeof v === "number") { const d = normalizeDate(v); const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? m[3] + "-" + m[1] + "-" + m[2] : ""; }
+    const s = String(v || "").trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return m[0];
+    m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return m[3] + "-" + m[1].padStart(2, "0") + "-" + m[2].padStart(2, "0");
+    return "";
+  }
+  async function handleZelisRows(raw, fname) {
+    const pick = (r, k) => { for (const key of Object.keys(r)) if (key.replace(/^﻿/, "").trim() === k) return r[key]; return ""; };
+    const byId = {};
+    raw.forEach(r => {
+      const id = String(pick(r, "PaymentID") || "").trim();
+      if (!id) return;
+      const p = byId[id] || (byId[id] = {
+        payment_id: id,
+        payer_name: String(pick(r, "PayerName") || "").trim(),
+        paid_date: zelisIsoDate(pick(r, "PaidDate")),
+        amount: Math.round(toNumber(pick(r, "PaidAmount")) * 100) / 100,
+        claims: new Set()
+      });
+      const c = String(pick(r, "Claim_ClaimNumber") || "").trim();
+      if (c) p.claims.add(c);
+    });
+    const pays = Object.keys(byId).map(k => {
+      const p = byId[k];
+      return { payment_id: p.payment_id, payer_name: p.payer_name, paid_date: p.paid_date || null, amount: p.amount, claim_count: p.claims.size || null };
+    }).filter(p => p.amount > 0);   // $0.00 "835 Delivery" rows are data-only
+    if (!pays.length) { showToast("No paid Zelis payments found in " + fname + ".", "error"); return; }
+
+    // Merge into memory (keep any deposit info we already have)
+    pays.forEach(p => {
+      const cur = zelisPays.find(z => z.payment_id === p.payment_id);
+      if (cur) Object.assign(cur, p); else zelisPays.push(Object.assign({ deposit_date: null, deposit_trace: null }, p));
+    });
+    // Persist (payment-level only). Upsert leaves deposit_* untouched.
+    if (!zelisMissing) {
+      const up = await db.from("zelis_payments").upsert(pays.map(p => Object.assign({}, p, {
+        imported_by: (typeof currentUser !== "undefined" && currentUser) ? currentUser.id : null
+      })), { onConflict: "payment_id" });
+      if (up.error) { zelisMissing = true; console.warn("[zelis_payments]", up.error.message); }
+    }
+    try {
+      await db.rpc("log_import", { p_key: "fin_zelis", p_label: "Zelis payments", p_area: "Finance",
+        p_row_count: pays.length, p_notes: pays.length + " payments · " + fname });
+    } catch (e) {}
+
+    if (rows.length) { matchZelis(); render(); }
+    renderZelisStatus();
+    const payers = {};
+    pays.forEach(p => { const k = zelisPayerShort(p.payer_name); payers[k] = (payers[k] || 0) + 1; });
+    showToast("🟣 Zelis: " + pays.length + " payment" + (pays.length === 1 ? "" : "s") + " loaded (" +
+      Object.keys(payers).map(k => payers[k] + " " + k).join(", ") + ")" +
+      (rows.length ? " — " + rows.filter(r => r.zelis).length + " Chase deposits matched." : " — now drop the Chase CSV."));
+  }
+  async function loadZelisPayments() {
+    const since = new Date(); since.setDate(since.getDate() - 180);
+    const { data, error } = await db.from("zelis_payments").select("*")
+      .gte("paid_date", since.toISOString().slice(0, 10)).order("paid_date", { ascending: false }).limit(2000);
+    if (error) { zelisMissing = true; renderZelisStatus(); return; }
+    (data || []).forEach(p => {
+      const row = { payment_id: p.payment_id, payer_name: p.payer_name, paid_date: p.paid_date,
+        amount: Number(p.amount), claim_count: p.claim_count, deposit_date: p.deposit_date, deposit_trace: p.deposit_trace };
+      const cur = zelisPays.find(z => z.payment_id === row.payment_id);
+      if (cur) Object.assign(cur, row); else zelisPays.push(row);
+    });
+    if (rows.length) { matchZelis(); render(); }
+    renderZelisStatus();
+  }
+  function zelisPayerShort(name) {
+    const n = String(name || "");
+    if (/elevance|anthem|wellpoint/i.test(n)) return "Anthem";
+    if (/blue\s*cross|bcbs|hcsc/i.test(n)) return "BCBS";
+    return n || "Zelis";
+  }
+  function zelisCustomer(name, c) {
+    const short = zelisPayerShort(name);
+    return short === "Anthem" ? c.anthem : short === "BCBS" ? c.cust : (name || c.zelis);
+  }
+  // One-to-one: same amount to the cent, bank date from the Zelis paid
+  // date to +10 days, nearest date first. A payment already tied to this
+  // deposit's trace (an earlier run) wins.
+  function matchZelis() {
+    const c = currentSettings();
+    const used = new Set();
+    const cents = n => Math.round(Number(n) * 100);
+    const zRows = rows.filter(r => r.pattern === "zelis");
+    zRows.forEach(r => { r.zelis = null; });
+    zRows.forEach(r => {
+      const tr = r.parsed && r.parsed.trace;
+      const prior = tr && zelisPays.find(z => z.deposit_trace === tr && cents(z.amount) === cents(r.amount));
+      if (prior) { r.zelis = prior; used.add(prior.payment_id); }
+    });
+    zRows.forEach(r => {
+      if (r.zelis) return;
+      const bank = rowDateIso(r);
+      if (!bank) return;
+      const bankMs = new Date(bank + "T00:00:00").getTime();
+      let best = null, bestGap = Infinity;
+      zelisPays.forEach(z => {
+        if (used.has(z.payment_id) || cents(z.amount) !== cents(r.amount) || !z.paid_date) return;
+        if (z.deposit_trace && r.parsed && r.parsed.trace && z.deposit_trace !== r.parsed.trace) return;
+        const gap = (bankMs - new Date(String(z.paid_date).slice(0, 10) + "T00:00:00").getTime()) / 86400000;
+        if (gap < 0 || gap > 10) return;
+        if (gap < bestGap) { best = z; bestGap = gap; }
+      });
+      if (best) { r.zelis = best; used.add(best.payment_id); }
+    });
+    const toSave = [];
+    zRows.forEach(r => {
+      if (r.zelis) {
+        const z = r.zelis;
+        r.customer = zelisCustomer(z.payer_name, c);
+        r.refNo = "ZEL#" + z.payment_id;
+        r.description = "Zelis " + zelisPayerShort(z.payer_name) + (z.claim_count ? " · " + z.claim_count + " claim" + (z.claim_count === 1 ? "" : "s") : "") +
+          (r.parsed && r.parsed.trace ? " · TRN " + r.parsed.trace : "");
+        if (!z.deposit_date) {
+          z.deposit_date = rowDateIso(r); z.deposit_trace = (r.parsed && r.parsed.trace) || null;
+          toSave.push({ id: z.payment_id, deposit_date: z.deposit_date, deposit_trace: z.deposit_trace });
+        }
+      } else {
+        r.customer = c.zelis;
+        r.refNo = buildRefNo(r.parsed || {});
+        r.description = "Zelis PayPlus — no Zelis payment found" + (r.parsed && r.parsed.trace ? " · TRN " + r.parsed.trace : "");
+      }
+    });
+    if (toSave.length && !zelisMissing) {
+      toSave.forEach(t => {
+        db.from("zelis_payments").update({ deposit_date: t.deposit_date, deposit_trace: t.deposit_trace }).eq("payment_id", t.id)
+          .then(res => { if (res.error) console.warn("[zelis_payments]", res.error.message); });
+      });
+    }
+    renderZelisStatus();
+  }
+  function renderZelisStatus() {
+    const host = document.getElementById("bank-zelis-status");
+    if (!host) return;
+    if (zelisMissing) { host.innerHTML = "⚠ Run <b>supabase/policies/102_zelis_payments.sql</b> to remember Zelis payments between sessions (matching still works for this session)."; return; }
+    if (!zelisPays.length) { host.textContent = ""; return; }
+    const waiting = zelisPays.filter(z => !z.deposit_date);
+    host.innerHTML = "🟣 " + zelisPays.length + " Zelis payment" + (zelisPays.length === 1 ? "" : "s") + " on file" +
+      (waiting.length ? " · <b>" + waiting.length + " not yet matched to a Chase deposit</b> ($" +
+        waiting.reduce((s, z) => s + Number(z.amount || 0), 0).toFixed(2) + ")" : " · all matched to deposits");
+  }
+
+  // Amber "drop the Zelis report" alert while any PayPlus deposit is unmatched;
+  // green once they all are.
+  function renderZelisAlert() {
+    const box = document.getElementById("bank-zelis-alert");
+    if (!box) return;
+    const z = rows.filter(r => r.pattern === "zelis");
+    if (!z.length) { box.style.display = "none"; return; }
+    const open = z.filter(r => !r.zelis);
+    const ZA_BASE = "margin:0 0 10px;border-radius:10px;padding:10px 14px;font-size:12.5px;line-height:1.5";
+    box.style.display = "";
+    if (!open.length) {
+      box.style.cssText = ZA_BASE + ";background:#dcfce7;border:1px solid #86efac;color:#14532d";
+      box.innerHTML = "✓ All " + z.length + " Zelis (PAY PLUS) deposit" + (z.length === 1 ? "" : "s") + " matched to Zelis payments — labelled with the real payer and ZEL# ref.";
+      return;
+    }
+    const isos = open.map(rowDateIso).filter(Boolean).sort();
+    const md = iso => iso ? iso.slice(5, 7) + "/" + iso.slice(8, 10) : "";
+    const from = isos.length ? new Date(isos[0] + "T00:00:00") : null;
+    if (from) from.setDate(from.getDate() - 10);
+    const fromIso = from ? from.getFullYear() + "-" + String(from.getMonth() + 1).padStart(2, "0") + "-" + String(from.getDate()).padStart(2, "0") : "";
+    const total = open.reduce((s, r) => s + r.amount, 0);
+    box.style.cssText = ZA_BASE + ";background:#fffbeb;border:1.5px solid #fcd34d;color:#78350f";
+    box.innerHTML =
+      "<div style='display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap'>" +
+        "<div style='flex:1;min-width:260px'>" +
+          "<b>🟣 " + open.length + " Zelis (PAY PLUS) deposit" + (open.length === 1 ? " needs" : "s need") + " the Zelis report</b> — $" + total.toFixed(2) +
+          (isos.length ? ", deposited " + md(isos[0]) + (isos.length > 1 ? " – " + md(isos[isos.length - 1]) : "") : "") +
+          (z.length > open.length ? " <span style='color:#166534'>(" + (z.length - open.length) + " already matched)</span>" : "") + "<br>" +
+          "<span style='font-size:11.5px'>" + open.slice(0, 8).map(r => escAttr(r.date.slice(0, 5)) + " $" + r.amount.toFixed(2)).join(" · ") +
+            (open.length > 8 ? " · +" + (open.length - 8) + " more" : "") + "</span><br>" +
+          "<span style='font-size:11.5px'>In Zelis: Payments → Payment Date <b>" + (fromIso ? fmtRangeDate(fromIso) : "") + "</b> to <b>" +
+            (isos.length ? fmtRangeDate(isos[isos.length - 1]) : "") + "</b> → select all → <b>Download</b> (CSV) → drop it here. " +
+            "Unmatched rows still import as “" + escAttr(currentSettings().zelis) + "”.</span>" +
+        "</div>" +
+        "<button type='button' class='btn-secondary' onclick='document.getElementById(\"bank-file-input\").click()' style='white-space:nowrap'>📥 Drop Zelis CSV</button>" +
+      "</div>";
+  }
+
   function buildRow(raw, i, defaults) {
     // Tolerate column-name variants. Chase's export uses these exact
     // headers but other banks vary.
@@ -11857,7 +12079,7 @@ const BANK = (() => {
       pmt:         defaults.pmt,
       refNo:       buildRefNo(parsed),
       description: buildDescription(parsed),
-      include: pattern === "bcbs" || pattern === "medicare"   // safe-default
+      include: pattern === "bcbs" || pattern === "medicare" || pattern === "zelis"   // safe-default
     };
   }
 
@@ -11883,6 +12105,7 @@ const BANK = (() => {
       tbody.innerHTML = visible.map(r => rowHtml(r)).join("");
     }
     renderStats();
+    renderZelisAlert();
     document.getElementById("bank-download-btn").disabled = !rows.some(r => r.include);
     renderReconcilePanel();   // v2 — refresh batch list + button state
   }
@@ -11893,7 +12116,12 @@ const BANK = (() => {
                    : r.pattern === "medicare" ? "MCARE"
                    : r.pattern === "check" ? "CHECK"
                    : r.pattern === "cc" ? "CC"
+                   : r.pattern === "zelis" ? "ZELIS"
                    : "?";
+    const zNote = r.pattern !== "zelis" ? ""
+      : r.zelis
+        ? `<span class="bank-zelis-note ok" title="Zelis payment ${escAttr(r.zelis.payment_id)} · paid ${escAttr(r.zelis.paid_date || "")}">✓ ${escAttr(zelisPayerShort(r.zelis.payer_name))} · ${escAttr(r.zelis.payment_id)}</span>`
+        : `<span class="bank-zelis-note warn" title="No Zelis payment with this amount in the last 10 days — download that payment's CSV from Zelis and drop it here">⚠ no Zelis payment</span>`;
     return `
       <tr class="${skip}" data-id="${r.id}">
         <td class="bank-col-incl">
@@ -11906,7 +12134,7 @@ const BANK = (() => {
         <td class="bank-col-pmt"><input class="bank-cell-input" data-action="pmt" value="${escAttr(r.pmt)}" /></td>
         <td class="bank-col-ref"><input class="bank-cell-input" data-action="refNo" value="${escAttr(r.refNo)}" /></td>
         <td><input class="bank-cell-input" data-action="description" value="${escAttr(r.description)}" /></td>
-        <td class="bank-col-tag"><span class="bank-pattern-pill p-${r.pattern}">${patLabel}</span></td>
+        <td class="bank-col-tag"><span class="bank-pattern-pill p-${r.pattern}">${patLabel}</span>${zNote}</td>
       </tr>
     `;
   }
@@ -11989,6 +12217,8 @@ const BANK = (() => {
     const other    = rows.filter(r => r.pattern === "other").length;
     const check    = rows.filter(r => r.pattern === "check").length;
     const cc       = rows.filter(r => r.pattern === "cc").length;
+    const zel      = rows.filter(r => r.pattern === "zelis").length;
+    const zelOk    = rows.filter(r => r.pattern === "zelis" && r.zelis).length;
     const included = rows.filter(r => r.include).length;
     const sumIncluded = rows.filter(r => r.include).reduce((s, r) => s + r.amount, 0);
     document.getElementById("bank-stats").innerHTML = `
@@ -11997,6 +12227,7 @@ const BANK = (() => {
       <div class="stat-pill"><div class="lbl">Sum (included)</div><div class="val">$${sumIncluded.toFixed(2)}</div></div>
       <div class="stat-pill"><div class="lbl">BCBS</div><div class="val">${bcbs}</div></div>
       <div class="stat-pill"><div class="lbl">Medicare</div><div class="val">${mcare}</div></div>
+      ${zel ? `<div class="stat-pill${zelOk < zel ? ' flag' : ''}"><div class="lbl">🟣 Zelis matched</div><div class="val">${zelOk} / ${zel}</div></div>` : ''}
       ${check ? `<div class="stat-pill"><div class="lbl">📷 Checks</div><div class="val">${check}</div></div>` : ''}
       ${cc ? `<div class="stat-pill"><div class="lbl">💳 CC</div><div class="val">${cc}</div></div>` : ''}
       ${other ? `<div class="stat-pill flag"><div class="lbl">Other (review)</div><div class="val">${other}</div></div>` : ''}
@@ -12673,9 +12904,12 @@ const BANK = (() => {
     document.getElementById("bank-set-gl").value   = cfg.gl;
     document.getElementById("bank-set-cust").value = cfg.cust;
     document.getElementById("bank-set-pmt").value  = cfg.pmt;
+    document.getElementById("bank-set-anthem").value = cfg.anthem;
+    document.getElementById("bank-set-zelis").value  = cfg.zelis;
+    loadZelisPayments();
 
     // Settings persist on blur
-    ["bank-set-bank","bank-set-gl","bank-set-cust","bank-set-pmt"].forEach(id => {
+    ["bank-set-bank","bank-set-gl","bank-set-cust","bank-set-pmt","bank-set-anthem","bank-set-zelis"].forEach(id => {
       document.getElementById(id).addEventListener("blur", saveSettings);
     });
     document.getElementById("bank-apply-defaults").addEventListener("click", () => {
@@ -12690,6 +12924,7 @@ const BANK = (() => {
         r.customer = c.cust; r.gl = c.gl; r.pmt = c.pmt;
         touched++;
       });
+      matchZelis();   // Zelis rows keep their matched payer
       render();
       showToast(`Applied defaults to ${touched} ACH rows (skipped ${rows.length - touched} scanned-check / cc rows).`);
     });
@@ -12700,6 +12935,8 @@ const BANK = (() => {
       document.getElementById("bank-set-gl").value   = c.gl;
       document.getElementById("bank-set-cust").value = c.cust;
       document.getElementById("bank-set-pmt").value  = c.pmt;
+      document.getElementById("bank-set-anthem").value = c.anthem;
+      document.getElementById("bank-set-zelis").value  = c.zelis;
       showToast("Settings reset to defaults.");
     });
 
@@ -12733,7 +12970,7 @@ const BANK = (() => {
       rows.forEach(r => r.include = false); render();
     });
     document.getElementById("bank-include-bcbs").addEventListener("click", () => {
-      rows.forEach(r => r.include = r.pattern === "bcbs"); render();
+      rows.forEach(r => r.include = r.pattern === "bcbs" || r.pattern === "zelis"); render();
     });
 
     // Row-level edits (delegated)
