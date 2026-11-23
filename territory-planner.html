@@ -4726,6 +4726,9 @@ function renderMapLayerChips() {
   }
   chips.push(`<button type="button" class="ml-chip${mapLayers.zips ? " on" : ""}"${tlDis} onclick="toggleMapLayer('zips')">🏷 ZIP badges</button>`);
   chips.push(`<button type="button" class="ml-chip${mapLayers.pins ? " on" : ""}" onclick="toggleMapLayer('pins')">📍 Pins</button>`);
+  if (!phiSafeView) {
+    chips.push(`<button type="button" class="ml-chip${liveRefOn ? " on" : ""}" style="${liveRefOn ? "background:#d97706;border-color:#d97706" : ""}" title="Plot the open referrals from the Referral Board (live — updates as referrals are added, staffed or cancelled). Green ring = inside this clinician's TB ZIPs." onclick="toggleLiveReferrals()">📋 Live referrals${liveRefOn ? " (" + liveRefs.length + ")" : ""}</button>`);
+  }
   if (zipRequests.length) {
     chips.push(`<button type="button" class="ml-chip${reqHighlight ? " on" : ""}" title="Highlight ZIPs on their requested list: teal ring + ✋, and an amber tag under the pill with any special instruction (click a pill for details)" onclick="toggleReqHighlight()">✋ Requested (${zipRequests.length})</button>`);
     chips.push(`<button type="button" class="ml-chip${reqCompare ? " on" : ""}" title="Compare the clinician's own list (✋ requested areas) with TB: teal ring = on their list, ⚠ = has a condition, dashed = in TB but NOT on their list" onclick="toggleReqCompare()">✋ Compare their list</button>`);
@@ -5484,6 +5487,123 @@ async function showTypicalReach() {
   renderToolStatus();
   showToast("🎯 Typical reach: " + fmtRadiusLabel(lensRadius) + " around the " + (wc ? "work center" : "home ZIP"));
 }
+// ── 📋 Live referrals — open referrals from the Referral Board ──────
+// Same rows the main map's board shows (status open, geocoded). Realtime
+// keeps them current while the layer is on; a green ring marks referrals
+// inside this clinician's declared TB ZIPs. Staff logins only.
+let liveRefOn = false;
+let liveRefs = [];
+let liveRefChannel = null;
+let liveRefTimer = null;
+
+async function loadLiveReferrals() {
+  const { data, error } = await db.from("referrals").select("*")
+    .eq("status", "open").not("lat", "is", null).not("lng", "is", null)
+    .order("referral_date", { ascending: false });
+  if (error) { showToast("Referrals didn't load: " + error.message, "error"); return false; }
+  liveRefs = data || [];
+  return true;
+}
+
+function liveRefZip(r) {
+  return String(r.zip || r.zip_code || (String(r.address || "").match(/\b(\d{5})(?:-\d{4})?\b(?!.*\b\d{5}\b)/) || [])[1] || "").trim();
+}
+function liveRefDiscs(r) {
+  const raw = [];
+  (r.disciplines || []).forEach(d => String(d).toUpperCase().split("/").forEach(x => raw.push(x.trim())));
+  if (!raw.length && r.discipline) raw.push(String(r.discipline).toUpperCase());
+  const out = [];
+  if (raw.some(d => d === "PT" || d === "PTA")) out.push("PT");
+  if (raw.some(d => d === "OT" || d === "OTA")) out.push("OT");
+  if (raw.some(d => d === "ST")) out.push("ST");
+  return out;
+}
+
+function drawLiveReferrals() {
+  if (!tpMap || !tpMap.isStyleLoaded()) return;
+  const declared = declaredZipSet();
+  const feats = liveRefOn ? liveRefs.map(r => {
+    const zip = liveRefZip(r);
+    const days = r.referral_date ? Math.max(0, Math.floor((Date.now() - new Date(r.referral_date).getTime()) / 86400000)) : null;
+    return {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [Number(r.lng), Number(r.lat)] },
+      properties: {
+        id: r.id, agency: r.agency_name || r.agency || "", name: r.patient_name || "",
+        address: r.address || "", zip, discs: liveRefDiscs(r).join("/"),
+        days: days == null ? -1 : days, covered: declared.has(zip) ? 1 : 0
+      }
+    };
+  }) : [];
+  const fc = { type: "FeatureCollection", features: feats };
+  const src = tpMap.getSource("tp-live-refs");
+  if (src) src.setData(fc);
+  else {
+    tpMap.addSource("tp-live-refs", { type: "geojson", data: fc });
+    tpMap.addLayer({ id: "tp-live-refs-dot", type: "circle", source: "tp-live-refs", paint: {
+      "circle-color": ["case", [">=", ["get", "days"], 3], "#dc2626", [">=", ["get", "days"], 2], "#f59e0b", "#d97706"],
+      "circle-radius": 8,
+      "circle-stroke-width": ["case", ["==", ["get", "covered"], 1], 3.5, 2],
+      "circle-stroke-color": ["case", ["==", ["get", "covered"], 1], "#16a34a", "#ffffff"]
+    }});
+    tpMap.addLayer({ id: "tp-live-refs-lbl", type: "symbol", source: "tp-live-refs",
+      layout: { "text-field": ["get", "discs"], "text-size": 10, "text-offset": [0, 1.5], "text-font": ["Open Sans Bold", "Arial Unicode MS Bold"], "text-allow-overlap": true },
+      paint: { "text-color": "#92400e", "text-halo-color": "#fff", "text-halo-width": 1.5 } });
+    tpMap.on("click", "tp-live-refs-dot", e => {
+      const f = e.features && e.features[0];
+      if (!f) return;
+      const pr = f.properties;
+      const age = pr.days < 0 ? "" : pr.days === 0 ? "today" : pr.days + "d ago";
+      new mapboxgl.Popup({ offset: 12 }).setLngLat(e.lngLat).setHTML(
+        "<div style='font:12px -apple-system,Segoe UI,Roboto,sans-serif;max-width:240px'>" +
+        "<b>📋 Open referral</b>" + (pr.discs ? " · <b>" + esc(pr.discs) + "</b>" : "") + "<br>" +
+        esc(pr.agency || "Unknown agency") + (age ? " · " + esc(age) : "") + "<br>" +
+        esc(pr.name) + "<br><span style='color:#64748b'>" + esc(pr.address) + "</span><br>" +
+        (Number(pr.covered) === 1
+          ? "<span style='color:#166534;font-weight:700'>✓ ZIP " + esc(pr.zip) + " is in this clinician's TB coverage</span>"
+          : "<span style='color:#92400e'>ZIP " + esc(pr.zip || "?") + " not in this clinician's TB coverage</span>") +
+        "<div style='margin-top:6px'><a href='referrals.html' target='_blank' rel='noopener' style='font-weight:700'>Open Referral Board ↗</a></div></div>"
+      ).addTo(tpMap);
+    });
+    tpMap.on("mouseenter", "tp-live-refs-dot", () => { tpMap.getCanvas().style.cursor = "pointer"; });
+    tpMap.on("mouseleave", "tp-live-refs-dot", () => { tpMap.getCanvas().style.cursor = ""; });
+  }
+  // Keep the pins on top of site dots / ZIP badges added later.
+  ["tp-live-refs-dot", "tp-live-refs-lbl"].forEach(id => { if (tpMap.getLayer(id)) tpMap.moveLayer(id); });
+}
+
+function subscribeLiveReferrals() {
+  if (liveRefChannel) return;
+  liveRefChannel = db.channel("tp-live-referrals")
+    .on("postgres_changes", { event: "*", schema: "public", table: "referrals" }, () => {
+      clearTimeout(liveRefTimer);
+      liveRefTimer = setTimeout(async () => {
+        if (!liveRefOn) return;
+        if (await loadLiveReferrals()) { drawLiveReferrals(); renderMapLayerChips(); }
+      }, 800);
+    })
+    .subscribe();
+}
+
+async function toggleLiveReferrals() {
+  if (liveRefOn) {
+    liveRefOn = false;
+    if (liveRefChannel) { try { db.removeChannel(liveRefChannel); } catch (e) {} liveRefChannel = null; }
+    drawLiveReferrals();
+    renderMapLayerChips();
+    return;
+  }
+  if (!(await loadLiveReferrals())) return;
+  liveRefOn = true;
+  drawLiveReferrals();
+  subscribeLiveReferrals();
+  renderMapLayerChips();
+  const declared = declaredZipSet();
+  const inCov = liveRefs.filter(r => declared.has(liveRefZip(r))).length;
+  showToast("📋 " + liveRefs.length + " open referral" + (liveRefs.length === 1 ? "" : "s") + " on the map" +
+    (declared.size ? " · " + inCov + " inside this clinician's TB ZIPs (green ring)" : "") + ".");
+}
+
 function toggleMapLayer(key) {
   mapLayers[key] = !mapLayers[key];
   applyMapLayerVisibility();
@@ -5733,6 +5853,7 @@ function initTerritoryMap() {
     zoom: 9
   });
   tpMap.addControl(new mapboxgl.NavigationControl(), "top-right");
+  tpMap.once("idle", () => { if (liveRefOn) drawLiveReferrals(); });
 
   tpMap.on("load", async () => {
     const bounds = new mapboxgl.LngLatBounds();
