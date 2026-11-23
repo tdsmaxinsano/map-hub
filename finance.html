@@ -15506,6 +15506,7 @@ const RENEW = (() => {
   let insMissing = false;  // migration 97 not run
   let insPanel = {};       // renewal_id -> "upload" | "renew" | "edit" | null
   let insTermsOpen = {};   // renewal_id -> bool
+  let insOldDocsOpen = {}; // renewal_id -> bool (previous-term documents expanded)
   let insFile = null;      // File chosen in an insurance panel
   // 📤 Vendor sends (migration 98)
   let sends = [];          // company_insurance_sends rows, newest first
@@ -15700,10 +15701,20 @@ const RENEW = (() => {
   const SEND_DEFAULT_MSG = "Hello,\n\nAttached is the current Certificate of Insurance for Dependable Care Staffing LLC " +
     "(general & professional liability and workers' compensation).\n\nPlease let us know if you need anything else.\n\nThank you,";
 
+  // A document belongs to an older term when its name carries a YYYY-YYYY range
+  // that isn't the policy's current term (auto-naming puts it there).
+  function isCurrentDoc(pl, d) {
+    const m = String(d.document_name || "").match(/(\d{4})-(\d{4})/);
+    if (!m) return true;
+    return (m[1] + "-" + m[2]) === termYears(pl.effective_date, pl.next_due_date);
+  }
   function coiDocs() {
     const seen = {}, out = [];
     Object.keys(docsByRenewal).forEach(k => docsByRenewal[k].forEach(d => {
-      if (d.doc_type === "coi" && !seen[d.document_path]) { seen[d.document_path] = 1; out.push(d); }
+      const pl = policies.find(x => x.id === d.renewal_id);
+      if (d.doc_type === "coi" && pl && pl.is_active && isCurrentDoc(pl, d) && !seen[d.document_name || d.document_path]) {
+        seen[d.document_name || d.document_path] = 1; out.push(d);
+      }
     }));
     return out.sort((a, b) => String(b.uploaded_at).localeCompare(String(a.uploaded_at)));
   }
@@ -15967,18 +15978,28 @@ const RENEW = (() => {
     const line = (k, v) => v ? "<div style='font-size:11.5px;color:#475569;margin-top:4px'><b style='color:#64748b'>" + k + "</b> " + escR(v) + "</div>" : "";
     h += line("Limits", pl.limits) + line("Agent / broker", pl.producer) + line("Additional insured", pl.additional_insureds) + line("Notes", pl.notes);
 
-    // Documents
-    h += "<div style='margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0'>" +
-      "<div style='font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px'>Documents (" + docs.length + ")</div>" +
-      (docs.length ? docs.map(d =>
-        "<div style='font-size:12px;display:flex;gap:8px;align-items:center;padding:2px 0'>" +
+    // Documents — current term first; older terms (by the years in the name) tucked away
+    const curDocs = docs.filter(d => isCurrentDoc(pl, d));
+    const oldDocs = docs.filter(d => !isCurrentDoc(pl, d));
+    const docRow = (d, current) =>
+        "<div style='font-size:12px;display:flex;gap:8px;align-items:center;padding:2px 0" + (current ? "" : ";opacity:.75") + "'>" +
           "<span style='background:#eef2ff;color:#3730a3;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:8px;white-space:nowrap'>" + escR(DOC_TYPES[d.doc_type] || d.doc_type) + "</span>" +
           "<a href='javascript:void(0)' onclick='RENEW.openDoc(\"" + escR(d.document_path) + "\")' style='color:#2463eb;font-weight:700'>📎 " + escR(d.document_name || "document") + "</a>" +
           "<span style='color:#94a3b8;font-size:11px'>" + fmtDate(d.uploaded_at) + (d.notes ? " · " + escR(d.notes) : "") + "</span>" +
-          (d.doc_type === "coi" && !sendsMissing ? "<a href='javascript:void(0)' onclick='RENEW.insSendOpen(\"" + d.id + "\")' title='Send this certificate to a vendor' style='margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:5px 14px;background:#1e9b58;color:#fff;font-weight:800;text-decoration:none;font-size:12px;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.15);white-space:nowrap'>📤 Send to vendor</a>" : "") +
-          "<a href='javascript:void(0)' onclick='RENEW.insDeleteDoc(\"" + d.id + "\")' title='Delete this document' style='color:#94a3b8;" + (d.doc_type === "coi" && !sendsMissing ? "" : "margin-left:auto;") + "text-decoration:none'>🗑</a>" +
-        "</div>").join("")
-        : "<div style='font-size:11.5px;color:#94a3b8'>No documents yet — upload the certificate of insurance.</div>") +
+          (current && d.doc_type === "coi" && !sendsMissing ? "<a href='javascript:void(0)' onclick='RENEW.insSendOpen(\"" + d.id + "\")' title='Send this certificate to a vendor' style='margin-left:auto;display:inline-flex;align-items:center;gap:5px;padding:5px 14px;background:#1e9b58;color:#fff;font-weight:800;text-decoration:none;font-size:12px;border-radius:999px;box-shadow:0 1px 2px rgba(0,0,0,.15);white-space:nowrap'>📤 Send to vendor</a>" : "") +
+          "<a href='javascript:void(0)' onclick='RENEW.insDeleteDoc(\"" + d.id + "\")' title='Delete this document' style='color:#94a3b8;" + (current && d.doc_type === "coi" && !sendsMissing ? "" : "margin-left:auto;") + "text-decoration:none'>🗑</a>" +
+        "</div>";
+    const curYears = termYears(pl.effective_date, pl.next_due_date);
+    h += "<div style='margin-top:8px;padding-top:8px;border-top:1px dashed #e2e8f0'>" +
+      "<div style='font-size:11px;font-weight:800;color:#64748b;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px'>Documents" +
+        (curYears ? " · " + escR(curYears) : "") + " (" + curDocs.length + ")</div>" +
+      (curDocs.length ? curDocs.map(d => docRow(d, true)).join("")
+        : "<div style='font-size:11.5px;color:#94a3b8'>No documents for this term yet — upload the certificate of insurance.</div>") +
+      (oldDocs.length
+        ? "<div style='margin-top:6px'><a href='javascript:void(0)' onclick='RENEW.insToggleOldDocs(\"" + pl.id + "\")' style='font-size:11.5px;color:#64748b'>" +
+            (insOldDocsOpen[pl.id] ? "▾" : "▸") + " Previous-term documents (" + oldDocs.length + ")</a>" +
+            (insOldDocsOpen[pl.id] ? "<div style='padding-left:12px'>" + oldDocs.map(d => docRow(d, false)).join("") + "</div>" : "") + "</div>"
+        : "") +
       "</div>";
 
     // Inline panels
@@ -15986,6 +16007,11 @@ const RENEW = (() => {
       h += "<div style='margin-top:8px;padding:8px 10px;background:#f8fafc;border-radius:8px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;font-size:12px'>" +
         "<label style='display:flex;flex-direction:column;gap:3px'>Type<select id='ins-up-type-" + pl.id + "' style='" + insIn + "'>" +
           Object.keys(DOC_TYPES).map(k => "<option value='" + k + "'>" + DOC_TYPES[k] + "</option>").join("") + "</select></label>" +
+        "<label style='display:flex;flex-direction:column;gap:3px'>Coverage term<select id='ins-up-term-" + pl.id + "' style='" + insIn + "'>" +
+          [0, 1, 2, 3].map(k => {
+            const e = shiftYears(pl.effective_date || addMonths(String(pl.next_due_date).slice(0, 10), -12), -k), x = shiftYears(pl.next_due_date, -k);
+            return "<option value='" + e + "|" + x + "'>" + termYears(e, x) + (k === 0 ? " (current)" : " (previous)") + "</option>";
+          }).join("") + "</select></label>" +
         "<label style='display:flex;flex-direction:column;gap:3px'>Note<input id='ins-up-note-" + pl.id + "' placeholder='e.g. holder: Northeast Bank' style='" + insIn + ";width:200px'></label>" +
         "<button onclick='RENEW.insPickFile(" + id + ")' id='ins-file-btn-" + pl.id + "' style='padding:6px 10px;background:#fff;border:1px dashed #94a3b8;border-radius:6px;font-size:11.5px;cursor:pointer'>" + (insFile ? "📎 " + escR(insFile.name) : "📎 Choose file…") + "</button>" +
         "<button onclick='RENEW.insUpload(" + id + ")' style='padding:6px 14px;background:#1e9b58;color:#fff;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer'>Upload</button>" +
@@ -16032,6 +16058,11 @@ const RENEW = (() => {
     return h + "</div>";
   }
 
+  function shiftYears(dateStr, n) {
+    const m = String(dateStr || "").match(/^(\d{4})(-\d{2}-\d{2})/);
+    return m ? (Number(m[1]) + n) + m[2] : "";
+  }
+  function insToggleOldDocs(id) { insOldDocsOpen[id] = !insOldDocsOpen[id]; renderInsurance(); }
   function insOpen(id, panel) { insPanel = {}; if (panel) insPanel[id] = panel; insFile = null; renderInsurance(); }
   function insToggleTerms(id) { insTermsOpen[id] = !insTermsOpen[id]; renderInsurance(); }
   function insPickFile(id) {
@@ -16067,6 +16098,8 @@ const RENEW = (() => {
   async function insAddDoc(renewalId, file, docType, note, filingId, eff, exp) {
     if (file.size > 10 * 1024 * 1024) throw new Error("File must be under 10MB");
     const name = autoDocName(renewalId, docType || "other", file, eff, exp);
+    const dup = (docsByRenewal[renewalId] || []).find(d => d.document_name === name && d.doc_type === (docType || "other"));
+    if (dup && !confirm("\"" + name + "\" is already on this policy (uploaded " + fmtDate(dup.uploaded_at) + ").\n\nUpload another copy anyway?")) throw new Error("skipped — already uploaded");
     const path = await uploadDoc(renewalId, file, name);
     const ins = await db.from("company_renewal_documents").insert({
       renewal_id: renewalId, filing_id: filingId || null, doc_type: docType || "other",
@@ -16080,7 +16113,8 @@ const RENEW = (() => {
     if (!insFile) { showToast("Choose a file first"); return; }
     try {
       showToast("Uploading…");
-      await insAddDoc(id, insFile, document.getElementById("ins-up-type-" + id).value, (document.getElementById("ins-up-note-" + id).value || "").trim());
+      const term = ((document.getElementById("ins-up-term-" + id) || {}).value || "|").split("|");
+      await insAddDoc(id, insFile, document.getElementById("ins-up-type-" + id).value, (document.getElementById("ins-up-note-" + id).value || "").trim(), null, term[0] || null, term[1] || null);
       insPanel = {}; insFile = null;
       showToast("📎 Document uploaded");
       await load();
@@ -16297,7 +16331,7 @@ const RENEW = (() => {
   }
 
   return { init, toggleHistory, toggleMark, pickMarkFile, saveFiling, attachDoc, openDoc, addRenewal,
-           insOpen, insToggleTerms, insPickFile,
+           insOpen, insToggleTerms, insToggleOldDocs, insPickFile,
            insUpload: once(insUpload), insRenew: once(insRenew), insSaveEdit: once(insSaveEdit),
            insDeleteDoc: once(insDeleteDoc), insDeleteTerm: once(insDeleteTerm), addPolicy: once(addPolicy),
            insSendOpen, insSendClose, insSendsToggle, insVendorPick, insSendAgain, insSaveContact: once(insSaveContact),
