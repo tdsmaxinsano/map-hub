@@ -1996,6 +1996,14 @@
         </span>
       </div>
 
+      <!-- Insurance paper checks (CalPERS / State of CA warrants, carriers) -->
+      <div class="bank-input-secondary">
+        <button type="button" class="btn-secondary" id="bank-scan-ins-btn">🏥 Scan an insurance check</button>
+        <span class="bank-input-secondary-hint">
+          For carrier / state paper checks (e.g. State of California → CalPERS). Paste the Chase check-image screenshot: it reads the payer, warrant/check #, amount and the Chase <b>post date</b>, routes to <code>Service Income</code>, remembers the QB customer per payer, and <b>replaces</b> the matching Chase deposit row instead of adding a duplicate.
+        </span>
+      </div>
+
       <!-- Tertiary input: Authorize.net settled-transactions CSV -->
       <div class="bank-input-secondary" id="bank-authnet-row">
         <button type="button" class="btn-secondary" id="bank-authnet-btn">💳 Drop Authorize.net CSV</button>
@@ -2218,8 +2226,8 @@
          from layout when not on the QB Tools tab) -->
     <div class="cpr-modal-overlay" id="bank-scan-modal" style="display:none;">
       <div class="cpr-modal-box" style="width:560px;">
-        <div class="cpr-modal-title">📷 Scan a patient check</div>
-        <div class="cpr-modal-sub">
+        <div class="cpr-modal-title" id="bank-scan-title">📷 Scan a patient check</div>
+        <div class="cpr-modal-sub" id="bank-scan-sub">
           Drop a clear photo of the check (JPG / PNG / HEIC) — or just press <b>Ctrl+V</b> to paste a screenshot. Our OCR pulls payer name, amount, check number, date, and memo — you'll get a chance to fix anything wrong before adding it to the batch.
         </div>
 
@@ -2250,7 +2258,7 @@
 
           <div class="bank-scan-grid">
             <label>
-              <span class="bank-scan-lbl">Payer name (Customer)</span>
+              <span class="bank-scan-lbl" id="bank-scan-payer-lbl">Payer name (Customer)</span>
               <input type="text" id="bank-scan-payer" placeholder="e.g. Dennis Nickels" />
             </label>
             <label>
@@ -2258,7 +2266,7 @@
               <input type="number" id="bank-scan-amount" step="0.01" min="0" placeholder="317.34" />
             </label>
             <label>
-              <span class="bank-scan-lbl">Check date</span>
+              <span class="bank-scan-lbl" id="bank-scan-date-lbl">Check date</span>
               <input type="date" id="bank-scan-date" />
             </label>
             <label>
@@ -12615,10 +12623,50 @@ const BANK = (() => {
     "- check_number (string — the check number, typically at top-right, 3-6 digits)\n" +
     "- memo (string or null — anything written on the 'Memo:' or 'For:' line, e.g. 'co-pay STRT10490478')";
 
+  // Insurance mode: carrier / State of California warrants, usually pasted
+  // from Chase's check-image view (which also shows the bank POST date —
+  // that's the date QB's bank feed matches on, not the check date).
+  const INS_CHECK_PROMPT =
+    "This is an insurance or government payment check (or a bank screenshot of one, e.g. Chase's deposited-check view). " +
+    "Return ONLY a JSON object — no markdown fences, no explanation. Use null for anything you can't read with high confidence:\n" +
+    "- payer_name (string — the paying insurer/agency printed on the check, e.g. 'State of California', 'Blue Cross Blue Shield of Illinois'; NOT the bank and NOT the payee)\n" +
+    "- program (string or null — fund / plan / program name if printed, e.g. 'PUBLIC EMPLOYEES HEALTH')\n" +
+    "- amount (number — the numeric dollar amount box, e.g. 72.04)\n" +
+    "- check_date (string YYYY-MM-DD — the date printed on the check)\n" +
+    "- post_date (string YYYY-MM-DD or null — the bank 'Post date' / deposit date shown OUTSIDE the check image, if any)\n" +
+    "- check_number (string — the check or WARRANT number printed on the check, not the MICR account/routing digits)\n" +
+    "- memo (string or null — claim / remittance / reference text on the check, if any)\n" +
+    "Never return bank account or routing numbers.";
+  const INS_MAP_KEY = "dcs_finance_ins_check_payers_v1";   // OCR payer → QB customer
+  function insPayerKey(name, program) {
+    return (String(name || "") + "|" + String(program || "")).toUpperCase().replace(/[^A-Z0-9|]+/g, "");
+  }
+  function insMapLoad() { try { return JSON.parse(localStorage.getItem(INS_MAP_KEY) || "{}") || {}; } catch (e) { return {}; } }
+  function insMapSave(m) { try { localStorage.setItem(INS_MAP_KEY, JSON.stringify(m)); } catch (e) {} }
+  // First-time guesses; a corrected customer name is remembered per payer.
+  function insGuessCustomer(name, program) {
+    const t = (String(name || "") + " " + String(program || "")).toUpperCase();
+    if (/PUBLIC EMPLOYEES|CALPERS/.test(t)) return "CalPERS";
+    if (/BLUE\s*CROSS|BCBS|BLUE\s*SHIELD/.test(t) && /ILLINOIS|\bIL\b/.test(t)) return currentSettings().cust;
+    if (/ANTHEM|ELEVANCE/.test(t)) return currentSettings().anthem;
+    return String(name || "").replace(/\b([A-Z])([A-Z]+)\b/g, (m, a, b) => a + b.toLowerCase()).trim();
+  }
+  let scanMode = "patient";        // "patient" | "insurance"
+  let scanOcrPayer = null;         // raw OCR payer/program (insurance mode memory key)
   let scanImageDataUrl = null;     // base64 data URL of the scanned image
   let scanBusy = false;
 
-  function openScanModal() {
+  function openScanModal(mode) {
+    scanMode = mode === "insurance" ? "insurance" : "patient";
+    scanOcrPayer = null;
+    const ins = scanMode === "insurance";
+    document.getElementById("bank-scan-title").textContent = ins ? "🏥 Scan an insurance check" : "📷 Scan a patient check";
+    document.getElementById("bank-scan-sub").innerHTML = ins
+      ? "Paste (<b>Ctrl+V</b>) the Chase check-image screenshot (include the <b>Post date</b> line) or drop a photo. The deposit date is used for the QB match; if the Chase CSV is loaded, the matching deposit row is <b>replaced</b>, not duplicated."
+      : "Drop a clear photo of the check (JPG / PNG / HEIC) — or just press <b>Ctrl+V</b> to paste a screenshot. Our OCR pulls payer name, amount, check number, date, and memo — you'll get a chance to fix anything wrong before adding it to the batch.";
+    document.getElementById("bank-scan-payer-lbl").textContent = ins ? "QB Customer (insurance payer)" : "Payer name (Customer)";
+    document.getElementById("bank-scan-date-lbl").textContent  = ins ? "Deposit (post) date" : "Check date";
+    document.getElementById("bank-scan-payer").placeholder = ins ? "e.g. CalPERS" : "e.g. Dennis Nickels";
     scanImageDataUrl = null;
     scanBusy = false;
     document.getElementById("bank-scan-step1").style.display = "block";
@@ -12678,7 +12726,7 @@ const BANK = (() => {
         },
         body: JSON.stringify({
           imageBase64: scanImageDataUrl,
-          prompt: CHECK_PROMPT
+          prompt: scanMode === "insurance" ? INS_CHECK_PROMPT : CHECK_PROMPT
         })
       });
       const data = await res.json();
@@ -12695,6 +12743,7 @@ const BANK = (() => {
       // Check the learned-routing memory before falling back to
       // keyword detection. A previously-corrected payer name wins
       // over the static CARRIER_KEYWORDS list.
+      if (scanMode === "insurance") { renderInsuranceForm(parsed || {}); return; }
       let learnedGl = null;
       if (parsed && parsed.payer_name) {
         const lookup = await db.rpc("lookup_payer_routing", { p_payer: parsed.payer_name });
@@ -12826,6 +12875,36 @@ const BANK = (() => {
     refreshAddBtn();
   }
 
+  function renderInsuranceForm(parsed) {
+    const v = (x) => (x == null || x === "Unknown") ? "" : String(x);
+    scanOcrPayer = insPayerKey(parsed.payer_name, parsed.program);
+    const map = insMapLoad()[scanOcrPayer];
+    renderExtractedForm({
+      payer_name:   (map && map.customer) || insGuessCustomer(parsed.payer_name, parsed.program),
+      amount:       parsed.amount,
+      check_date:   v(parsed.post_date) || v(parsed.check_date),
+      check_number: parsed.check_number,
+      memo: [v(parsed.payer_name), v(parsed.program), parsed.check_number ? "warrant/check " + parsed.check_number : "",
+             parsed.check_date ? "dated " + parsed.check_date : "", v(parsed.memo)].filter(Boolean).join(" · ")
+    }, (map && map.gl) || "Service Income");
+    if (!parsed.post_date) showToast("No bank post date found — using the check date. Change it to the Chase deposit date so QB matches.", "error");
+  }
+
+  // Insurance scan → the Chase CSV row for the same deposit (same cents,
+  // within 5 days), so the check replaces it instead of duplicating it.
+  function findDepositRowFor(amount, dateIso) {
+    const cents = Math.round(amount * 100);
+    const t = dateIso ? new Date(dateIso + "T00:00:00").getTime() : null;
+    let best = null, bestGap = Infinity;
+    rows.forEach(r => {
+      if (r.pattern === "check" || r.pattern === "cc" || Math.round(r.amount * 100) !== cents) return;
+      const d = rowDateIso(r);
+      const gap = (t && d) ? Math.abs(new Date(d + "T00:00:00").getTime() - t) / 86400000 : Infinity;
+      if (gap <= 5 && gap < bestGap) { best = r; bestGap = gap; }
+    });
+    return best;
+  }
+
   function refreshAddBtn() {
     const payer  = document.getElementById("bank-scan-payer").value.trim();
     const amount = parseFloat(document.getElementById("bank-scan-amount").value);
@@ -12849,6 +12928,28 @@ const BANK = (() => {
     const dateDisplay = dateIso
       ? `${dateIso.slice(5,7)}/${dateIso.slice(8,10)}/${dateIso.slice(0,4)}`
       : "";
+
+    if (scanMode === "insurance") {
+      const existing = findDepositRowFor(amount, dateIso);
+      const fields = {
+        pattern: "check", customer: payer, gl, pmt: "Check",
+        refNo: checkNo ? "CHK#" + checkNo : "", description: memo, include: true
+      };
+      if (existing) Object.assign(existing, fields);
+      else rows.push(Object.assign({
+        id: "scan-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
+        date: dateDisplay, amount, desc: "Insurance check (scanned)",
+        parsed: { trace: "", indId: "", eed: "", payableTrn: "", carrier: "" }
+      }, fields));
+      if (scanOcrPayer) { const m = insMapLoad(); m[scanOcrPayer] = { customer: payer, gl }; insMapSave(m); }
+      document.getElementById("bank-preview-card").style.display = "block";
+      render();
+      closeScanModal();
+      showToast(existing
+        ? `Labelled the ${existing.date} $${amount.toFixed(2)} Chase deposit as ${payer} (check) → ${gl}.`
+        : `Added insurance check ${payer} $${amount.toFixed(2)} → ${gl}.`);
+      return;
+    }
 
     rows.push({
       id:         "scan-" + Date.now() + "-" + Math.floor(Math.random() * 1000),
@@ -13073,7 +13174,8 @@ const BANK = (() => {
     });
 
     // ── Scan-check modal wiring ───────────────────────────────────
-    document.getElementById("bank-scan-btn").addEventListener("click", openScanModal);
+    document.getElementById("bank-scan-btn").addEventListener("click", () => openScanModal("patient"));
+    document.getElementById("bank-scan-ins-btn").addEventListener("click", () => openScanModal("insurance"));
     document.getElementById("bank-scan-cancel").addEventListener("click", closeScanModal);
     document.getElementById("bank-scan-rescan").addEventListener("click", () => {
       document.getElementById("bank-scan-step1").style.display = "block";
@@ -13095,6 +13197,7 @@ const BANK = (() => {
     // Smart-default GL when user edits payer manually (e.g., they fix an OCR
     // misread that should have triggered carrier detection).
     document.getElementById("bank-scan-payer").addEventListener("blur", (e) => {
+      if (scanMode === "insurance") return;
       const glField = document.getElementById("bank-scan-gl");
       // Only auto-update if user hasn't already chosen a non-default GL.
       if (!glField.value.trim() || /^accounts receivable$/i.test(glField.value.trim())) {
