@@ -3577,7 +3577,7 @@ function cprFinalBannerHtml(p) {
     (f.held_count
       ? '⏸ <b>' + f.held_count + ' visit' + (f.held_count === 1 ? '' : 's') + ' held in TB</b> (' + cprFmtMoney(f.held_pay) + ') — not counted' +
         ((f.held_late || f.held_nonpay) ? ' · ' + [f.held_late ? f.held_late + ' synced late' : '', f.held_nonpay ? f.held_nonpay + ' non-payable' : ''].filter(Boolean).join(', ') : '') +
-        ' · restorable in the audit<br>'
+        ' · restorable in the audit' + cprHeldListHtml(p && p.all_visits_payload)
       : '✓ Nothing held — every Prepare visit was paid<br>') +
     (f.reconciled
       ? '✓ Counted pay matches TB final to the cent'
@@ -3590,8 +3590,47 @@ function cprFinalDetailLine(visits) {
   const held = visits.filter(function(v) { return v.tb_held && v.excluded; });
   const heldPay = held.reduce(function(a, v) { return a + (Number(v.pay) || 0); }, 0);
   return '<div class="cpr-final-banner ok" style="margin-top:10px;">📗 <b>TB final payroll applied</b> · ' + inFinal.length + ' paid visits' +
-    (held.length ? ' · ⏸ ' + held.length + ' held in TB (' + cprFmtMoney(heldPay) + ') — shown greyed, not counted; ↶ Restore stages paying one anyway' : ' · nothing held') +
+    (held.length ? ' · ⏸ ' + held.length + ' held in TB (' + cprFmtMoney(heldPay) + ') — shown greyed, not counted; ↶ Restore stages paying one anyway' + cprHeldListHtml(visits) : ' · nothing held') +
   '</div>';
+}
+// Expandable list of the visits TB held back (not in the final payroll).
+function cprHeldListHtml(visits) {
+  const held = (visits || []).filter(function(v) { return v.tb_held && v.excluded; });
+  if (!held.length) return "<br>";
+  held.sort(function(a, b) {
+    return String(a.clinician).localeCompare(String(b.clinician)) || String(a.date).localeCompare(String(b.date));
+  });
+  const lagOf = function(v) {
+    return (v.date && v.submitted) ? Math.round((Date.parse(v.submitted + "T00:00:00Z") - Date.parse(v.date + "T00:00:00Z")) / 86400000) : null;
+  };
+  const rows = held.map(function(v) {
+    const lag = lagOf(v);
+    const why = [];
+    if (!v.payable) why.push("non-payable");
+    if (lag != null && lag >= 14) why.push("synced late");
+    return '<tr>' +
+      '<td>' + escHtml(cprTitleCase(v.clinician)) + '</td>' +
+      '<td>' + escHtml(cprFmtDate(v.date) || "—") + '</td>' +
+      '<td>' + escHtml(v.type || "") + '</td>' +
+      '<td>' + escHtml(cprTitleCase(v.patient || "")) + '</td>' +
+      '<td>' + escHtml(cprFmtDate(v.submitted) || "—") + '</td>' +
+      '<td style="text-align:right;' + (lag != null && lag >= 30 ? 'color:#b91c1c;font-weight:700;' : '') + '">' + (lag == null ? "—" : lag + "d") + '</td>' +
+      '<td style="text-align:right;">' + cprFmtMoney(Number(v.pay) || 0) + '</td>' +
+      '<td>' + escHtml(why.join(", ") || "unchecked in TB") + '</td>' +
+    '</tr>';
+  }).join("");
+  return '<details style="margin:6px 0 4px;">' +
+    '<summary style="cursor:pointer;font-weight:700;color:#5b21b6;">▸ Show the ' + held.length + ' held visit' + (held.length === 1 ? '' : 's') + '</summary>' +
+    '<div style="max-height:320px;overflow:auto;margin-top:6px;border:1px solid #ddd6fe;border-radius:8px;background:#fff;">' +
+      '<table style="width:100%;border-collapse:collapse;font-size:11.5px;color:#1e293b;">' +
+        '<thead><tr style="background:#f5f3ff;color:#5b21b6;text-align:left;">' +
+          '<th style="padding:5px 8px;">Clinician</th><th style="padding:5px 8px;">Visit</th><th style="padding:5px 8px;">Type</th>' +
+          '<th style="padding:5px 8px;">Patient</th><th style="padding:5px 8px;">Synced</th><th style="padding:5px 8px;text-align:right;">Lag</th>' +
+          '<th style="padding:5px 8px;text-align:right;">Pay</th><th style="padding:5px 8px;">Why</th>' +
+        '</tr></thead><tbody>' +
+        rows.replace(/<td/g, '<td style="padding:4px 8px;border-top:1px solid #f1f5f9;"').replace(/<td style="padding:4px 8px;border-top:1px solid #f1f5f9;" style="/g, '<td style="padding:4px 8px;border-top:1px solid #f1f5f9;') +
+      '</tbody></table>' +
+    '</div></details>';
 }
 
 function cprFmtMoney(n) {
@@ -10204,7 +10243,7 @@ async function handleCprReloadTbFile(file) {
       cprReloadFinal = fin;
       cprReloadTbParsed = null;
       if (stEl) stEl.textContent = "● Final payroll loaded — " + fin.rows.length + " paid visits · " + cprFmtMoney(fin.total);
-      if (pvEl) { pvEl.style.display = "block"; pvEl.innerHTML = cprFinalBannerHtml({ _final: sum }); }
+      if (pvEl) { pvEl.style.display = "block"; pvEl.innerHTML = cprFinalBannerHtml({ _final: sum, all_visits_payload: sim.all_visits_payload }); }
       if (applyBtn) applyBtn.disabled = false;
       return;
     }
