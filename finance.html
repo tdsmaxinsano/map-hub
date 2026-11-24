@@ -694,6 +694,11 @@
   .cpr-dv-badge.edited { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
   .cpr-dv-badge.manual { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
   .cpr-dv-badge.conflict { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .cpr-dv-badge.held { background: #ede9fe; color: #5b21b6; border: 1px solid #c4b5fd; }
+  .cpr-final-banner { margin: 10px 0; padding: 10px 14px; border-radius: 10px; font-size: 12.5px; line-height: 1.55; }
+  .cpr-final-banner.ok   { background: #f0fdf4; border: 1px solid #86efac; color: #14532d; }
+  .cpr-final-banner.bad  { background: #fef2f2; border: 1px solid #fca5a5; color: #7f1d1d; }
+  .cpr-final-banner.hint { background: #f8fafc; border: 1px dashed #cbd5e1; color: #475569; }
   .cpr-dv-note { display: block; font-size: 10.5px; color: #64748b; margin-top: 1px; }
   .cpr-dv-form { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; padding: 8px 10px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; }
   .cpr-dv-form label { display: flex; flex-direction: column; font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: .3px; }
@@ -3117,6 +3122,23 @@ document.addEventListener("DOMContentLoaded", function() {
       if (f) handleCprFile(f);
     });
   }
+  // ② TB final payroll dropzone — handleCprFile auto-detects which TB file it is.
+  const cprFinalDz = document.getElementById("cpr-final-dropzone");
+  if (cprFinalDz) {
+    cprFinalDz.addEventListener("dragover",  function(e) { e.preventDefault(); cprFinalDz.classList.add("is-dragover"); });
+    cprFinalDz.addEventListener("dragleave", function()  { cprFinalDz.classList.remove("is-dragover"); });
+    cprFinalDz.addEventListener("drop", function(e) {
+      e.preventDefault(); cprFinalDz.classList.remove("is-dragover");
+      const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+      if (f) handleCprFile(f);
+    });
+    const cprFinalFi = document.getElementById("cpr-final-file-input");
+    if (cprFinalFi) cprFinalFi.addEventListener("change", function(e) {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = "";
+      if (f) handleCprFile(f);
+    });
+  }
   // Strata Med B dropzone (migration 34) — optional second pay stream.
   // Mirrors the TB dropzone wiring; routes to handleCprMedbFile().
   const cprMedbDz = document.getElementById("cpr-medb-dropzone");
@@ -3309,6 +3331,215 @@ function cprExcelSerialToIso(serial) {
     String(d.getUTCDate()).padStart(2, "0");
 }
 
+// ══════════════════════════════════════════════════════════════════
+// TB FINAL PAYROLL (History of payroll → Payslip ▾ → Activities)
+// TB's Prepare payroll export always contains EVERY visit, even ones the
+// payroll creator unchecked. The History-of-payroll "Activities" export
+// is what TB actually paid. Prepare stays the source for Submitted dates
+// (pay period + sync lag); visits missing from the final are marked
+// ⏸ held (excluded, restorable through the draft flow).
+// ══════════════════════════════════════════════════════════════════
+let cprPreparedRaw   = null;   // Prepare parse before the final was applied
+let cprPreparedFinal = null;   // { rows, total, filename }
+let cprReloadFinal   = null;   // final file dropped in the 🔄 Reload modal
+
+// Excel serial / "YYYY-MM-DD HH:MM" / "M/D/YYYY h:mm AM" → "YYYY-MM-DDTHH:MM"
+function cprAnyDateTime(raw) {
+  if (raw == null || raw === "") return null;
+  if (typeof raw === "number") {
+    if (!(raw > 1 && raw < 80000)) return null;
+    const d = new Date(Math.round((raw - 25569) * 1440) * 60000);
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 16);
+  }
+  const str = String(raw).trim();
+  let m = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if (m) return m[1] + "-" + m[2] + "-" + m[3] + "T" + String(m[4] || "0").padStart(2, "0") + ":" + (m[5] || "00");
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?)?/i);
+  if (m) {
+    let h = Number(m[4] || 0);
+    if (m[6] && /pm/i.test(m[6]) && h < 12) h += 12;
+    if (m[6] && /am/i.test(m[6]) && h === 12) h = 0;
+    const y = m[3].length === 2 ? "20" + m[3] : m[3];
+    return y + "-" + m[1].padStart(2, "0") + "-" + m[2].padStart(2, "0") + "T" + String(h).padStart(2, "0") + ":" + (m[5] || "00");
+  }
+  return null;
+}
+function cprIsFinalHeader(row) {
+  const h = (row || []).map(function(c) { return String(c || "").trim().toLowerCase(); });
+  return h.indexOf("first name") > -1 && h.indexOf("last name") > -1 && h.indexOf("pay") > -1;
+}
+async function cprReadSheetRows(file) {
+  const buf = await file.arrayBuffer();
+  const wb  = XLSX.read(buf, { type: "array", cellDates: false });
+  const ws  = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", blankrows: false, raw: true });
+}
+function cprParseFinalRows(rows, filename) {
+  const h = (rows[0] || []).map(function(c) { return String(c || "").trim().toLowerCase(); });
+  const col = function(name) { return h.indexOf(name); };
+  const C = {
+    first: col("first name"), last: col("last name"), disc: col("discipline"), uid: col("unique id"),
+    date: col("date"), type: col("type"), time: col("time"), patient: col("patient"),
+    agency: col("referral source"), pay: col("pay"), exp: col("expenses")
+  };
+  const get = function(r, i) { return i > -1 ? r[i] : ""; };
+  const out = [];
+  rows.slice(1).forEach(function(r) {
+    if (!r || !r.length) return;
+    const clin = (String(get(r, C.first) || "").trim() + " " + String(get(r, C.last) || "").trim()).trim();
+    const dt = cprAnyDateTime(get(r, C.date));
+    if (!clin || !dt) return;
+    out.push({
+      clinician: clin, discipline: String(get(r, C.disc) || "").trim(), unique_id: String(get(r, C.uid) || "").trim(),
+      dt: dt, date: dt.slice(0, 10), type: String(get(r, C.type) || "").trim(),
+      time_min: Number(get(r, C.time)) || 0, patient: String(get(r, C.patient) || "").trim(),
+      agency: String(get(r, C.agency) || "").trim(),
+      pay: Math.round((Number(get(r, C.pay)) || 0) * 100) / 100,
+      expenses: Math.round((Number(get(r, C.exp)) || 0) * 100) / 100
+    });
+  });
+  return { rows: out, total: Math.round(out.reduce(function(a, x) { return a + x.pay; }, 0) * 100) / 100, filename: filename };
+}
+function cprLoadFinalRows(rows, filename) {
+  const fin = cprParseFinalRows(rows, filename);
+  if (!fin.rows.length) {
+    const st = document.getElementById("cpr-final-status");
+    if (st) st.innerHTML = '<span style="color:#a53935;">⚠ No visit rows found in ' + escHtml(filename) + '.</span>';
+    return;
+  }
+  cprPreparedFinal = fin;
+  if (cprPreparedRaw) {
+    cprReconcileFinal();
+    cprRateMap = cprComputeDerivedRates(cprPrepared);
+    renderCprImportPreview();
+    document.getElementById("cpr-import-error").style.display = "none";
+    document.getElementById("cpr-import-confirm-btn").disabled = false;
+  }
+  cprRenderFinalStatus();
+}
+function cprReconcileFinal() {
+  if (!cprPreparedRaw || !cprPreparedFinal) return;
+  const prep = JSON.parse(JSON.stringify(cprPreparedRaw));
+  prep._final = cprApplyFinalPayroll(prep, cprPreparedFinal);
+  prep.source_filename = cprPreparedRaw.source_filename + " + " + cprPreparedFinal.filename;
+  cprPrepared = prep;
+}
+function cprRenderFinalStatus() {
+  const st = document.getElementById("cpr-final-status");
+  if (!st) return;
+  const f = cprPreparedFinal;
+  if (!f) { st.textContent = "● No final payroll yet — every Prepare-payroll visit will count."; return; }
+  st.innerHTML = '<span style="color:#166534;font-weight:700;">✓ ' + escHtml(f.filename) + ' — ' + f.rows.length + ' paid visits · ' + cprFmtMoney(f.total) + '</span>' +
+    (cprPreparedRaw ? '' : ' <span style="color:#92400e;">· now drop the <b>Prepare payroll</b> file in ① (needed for the pay period + sync dates)</span>');
+}
+
+// Mark the target's visits against TB's final payroll (mutates target —
+// a prepared import or an open run). Untouched visits take the final's
+// pay; visits with accepted draft changes / manual adds are left alone.
+function cprApplyFinalPayroll(target, fin) {
+  const visits = target.all_visits_payload || (target.all_visits_payload = []);
+  const norm = function(x) { return String(x || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim(); };
+  const key = function(clin, when, type, patient) { return cprClinLookupKey(String(clin || "").replace(/\s+/g, " ")) + "|" + when + "|" + norm(type) + "|" + norm(patient); };
+  const tbVisits = visits.filter(function(v) { return !v.is_manual && !v.from_final; });
+  tbVisits.forEach(function(v) { v.in_final = false; });
+  const unmatched = fin.rows.slice();
+  [true, false].forEach(function(useTime) {
+    const pool = Object.create(null);
+    tbVisits.forEach(function(v) {
+      if (v.in_final) return;
+      if (useTime && !v.dt) return;
+      const tbClin = cprDvOrigVal ? cprDvOrigVal(v, "clinician") : v.clinician;
+      const tbDate = cprDvOrigVal ? cprDvOrigVal(v, "date") : v.date;
+      const tbType = cprDvOrigVal ? cprDvOrigVal(v, "type") : v.type;
+      const tbPat  = cprDvOrigVal ? cprDvOrigVal(v, "patient") : v.patient;
+      const k = key(tbClin, useTime ? v.dt : tbDate, tbType, tbPat);
+      (pool[k] = pool[k] || []).push(v);
+    });
+    for (let i = unmatched.length - 1; i >= 0; i--) {
+      const f = unmatched[i];
+      const list = pool[key(f.clinician, useTime ? f.dt : f.date, f.type, f.patient)];
+      if (!list || !list.length) continue;
+      // Prefer the same pay, then the same visit time.
+      let j = list.findIndex(function(v) { return Math.abs((Number(cprDvOrigVal(v, "pay")) || 0) - f.pay) < 0.005; });
+      if (j < 0) j = 0;
+      const v = list.splice(j, 1)[0];
+      v.in_final = true;
+      const touched = !!(v.orig || (v.changes && v.changes.length));
+      if (!touched) {
+        v.pay = f.pay; v.expenses = f.expenses; v.excluded = false;
+      } else if (v.tb_held && v.excluded && !(v.changes || []).some(function(c) { return c.kind === "delete"; })) {
+        v.excluded = false;
+      }
+      v.tb_held = false; v.held_reason = null;
+      unmatched.splice(i, 1);
+    }
+  });
+  let heldCount = 0, heldPay = 0, heldLate = 0, heldNonpay = 0;
+  tbVisits.forEach(function(v) {
+    if (v.in_final) return;
+    const touched = !!(v.orig || (v.changes && v.changes.length));
+    let lag = null;
+    if (v.date && v.submitted) lag = Math.round((Date.parse(v.submitted + "T00:00:00Z") - Date.parse(cprDvOrigVal(v, "date") + "T00:00:00Z")) / 86400000);
+    const why = [];
+    if (!v.payable) { why.push("non-payable"); heldNonpay++; }
+    if (lag != null && lag >= 14) { why.push("synced " + lag + "d late"); heldLate++; }
+    v.tb_held = true;
+    v.held_reason = "Not in TB final payroll — unchecked / held in TB" + (why.length ? " (" + why.join(", ") + ")" : "");
+    if (!touched) v.excluded = true;
+    heldCount++; heldPay += Number(cprDvOrigVal(v, "pay")) || 0;
+  });
+  // Paid in TB but not in the Prepare file — add so the audit = what was paid.
+  const clinByKey = Object.create(null);
+  (target.per_clinician_payload || []).forEach(function(c) { clinByKey[cprClinLookupKey(c.clinician)] = c.clinician; });
+  unmatched.forEach(function(f, i) {
+    visits.push({
+      vid: "f-" + Date.now() + "-" + i, dt: f.dt, date: f.date, submitted: null, type: f.type, time_min: f.time_min,
+      clinician: clinByKey[cprClinLookupKey(f.clinician)] || f.clinician, discipline: f.discipline, unique_id: f.unique_id,
+      patient: f.patient, agency: f.agency, payable: true, pay: f.pay, expenses: f.expenses,
+      excluded: false, is_manual: false, from_final: true, in_final: true
+    });
+  });
+  cprRecomputeRun(target);
+  const counted = visits.filter(function(v) { return !v.excluded && !v.is_manual; })
+    .reduce(function(a, v) { return a + (Number(v.pay) || 0); }, 0);
+  return {
+    filename: fin.filename, final_count: fin.rows.length, final_total: fin.total,
+    matched: fin.rows.length - unmatched.length, final_only: unmatched.length,
+    held_count: heldCount, held_pay: Math.round(heldPay * 100) / 100, held_late: heldLate, held_nonpay: heldNonpay,
+    counted_pay: Math.round(counted * 100) / 100,
+    reconciled: Math.abs(counted - fin.total) < 0.005
+  };
+}
+function cprFinalBannerHtml(p) {
+  const f = p && p._final;
+  if (!f) {
+    return p && p.all_visits_payload
+      ? '<div class="cpr-final-banner hint">📗 Tip: also drop TB <b>History of payroll → Activities</b> (Payroll.xlsx) in ② — visits unchecked in TB are then marked ⏸ held automatically, so you don\'t deselect them again here.</div>'
+      : '';
+  }
+  return '<div class="cpr-final-banner ' + (f.reconciled ? 'ok' : 'bad') + '">' +
+    '<b>📗 TB final payroll:</b> ' + f.final_count + ' paid visits · ' + cprFmtMoney(f.final_total) +
+    ' — matched ' + f.matched + (f.final_only ? ' · <b>' + f.final_only + ' not in Prepare (added as FINAL ONLY)</b>' : '') + '<br>' +
+    (f.held_count
+      ? '⏸ <b>' + f.held_count + ' visit' + (f.held_count === 1 ? '' : 's') + ' held in TB</b> (' + cprFmtMoney(f.held_pay) + ') — not counted' +
+        ((f.held_late || f.held_nonpay) ? ' · ' + [f.held_late ? f.held_late + ' synced late' : '', f.held_nonpay ? f.held_nonpay + ' non-payable' : ''].filter(Boolean).join(', ') : '') +
+        ' · restorable in the audit<br>'
+      : '✓ Nothing held — every Prepare visit was paid<br>') +
+    (f.reconciled
+      ? '✓ Counted pay matches TB final to the cent'
+      : '⚠ Counted pay ' + cprFmtMoney(f.counted_pay) + ' vs TB final ' + cprFmtMoney(f.final_total) + ' — Δ ' + cprFmtMoney(f.counted_pay - f.final_total)) +
+  '</div>';
+}
+function cprFinalDetailLine(visits) {
+  const inFinal = visits.filter(function(v) { return v.in_final || v.from_final; });
+  if (!inFinal.length) return "";
+  const held = visits.filter(function(v) { return v.tb_held && v.excluded; });
+  const heldPay = held.reduce(function(a, v) { return a + (Number(v.pay) || 0); }, 0);
+  return '<div class="cpr-final-banner ok" style="margin-top:10px;">📗 <b>TB final payroll applied</b> · ' + inFinal.length + ' paid visits' +
+    (held.length ? ' · ⏸ ' + held.length + ' held in TB (' + cprFmtMoney(heldPay) + ') — shown greyed, not counted; ↶ Restore stages paying one anyway' : ' · nothing held') +
+  '</div>';
+}
+
 function cprFmtMoney(n) {
   if (n == null || isNaN(n)) return "—";
   return "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -3343,6 +3574,9 @@ function cprTitleCase(s) {
 
 function openCprModal() {
   cprPrepared = null;
+  cprPreparedRaw = null;
+  cprPreparedFinal = null;
+  cprRenderFinalStatus();
   cprPreparedMedb = null;
   cprRateMap = new Map();
   cprRateEdits     = new Map();
@@ -5651,6 +5885,8 @@ async function handleCprFile(file) {
       showCprError("That spreadsheet is empty.");
       return;
     }
+    // TB "History of payroll → Activities" export (final pay) — route it.
+    if (cprIsFinalHeader(rows[0])) { cprLoadFinalRows(rows, file.name); return; }
     // Sanity check column count
     if (!rows[0] || rows[0].length < 14) {
       showCprError("Expected at least 14 columns. Got " + (rows[0] ? rows[0].length : 0) + ". Make sure this is the TB Prepare Payroll export.");
@@ -5734,6 +5970,7 @@ async function handleCprFile(file) {
         // sibling visit. Keep uniqueId in its own field for audit, but
         // never as the row-key.
         vid: "v-" + visitDetail.length,
+        dt: cprAnyDateTime(r[CPR_COL.date]),
         date: dateIso, submitted: submittedIso, type: type, time_min: timeMin,
         clinician: clin, discipline: disc, unique_id: uniqueId,
         patient: patient, agency: agency, payable: isPayable,
@@ -5799,6 +6036,8 @@ async function handleCprFile(file) {
     // Build the per-clinician rate map (memory + fresh derivation).
     // Render the preview once with derivations only, then again after
     // the memory fetch resolves so the UI's "(memory)" tags appear.
+    cprPreparedRaw = JSON.parse(JSON.stringify(cprPrepared));
+    if (cprPreparedFinal) cprReconcileFinal();
     cprRateMap = cprComputeDerivedRates(cprPrepared);
     renderCprImportPreview();
     cprBuildRateMap(cprPrepared).then(function(m) {
@@ -5898,6 +6137,8 @@ function renderCprImportPreview() {
     '<div class="cpr-stat-card"><div class="cpr-stat-label">Clinicians</div><div class="cpr-stat-value">' + p.distinct_clinicians + '</div></div>' +
     '<div class="cpr-stat-card ' + nonpayWarn + '"><div class="cpr-stat-label">Non-payable</div><div class="cpr-stat-value">' + p.nonpayable_visits + '</div></div>' +
   '</div>';
+
+  html += cprFinalBannerHtml(p);
 
   // Strata Med B date-range banner — only render when a Strata PDF was
   // dropped. Compares the PDF's Date Range header against the TB-derived
@@ -6991,6 +7232,8 @@ function cprDvRowHtml(v, isLocked, flagChipsHtml, baseCls) {
   if (d) badge = '<span class="cpr-dv-badge draft" title="Draft — not counted until you review & accept">DRAFT ' +
     ({ edit: "✎", delete: "🗑", restore: "↶", revert: "↶ TB" }[d.kind] || "") + '</span>';
   else if (v.reload_conflict) badge = '<span class="cpr-dv-badge conflict" title="' + escAttr(v.reload_conflict) + '">⚠ TB changed</span>';
+  else if (v.tb_held && v.excluded) badge = '<span class="cpr-dv-badge held" title="' + escAttr(v.held_reason || "Not in TB final payroll") + '">⏸ HELD IN TB</span>';
+  else if (v.from_final) badge = '<span class="cpr-dv-badge conflict" title="In TB final payroll but not in the Prepare payroll file">FINAL ONLY</span>';
   else if (v.is_manual) badge = '<span class="cpr-dv-badge manual" title="' + escAttr(last ? "Added" + (last.by ? " by " + last.by : "") + " — " + (last.reason || "") : "Manually added") + '">＋ MANUAL</span>';
   else if (changed || (v.excluded && last)) badge = '<span class="cpr-dv-badge edited" title="' + escAttr(last ? (last.kind + (last.by ? " by " + last.by : "") + " · " + new Date(last.at).toLocaleString() + " — " + (last.reason || "")) : "Pay edited") + '">✎ CHANGED</span>';
   let cls = baseCls + (d ? " cpr-row-draft" : "") + (d && d.kind === "delete" ? " cpr-row-draft-del" : "") + (changed && !d ? " cpr-row-pay-edited" : "");
@@ -7583,6 +7826,7 @@ function cprRenderDetail() {
   '</div>';
   html += '</div>';
 
+  html += cprFinalDetailLine(visits);
   // ── Auditor flag strip (recomputed from current visits) ─────────
   const tally = cprTallyFlags(visits.filter(function(v) { return !v.excluded; }));
   if (tally.total > 0) {
@@ -9891,6 +10135,27 @@ async function handleCprReloadTbFile(file) {
   }
   if (errEl) errEl.style.display = "none";
   if (stEl) stEl.textContent = "● Reading " + (file.name || "file") + "…";
+  cprReloadFinal = null;
+  // TB final payroll (History of payroll → Activities) → mark held visits on THIS run.
+  try {
+    const sniff = await cprReadSheetRows(file);
+    if (sniff && sniff.length && cprIsFinalHeader(sniff[0])) {
+      const fin = cprParseFinalRows(sniff, file.name);
+      if (!fin.rows.length) { fail("No visit rows found in that payroll file."); return; }
+      const sim = {
+        per_clinician_payload: JSON.parse(JSON.stringify(r.per_clinician_payload || [])),
+        all_visits_payload:    JSON.parse(JSON.stringify(r.all_visits_payload || []))
+      };
+      const sum = cprApplyFinalPayroll(sim, fin);
+      cprReloadFinal = fin;
+      cprReloadTbParsed = null;
+      if (stEl) stEl.textContent = "● Final payroll loaded — " + fin.rows.length + " paid visits · " + cprFmtMoney(fin.total);
+      if (pvEl) { pvEl.style.display = "block"; pvEl.innerHTML = cprFinalBannerHtml({ _final: sum }); }
+      if (applyBtn) applyBtn.disabled = false;
+      return;
+    }
+  } catch (e) { /* fall through to the Prepare parser */ }
+  cprPreparedFinal = null;
   // Reuse the main TB parser — it populates the global cprPrepared (and renders
   // the hidden main-modal preview, which is harmless). Null cprPrepared first so
   // we can detect a parse failure (the parser writes its own error to the hidden
@@ -9929,6 +10194,23 @@ async function handleCprReloadTbFile(file) {
 }
 
 function cprApplyReloadTb() {
+  if (cprReloadFinal) {
+    const rr = cprViewState && cprViewState.run;
+    if (!rr || rr.status !== "open") return;
+    const sum = cprApplyFinalPayroll(rr, cprReloadFinal);
+    cprReloadFinal = null;
+    cprViewState.dirty = true;
+    cprRecompute();
+    cprCloseReloadTb();
+    cprRenderDetail();
+    alert("TB final payroll applied.\n\n" +
+      "✓ " + sum.matched + " of " + sum.final_count + " paid visits matched\n" +
+      "⏸ " + sum.held_count + " visit(s) held in TB (" + cprFmtMoney(sum.held_pay) + ") — not counted\n" +
+      (sum.final_only ? "⚠ " + sum.final_only + " paid visit(s) weren't in this audit — added as FINAL ONLY\n" : "") +
+      (sum.reconciled ? "\n✓ Counted TB pay matches TB final " + cprFmtMoney(sum.final_total) : "\n⚠ Counted TB pay " + cprFmtMoney(sum.counted_pay) + " vs TB final " + cprFmtMoney(sum.final_total) + " — check edited / manual visits") +
+      "\n\nSave Adjustments to keep it.");
+    return;
+  }
   const r = cprViewState && cprViewState.run;
   const p = cprReloadTbParsed;
   if (!r || r.status !== "open" || !p) return;
@@ -17631,8 +17913,18 @@ checkSession();
       <input type="file" id="cpr-file-input" accept=".xlsx" />
     </label>
 
-    <!-- ② Strata Med B dropzone (NEW — optional second pay stream) -->
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:14px 0 4px;">② Med B — Strata EMR export <span style="color:var(--muted);font-weight:600;">(optional)</span></div>
+    <!-- ② TB final payroll (History of payroll → Activities) — what TB actually paid -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:14px 0 4px;">② Final pay — TB History of payroll → Activities <span style="color:#166534;font-weight:700;">(recommended)</span></div>
+    <label class="cpr-dropzone" id="cpr-final-dropzone" for="cpr-final-file-input">
+      <div class="cpr-dz-icon">📗</div>
+      <div><strong>Drop Payroll.xlsx (final) here</strong></div>
+      <div class="cpr-dz-hint">TB → History of payroll → Payslip ▾ → Activities · visits you unchecked in TB are marked ⏸ held automatically</div>
+      <input type="file" id="cpr-final-file-input" accept=".xlsx,.xls" />
+    </label>
+    <div id="cpr-final-status" style="font-size:12px;color:var(--muted);margin:6px 0 0;line-height:1.45;">● No final payroll yet — every Prepare-payroll visit will count.</div>
+
+    <!-- ③ Strata Med B dropzone (optional second pay stream) -->
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:14px 0 4px;">③ Med B — Strata EMR export <span style="color:var(--muted);font-weight:600;">(optional)</span></div>
     <label class="cpr-dropzone" id="cpr-medb-dropzone" for="cpr-medb-file-input">
       <div class="cpr-dz-icon">🩺</div>
       <div><strong>Drop Strata Med B export here</strong></div>
