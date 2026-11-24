@@ -3408,13 +3408,13 @@ function cprLoadFinalRows(rows, filename) {
     return;
   }
   cprPreparedFinal = fin;
-  if (cprPreparedRaw) {
-    cprReconcileFinal();
-    cprRateMap = cprComputeDerivedRates(cprPrepared);
-    renderCprImportPreview();
-    document.getElementById("cpr-import-error").style.display = "none";
-    document.getElementById("cpr-import-confirm-btn").disabled = false;
-  }
+  if (cprPreparedRaw) cprReconcileFinal();
+  else cprPrepared = cprBuildFromFinal(fin);     // final alone is enough
+  cprRateMap = cprComputeDerivedRates(cprPrepared);
+  renderCprImportPreview();
+  cprBuildRateMap(cprPrepared).then(function(m) { cprRateMap = m; renderCprImportPreview(); });
+  document.getElementById("cpr-import-error").style.display = "none";
+  document.getElementById("cpr-import-confirm-btn").disabled = false;
   cprRenderFinalStatus();
 }
 function cprReconcileFinal() {
@@ -3430,7 +3430,7 @@ function cprRenderFinalStatus() {
   const f = cprPreparedFinal;
   if (!f) { st.textContent = "● No final payroll yet — every Prepare-payroll visit will count."; return; }
   st.innerHTML = '<span style="color:#166534;font-weight:700;">✓ ' + escHtml(f.filename) + ' — ' + f.rows.length + ' paid visits · ' + cprFmtMoney(f.total) + '</span>' +
-    (cprPreparedRaw ? '' : ' <span style="color:#92400e;">· now drop the <b>Prepare payroll</b> file in ① (needed for the pay period + sync dates)</span>');
+    (cprPreparedRaw ? '' : ' <span style="color:var(--muted);">· ready to save — optionally add <b>Prepare payroll</b> in ① for sync-lag flags + the held list</span>');
 }
 
 // Mark the target's visits against TB's final payroll (mutates target —
@@ -3510,8 +3510,62 @@ function cprApplyFinalPayroll(target, fin) {
     reconciled: Math.abs(counted - fin.total) < 0.005
   };
 }
+// Final file only (no Prepare): TB's History export has no Submitted
+// column, so the period = the bi-weekly period containing the latest
+// visit date (paid visits are all synced by the period end). ◀ ▶ fixes it.
+function cprBuildFromFinal(fin) {
+  const visits = fin.rows.map(function(f, i) {
+    return {
+      vid: "v-" + i, dt: f.dt, date: f.date, submitted: null, type: f.type, time_min: f.time_min,
+      clinician: f.clinician, discipline: f.discipline, unique_id: f.unique_id,
+      patient: f.patient, agency: f.agency, payable: true, pay: f.pay, expenses: f.expenses,
+      excluded: false, is_manual: false, in_final: true
+    };
+  });
+  const perMap = Object.create(null);
+  visits.forEach(function(v) {
+    if (!perMap[v.clinician]) perMap[v.clinician] = { clinician: v.clinician, discipline: v.discipline, visits: 0, payable: 0, nonpayable: 0, pay_total: 0, expenses_total: 0 };
+  });
+  const maxDate = visits.reduce(function(m, v) { return v.date > m ? v.date : m; }, "");
+  const per = cprPeriodForSubmitted(maxDate) || { period_start: cprPeriodStartFor(maxDate), period_end: cprAddDays(cprPeriodStartFor(maxDate), 13), pay_date: cprAddDays(cprPeriodStartFor(maxDate), 29) };
+  const prep = {
+    period_start: per.period_start, period_end: per.period_end, pay_date: per.pay_date,
+    per_clinician_payload: Object.values(perMap), all_visits_payload: visits,
+    source_filename: fin.filename,
+    _spans_multiple_periods: false, _period_buckets: [], _min_submitted: null, _max_submitted: null
+  };
+  cprRecomputeRun(prep);
+  prep.total_pay = Math.round(prep.total_pay * 100) / 100;
+  prep.total_expenses = Math.round(prep.total_expenses * 100) / 100;
+  prep._final = {
+    filename: fin.filename, final_count: fin.rows.length, final_total: fin.total,
+    matched: fin.rows.length, final_only: 0, held_count: 0, held_pay: 0, held_late: 0, held_nonpay: 0,
+    counted_pay: prep.total_pay, reconciled: Math.abs(prep.total_pay - fin.total) < 0.005,
+    no_prepare: true, latest_visit: maxDate
+  };
+  return prep;
+}
+function cprShiftFinalPeriod(dir) {
+  const p = cprPrepared;
+  if (!p || !p._final || !p._final.no_prepare) return;
+  p.period_start = cprAddDays(p.period_start, 14 * dir);
+  p.period_end   = cprAddDays(p.period_end, 14 * dir);
+  p.pay_date     = cprAddDays(p.pay_date, 14 * dir);
+  renderCprImportPreview();
+}
+
 function cprFinalBannerHtml(p) {
   const f = p && p._final;
+  if (f && f.no_prepare) {
+    return '<div class="cpr-final-banner ok">' +
+      '<b>📗 TB final payroll:</b> ' + f.final_count + ' paid visits · ' + cprFmtMoney(f.final_total) + ' — this is what TB paid, nothing to deselect.<br>' +
+      'Pay period <b>' + cprFmtDate(p.period_start) + ' – ' + cprFmtDate(p.period_end) + '</b> (from the latest visit date, ' + cprFmtDate(f.latest_visit) + ') ' +
+      '<button type="button" class="cpr-btn-mini" onclick="cprShiftFinalPeriod(-1)" title="Previous pay period">◀</button>' +
+      '<button type="button" class="cpr-btn-mini" onclick="cprShiftFinalPeriod(1)" title="Next pay period">▶</button>' +
+      ' — match it to TB\'s History screen.<br>' +
+      '<span style="color:#64748b;">No Submitted dates in this file, so no sync-lag flags or held list — drop Prepare payroll in ① if you want those.</span>' +
+    '</div>';
+  }
   if (!f) {
     return p && p.all_visits_payload
       ? '<div class="cpr-final-banner hint">📗 Tip: also drop TB <b>History of payroll → Activities</b> (Payroll.xlsx) in ② — visits unchecked in TB are then marked ⏸ held automatically, so you don\'t deselect them again here.</div>'
@@ -17905,7 +17959,7 @@ checkSession();
     </div>
 
     <!-- ① TB Prepare-payroll dropzone (existing — Regular Pay stream) -->
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:4px;">① Regular Pay — TB Prepare payroll <span style="color:#a53935;">(required)</span></div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin-bottom:4px;">① TB Prepare payroll <span style="color:var(--muted);font-weight:600;">(optional — adds sync-lag flags + the held-visit list)</span></div>
     <label class="cpr-dropzone" id="cpr-dropzone" for="cpr-file-input">
       <div class="cpr-dz-icon">💵</div>
       <div><strong>Drop Prepare payroll .xlsx here</strong></div>
@@ -17914,7 +17968,7 @@ checkSession();
     </label>
 
     <!-- ② TB final payroll (History of payroll → Activities) — what TB actually paid -->
-    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:14px 0 4px;">② Final pay — TB History of payroll → Activities <span style="color:#166534;font-weight:700;">(recommended)</span></div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);margin:14px 0 4px;">② Final pay — TB History of payroll → Activities <span style="color:#166534;font-weight:700;">(enough on its own)</span></div>
     <label class="cpr-dropzone" id="cpr-final-dropzone" for="cpr-final-file-input">
       <div class="cpr-dz-icon">📗</div>
       <div><strong>Drop Payroll.xlsx (final) here</strong></div>
