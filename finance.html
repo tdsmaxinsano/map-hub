@@ -683,6 +683,34 @@
   /* Redline markup for edited pay */
   .cpr-pay-orig { text-decoration: line-through; color: #94a3b8; font-weight: 500; font-size: 10.5px; }
   .cpr-pay-new  { font-weight: 800; color: #1d4ed8; }
+  /* Draft-changes markup (stage → review side by side → accept) */
+  .cpr-visits-table tr.cpr-row-draft td { background: #fffbeb !important; }
+  .cpr-visits-table tr.cpr-row-draft-del td { color: #b45309; text-decoration: line-through; }
+  .cpr-visits-table tr.cpr-row-draft-del td:first-child,
+  .cpr-visits-table tr.cpr-row-draft-del td:last-child { text-decoration: none; }
+  .cpr-dv-draft-val { font-weight: 800; color: #92400e; background: #fef3c7; border-radius: 4px; padding: 0 4px; }
+  .cpr-dv-badge { display: inline-block; font-size: 9.5px; font-weight: 800; letter-spacing: .3px; border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+  .cpr-dv-badge.draft  { background: #fef3c7; color: #92400e; border: 1px solid #fcd34d; }
+  .cpr-dv-badge.edited { background: #dbeafe; color: #1e40af; border: 1px solid #93c5fd; }
+  .cpr-dv-badge.manual { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+  .cpr-dv-badge.conflict { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+  .cpr-dv-note { display: block; font-size: 10.5px; color: #64748b; margin-top: 1px; }
+  .cpr-dv-form { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: flex-end; padding: 8px 10px; background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px; }
+  .cpr-dv-form label { display: flex; flex-direction: column; font-size: 10px; font-weight: 700; color: #92400e; text-transform: uppercase; letter-spacing: .3px; }
+  .cpr-dv-form input { font-size: 12px; padding: 4px 6px; border: 1px solid #e2e8f0; border-radius: 5px; text-transform: none; }
+  .cpr-dv-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; padding: 10px 14px; border-radius: 10px; background: #fffbeb; border: 1.5px solid #fcd34d; color: #78350f; font-size: 12.5px; }
+  .cpr-dv-review { margin: 0 0 12px; border: 1px solid #fcd34d; border-radius: 10px; overflow: hidden; background: #fff; }
+  .cpr-dv-review table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .cpr-dv-review th { background: #fef3c7; color: #78350f; text-align: left; padding: 6px 8px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; }
+  .cpr-dv-review td { padding: 6px 8px; border-top: 1px solid #f1f5f9; vertical-align: top; }
+  .cpr-dv-review td.orig { background: #fef2f2; }
+  .cpr-dv-review td.prop { background: #f0fdf4; }
+  .cpr-dv-review .o { text-decoration: line-through; color: #94a3b8; }
+  .cpr-dv-review .n { font-weight: 800; color: #166534; }
+  .cpr-dv-tot { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 8px 12px; background: #f8fafc; border-top: 1px solid #e2e8f0; font-size: 12px; }
+  .cpr-dv-log { margin-top: 10px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; font-size: 12px; }
+  .cpr-dv-log table { width: 100%; border-collapse: collapse; }
+  .cpr-dv-log td, .cpr-dv-log th { padding: 5px 8px; border-top: 1px solid #f1f5f9; text-align: left; vertical-align: top; }
   .cpr-visits-table tr.cpr-row-pay-edited:not(.cpr-row-excluded) td { background: #eff6ff; }
   .cpr-visits-table tr.cpr-row-pay-edited td:first-child { box-shadow: inset 3px 0 0 0 #1d4ed8; }
 
@@ -6729,8 +6757,8 @@ async function viewCprRun(runId) {
 // Recompute per-clinician totals + period totals from the in-memory
 // visits + adjustments. Called after any edit; results overwrite the
 // live state in cprViewState.run.
-function cprRecompute() {
-  const r = cprViewState.run;
+function cprRecompute() { cprRecomputeRun(cprViewState.run); }
+function cprRecomputeRun(r) {
   if (!r) return;
   const visits  = r.all_visits_payload || [];
   const perClin = r.per_clinician_payload || [];
@@ -6746,8 +6774,16 @@ function cprRecompute() {
     });
   });
   visits.forEach(function(v) {
-    const c = byClin[v.clinician];
-    if (!c) return;
+    let c = byClin[v.clinician];
+    if (!c) {
+      // A visit moved (or added) to a clinician with no TB rows this period.
+      if (!v.clinician) return;
+      c = byClin[v.clinician] = {
+        clinician: v.clinician, discipline: v.discipline || "",
+        visits: 0, payable: 0, nonpayable: 0, excluded_count: 0, excluded_pay: 0,
+        pay_total: 0, expenses_total: 0, adjustments: []
+      };
+    }
     // Cache the auditor flags ON the visit object so renderers don't have
     // to recompute. Also tally per-clinician flag counts.
     v._flags = cprFlagRow(v);
@@ -6761,7 +6797,7 @@ function cprRecompute() {
     c.pay_total      += Number(v.pay) || 0;
     c.expenses_total += Number(v.expenses) || 0;
     // Track per-visit pay edits so the parent row + subtotal show "N edited"
-    if (v.pay_edited) c.edited_count = (c.edited_count || 0) + 1;
+    if (v.pay_edited || v.orig) c.edited_count = (c.edited_count || 0) + 1;
     if (v._flags.length) {
       c.flag_count = (c.flag_count || 0) + 1;
       // Highest severity wins for the parent-row badge color
@@ -6799,11 +6835,522 @@ function cprComputeOriginalTotals() {
   const visits = r.all_visits_payload || [];
   let pay = 0, visitCt = 0;
   visits.forEach(function(v) {
-    // "Original" = everything as-imported, ignoring excluded flag + adjustments
-    pay += Number(v.pay) || 0;
+    // "Original" = TB rows as-imported (manual adds left out, field edits
+    // read back to their TB value), ignoring excluded flag + adjustments
+    if (v.is_manual) return;
+    pay += Number(cprDvOrigVal(v, "pay")) || 0;
     visitCt++;
   });
   return { pay: pay, visits: visitCt };
+}
+
+// ══════════════════════════════════════════════════════════════════
+// DRAFT CHANGES (markup) — edit / delete / restore / revert / add TB
+// visits as a DRAFT, review them side by side (original vs proposed,
+// per-clinician + period pay before → after), then Accept. Accepted
+// changes write onto the visit (v.orig = TB values on first change,
+// v.changes = internal change log) and survive 🔄 Reload TB file.
+// Internal only — nothing here appears on clinician breakdowns.
+// ══════════════════════════════════════════════════════════════════
+const CPR_DV_FIELDS = [
+  { k: "date",      label: "Date",      fmt: function(x) { return cprFmtDate(x) || "—"; } },
+  { k: "type",      label: "Type",      fmt: function(x) { return x || "—"; } },
+  { k: "time_min",  label: "Time",      fmt: function(x) { return (x == null || x === "") ? "—" : x + " min"; } },
+  { k: "clinician", label: "Clinician", fmt: function(x) { return cprTitleCase(x) || "—"; } },
+  { k: "patient",   label: "Patient",   fmt: function(x) { return cprTitleCase(x) || "—"; } },
+  { k: "agency",    label: "Agency",    fmt: function(x) { return cprTitleCase(x) || "—"; } },
+  { k: "pay",       label: "Pay",       fmt: function(x) { return cprFmtMoney(Number(x) || 0); } },
+  { k: "expenses",  label: "Expenses",  fmt: function(x) { return cprFmtMoney(Number(x) || 0); } },
+  { k: "payable",   label: "Payable",   fmt: function(x) { return x ? "yes" : "no"; } }
+];
+const CPR_DV_KEYS = CPR_DV_FIELDS.map(function(f) { return f.k; });
+function cprDvField(k) { return CPR_DV_FIELDS.find(function(f) { return f.k === k; }); }
+function cprDvSame(a, b) {
+  if ((a == null || a === "") && (b == null || b === "")) return true;
+  if (typeof a === "number" || typeof b === "number") return Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.005;
+  if (typeof a === "boolean" || typeof b === "boolean") return !!a === !!b;
+  return String(a) === String(b);
+}
+// TB value of a field (before any accepted change).
+function cprDvOrigVal(v, k) {
+  if (v.orig && Object.prototype.hasOwnProperty.call(v.orig, k)) return v.orig[k];
+  if (k === "pay" && v.pay_edited && v.original_pay != null) return v.original_pay;
+  return v[k];
+}
+function cprDvPick(v) {
+  const o = {};
+  CPR_DV_KEYS.forEach(function(k) { o[k] = v[k]; });
+  o.excluded = !!v.excluded;
+  return o;
+}
+function cprDvDrafts() { if (!cprViewState.draft) cprViewState.draft = []; return cprViewState.draft; }
+function cprDvDraftFor(vid) { return cprDvDrafts().find(function(d) { return d.vid === vid; }) || null; }
+function cprDvStamp() {
+  return { at: new Date().toISOString(), by: (typeof currentUser !== "undefined" && currentUser && currentUser.email) || null };
+}
+
+// Apply one change to a visit object (mutates). stamp=null → simulation.
+function cprDvApplyToVisit(v, ch, stamp, discFor) {
+  const before = cprDvPick(v);
+  if (ch.kind === "edit") {
+    if (!v.orig) {
+      v.orig = {};
+      CPR_DV_KEYS.forEach(function(k) { v.orig[k] = cprDvOrigVal(v, k); });
+    }
+    Object.keys(ch.after || {}).forEach(function(k) { v[k] = ch.after[k]; });
+    if (ch.after && ch.after.clinician && discFor) v.discipline = discFor(ch.after.clinician) || v.discipline;
+  } else if (ch.kind === "revert") {
+    if (v.orig) Object.keys(v.orig).forEach(function(k) { v[k] = v.orig[k]; });
+    else if (v.pay_edited && v.original_pay != null) v.pay = v.original_pay;
+    v.orig = null;
+    if (discFor) v.discipline = discFor(v.clinician) || v.discipline;
+  } else if (ch.kind === "delete") {
+    v.excluded = true;
+  } else if (ch.kind === "restore") {
+    v.excluded = false;
+  }
+  // Keep the legacy pay-edit flags consistent with the markup state.
+  const op = cprDvOrigVal(v, "pay");
+  v.original_pay = (v.orig && !cprDvSame(op, v.pay)) ? op : null;
+  v.pay_edited = v.original_pay != null;
+  if (v.orig && CPR_DV_KEYS.every(function(k) { return cprDvSame(v.orig[k], v[k]); })) v.orig = null;
+  if (stamp) {
+    v.changes = (v.changes || []).concat([{
+      at: stamp.at, by: stamp.by, kind: ch.kind, reason: ch.reason || "",
+      before: ch.kind === "add" ? null : before, after: cprDvPick(v)
+    }]);
+    if (v.reload_conflict && ch.kind !== "delete") v.reload_conflict = null;
+  }
+  return { before: before, after: cprDvPick(v) };
+}
+function cprDvDiscFinder(run) {
+  return function(name) {
+    const c = (run.per_clinician_payload || []).find(function(x) { return x.clinician === name; });
+    return c ? c.discipline : null;
+  };
+}
+function cprDvApply(run, ch, stamp) {
+  const visits = run.all_visits_payload || (run.all_visits_payload = []);
+  if (ch.kind === "add") {
+    const nv = Object.assign({
+      vid: ch.newVid, submitted: null, unique_id: null, excluded: false, is_manual: true,
+      discipline: cprDvDiscFinder(run)(ch.visit.clinician) || ""
+    }, JSON.parse(JSON.stringify(ch.visit)));
+    if (stamp) nv.changes = [{ at: stamp.at, by: stamp.by, kind: "add", reason: ch.reason || "", before: null, after: cprDvPick(nv) }];
+    visits.push(nv);
+    return;
+  }
+  const v = visits.find(function(x) { return x.vid === ch.vid; });
+  if (v) cprDvApplyToVisit(v, ch, stamp, cprDvDiscFinder(run));
+}
+function cprDvSimulate(changes) {
+  const r = cprViewState.run;
+  const clone = {
+    per_clinician_payload: JSON.parse(JSON.stringify(r.per_clinician_payload || [])),
+    all_visits_payload:    JSON.parse(JSON.stringify(r.all_visits_payload || []))
+  };
+  changes.forEach(function(ch) { cprDvApply(clone, ch, null); });
+  cprRecomputeRun(clone);
+  return clone;
+}
+// Before/after of a single change on one visit (for the review table).
+function cprDvPreview(ch) {
+  const r = cprViewState.run;
+  if (ch.kind === "add") {
+    const after = Object.assign({ excluded: false }, ch.visit);
+    return { before: null, after: after };
+  }
+  const v = (r.all_visits_payload || []).find(function(x) { return x.vid === ch.vid; });
+  if (!v) return null;
+  const sim = JSON.parse(JSON.stringify(v));
+  const ba = cprDvApplyToVisit(sim, ch, null, cprDvDiscFinder(r));
+  return ba;
+}
+function cprDvCountedPay(x) { return x && !x.excluded ? (Number(x.pay) || 0) : 0; }
+
+// ── Rendering ──────────────────────────────────────────────────────
+function cprDvCell(v, sim, k, draftOn) {
+  const f = cprDvField(k);
+  const cur = v[k];
+  if (draftOn && sim && !cprDvSame(sim[k], cur)) {
+    return '<span class="cpr-pay-orig">' + escHtml(f.fmt(cur)) + '</span> <span class="cpr-dv-draft-val">' + escHtml(f.fmt(sim[k])) + '</span>';
+  }
+  const o = cprDvOrigVal(v, k);
+  if (!cprDvSame(o, cur)) {
+    return '<span class="cpr-pay-orig" title="TB value">' + escHtml(f.fmt(o)) + '</span> <span class="cpr-pay-new">' + escHtml(f.fmt(cur)) + '</span>';
+  }
+  return escHtml(f.fmt(cur));
+}
+function cprDvRowHtml(v, isLocked, flagChipsHtml, baseCls) {
+  const d = isLocked ? null : cprDvDraftFor(v.vid);
+  let sim = null;
+  if (d) { sim = JSON.parse(JSON.stringify(v)); cprDvApplyToVisit(sim, d, null, cprDvDiscFinder(cprViewState.run)); }
+  const changed = !!(v.orig || v.pay_edited);
+  const last = v.changes && v.changes.length ? v.changes[v.changes.length - 1] : null;
+  let badge = "";
+  if (d) badge = '<span class="cpr-dv-badge draft" title="Draft — not counted until you review & accept">DRAFT ' +
+    ({ edit: "✎", delete: "🗑", restore: "↶", revert: "↶ TB" }[d.kind] || "") + '</span>';
+  else if (v.reload_conflict) badge = '<span class="cpr-dv-badge conflict" title="' + escAttr(v.reload_conflict) + '">⚠ TB changed</span>';
+  else if (v.is_manual) badge = '<span class="cpr-dv-badge manual" title="' + escAttr(last ? "Added" + (last.by ? " by " + last.by : "") + " — " + (last.reason || "") : "Manually added") + '">＋ MANUAL</span>';
+  else if (changed || (v.excluded && last)) badge = '<span class="cpr-dv-badge edited" title="' + escAttr(last ? (last.kind + (last.by ? " by " + last.by : "") + " · " + new Date(last.at).toLocaleString() + " — " + (last.reason || "")) : "Pay edited") + '">✎ CHANGED</span>';
+  let cls = baseCls + (d ? " cpr-row-draft" : "") + (d && d.kind === "delete" ? " cpr-row-draft-del" : "") + (changed && !d ? " cpr-row-pay-edited" : "");
+  if (d && d.kind === "restore") cls = cls.replace("cpr-row-excluded", "");
+  const moved = (d && sim && !cprDvSame(sim.clinician, v.clinician))
+    ? '<span class="cpr-dv-note">→ moving to <b>' + escHtml(cprTitleCase(sim.clinician)) + '</b></span>'
+    : (!cprDvSame(cprDvOrigVal(v, "clinician"), v.clinician) ? '<span class="cpr-dv-note">moved from ' + escHtml(cprTitleCase(cprDvOrigVal(v, "clinician"))) + '</span>' : '');
+  const expNote = ((d && sim && !cprDvSame(sim.expenses, v.expenses)) || !cprDvSame(cprDvOrigVal(v, "expenses"), v.expenses))
+    ? '<span class="cpr-dv-note">exp ' + cprDvCell(v, sim, "expenses", !!d) + '</span>' : '';
+  const payableNote = ((d && sim && !cprDvSame(sim.payable, v.payable)) || !cprDvSame(cprDvOrigVal(v, "payable"), v.payable))
+    ? '<span class="cpr-dv-note">payable ' + cprDvCell(v, sim, "payable", !!d) + '</span>' : '';
+  let act = "";
+  if (!isLocked) {
+    const vidA = ' data-vid="' + escAttr(v.vid) + '"';
+    if (d) act = '<button type="button" class="cpr-btn-mini" data-action="dv-unstage"' + vidA + ' title="Remove this draft change">✕ Unstage</button>';
+    else {
+      act = '<button type="button" class="cpr-btn-mini" data-action="dv-edit"' + vidA + ' title="Stage a change to this visit">✎ Edit</button>' +
+        (v.excluded
+          ? '<button type="button" class="cpr-btn-mini cpr-btn-restore" data-action="dv-restore"' + vidA + '>↶ Restore</button>'
+          : '<button type="button" class="cpr-btn-mini cpr-btn-exclude" data-action="dv-delete"' + vidA + ' title="Stage removing this visit (stays visible, crossed out)">🗑 Delete</button>') +
+        (changed ? '<button type="button" class="cpr-btn-mini" data-action="dv-revert"' + vidA + ' title="Stage reverting every field to the TB value">↶ TB</button>' : '');
+    }
+  }
+  let html = '<tr class="' + cls + '" data-vid="' + escAttr(v.vid) + '">' +
+    '<td>' + badge + '</td>' +
+    '<td>' + cprDvCell(v, sim, "date", !!d) + '</td>' +
+    '<td>' + cprDvCell(v, sim, "type", !!d) + '</td>' +
+    '<td class="cpr-num">' + cprDvCell(v, sim, "time_min", !!d) + '</td>' +
+    '<td>' + cprDvCell(v, sim, "patient", !!d) + moved + '</td>' +
+    '<td>' + cprDvCell(v, sim, "agency", !!d) + '</td>' +
+    '<td class="cpr-num cpr-pay-cell">' + cprDvCell(v, sim, "pay", !!d) + expNote + payableNote + '</td>' +
+    '<td>' + flagChipsHtml + '</td>' +
+    '<td style="white-space:nowrap;">' + act + '</td>' +
+  '</tr>';
+  if (!isLocked && cprViewState.dvEditVid === v.vid) html += cprDvEditFormRow(v);
+  return html;
+}
+function cprDvInput(id, label, type, val, extra) {
+  return '<label>' + label + '<input id="' + id + '" type="' + type + '" value="' + escAttr(val == null ? "" : val) + '" ' + (extra || "") + ' /></label>';
+}
+function cprDvEditFormRow(v) {
+  return '<tr class="cpr-dv-form-row"><td colspan="9"><div class="cpr-dv-form">' +
+    cprDvInput("cpr-dvf-date", "Date", "date", v.date, "") +
+    cprDvInput("cpr-dvf-type", "Type", "text", v.type, 'style="width:110px"') +
+    cprDvInput("cpr-dvf-time_min", "Time (min)", "number", v.time_min, 'style="width:70px"') +
+    cprDvInput("cpr-dvf-clinician", "Clinician", "text", v.clinician, 'list="cpr-dv-clins" style="width:170px"') +
+    cprDvInput("cpr-dvf-patient", "Patient", "text", v.patient, 'style="width:150px"') +
+    cprDvInput("cpr-dvf-agency", "Agency", "text", v.agency, 'style="width:140px"') +
+    cprDvInput("cpr-dvf-pay", "Pay $", "number", Number(v.pay || 0).toFixed(2), 'step="0.01" style="width:85px"') +
+    cprDvInput("cpr-dvf-expenses", "Expenses $", "number", Number(v.expenses || 0).toFixed(2), 'step="0.01" style="width:85px"') +
+    '<label>Payable<input id="cpr-dvf-payable" type="checkbox"' + (v.payable ? " checked" : "") + ' /></label>' +
+    cprDvInput("cpr-dvf-reason", "Reason (required)", "text", "", 'style="width:220px" placeholder="e.g. wrong date in TB"') +
+    '<button type="button" class="cpr-btn-mini cpr-btn-save" data-action="dv-stage-edit" data-vid="' + escAttr(v.vid) + '">Stage change</button>' +
+    '<button type="button" class="cpr-btn-mini" data-action="dv-cancel">Cancel</button>' +
+    '<span style="font-size:10.5px;color:#92400e;flex-basis:100%;">Pay isn\'t recalculated from Time/Type — set the Pay you want this visit to count for.</span>' +
+  '</div></td></tr>';
+}
+function cprDvAddFormRow(c) {
+  return '<tr class="cpr-dv-form-row"><td colspan="9"><div class="cpr-dv-form">' +
+    '<span style="font-weight:800;color:#92400e;flex-basis:100%;">＋ Add a visit for ' + escHtml(cprTitleCase(c.clinician)) + ' (draft)</span>' +
+    cprDvInput("cpr-dva-date", "Date", "date", "", "") +
+    cprDvInput("cpr-dva-type", "Type", "text", "", 'style="width:110px" placeholder="RV / Eval…"') +
+    cprDvInput("cpr-dva-time_min", "Time (min)", "number", "", 'style="width:70px"') +
+    cprDvInput("cpr-dva-patient", "Patient", "text", "", 'style="width:150px"') +
+    cprDvInput("cpr-dva-agency", "Agency", "text", "", 'style="width:140px"') +
+    cprDvInput("cpr-dva-pay", "Pay $", "number", "", 'step="0.01" style="width:85px"') +
+    cprDvInput("cpr-dva-expenses", "Expenses $", "number", "", 'step="0.01" style="width:85px"') +
+    '<label>Payable<input id="cpr-dva-payable" type="checkbox" checked /></label>' +
+    cprDvInput("cpr-dva-reason", "Reason (required)", "text", "", 'style="width:220px" placeholder="e.g. visit missing from TB sync"') +
+    '<button type="button" class="cpr-btn-mini cpr-btn-save" data-action="dv-stage-add" data-clin="' + escAttr(c.clinician) + '">Stage visit</button>' +
+    '<button type="button" class="cpr-btn-mini" data-action="dv-cancel">Cancel</button>' +
+  '</div></td></tr>';
+}
+function cprDvDraftAddRows(clin) {
+  return cprDvDrafts().filter(function(d) { return d.kind === "add" && d.visit.clinician === clin; }).map(function(d) {
+    const x = d.visit;
+    const dv = function(k) { return '<span class="cpr-dv-draft-val">' + escHtml(cprDvField(k).fmt(x[k])) + '</span>'; };
+    return '<tr class="cpr-row-draft">' +
+      '<td><span class="cpr-dv-badge draft">DRAFT ＋</span></td>' +
+      '<td>' + dv("date") + '</td><td>' + dv("type") + '</td><td class="cpr-num">' + dv("time_min") + '</td>' +
+      '<td>' + dv("patient") + '</td><td>' + dv("agency") + '</td>' +
+      '<td class="cpr-num">' + dv("pay") + (Number(x.expenses) ? '<span class="cpr-dv-note">exp ' + dv("expenses") + '</span>' : '') + '</td>' +
+      '<td><span class="cpr-dv-note">' + escHtml(d.reason) + '</span></td>' +
+      '<td><button type="button" class="cpr-btn-mini" data-action="dv-unstage" data-draft="' + escAttr(d.id) + '">✕ Unstage</button></td>' +
+    '</tr>';
+  }).join("");
+}
+function cprDvKindLabel(k) {
+  return { edit: "✎ Edit", delete: "🗑 Delete", restore: "↶ Restore", revert: "↶ Back to TB", add: "＋ Add", conflict: "⚠ Reload conflict" }[k] || k;
+}
+function cprDvDiffLines(before, after, side) {
+  const keys = CPR_DV_KEYS.filter(function(k) { return !before || !cprDvSame(before[k], after[k]); });
+  const showKeys = before ? keys : ["date", "type", "time_min", "patient", "agency", "pay", "expenses", "payable"];
+  const lines = showKeys.map(function(k) {
+    const f = cprDvField(k);
+    const val = side === "orig" ? (before ? before[k] : null) : after[k];
+    return '<div>' + f.label + ': <span class="' + (side === "orig" ? "o" : "n") + '">' + escHtml(f.fmt(val)) + '</span></div>';
+  });
+  if (before && !!before.excluded !== !!after.excluded) {
+    lines.push('<div>' + (side === "orig"
+      ? '<span class="o">' + (before.excluded ? "excluded" : "counted") + '</span>'
+      : '<span class="n">' + (after.excluded ? "removed (excluded)" : "counted again") + '</span>') + '</div>');
+  }
+  return lines.join("") || '<span style="color:#94a3b8">—</span>';
+}
+function cprDvBarHtml() {
+  const drafts = cprDvDrafts();
+  let html = '<datalist id="cpr-dv-clins">' + (cprViewState.run.per_clinician_payload || []).map(function(c) {
+    return '<option value="' + escAttr(c.clinician) + '">';
+  }).join("") + '</datalist>';
+  if (!drafts.length) return html;
+  const r = cprViewState.run;
+  const sim = cprDvSimulate(drafts);
+  const delta = (sim.total_pay || 0) - (r.total_pay || 0);
+  html += '<div class="cpr-dv-bar">' +
+    '<b>📝 ' + drafts.length + ' draft change' + (drafts.length === 1 ? '' : 's') + '</b>' +
+    '<span>Δ pay <b style="color:' + (delta < 0 ? '#a53935' : '#166534') + '">' + (delta > 0 ? '+' : '') + cprFmtMoney(delta) + '</b> — not counted until accepted</span>' +
+    '<span style="flex:1"></span>' +
+    '<button type="button" class="btn-secondary" data-action="dv-review" style="background:#d97706;color:#fff;border-color:#d97706;font-weight:800;">' +
+      (cprViewState.dvReview ? '▾ Hide review' : '👀 Review side by side & accept') + '</button>' +
+    '<button type="button" class="btn-secondary" data-action="dv-discard">Discard draft</button>' +
+  '</div>';
+  if (!cprViewState.dvReview) return html;
+
+  html += '<div class="cpr-dv-review"><table><thead><tr>' +
+    '<th>Change</th><th>Clinician · visit</th><th>Original (TB / current)</th><th>Proposed</th><th style="text-align:right">Δ pay</th><th>Reason</th><th></th>' +
+    '</tr></thead><tbody>';
+  drafts.forEach(function(d) {
+    const pv = cprDvPreview(d);
+    if (!pv) return;
+    const base = pv.before || pv.after;
+    const dp = cprDvCountedPay(pv.after) - cprDvCountedPay(pv.before);
+    html += '<tr>' +
+      '<td style="white-space:nowrap;font-weight:700;">' + cprDvKindLabel(d.kind) + '</td>' +
+      '<td>' + escHtml(cprTitleCase((pv.before || pv.after).clinician)) + '<br><span style="color:#64748b">' +
+        escHtml((cprFmtDate(base.date) || "") + " · " + (base.type || "") + " · " + cprTitleCase(base.patient || "")) + '</span></td>' +
+      '<td class="orig">' + (pv.before ? cprDvDiffLines(pv.before, pv.after, "orig") : '<span style="color:#94a3b8">— (not in TB)</span>') + '</td>' +
+      '<td class="prop">' + cprDvDiffLines(pv.before, pv.after, "prop") + '</td>' +
+      '<td style="text-align:right;font-weight:800;color:' + (dp < 0 ? '#a53935' : dp > 0 ? '#166534' : '#64748b') + '">' + (dp > 0 ? '+' : '') + cprFmtMoney(dp) + '</td>' +
+      '<td style="max-width:200px">' + escHtml(d.reason) + '</td>' +
+      '<td style="white-space:nowrap">' +
+        '<button type="button" class="cpr-btn-mini cpr-btn-save" data-action="dv-accept-one" data-draft="' + escAttr(d.id) + '" title="Accept just this change">✓</button>' +
+        '<button type="button" class="cpr-btn-mini" data-action="dv-unstage" data-draft="' + escAttr(d.id) + '" title="Reject (drop from draft)">✕</button>' +
+      '</td></tr>';
+  });
+  html += '</tbody></table>';
+  // Per-clinician + period before → after
+  const beforeBy = Object.create(null);
+  (r.per_clinician_payload || []).forEach(function(c) { beforeBy[c.clinician] = c; });
+  const afterBy = Object.create(null);
+  (sim.per_clinician_payload || []).forEach(function(c) { afterBy[c.clinician] = c; });
+  const names = Object.keys(Object.assign({}, beforeBy, afterBy)).filter(function(n) {
+    const b = beforeBy[n], a = afterBy[n];
+    return Math.abs(((a && a.pay_total) || 0) - ((b && b.pay_total) || 0)) > 0.004 || ((a && a.visits) || 0) !== ((b && b.visits) || 0);
+  });
+  html += '<div class="cpr-dv-tot">' + names.map(function(n) {
+    const b = beforeBy[n], a = afterBy[n];
+    return '<span><b>' + escHtml(cprTitleCase(n)) + '</b> ' +
+      '<span class="o" style="text-decoration:line-through;color:#94a3b8">' + cprFmtMoney((b && b.pay_total) || 0) + ' · ' + ((b && b.visits) || 0) + ' vis</span> → ' +
+      '<b>' + cprFmtMoney((a && a.pay_total) || 0) + ' · ' + ((a && a.visits) || 0) + ' vis</b></span>';
+  }).join("") +
+    '<span style="flex-basis:100%;font-weight:800;">Period pay: <span style="text-decoration:line-through;color:#94a3b8">' + cprFmtMoney(r.total_pay || 0) + '</span> → ' + cprFmtMoney(sim.total_pay || 0) +
+      ' <span style="color:' + (delta < 0 ? '#a53935' : '#166534') + '">(' + (delta > 0 ? '+' : '') + cprFmtMoney(delta) + ')</span></span>' +
+  '</div>';
+  html += '<div style="display:flex;gap:8px;justify-content:flex-end;padding:10px 12px;border-top:1px solid #fde68a;">' +
+    '<button type="button" class="btn-secondary" data-action="dv-discard">Discard all</button>' +
+    '<button type="button" class="btn-secondary" data-action="dv-accept-all" style="background:#16a34a;color:#fff;border-color:#16a34a;font-weight:800;">✓ Accept all &amp; save</button>' +
+  '</div></div>';
+  return html;
+}
+function cprDvLogHtml() {
+  const r = cprViewState.run;
+  const entries = [];
+  (r.all_visits_payload || []).forEach(function(v) {
+    (v.changes || []).forEach(function(ch) { entries.push({ v: v, ch: ch }); });
+  });
+  if (!entries.length) return "";
+  entries.sort(function(a, b) { return String(b.ch.at).localeCompare(String(a.ch.at)); });
+  const open = !!cprViewState.dvLogOpen;
+  let html = '<div class="cpr-dv-log"><div style="padding:8px 12px;cursor:pointer;font-weight:800;color:#334155;" data-action="dv-log-toggle">' +
+    (open ? '▾' : '▸') + ' 🕘 Change log (' + entries.length + ') <span style="font-weight:600;color:#94a3b8;font-size:11px;">internal only — never on clinician breakdowns</span></div>';
+  if (open) {
+    html += '<table><thead><tr><th>When</th><th>Who</th><th>Change</th><th>Visit</th><th>What changed</th><th>Reason</th></tr></thead><tbody>' +
+      entries.map(function(e) {
+        const ch = e.ch, b = ch.before, a = ch.after || {};
+        const what = b
+          ? CPR_DV_KEYS.filter(function(k) { return !cprDvSame(b[k], a[k]); }).map(function(k) {
+              const f = cprDvField(k);
+              return f.label + ' ' + escHtml(f.fmt(b[k])) + ' → <b>' + escHtml(f.fmt(a[k])) + '</b>';
+            }).concat(!!b.excluded !== !!a.excluded ? [a.excluded ? "removed" : "restored"] : []).join(" · ")
+          : 'added · ' + escHtml(cprFmtMoney(Number(a.pay) || 0));
+        return '<tr><td style="white-space:nowrap">' + escHtml(new Date(ch.at).toLocaleString()) + '</td>' +
+          '<td>' + escHtml(ch.by || "—") + '</td>' +
+          '<td style="white-space:nowrap">' + cprDvKindLabel(ch.kind) + '</td>' +
+          '<td>' + escHtml(cprTitleCase(e.v.clinician) + " · " + (cprFmtDate(e.v.date) || "") + " · " + (e.v.type || "") + " · " + cprTitleCase(e.v.patient || "")) + '</td>' +
+          '<td>' + (what || "—") + '</td><td>' + escHtml(ch.reason || "") + '</td></tr>';
+      }).join("") + '</tbody></table>';
+  }
+  return html + '</div>';
+}
+
+// ── Actions ────────────────────────────────────────────────────────
+function cprDvStage(ch) {
+  const drafts = cprDvDrafts();
+  ch.id = ch.id || ("d-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7));
+  if (ch.vid) cprViewState.draft = drafts.filter(function(d) { return d.vid !== ch.vid; });
+  cprViewState.draft.push(ch);
+  cprViewState.dvEditVid = null;
+  cprViewState.dvAddFor = null;
+  cprRenderDetail();
+}
+function cprDvVal(id) { const el = document.getElementById(id); return el ? el.value : ""; }
+function cprDvClick(t) {
+  const btn = t.closest && t.closest("[data-action^='dv-']");
+  if (!btn) return false;
+  const a = btn.dataset.action;
+  const r = cprViewState.run;
+  if (!r || r.status !== "open") return true;
+  const vid = btn.dataset.vid;
+  const v = vid ? (r.all_visits_payload || []).find(function(x) { return x.vid === vid; }) : null;
+  if (a === "dv-edit") { cprViewState.dvEditVid = vid; cprViewState.dvAddFor = null; cprRenderDetail(); return true; }
+  if (a === "dv-add-open") { cprViewState.dvAddFor = btn.dataset.clin; cprViewState.dvEditVid = null; cprRenderDetail(); return true; }
+  if (a === "dv-cancel") { cprViewState.dvEditVid = null; cprViewState.dvAddFor = null; cprRenderDetail(); return true; }
+  if (a === "dv-log-toggle") { cprViewState.dvLogOpen = !cprViewState.dvLogOpen; cprRenderDetail(); return true; }
+  if (a === "dv-review") { cprViewState.dvReview = !cprViewState.dvReview; cprRenderDetail(); return true; }
+  if (a === "dv-discard") {
+    if (!confirm("Discard all " + cprDvDrafts().length + " draft change(s)? Nothing has been applied yet.")) return true;
+    cprViewState.draft = []; cprViewState.dvReview = false; cprRenderDetail(); return true;
+  }
+  if (a === "dv-unstage") {
+    const id = btn.dataset.draft;
+    cprViewState.draft = cprDvDrafts().filter(function(d) { return id ? d.id !== id : d.vid !== vid; });
+    if (!cprViewState.draft.length) cprViewState.dvReview = false;
+    cprRenderDetail(); return true;
+  }
+  if (a === "dv-delete" || a === "dv-restore" || a === "dv-revert") {
+    if (!v) return true;
+    const what = a === "dv-delete" ? "removing" : a === "dv-restore" ? "restoring" : "reverting to TB values for";
+    const reason = (prompt("Reason for " + what + " this visit (" + (cprFmtDate(v.date) || "") + " " + (v.type || "") + ", " + cprTitleCase(v.patient || "") + "):") || "").trim();
+    if (!reason) return true;
+    cprDvStage({ kind: a.slice(3), vid: vid, reason: reason });
+    return true;
+  }
+  if (a === "dv-stage-edit") {
+    if (!v) return true;
+    const reason = cprDvVal("cpr-dvf-reason").trim();
+    if (!reason) { alert("Add a reason for the change."); return true; }
+    const raw = {
+      date: cprDvVal("cpr-dvf-date") || null,
+      type: cprDvVal("cpr-dvf-type").trim(),
+      time_min: cprDvVal("cpr-dvf-time_min") === "" ? null : Number(cprDvVal("cpr-dvf-time_min")),
+      clinician: cprDvVal("cpr-dvf-clinician").trim(),
+      patient: cprDvVal("cpr-dvf-patient").trim(),
+      agency: cprDvVal("cpr-dvf-agency").trim(),
+      pay: Math.round(Number(cprDvVal("cpr-dvf-pay") || 0) * 100) / 100,
+      expenses: Math.round(Number(cprDvVal("cpr-dvf-expenses") || 0) * 100) / 100,
+      payable: !!(document.getElementById("cpr-dvf-payable") || {}).checked
+    };
+    if (!raw.clinician) { alert("Clinician can't be blank."); return true; }
+    if (!Number.isFinite(raw.pay) || !Number.isFinite(raw.expenses)) { alert("Pay / expenses must be numbers."); return true; }
+    const after = {};
+    Object.keys(raw).forEach(function(k) { if (!cprDvSame(raw[k], v[k])) after[k] = raw[k]; });
+    if (!Object.keys(after).length) { alert("Nothing changed."); return true; }
+    cprDvStage({ kind: "edit", vid: vid, after: after, reason: reason });
+    return true;
+  }
+  if (a === "dv-stage-add") {
+    const reason = cprDvVal("cpr-dva-reason").trim();
+    const pay = Math.round(Number(cprDvVal("cpr-dva-pay") || 0) * 100) / 100;
+    const date = cprDvVal("cpr-dva-date");
+    if (!date) { alert("Visit date required."); return true; }
+    if (!reason) { alert("Add a reason (why TB doesn't have this visit)."); return true; }
+    if (!Number.isFinite(pay)) { alert("Pay must be a number."); return true; }
+    cprDvStage({
+      kind: "add", reason: reason,
+      newVid: "m-" + Date.now() + "-" + Math.random().toString(36).slice(2, 7),
+      visit: {
+        clinician: btn.dataset.clin, date: date,
+        type: cprDvVal("cpr-dva-type").trim(),
+        time_min: cprDvVal("cpr-dva-time_min") === "" ? null : Number(cprDvVal("cpr-dva-time_min")),
+        patient: cprDvVal("cpr-dva-patient").trim(),
+        agency: cprDvVal("cpr-dva-agency").trim(),
+        pay: pay,
+        expenses: Math.round(Number(cprDvVal("cpr-dva-expenses") || 0) * 100) / 100,
+        payable: !!(document.getElementById("cpr-dva-payable") || {}).checked
+      }
+    });
+    return true;
+  }
+  if (a === "dv-accept-one") {
+    const d = cprDvDrafts().find(function(x) { return x.id === btn.dataset.draft; });
+    if (!d) return true;
+    cprDvApply(r, d, cprDvStamp());
+    cprViewState.draft = cprDvDrafts().filter(function(x) { return x !== d; });
+    if (!cprViewState.draft.length) cprViewState.dvReview = false;
+    cprViewState.dirty = true;
+    cprRecompute();
+    cprRenderDetail();
+    return true;
+  }
+  if (a === "dv-accept-all") {
+    const drafts = cprDvDrafts().slice();
+    const stamp = cprDvStamp();
+    drafts.forEach(function(d) { cprDvApply(r, d, stamp); });
+    cprViewState.draft = [];
+    cprViewState.dvReview = false;
+    cprViewState.dirty = true;
+    cprRecompute();
+    cprRenderDetail();
+    cprSaveRun(false);
+    return true;
+  }
+  return true;
+}
+
+// ── 🔄 Reload TB: re-apply accepted changes onto the fresh TB rows ──
+// Match key = the visit's TB values (date · type · clinician · patient ·
+// episode ID). If TB now has different values for a field you changed,
+// or the visit is gone, the change is NOT re-applied — it's reported and
+// the visit gets a ⚠ marker so you can re-stage it.
+function cprDvCarryOnReload(oldVisits, newVisits) {
+  const fp = function(x, useOrig) {
+    const g = function(k) { return useOrig ? cprDvOrigVal(x, k) : x[k]; };
+    return [g("date"), String(g("type") || "").trim().toLowerCase(), cprClinLookupKey(g("clinician") || ""),
+            String(g("patient") || "").trim().toLowerCase(), x.unique_id || ""].join("|");
+  };
+  const byFp = Object.create(null);
+  newVisits.forEach(function(nv) { const k = fp(nv, false); (byFp[k] = byFp[k] || []).push(nv); });
+  const out = { visits: newVisits, reapplied: 0, manual: 0, conflicts: [] };
+  const stamp = cprDvStamp();
+  oldVisits.forEach(function(ov) {
+    if (ov.is_manual) { newVisits.push(ov); out.manual++; return; }
+    const touched = ov.orig || ov.pay_edited || ov.excluded || (ov.changes && ov.changes.length);
+    if (!touched) return;
+    const label = cprTitleCase(cprDvOrigVal(ov, "clinician")) + " " + (cprFmtDate(cprDvOrigVal(ov, "date")) || "") + " " + (cprDvOrigVal(ov, "type") || "");
+    const list = byFp[fp(ov, true)];
+    const nv = list && list.shift();
+    if (!nv) { out.conflicts.push(label + " — visit no longer in the TB file"); return; }
+    const origVals = ov.orig ? ov.orig : (ov.pay_edited && ov.original_pay != null ? { pay: ov.original_pay } : {});
+    const changedInTb = Object.keys(origVals).filter(function(k) { return !cprDvSame(nv[k], origVals[k]); });
+    nv.changes = (ov.changes || []).slice();
+    if (changedInTb.length) {
+      const msg = "TB now has different " + changedInTb.join(", ") + " — your edit was not re-applied";
+      nv.reload_conflict = msg;
+      nv.changes.push({ at: stamp.at, by: stamp.by, kind: "conflict", reason: msg, before: cprDvPick(ov), after: cprDvPick(nv) });
+      out.conflicts.push(label + " — " + msg);
+      return;
+    }
+    if (ov.orig) {
+      nv.orig = Object.assign({}, ov.orig);
+      CPR_DV_KEYS.forEach(function(k) { nv[k] = ov[k]; });
+      nv.discipline = ov.discipline;
+    } else if (ov.pay_edited) {
+      nv.pay = ov.pay;
+    }
+    nv.pay_edited = ov.pay_edited; nv.original_pay = ov.original_pay;
+    nv.excluded = !!ov.excluded;
+    out.reapplied++;
+  });
+  return out;
 }
 
 // ── Per-clinician breakdown (📋 column) ──────────────────────────────
@@ -7130,6 +7677,7 @@ function cprRenderDetail() {
   const headerLabel = (searchTerm
     ? "Per-clinician (" + filteredPerClin.length + " of " + perClin.length + ")"
     : "Per-clinician (" + perClin.length + ") — click a row to expand") + bkdnLabel;
+  if (!isLocked) html += cprDvBarHtml();
   html += '<div class="cpr-clin-search-row">' +
     '<input type="text" id="cpr-clin-search" class="cpr-clin-search-input" placeholder="🔍 Search clinician name…" value="' + searchEsc + '" autocomplete="off" />' +
     (searchTerm ? '<button type="button" class="cpr-btn-mini" data-action="clear-clin-search" title="Clear">✕ Clear</button>' : '') +
@@ -7335,45 +7883,10 @@ function cprRenderDetail() {
             }).join(" ")
           : '';
 
-        // Pay cell — three states:
-        //   1. Currently editing → inline input + ✓/✕ buttons
-        //   2. Edited (committed) → strike-through original + bold new + ↶ revert button
-        //   3. Normal → plain $X.XX + hover-revealed ✎ button
-        let payCellHtml;
-        if (cprViewState.editingVid === v.vid && !isLocked) {
-          // NOTE: no autofocus attribute — autofocus triggers the browser
-          // to scroll the input into view automatically, fighting our scroll
-          // restoration. We focus manually via { preventScroll: true } below.
-          payCellHtml =
-            '<input type="number" step="0.01" class="cpr-pay-edit-input" data-action="save-pay-key" ' +
-              'value="' + escAttr(Number(v.pay).toFixed(2)) + '" />' +
-            '<button type="button" class="cpr-btn-mini cpr-btn-save" data-action="save-pay" title="Save">✓</button>' +
-            '<button type="button" class="cpr-btn-mini" data-action="cancel-pay" title="Cancel">✕</button>';
-        } else if (v.pay_edited && v.original_pay != null) {
-          payCellHtml =
-            '<span class="cpr-pay-orig">' + cprFmtMoney(v.original_pay) + '</span>' +
-            ' <span class="cpr-pay-new">' + cprFmtMoney(v.pay) + '</span>' +
-            (isLocked ? '' : ' <button type="button" class="cpr-btn-mini cpr-btn-restore" data-action="revert-pay" title="Revert to TB original">↶</button>');
-        } else {
-          payCellHtml = cprFmtMoney(v.pay) +
-            (isLocked || v.excluded ? '' : ' <button type="button" class="cpr-btn-edit-pay" data-action="edit-pay" title="Edit pay amount">✎</button>');
-        }
-
-        html += '<tr class="' + exclCls + ' ' + manCls + ' ' + flagCls + ' ' + editCls + '" data-vid="' + escAttr(v.vid) + '">' +
-          '<td>' + (v.is_manual ? '<span class="cpr-badge-adj">+ ADJ</span>' : '') + '</td>' +
-          '<td>' + escHtml(cprFmtDate(v.date) || "—") + '</td>' +
-          '<td>' + escHtml(v.type || "") + '</td>' +
-          '<td class="cpr-num">' + (v.time_min || "—") + '</td>' +
-          '<td>' + escHtml(cprTitleCase(v.patient)) + '</td>' +
-          '<td>' + escHtml(cprTitleCase(v.agency))  + '</td>' +
-          '<td class="cpr-num cpr-pay-cell">' + payCellHtml + '</td>' +
-          '<td>' + flagChipsHtml + '</td>' +
-          '<td>' + (isLocked ? '' : (v.excluded
-            ? '<button type="button" class="cpr-btn-mini cpr-btn-restore" data-action="restore">↶ Restore</button>'
-            : '<button type="button" class="cpr-btn-mini cpr-btn-exclude" data-action="exclude">✕ Exclude</button>'
-          )) + '</td>' +
-        '</tr>';
+        html += cprDvRowHtml(v, isLocked, flagChipsHtml, exclCls + ' ' + manCls + ' ' + flagCls);
       });
+      if (!isLocked) html += cprDvDraftAddRows(c.clinician);
+      if (!isLocked && cprViewState.dvAddFor === c.clinician) html += cprDvAddFormRow(c);
       // Adjustments (9-col layout). Each user-editable field (date, desc,
       // amount) shows as click-to-edit text in normal state and an inline
       // input when cprViewState.editingAdj === "clinKey|adjId|field".
@@ -7453,7 +7966,8 @@ function cprRenderDetail() {
             '<button type="button" class="cpr-btn-mini" data-action="cancel-adj">Cancel</button>' +
           '</div>';
         } else {
-          html += '<button type="button" class="cpr-btn-add-adj" data-action="open-adj" data-cidx="' + idx + '">➕ Add manual adjustment</button>';
+          html += '<button type="button" class="cpr-btn-add-adj" data-action="open-adj" data-cidx="' + idx + '">➕ Add manual adjustment</button>' +
+            ' <button type="button" class="cpr-btn-add-adj" data-action="dv-add-open" data-clin="' + escAttr(c.clinician) + '" title="Stage a visit TB is missing — reviewed side by side before it counts">＋ Add visit</button>';
         }
       }
       html += '</td></tr>'; // /expand-row
@@ -7509,6 +8023,7 @@ function cprRenderDetail() {
   });    // /orderedBuckets.forEach
   html += '</tbody></table></div>';
 
+  html += cprDvLogHtml();
   // ── Footer (Save / Finalize / Reopen) ────────────────────────────
   html += '<div class="cpr-detail-footer">';
   if (isLocked) {
@@ -7520,7 +8035,7 @@ function cprRenderDetail() {
     // Total existing Med B drives the button label (Add vs Update).
     const existingMedb = (r.per_clinician_payload || []).reduce(function(s, c) { return s + (Number(c.medb_total) || 0); }, 0);
     const medbBtnLabel = existingMedb > 0 ? '🩺 Update Strata Med B' : '🩺 Add Strata Med B';
-    html += '<span class="cpr-detail-footer-msg">' + (dirty ? '⚠ Unsaved edits — Save Adjustments to keep, or Finalize to lock' : 'No pending edits') + '</span>' +
+    html += '<span class="cpr-detail-footer-msg">' + ((cprViewState.draft && cprViewState.draft.length) ? '📝 ' + cprViewState.draft.length + ' draft change(s) not accepted yet — review above · ' : '') + (dirty ? '⚠ Unsaved edits — Save Adjustments to keep, or Finalize to lock' : 'No pending edits') + '</span>' +
       '<button type="button" class="btn-secondary" onclick="cprOpenMedbRetro()" title="Drop a Strata PDF to add or refresh Med B for this period — no TB re-upload needed">' + medbBtnLabel + '</button>' +
       '<button type="button" class="btn-secondary" onclick="cprOpenReloadTb()" title="Re-import the TherapyBoss Prepare-payroll export — refreshes pay & visits but keeps Strata Med B and adjustments">🔄 Reload TB file</button>' +
       '<button type="button" class="btn-secondary" onclick="cprSaveRun(false)"' + (dirty ? '' : ' disabled') + '>Save Adjustments</button>' +
@@ -7643,6 +8158,7 @@ function cprWireDetailEvents() {
 
   body.onclick = function(ev) {
     const t = ev.target;
+    if (cprDvClick(t)) return;
     // Clear-search button
     if (t.dataset && t.dataset.action === "clear-clin-search") {
       cprViewState.search = "";
@@ -9465,7 +9981,11 @@ function cprApplyReloadTb() {
   });
 
   r.per_clinician_payload = newPayload;
-  r.all_visits_payload    = p.all_visits_payload || [];
+  const dvCarry = cprDvCarryOnReload(r.all_visits_payload || [], p.all_visits_payload || []);
+  r.all_visits_payload    = dvCarry.visits;
+  cprViewState.draft = [];
+  cprViewState.dvEditVid = null;
+  cprViewState.dvAddFor = null;
   r.source_filename       = p.source_filename;
   if (p.pay_date) r.pay_date = p.pay_date;
 
@@ -9476,6 +9996,16 @@ function cprApplyReloadTb() {
   cprRecompute();
   cprCloseReloadTb();
   cprRenderDetail();
+  if (dvCarry.reapplied || dvCarry.conflicts.length || dvCarry.manual) {
+    alert("TB file reloaded.\n\n" +
+      "✓ " + dvCarry.reapplied + " accepted visit change" + (dvCarry.reapplied === 1 ? "" : "s") + " re-applied\n" +
+      (dvCarry.manual ? "＋ " + dvCarry.manual + " manually added visit" + (dvCarry.manual === 1 ? "" : "s") + " kept\n" : "") +
+      (dvCarry.conflicts.length
+        ? "⚠ " + dvCarry.conflicts.length + " change" + (dvCarry.conflicts.length === 1 ? "" : "s") + " NOT re-applied because TB changed or dropped that visit:\n  • " +
+          dvCarry.conflicts.slice(0, 8).join("\n  • ") + (dvCarry.conflicts.length > 8 ? "\n  • …" : "") +
+          "\n\nThose visits are marked ⚠ — re-stage the edit if it's still needed."
+        : ""));
+  }
 }
 
 // Minimal escAttr fallback for the inline onclick handler (escHtml already handles
