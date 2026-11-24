@@ -3390,6 +3390,7 @@ function cprParseFinalRows(rows, filename) {
     const dt = cprAnyDateTime(get(r, C.date));
     if (!clin || !dt) return;
     out.push({
+      first_name: String(get(r, C.first) || "").trim(), last_name: String(get(r, C.last) || "").trim(),
       clinician: clin, discipline: String(get(r, C.disc) || "").trim(), unique_id: String(get(r, C.uid) || "").trim(),
       dt: dt, date: dt.slice(0, 10), type: String(get(r, C.type) || "").trim(),
       time_min: Number(get(r, C.time)) || 0, patient: String(get(r, C.patient) || "").trim(),
@@ -3471,6 +3472,7 @@ function cprApplyFinalPayroll(target, fin) {
         v.excluded = false;
       }
       v.tb_held = false; v.held_reason = null;
+      v.first_name = f.first_name; v.last_name = f.last_name;
       unmatched.splice(i, 1);
     }
   });
@@ -3495,6 +3497,7 @@ function cprApplyFinalPayroll(target, fin) {
     visits.push({
       vid: "f-" + Date.now() + "-" + i, dt: f.dt, date: f.date, submitted: null, type: f.type, time_min: f.time_min,
       clinician: clinByKey[cprClinLookupKey(f.clinician)] || f.clinician, discipline: f.discipline, unique_id: f.unique_id,
+      first_name: f.first_name, last_name: f.last_name,
       patient: f.patient, agency: f.agency, payable: true, pay: f.pay, expenses: f.expenses,
       excluded: false, is_manual: false, from_final: true, in_final: true
     });
@@ -3518,6 +3521,7 @@ function cprBuildFromFinal(fin) {
     return {
       vid: "v-" + i, dt: f.dt, date: f.date, submitted: null, type: f.type, time_min: f.time_min,
       clinician: f.clinician, discipline: f.discipline, unique_id: f.unique_id,
+      first_name: f.first_name, last_name: f.last_name,
       patient: f.patient, agency: f.agency, payable: true, pay: f.pay, expenses: f.expenses,
       excluded: false, is_manual: false, in_final: true
     };
@@ -6771,6 +6775,117 @@ const CPR_DELIVERIES = [
   { value: "direct_deposit", icon: "🏦", short: "DD",     long: "Direct Deposit" },
   { value: "zelle",          icon: "💸", short: "Zelle",  long: "Zelle" }
 ];
+// ══════════════════════════════════════════════════════════════════
+// 📤 ACCOUNTING SHEET — the per-period XLSX accounting builds QB Bills
+// (then Bill Payments / checks) from. Mirrors the sheet that used to be
+// built by hand: A1 = period label, then First · Last · Discipline ·
+// Activities · Pay · Med B (+ Paid via · Note). Manual adjustments get
+// their own row under the clinician; US direct-pay office staff and a
+// TOTAL row follow. Held / deleted visits are already out of c.visits.
+// ══════════════════════════════════════════════════════════════════
+const CPR_NAME_SUFFIX = /^(jr|sr|ii|iii|iv|v)\.?$/i;
+function cprSplitName(full) {
+  const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return { first: parts[0] || "", last: "" };
+  let lastStart = parts.length - 1;
+  if (CPR_NAME_SUFFIX.test(parts[lastStart]) && lastStart > 1) lastStart--;
+  return { first: parts.slice(0, lastStart).join(" "), last: parts.slice(lastStart).join(" ") };
+}
+function cprAcctPeriodLabel(r) {
+  const md = function(iso) { return Number(iso.slice(5, 7)) + "-" + Number(iso.slice(8, 10)); };
+  return md(r.period_start) + " to " + md(r.period_end) + "-" + r.period_end.slice(2, 4);
+}
+async function cprDownloadAccountingSheet() {
+  const r = cprViewState && cprViewState.run;
+  if (!r) return;
+  if (typeof ExcelJS === "undefined") { alert("XLSX writer didn't load. Hard-refresh and retry."); return; }
+  const drafts = (cprViewState.draft || []).length;
+  if ((cprViewState.dirty || drafts) &&
+      !confirm("This audit has " + (drafts ? drafts + " unaccepted draft change(s)" : "") + (drafts && cprViewState.dirty ? " and " : "") +
+               (cprViewState.dirty ? "unsaved edits" : "") + ".\n\nThe sheet uses what's on screen now (drafts NOT included). Download anyway?")) return;
+
+  const visits = r.all_visits_payload || [];
+  const nameOf = function(c) {
+    const v = visits.find(function(x) { return x.clinician === c.clinician && x.first_name; });
+    if (v) return { first: v.first_name, last: v.last_name || "" };
+    return cprSplitName(c.clinician);
+  };
+  const viaOf = function(c) {
+    const pair = cprPaymentByName.get(cprClinLookupKey(c.clinician));
+    if (!pair) return "";
+    const d = CPR_DELIVERIES.find(function(x) { return x.value === pair.delivery; });
+    return (d ? d.short : "") + (pair.llc ? " · " + pair.llc : "");
+  };
+
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet("Payroll");
+  ws.columns = [
+    { key: "a", width: 14 }, { key: "b", width: 16 }, { key: "c", width: 9 }, { key: "d", width: 9 },
+    { key: "e", width: 12 }, { key: "f", width: 10 }, { key: "g", width: 16 }, { key: "h", width: 34 }
+  ];
+  const MONEY = '"$"#,##0.00_);[Red]\\("$"#,##0.00\\)';
+  const head = ws.addRow([cprAcctPeriodLabel(r), "Last name", "Discipline", "Activities", "Pay", "Med B", "Paid via", "Note"]);
+  head.font = { bold: true };
+  const addRow = function(vals, bold) {
+    const row = ws.addRow(vals);
+    row.getCell(5).numFmt = MONEY;
+    row.getCell(6).numFmt = MONEY;
+    if (bold) row.font = { bold: true };
+    return row;
+  };
+
+  const blank = function(x) { return (x == null || x === 0) ? null : x; };
+  const list = (r.per_clinician_payload || []).filter(function(c) {
+    return (c.visits || 0) > 0 || (Number(c.medb_total) || 0) > 0 || (c.adjustments || []).length;
+  }).map(function(c) { return { c: c, n: nameOf(c) }; })
+    .sort(function(a, b) {
+      return a.n.first.toLowerCase().localeCompare(b.n.first.toLowerCase()) || a.n.last.toLowerCase().localeCompare(b.n.last.toLowerCase());
+    });
+
+  let totVisits = 0, totPay = 0, totMedb = 0;
+  list.forEach(function(it) {
+    const c = it.c;
+    const adjTotal = (c.adjustments || []).reduce(function(a, x) { return a + (Number(x.amount) || 0); }, 0);
+    const visitPay = Math.round(((Number(c.pay_total) || 0) - adjTotal) * 100) / 100;
+    const medb = Number(c.medb_total) || 0;
+    if ((c.visits || 0) > 0 || medb > 0 || Math.abs(visitPay) > 0.004) {
+      addRow([it.n.first, it.n.last, c.discipline || "", blank(c.visits || 0), (c.visits || Math.abs(visitPay) > 0.004) ? visitPay : null,
+              medb > 0 ? Math.round(medb * 100) / 100 : null, viaOf(c), c._medb_only ? "Med B only" : null]);
+    }
+    (c.adjustments || []).forEach(function(a) {
+      addRow([it.n.first, it.n.last, c.discipline || "", null, Math.round((Number(a.amount) || 0) * 100) / 100, null, viaOf(c),
+              (a.description || "Adjustment") + (a.date ? " (" + cprFmtDate(a.date) + ")" : "")]);
+    });
+    totVisits += c.visits || 0;
+    totPay    += Number(c.pay_total) || 0;
+    totMedb   += medb;
+  });
+
+  const office = cprViewState.office;
+  if (office && Array.isArray(office.direct) && office.direct.length) {
+    ws.addRow([]);
+    office.direct.forEach(function(o) {
+      const hourly = o.cat !== "salary_dd";
+      addRow([o.name, null, hourly ? o.hours + " hrs" : "salary", null,
+              (hourly && o.rate <= 0 && o.net <= 0) ? null : o.net, null,
+              hourly ? "QB Bill" : "Salary DD",
+              (o.adj ? "adj " + (o.adj > 0 ? "+" : "") + cprFmtMoney(o.adj) : null)]);
+    });
+  }
+
+  ws.addRow([]);
+  addRow(["TOTAL", null, null, totVisits, Math.round(totPay * 100) / 100, totMedb ? Math.round(totMedb * 100) / 100 : null,
+          null, "Clinician pay incl. adjustments · Med B separate"], true);
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "Payroll " + cprAcctPeriodLabel(r) + ".xlsx";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(function() { URL.revokeObjectURL(a.href); }, 4000);
+}
+
 // Strips a trailing discipline-code suffix (e.g. "Basma Rafael PT" → "basma rafael")
 // so TB-export names line up with clinician_v2.name without the discipline tail.
 function cprClinLookupKey(name) {
@@ -8366,6 +8481,7 @@ function cprRenderDetail() {
   if (isLocked) {
     const stamp = r.audited_at ? new Date(r.audited_at).toLocaleString() : "";
     html += '<span class="cpr-detail-footer-msg">🔒 Finalized ' + escHtml(stamp) + '</span>' +
+      '<button type="button" class="btn-secondary" onclick="cprDownloadAccountingSheet()" title="Accounting sheet — one row per clinician (Activities, Pay, Med B), adjustments as their own rows, office staff, total">📤 Accounting sheet (.xlsx)</button>' +
       '<button type="button" class="btn-secondary" onclick="cprReopenRun()">Reopen for edits</button>';
   } else {
     const dirty = cprViewState.dirty;
@@ -8376,6 +8492,7 @@ function cprRenderDetail() {
       '<button type="button" class="btn-secondary" onclick="cprOpenMedbRetro()" title="Drop a Strata PDF to add or refresh Med B for this period — no TB re-upload needed">' + medbBtnLabel + '</button>' +
       '<button type="button" class="btn-secondary" onclick="cprOpenReloadTb()" title="Re-import the TherapyBoss Prepare-payroll export — refreshes pay & visits but keeps Strata Med B and adjustments">🔄 Reload TB file</button>' +
       '<button type="button" class="btn-secondary" onclick="cprSaveRun(false)"' + (dirty ? '' : ' disabled') + '>Save Adjustments</button>' +
+      '<button type="button" class="btn-secondary" onclick="cprDownloadAccountingSheet()" title="Accounting sheet — one row per clinician (Activities, Pay, Med B), adjustments as their own rows, office staff, total">📤 Accounting sheet (.xlsx)</button>' +
       '<button type="button" class="btn-secondary" style="background:#1E3A5F;color:#fff;border-color:#1E3A5F;" onclick="cprSaveRun(true)">Finalize Audit</button>';
   }
   // Start over — destructive escape hatch, available in any status: wipes this
